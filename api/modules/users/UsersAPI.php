@@ -6,6 +6,7 @@ use App\API\Includes\ValidationHelper;
 use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
+use App\API\Services\UsernameService;
 use Firebase\JWT\JWT;
 use PDO;
 use Exception;
@@ -20,6 +21,7 @@ class UsersAPI extends BaseAPI
     private $userRoleManager;
     private $userPermissionManager;
     private $auditLogger;
+    private ?bool $hasFailedLoginDateColumn = null;
 
     public function __construct()
     {
@@ -267,6 +269,14 @@ class UsersAPI extends BaseAPI
     }
     public function create($data)
     {
+        // Username formation has one owner. Callers provide identity data only;
+        // this service derives a valid, unique username for every creation route.
+        $data['username'] = UsernameService::generate(
+            $this->db,
+            (string) ($data['email'] ?? ''),
+            (string) ($data['first_name'] ?? ''),
+            (string) ($data['last_name'] ?? '')
+        );
         // Normalize incoming payload: accept flattened staff fields (staff_type_id, department_id, etc.)
         // and move them into `staff_info` expected by business logic/validation.
         $staffFieldKeys = [
@@ -549,14 +559,21 @@ class UsersAPI extends BaseAPI
                     }
                 }
                 // Validate required fields
-                if (empty($userData['username']) || empty($userData['email']) || empty($userData['password'])) {
+                if (empty($userData['email']) || empty($userData['password'])) {
                     $failed[] = [
                         'index' => $index,
                         'data' => $userData,
-                        'error' => 'Missing required fields: username, email, password'
+                        'error' => 'Missing required fields: email, password'
                     ];
                     continue;
                 }
+
+                $userData['username'] = UsernameService::generate(
+                    $this->db,
+                    (string) $userData['email'],
+                    (string) ($userData['first_name'] ?? ''),
+                    (string) ($userData['last_name'] ?? '')
+                );
 
                 // Extract role_ids
                 $roleIds = [];
@@ -918,6 +935,9 @@ class UsersAPI extends BaseAPI
         }
 
         // Lookup user by username or email
+        $failureDayColumn = $this->hasDailyFailureColumn()
+            ? 'u.failed_login_date'
+            : 'DATE(u.updated_at)';
         $stmt = $this->db->prepare(
             'SELECT
                 u.id,
@@ -929,6 +949,11 @@ class UsersAPI extends BaseAPI
                 (SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1) AS role_id,
                 u.status,
                 u.force_password_change,
+                CASE
+                    WHEN ' . $failureDayColumn . ' = CURDATE()
+                    THEN COALESCE(u.failed_login_attempts, 0)
+                    ELSE 0
+                END AS failed_login_attempts,
                 u.account_locked_until,
                 CASE
                     WHEN u.account_locked_until IS NOT NULL
@@ -965,12 +990,13 @@ class UsersAPI extends BaseAPI
             );
             return [
                 'success' => false,
-                'error' => 'Account is temporarily locked'
+                'error' => 'Account locked for 15 minutes after too many unsuccessful login attempts. Please wait before trying again or contact a system administrator.'
             ];
         }
 
         // Verify password
         if (!password_verify($password, $user['password'])) {
+            $failedAttempts = (int) ($user['failed_login_attempts'] ?? 0) + 1;
             $this->recordAuthenticationAttempt(
                 $username,
                 (int) $user['id'],
@@ -978,6 +1004,15 @@ class UsersAPI extends BaseAPI
                 'invalid_credentials',
                 true
             );
+
+            // The fifth failed attempt creates the lock. Tell the user in this
+            // response instead of making them submit a sixth time to discover it.
+            if ($failedAttempts >= 5) {
+                return [
+                    'success' => false,
+                    'error' => 'Account locked for 15 minutes after too many unsuccessful login attempts. Please wait before trying again or contact a system administrator.'
+                ];
+            }
             return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
@@ -1102,25 +1137,65 @@ class UsersAPI extends BaseAPI
             }
 
             if ($userId !== null && $incrementFailedAttempts) {
-                $stmt = $this->db->prepare(
-                    'UPDATE users
-                     SET failed_login_attempts =
-                            COALESCE(failed_login_attempts, 0) + 1,
-                         account_locked_until =
+                if ($this->hasDailyFailureColumn()) {
+                    $stmt = $this->db->prepare(
+                        'UPDATE users
+                     SET account_locked_until =
                             CASE
-                                WHEN COALESCE(failed_login_attempts, 0) + 1 >= 5
+                                WHEN (
+                                    CASE
+                                        WHEN failed_login_date = CURDATE()
+                                        THEN COALESCE(failed_login_attempts, 0)
+                                        ELSE 0
+                                    END
+                                ) + 1 >= 5
                                 THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE)
-                                ELSE account_locked_until
+                                ELSE DATE_SUB(NOW(), INTERVAL 1 DAY)
                             END,
+                         failed_login_attempts = (
+                            CASE
+                                WHEN failed_login_date = CURDATE()
+                                THEN COALESCE(failed_login_attempts, 0)
+                                ELSE 0
+                            END
+                         ) + 1,
+                         failed_login_date = CURDATE(),
                          updated_at = NOW()
                      WHERE id = ?'
-                );
+                    );
+                } else {
+                    // Backward-compatible deployment path: updated_at is set by
+                    // every failed attempt and therefore identifies the day to
+                    // which the current counter belongs.
+                    $stmt = $this->db->prepare(
+                        'UPDATE users
+                         SET account_locked_until = CASE
+                                WHEN (
+                                    CASE WHEN DATE(updated_at) = CURDATE()
+                                         THEN COALESCE(failed_login_attempts, 0)
+                                         ELSE 0 END
+                                ) + 1 >= 5
+                                THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+                                ELSE DATE_SUB(NOW(), INTERVAL 1 DAY)
+                             END,
+                             failed_login_attempts = (
+                                CASE WHEN DATE(updated_at) = CURDATE()
+                                     THEN COALESCE(failed_login_attempts, 0)
+                                     ELSE 0 END
+                             ) + 1,
+                             updated_at = NOW()
+                         WHERE id = ?'
+                    );
+                }
                 $stmt->execute([$userId]);
             } elseif ($userId !== null && $markSuccessfulLogin) {
+                $dailyReset = $this->hasDailyFailureColumn()
+                    ? ', failed_login_date = NULL'
+                    : '';
                 $stmt = $this->db->prepare(
                     'UPDATE users
                      SET last_login = NOW(),
-                         failed_login_attempts = 0,
+                         failed_login_attempts = 0' . $dailyReset . ',
                          account_locked_until = DATE_SUB(NOW(), INTERVAL 1 DAY),
                          updated_at = NOW()
                      WHERE id = ?'
@@ -1165,6 +1240,28 @@ class UsersAPI extends BaseAPI
                 $error->getMessage()
             );
         }
+    }
+
+    /**
+     * Allow application code and the additive migration to be deployed in
+     * either order without breaking authentication.
+     */
+    private function hasDailyFailureColumn(): bool
+    {
+        if ($this->hasFailedLoginDateColumn !== null) {
+            return $this->hasFailedLoginDateColumn;
+        }
+
+        try {
+            $stmt = $this->db->query(
+                "SHOW COLUMNS FROM users LIKE 'failed_login_date'"
+            );
+            $this->hasFailedLoginDateColumn = (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (\Throwable $error) {
+            $this->hasFailedLoginDateColumn = false;
+        }
+
+        return $this->hasFailedLoginDateColumn;
     }
 
     public function changePassword($userId, $data)
@@ -1302,7 +1399,7 @@ class UsersAPI extends BaseAPI
             18 => 4,  // Boarding Master → Administration (4)
             33 => 4,  // Security Staff → Administration (4)
             34 => 4,  // Janitor → Administration (4)
-            14 => 4,  // Inventory Manager → Administration (4)
+            14 => 4,  // Uniform Store Manager → Administration (4)
             24 => 6,  // Chaplain → Student & Staff Welfare (6)
             21 => 7,  // Talent Development → Talent Development (7)
         ];
@@ -1358,7 +1455,7 @@ class UsersAPI extends BaseAPI
             32 => 13,  // Kitchen Staff → Cook (13)
             33 => 12,  // Security Staff → Security Guard (12)
             34 => 10,  // Janitor → Cleaner (10)
-            14 => 20,  // Inventory Manager → Secretary (20)
+            14 => 20,  // Uniform Store Manager → Secretary (20)
             21 => 7,   // Talent Development → Activities Coordinator (7)
         ];
 

@@ -475,14 +475,15 @@ class InventoryAPI extends BaseAPI
             );
 
             $healthStmt = $this->db->query(
-                "SELECT stock_status, COUNT(*) AS item_count
+                "SELECT COALESCE(category, 'Uncategorised') AS category,
+                        stock_status, COUNT(*) AS item_count
                  FROM vw_inventory_health
                  WHERE status = 'active'
-                 GROUP BY stock_status
+                 GROUP BY COALESCE(category, 'Uncategorised'), stock_status
                  ORDER BY FIELD(
                     stock_status,
                     'OUT OF STOCK', 'REORDER', 'LOW STOCK', 'ADEQUATE'
-                 )"
+                 ), category"
             );
 
             $lowStockStmt = $this->db->query(

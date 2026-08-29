@@ -392,6 +392,9 @@ const performanceReportsCtrl = (() => {
         try {
             await GradingScale.preload();
             await Promise.all([loadTerms(), loadClasses(), loadSubjects()]);
+            ['reportType', 'examTerm', 'classFilter', 'subjectFilter'].forEach((id) => {
+                document.getElementById(id)?.addEventListener('change', generateReport);
+            });
             await generateReport();
         } catch (error) {
             toast(`Failed to initialise: ${error.message}`, 'danger');

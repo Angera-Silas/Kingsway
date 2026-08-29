@@ -1,8 +1,6 @@
 <?php
 namespace App\API\Includes;
 
-require_once __DIR__ . '/BaseAPI.php';
-
 use App\Config\Database;
 use PDO;
 use Exception;
@@ -104,7 +102,10 @@ class WorkflowHandler extends BaseAPI
             }
 
             $this->workflow_id = $workflow['id'];
-            $this->workflow_config = json_decode($workflow['config_json'], true) ?? [];
+            $configJson = $workflow['config_json'] ?? null;
+            $this->workflow_config = is_string($configJson) && $configJson !== ''
+                ? (json_decode($configJson, true) ?? [])
+                : [];
         } catch (Exception $e) {
             $this->logError($e, 'workflow_load_failed');
             throw $e;

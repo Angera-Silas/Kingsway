@@ -1226,6 +1226,21 @@ class WebsiteManager extends BaseAPI
             $q = $this->db->prepare('SELECT status FROM job_applications WHERE id=? FOR UPDATE');
             $q->execute([$id]); $old = $q->fetchColumn();
             if ($old === false) { $this->db->rollBack(); return $this->errorResponse('Application not found.', 404); }
+            $transitions = [
+                'received' => ['shortlisted', 'rejected'],
+                'shortlisted' => ['interview_scheduled', 'rejected'],
+                'interview_scheduled' => ['rejected'],
+                'interviewed' => ['hired', 'rejected'],
+                'hired' => [],
+                'rejected' => [],
+            ];
+            if ($old !== $status && !in_array($status, $transitions[$old] ?? [], true)) {
+                $this->db->rollBack();
+                return $this->errorResponse(
+                    "Application cannot move from {$old} to {$status}.",
+                    422
+                );
+            }
             if ($old !== $status) {
                 $this->db->prepare('UPDATE job_applications SET status=?, updated_at=NOW() WHERE id=?')->execute([$status, $id]);
                 $this->db->prepare('INSERT INTO job_application_status_history (application_id,from_status,to_status,changed_by,notes) VALUES (?,?,?,?,?)')

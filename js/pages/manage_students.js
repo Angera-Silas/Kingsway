@@ -11,6 +11,8 @@ window.studentsManagementController = window.studentsManagementController || {
     studentTypes: [],
     parents: [],
     pagination: { page: 1, limit: 10, total: 0 },
+    transportRoutes: [],
+    transportStops: [],
   },
   editingId: null,
 
@@ -171,9 +173,38 @@ window.studentsManagementController = window.studentsManagementController || {
 
       // Load existing parents for dropdown
       await this.loadExistingParents();
+      await this.loadTransportOptions();
     } catch (error) {
       console.error("Error loading initial data:", error);
     }
+  },
+
+  loadTransportOptions: async function () {
+    try {
+      const [routesResponse, stopsResponse] = await Promise.all([
+        window.API.transport.getAllRoutes(),
+        window.API.transport.getAllStops(),
+      ]);
+      this.data.transportRoutes = this.unwrapList(routesResponse);
+      this.data.transportStops = this.unwrapList(stopsResponse);
+      const route = document.getElementById("studentTransportRoute");
+      if (route) route.innerHTML = '<option value="">Select route</option>' + this.data.transportRoutes.map(item => `<option value="${item.id}">${this.escapeHtml(item.name || item.route_name)}</option>`).join('');
+      this.updateStudentTransportStops();
+    } catch (error) {
+      console.warn("Could not load transport routes and points:", error);
+    }
+  },
+
+  updateStudentTransportStops: function () {
+    const routeId = Number(document.getElementById("studentTransportRoute")?.value || 0);
+    const stops = this.data.transportStops.filter(item => Number(item.route_id) === routeId && item.status !== "inactive").sort((a, b) => Number(a.sequence) - Number(b.sequence));
+    const options = stops.length ? '<option value="">Select point</option>' + stops.map(item => `<option value="${item.id}">${this.escapeHtml(item.name)}</option>`).join('') : `<option value="">${routeId ? 'No points configured' : 'Select route first'}</option>`;
+    ["studentPickupStop", "studentDropoffStop"].forEach(id => { const select = document.getElementById(id); if (select) select.innerHTML = options; });
+  },
+
+  toggleStudentTransport: function () {
+    const enabled = Boolean(document.getElementById("usesSchoolTransport")?.checked);
+    document.getElementById("studentTransportFields")?.classList.toggle("d-none", !enabled);
   },
 
   loadExistingParents: async function () {
@@ -562,6 +593,7 @@ window.studentsManagementController = window.studentsManagementController || {
     document.getElementById("isNewParent").checked = true;
     this.toggleParentType();
     this.toggleSponsorFields();
+    this.toggleStudentTransport();
 
     // Reset payment fields
     const paymentAmount = document.getElementById("initialPaymentAmount");
@@ -759,6 +791,30 @@ window.studentsManagementController = window.studentsManagementController || {
       return;
     }
 
+    let transportArrangement = null;
+    if (document.getElementById("usesSchoolTransport")?.checked) {
+      transportArrangement = {
+        route_id: Number(document.getElementById("studentTransportRoute").value),
+        pickup_stop_id: Number(document.getElementById("studentPickupStop").value),
+        dropoff_stop_id: Number(document.getElementById("studentDropoffStop").value),
+        period_type: document.getElementById("studentTransportPeriod").value,
+        period_start: document.getElementById("studentTransportStart").value,
+        period_end: document.getElementById("studentTransportEnd").value,
+        amount_due: Number(document.getElementById("studentTransportAmount").value),
+        allocated_school_days: Number(document.getElementById("studentTransportDays").value),
+        source_type: "subscription",
+        notes: document.getElementById("studentTransportNotes").value.trim(),
+      };
+      if (!transportArrangement.route_id || !transportArrangement.pickup_stop_id || !transportArrangement.dropoff_stop_id || !transportArrangement.period_start || !transportArrangement.period_end || transportArrangement.allocated_school_days < 1 || transportArrangement.amount_due < 0) {
+        this.showError("Complete the transport route, both gate points, eligible dates and agreed charge");
+        return;
+      }
+      if (transportArrangement.period_end < transportArrangement.period_start) {
+        this.showError("Transport eligibility end date cannot be before its start date");
+        return;
+      }
+    }
+
     try {
       const id = document.getElementById("studentId").value;
       let response;
@@ -803,6 +859,12 @@ window.studentsManagementController = window.studentsManagementController || {
             photoUploadFailed = true;
           }
         }
+      }
+
+      const savedStudentId = Number(id || response?.data?.id || response?.data?.data?.id || response?.id || 0);
+      if (transportArrangement) {
+        if (!savedStudentId) throw new Error("Student was saved, but its ID was not returned for the transport arrangement");
+        await window.API.transport.enrollStudentForTransport({ ...transportArrangement, student_id: savedStudentId });
       }
 
       if (photoUploadFailed) {
@@ -1637,6 +1699,8 @@ window.studentsManagementController = window.studentsManagementController || {
   },
 
   attachEventListeners: function () {
+    document.getElementById("usesSchoolTransport")?.addEventListener("change", () => this.toggleStudentTransport());
+    document.getElementById("studentTransportRoute")?.addEventListener("change", () => this.updateStudentTransportStops());
     // Photo preview
     document
       .getElementById("studentProfilePic")

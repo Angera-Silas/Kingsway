@@ -79,4 +79,42 @@ class StopManager
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
+
+    public function syncRouteStops(int $routeId, array $stops): array
+    {
+        if ($routeId <= 0) throw new \InvalidArgumentException('route_id is required');
+        $this->db->beginTransaction();
+        try {
+            $kept = [];
+            foreach (array_values($stops) as $index => $stop) {
+                $name = trim((string)($stop['name'] ?? ''));
+                if ($name === '') throw new \InvalidArgumentException('Every pickup/drop-off point requires a name');
+                $values = [$name, $index + 1, $stop['location'] ?? null, $stop['arrival_time'] ?: null, $stop['departure_time'] ?: null];
+                $id = (int)($stop['id'] ?? 0);
+                if ($id > 0) {
+                    $stmt = $this->db->prepare("UPDATE transport_stops SET name=?,sequence=?,location=?,arrival_time=?,departure_time=?,status='active' WHERE id=? AND route_id=?");
+                    $stmt->execute([...$values, $id, $routeId]);
+                    $check = $this->db->prepare('SELECT 1 FROM transport_stops WHERE id=? AND route_id=?');
+                    $check->execute([$id, $routeId]);
+                    if (!$check->fetchColumn()) throw new \InvalidArgumentException('A pickup/drop-off point does not belong to this route');
+                    $kept[] = $id;
+                } else {
+                    $stmt = $this->db->prepare("INSERT INTO transport_stops (route_id,name,sequence,location,arrival_time,departure_time,status) VALUES (?,?,?,?,?,?,'active')");
+                    $stmt->execute([$routeId, ...$values]);
+                    $kept[] = (int)$this->db->lastInsertId();
+                }
+            }
+            if ($kept) {
+                $marks = implode(',', array_fill(0, count($kept), '?'));
+                $this->db->prepare("UPDATE transport_stops SET status='inactive' WHERE route_id=? AND id NOT IN ($marks)")->execute([$routeId, ...$kept]);
+            } else {
+                $this->db->prepare("UPDATE transport_stops SET status='inactive' WHERE route_id=?")->execute([$routeId]);
+            }
+            $this->db->commit();
+            return $this->getStopsForRoute($routeId);
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
+    }
 }

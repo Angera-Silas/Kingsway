@@ -103,11 +103,13 @@ class TransportController extends BaseController
     // ROUTE ENDPOINTS
     public function getTransportRoute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getRoute($id);
         return $this->handleResponse($result);
     }
     public function getAllRoutes($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getAllRoutes();
         return $this->handleResponse($result);
     }
@@ -133,11 +135,13 @@ class TransportController extends BaseController
     // STOP ENDPOINTS
     public function getTransportStop($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getStop($id);
         return $this->handleResponse($result);
     }
     public function getAllStops($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getAllStops();
         return $this->handleResponse($result);
     }
@@ -159,9 +163,16 @@ class TransportController extends BaseController
         $result = $this->api->deleteStop($id);
         return $this->handleResponse($result);
     }
+    public function putRouteStops($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        if (!$id || !isset($data['stops']) || !is_array($data['stops'])) return $this->badRequest('route_id and stops are required');
+        return $this->success($this->api->syncRouteStops((int)$id, $data['stops']), 'Route pickup/drop-off points saved');
+    }
 
     public function getAllVehicles($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         return $this->handleResponse($this->api->getAllVehicles());
     }
     public function postTransportVehicle($id = null, $data = [], $segments = [])
@@ -179,10 +190,17 @@ class TransportController extends BaseController
         if ($guard = $this->guardTransportManage()) return $guard;
         return $this->handleResponse($this->api->deleteVehicle($id));
     }
+    public function putVehicleRoutes($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        if (!$id || !isset($data['route_ids']) || !is_array($data['route_ids'])) return $this->badRequest('vehicle_id and route_ids are required');
+        return $this->success($this->api->syncVehicleRoutes((int)$id, $data['route_ids']), 'Vehicle route allocation saved');
+    }
 
     // VEHICLE ENDPOINTS
     public function getTransportVehicle($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getVehicle($id);
         return $this->handleResponse($result);
     }
@@ -190,11 +208,13 @@ class TransportController extends BaseController
     // DRIVER ENDPOINTS
     public function getTransportDriver($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getDriver($id);
         return $this->handleResponse($result);
     }
     public function getAllDrivers($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getAllDrivers();
         return $this->handleResponse($result);
     }
@@ -215,6 +235,12 @@ class TransportController extends BaseController
         if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->deleteDriver($id);
         return $this->handleResponse($result);
+    }
+    public function putDriverRoutes($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        if (!$id || !isset($data['route_ids']) || !is_array($data['route_ids'])) return $this->badRequest('driver_id and route_ids are required');
+        return $this->success($this->api->syncDriverRoutes((int)$id, $data['route_ids']), 'Driver route schedule saved');
     }
     public function postDriverAssign($id = null, $data = [], $segments = [])
     {
@@ -788,6 +814,7 @@ return $this->serverError('An internal error occurred.');
     /** GET /api/transport/bills?billing_month=&student_id=&route_id=&status= */
     public function getBills($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $filters = [
             'billing_month'  => $_GET['billing_month']  ?? $data['billing_month']  ?? null,
             'student_id'     => $_GET['student_id']     ?? $data['student_id']     ?? null,
@@ -802,6 +829,7 @@ return $this->serverError('An internal error occurred.');
     /** GET /api/transport/bills-summary?billing_month=YYYY-MM-01 */
     public function getBillsSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $billingMonth = $_GET['billing_month'] ?? $data['billing_month'] ?? date('Y-m-01');
         return $this->success($this->billing->getMonthlyBillingSummary($billingMonth));
     }

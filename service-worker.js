@@ -1,5 +1,5 @@
 /** Kingsway service worker: safe static caching only. */
-const CACHE_VERSION = 'v10.2-public-assets';
+const CACHE_VERSION = 'v10.3-offline-route-recovery';
 const STATIC_CACHE = `kingsway-static-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
 const PRECACHE = [

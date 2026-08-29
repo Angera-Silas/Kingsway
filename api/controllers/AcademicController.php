@@ -15,6 +15,8 @@ use App\API\Services\DirectorAnalyticsService;
 use App\API\Services\StaffDomainAccessService;
 use App\API\Services\StaffTeachingAssignmentService;
 use App\API\Services\ReportCardReleaseService;
+use App\API\Services\AcademicContextService;
+use App\API\Modules\academic\AcademicCohortProjectionService;
 use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
@@ -140,12 +142,10 @@ class AcademicController extends BaseController
         $this->teachingAssignments = new StaffTeachingAssignmentService();
 
         // Initialize Academic Context Service
-        require_once __DIR__ . '/../services/AcademicContextService.php';
-        $this->contextService = new \App\API\Services\AcademicContextService();
+        $this->contextService = new AcademicContextService();
 
         // Initialize Cohort Projection Service (Admission Stage 5)
-        require_once __DIR__ . '/../modules/academic/AcademicCohortProjectionService.php';
-        $this->cohortProjectionService = new \App\API\Modules\academic\AcademicCohortProjectionService();
+        $this->cohortProjectionService = new AcademicCohortProjectionService();
         $this->examService = new AcademicExamService($this->api);
         $this->reportService = new AcademicReportService($this->api);
         $this->curriculumService = new AcademicCurriculumService($this->api);

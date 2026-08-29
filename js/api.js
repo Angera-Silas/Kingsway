@@ -1773,6 +1773,39 @@ const ENDPOINT_PERMISSIONS = {
     POST: "transport_create",
     PUT: "transport_update",
   },
+  "/transport/all-routes": "transport_view",
+  "/transport/all-stops": "transport_view",
+  "/transport/all-vehicles": "transport_view",
+  "/transport/all-drivers": "transport_view",
+  "/transport/transport-route": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/transport-stop": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/transport-vehicle": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/transport-driver": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/bills": "transport_view",
+  "/transport/bills-summary": "transport_view",
+  "/transport/route-stops": { GET: "transport_view", PUT: "transport_update" },
+  "/transport/driver-routes": { GET: "transport_view", PUT: "transport_update" },
+  "/transport/vehicle-routes": { GET: "transport_view", PUT: "transport_update" },
 
   // Schedules
   "/schedules/index": "schedules_view",
@@ -2528,6 +2561,9 @@ async function apiCallDirect(
       "/parent-portal/login",
       "/parent-portal/login-otp-request",
       "/parent-portal/login-otp-verify",
+      // Public admissions form; multipart submission is handled by the same
+      // API client without requiring an internal-user JWT.
+      "/public/applications",
     ]);
     isProtectedRequest =
       !authFreeEndpoints.has(normalizedEndpoint) &&
@@ -2576,7 +2612,9 @@ async function apiCallDirect(
       }
     }
 
-    const token = isProtectedRequest ? AuthContext.getToken() : null;
+    // This must remain mutable: a request can begin while the boot-time cookie
+    // refresh is still restoring the in-memory access token.
+    let token = isProtectedRequest ? AuthContext.getToken() : null;
     if (!token && isProtectedRequest) {
       // If a boot refresh is in-flight, wait for it instead of immediately
       // treating a null in-memory token as session expiry. The token may
@@ -2595,6 +2633,10 @@ async function apiCallDirect(
           "Your session is no longer authenticated. Please sign in again.",
         );
       }
+      // Use the token obtained during boot for this original request. Without
+      // this assignment the request was sent without Authorization and caused
+      // an avoidable 401 -> refresh -> retry cycle on every fresh page load.
+      token = retryToken;
     }
 
     // Request options
@@ -3127,8 +3169,10 @@ window.API = {
         try { DataStore?.clearAll?.(); } catch (_) {}
         try { KingswayDB?.clearUserData?.(userId); } catch (_) {}
 
-        // Redirect to login
-        window.location.href = (window.APP_BASE || "") + "/index.php";
+        // Navigation is deliberately owned by the caller (AppShell or
+        // SessionManager). Redirecting here as well caused two simultaneous
+        // index.php navigations and Firefox reported the cancelled first one
+        // as NS_BINDING_ABORTED.
       }
     },
     forgotPassword: async (email) =>
@@ -5190,6 +5234,28 @@ window.API = {
     deleteUniformSale: async (saleId) =>
       apiCall(`/inventory/uniform-sales/${saleId}`, "DELETE"),
 
+    // ====================================
+    // Products Catalog (internal)
+    // ====================================
+
+    // List catalogue products (staff view: excludes archived; status/q filters)
+    getUniformCatalog: async (params = {}) =>
+      apiCall("/inventory/uniform-catalog", "GET", null, params),
+
+    // Create / update a catalogue product (item_id + title required)
+    saveUniformCatalogProduct: async (data) =>
+      apiCall("/inventory/uniform-catalog-products", "POST", data),
+
+    // Upload a product image (multipart FormData: file, product_id, alt_text, is_primary)
+    uploadUniformCatalogImage: async (formData) =>
+      apiCall("/inventory/uniform-catalog-images", "POST", formData, null, {
+        isFile: true,
+      }),
+
+    // Register an internal (staff) catalogue purchase against a learner
+    createUniformCatalogPurchase: async (data) =>
+      apiCall("/inventory/uniform-catalog-purchases", "POST", data),
+
     // Legacy support
     list: async (params = {}) =>
       apiCall("/inventory/items-list", "GET", null, params),
@@ -5547,6 +5613,8 @@ window.API = {
       apiCall(`/transport/transport-stop/${id}`, "PUT", data),
     deleteStop: async (id) =>
       apiCall(`/transport/transport-stop/${id}`, "DELETE"),
+    syncRouteStops: async (routeId, stops) =>
+      apiCall(`/transport/route-stops/${routeId}`, "PUT", { stops }),
 
     // Vehicles
     getVehicle: async (id = null) =>
@@ -5557,6 +5625,8 @@ window.API = {
     createVehicle: async (data) => apiCall("/transport/transport-vehicle", "POST", data),
     updateVehicle: async (id, data) => apiCall(`/transport/transport-vehicle/${id}`, "PUT", data),
     deleteVehicle: async (id) => apiCall(`/transport/transport-vehicle/${id}`, "DELETE"),
+    syncVehicleRoutes: async (vehicleId, routeIds) =>
+      apiCall(`/transport/vehicle-routes/${vehicleId}`, "PUT", { route_ids: routeIds }),
 
     // Drivers
     getDriver: async (id = null) =>
@@ -5571,8 +5641,16 @@ window.API = {
       apiCall(`/transport/transport-driver/${id}`, "PUT", data),
     deleteDriver: async (id) =>
       apiCall(`/transport/transport-driver/${id}`, "DELETE"),
+    syncDriverRoutes: async (driverId, routeIds) =>
+      apiCall(`/transport/driver-routes/${driverId}`, "PUT", { route_ids: routeIds }),
     assignDriver: async (data) =>
       apiCall("/transport/driver-assign", "POST", data),
+
+    // Monthly collections
+    getBills: async (params = {}) =>
+      apiCall("/transport/bills", "GET", null, params),
+    getBillsSummary: async (params = {}) =>
+      apiCall("/transport/bills-summary", "GET", null, params),
 
     // Student assignments
     assignStudent: async (data) =>

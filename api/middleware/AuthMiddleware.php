@@ -143,6 +143,15 @@ class AuthMiddleware
         // Check if current request is to a public endpoint
         foreach ($publicEndpoints as $endpoint) {
             if (strpos($path, $endpoint) !== false) {
+                // Public website content is anonymous only when it is being
+                // read. Mutations must continue through JWT + RBAC even though
+                // they share the same controller/resource URL.
+                if (
+                    str_starts_with($endpoint, 'website/') &&
+                    strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'
+                ) {
+                    continue;
+                }
                 // 'payments/mpesa-result' (the public C2B result webhook) is a
                 // string prefix of 'payments/mpesa-results' (the authenticated
                 // results reader). The plural reader must NOT be exempted.

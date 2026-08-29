@@ -135,25 +135,6 @@ return [
             ]
         ],
 
-        // System Features — orphan features wired to the System Admin sidebar
-        // (assessment_overview, salary_advances, staff_schedule,
-        //  student_timeline, term_transition, year_rollover are school-domain
-        //  features awaiting role-scoped placement; kept reachable here).
-        [
-            'label' => 'System Features',
-            'url' => null,
-            'icon' => 'fas fa-cubes',
-            'subitems' => [
-                ['label' => 'Initialize School', 'url' => 'school_initialization'],
-                ['label' => 'WhatsApp Management', 'url' => 'manage_whatsapp'],
-                ['label' => 'Assessment Overview', 'url' => 'assessment_overview'],
-                ['label' => 'Salary Advances', 'url' => 'salary_advances'],
-                ['label' => 'Staff Schedule', 'url' => 'staff_schedule'],
-                ['label' => 'Student Timeline', 'url' => 'student_timeline'],
-                ['label' => 'Term Transition', 'url' => 'term_transition'],
-                ['label' => 'Year Rollover', 'url' => 'year_rollover'],
-            ]
-        ],
 
         [
             'label' => 'Communications',
@@ -161,19 +142,12 @@ return [
             'icon' => 'fas fa-comments',
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
-                ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'SMS', 'url' => 'manage_sms'],
-                ['label' => 'Email', 'url' => 'manage_email'],
+                ['label' => 'Announcements', 'url' => 'manage_system_announcements'],
+                ['label' => 'SMS', 'url' => 'manage_sms_configurations'],
+                ['label' => 'Email', 'url' => 'manage_email_configurations'],
+                ['label' => 'WhatsApp', 'url' => 'manage_whatsapp_configurations'],
             ]
         ],
-
-        [
-            'label' => 'Website Management',
-            'url' => 'manage_website',
-            'icon' => 'fas fa-globe',
-            'subitems' => null,
-        ],
-        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1569,22 +1543,20 @@ return [
     ],
 
     // =========================================================================
-    // 14 — Inventory Manager (Store Manager)
-    // Stock, requisitions, purchase orders, uniform sales, library
+    // 14 — Uniform Store Manager
+    // Uniform catalogue, stock, sales, purchasing, promotion and tailoring.
     // =========================================================================
     14 => [
         ['label' => 'Dashboard', 'url' => 'store_manager_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
         [
-            'label' => 'Inventory',
+            'label' => 'Uniform Stock',
             'url' => null,
             'icon' => 'fas fa-boxes',
             'subitems' => [
-                ['label' => 'Manage Inventory', 'url' => 'manage_inventory'],
-                ['label' => 'Stock Management', 'url' => 'manage_stock'],
-                ['label' => 'Requisitions', 'url' => 'manage_requisitions'],
-                ['label' => 'Low Stock Alerts', 'url' => 'low_stock_alerts'],
-                ['label' => 'Stock Reports', 'url' => 'stock_reports'],
+                ['label' => 'Product Catalogue', 'url' => 'internal_products_catalog'],
+                ['label' => 'Uniform Stock & Sizes', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Low Stock Uniforms', 'url' => 'manage_uniform_sales'],
             ]
         ],
 
@@ -1611,33 +1583,12 @@ return [
         ],
 
         [
-            'label' => 'Library',
-            'url' => null,
-            'icon' => 'fas fa-book',
-            'subitems' => [
-                ['label' => 'Manage Books', 'url' => 'manage_library'],
-                ['label' => 'Issue / Return', 'url' => 'library_issue_return'],
-                ['label' => 'Overdue Books', 'url' => 'library_overdue'],
-            ]
-        ],
-
-        [
-            'label' => 'Catering Store',
-            'url' => null,
-            'icon' => 'fas fa-utensils',
-            'subitems' => [
-                ['label' => 'Food Stock', 'url' => 'food_store'],
-                ['label' => 'Food Orders', 'url' => 'food_orders'],
-            ]
-        ],
-
-        [
             'label' => 'Reports',
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
                 ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
-                ['label' => 'Inventory Reports', 'url' => 'inventory_reports'],
+                ['label' => 'Uniform Sales Reports', 'url' => 'uniform_sales_records'],
                 ['label' => 'Purchase Reports', 'url' => 'purchase_reports'],
             ]
         ],
@@ -1651,6 +1602,47 @@ return [
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
+    ],
+
+    // =========================================================================
+    // 71 — Food Store Manager
+    // Food receipts, daily issues/consumption, stock sufficiency and purchasing.
+    // =========================================================================
+    71 => [
+        ['label' => 'Dashboard', 'url' => 'food_store_manager_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'Food Store', 'url' => null, 'icon' => 'fas fa-warehouse', 'subitems' => [
+            ['label' => 'Food Inventory', 'url' => 'food_store'],
+            ['label' => 'Stock Levels', 'url' => 'food_stock_levels'],
+            ['label' => 'Low Stock Alerts', 'url' => 'food_low_stock'],
+            ['label' => 'Incoming Stock & Orders', 'url' => 'food_orders'],
+            ['label' => 'Daily Usage', 'url' => 'food_consumption'],
+        ]],
+        ['label' => 'Suppliers & Purchasing', 'url' => null, 'icon' => 'fas fa-truck', 'subitems' => [
+            ['label' => 'Food Suppliers', 'url' => 'vendors'],
+            ['label' => 'Food Purchase Orders', 'url' => 'purchase_orders'],
+            ['label' => 'Goods Received', 'url' => 'goods_received'],
+        ]],
+        ['label' => 'Reports', 'url' => null, 'icon' => 'fas fa-chart-bar', 'subitems' => [
+            ['label' => 'Food Consumption Report', 'url' => 'report_food_consumption_trend'],
+            ['label' => 'Purchase Reports', 'url' => 'purchase_reports'],
+        ]],
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
+    ],
+
+    // =========================================================================
+    // 72 — Librarian (secondary-role friendly)
+    // Catalogue, circulation, overdue books and library reporting only.
+    // =========================================================================
+    72 => [
+        ['label' => 'Dashboard', 'url' => 'librarian_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'Library', 'url' => null, 'icon' => 'fas fa-book', 'subitems' => [
+            ['label' => 'Manage Books', 'url' => 'manage_library'],
+            ['label' => 'Issue / Return', 'url' => 'library_issue_return'],
+            ['label' => 'Overdue Books', 'url' => 'library_overdue'],
+        ]],
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 

@@ -16,7 +16,7 @@ final class UniformCatalogService
     {
         $where = "p.status='active' AND p.published=1";
         $args = [];
-        if (!empty($filters['staff'])) $where = "p.status <> 'archived'";
+        if (!empty($filters['staff'])) $where = "1=1"; // internal view shows every status (draft/active/archived) so managers can re-publish
         if (!empty($filters['q'])) { $where .= ' AND (p.title LIKE ? OR i.description LIKE ?)'; $q='%'.trim((string)$filters['q']).'%'; $args[]=$q; $args[]=$q; }
         $s=$this->db->prepare("SELECT p.id,p.item_id,p.slug,p.title,p.description,p.status,p.published,i.code,im.url AS image_url FROM uniform_catalog_products p JOIN inventory_items i ON i.id=p.item_id LEFT JOIN uniform_catalog_images im ON im.product_id=p.id AND im.is_primary=1 WHERE {$where} ORDER BY p.title");
         $s->execute($args); $rows=$s->fetchAll(PDO::FETCH_ASSOC);

@@ -271,7 +271,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <p class="section-subtitle mb-4">Browse official Kingsway uniforms by size, save favourites, and let the school store prepare your child’s order. Uniform purchases are optional and handled separately from school fees.</p>
         <div class="d-flex flex-wrap gap-3">
           <a href="<?= $appBase ?>/uniform_catalog.php" class="btn-kw-primary"><i class="bi bi-bag-heart"></i>Shop Uniforms</a>
-          <a href="<?= $appBase ?>/parent_portal.php" class="btn-kw-outline"><i class="bi bi-person"></i>Parent Portal</a>
+          <a href="<?= $appBase ?>/parents/" class="btn-kw-outline"><i class="bi bi-person"></i>Parent Portal</a>
         </div>
       </div>
       <div class="col-lg-5 reveal reveal-right">

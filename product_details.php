@@ -73,7 +73,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
                 <div class="fw-semibold small">Your cart</div>
                 <div class="text-muted small" id="pdCartInfo"></div>
               </div>
-              <a href="<?= $appBase ?>/parent_portal.php" class="btn btn-success btn-sm rounded-pill px-3">
+              <a href="<?= $appBase ?>/parents/" class="btn btn-success btn-sm rounded-pill px-3">
                 Checkout<i class="bi bi-arrow-right ms-1"></i>
               </a>
             </div>

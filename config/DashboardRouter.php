@@ -9,8 +9,30 @@
  */
 namespace App\Config;
 
+use App\API\Services\ReportRegistry;
+
 class DashboardRouter
 {
+    /** System-domain pages explicitly approved for the System Administrator. */
+    private const SYSTEM_ADMIN_ROUTES = [
+        'system_administrator_dashboard',
+        'manage_users', 'account_status', 'manage_roles',
+        'role_permission_matrix', 'resource_based_permissions',
+        'authentication_logs', 'failed_login_attempts', 'active_sessions',
+        'token_management', 'ip_whitelist_blacklist',
+        'domain_isolation_rules', 'time_bound_access', 'permission_policies',
+        'route_access_rules', 'system_settings',
+        'payment_integration_settings', 'feature_flags', 'module_enablement',
+        'maintenance_mode', 'route_registry', 'sidebar_menus',
+        'role_navigation_config', 'analytics_catalogue', 'system_health',
+        'error_logs', 'background_jobs', 'api_metrics', 'rate_limiting_status',
+        'migrations', 'backups', 'data_retention', 'activity_audit_logs',
+        'permission_changes', 'policy_violations', 'security_incidents',
+        'api_explorer', 'webhook_registry', 'system_diagnostics', 'job_inspector',
+        'communications/messages_inbox', 'manage_system_announcements',
+        'manage_sms_configurations', 'manage_email_configurations',
+        'manage_whatsapp_configurations', 'profile',
+    ];
     // role_id => dashboard file key (without .php)
     private const ROLE_DASHBOARDS = [
         2  => 'system_administrator_dashboard',
@@ -23,6 +45,8 @@ class DashboardRouter
         9  => 'intern_student_teacher_dashboard',
         10 => 'school_accountant_dashboard',
         14 => 'store_manager_dashboard',
+        71 => 'food_store_manager_dashboard',
+        72 => 'librarian_dashboard',
         16 => 'catering_manager_cook_lead_dashboard',
         18 => 'matron_housemother_dashboard',
         21 => 'hod_talent_development_dashboard',
@@ -57,7 +81,7 @@ class DashboardRouter
 // Auto-generated from role_sidebars.php — do not edit manually
 // Run: php scripts/generate_route_roles.php
 private const ROUTE_ROLES = [
-    'academic_calendar' => [2, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],  // 18 role(s)
+    'academic_calendar' => [2, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64, 71, 72],
     'academic_planning_oversight' => [3, 4, 5],  // 3 role(s)
     'academic_reports' => [3, 4, 5, 6],  // 4 role(s)
     'academic_students' => [6],  // 1 role(s)
@@ -119,7 +143,7 @@ private const ROUTE_ROLES = [
     'class_streams' => [4, 5, 6],  // 3 role(s)
     'class_teacher_dashboard' => [7],  // 1 role(s)
     'clubs_societies' => [21],  // 1 role(s)
-    'communications/messages_inbox' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],  // 20 role(s)
+    'communications/messages_inbox' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64, 71, 72],
     'comparative_reports' => [3, 5, 6],  // 3 role(s)
     'competencies_sheet' => [6, 7, 63],  // 3 role(s)
     'competency_checklist' => [9],  // 1 role(s)
@@ -166,15 +190,16 @@ private const ROUTE_ROLES = [
     'fee_structure_approvals' => [3],  // 1 role(s)
     'finance_approvals' => [3],  // 1 role(s)
     'finance_reports' => [3, 4, 5, 10],  // 4 role(s)
-    'food_consumption' => [16],  // 1 role(s)
-    'food_low_stock' => [16],  // 1 role(s)
-    'food_orders' => [14, 16],  // 2 role(s)
-    'food_stock_levels' => [16],  // 1 role(s)
-    'food_store' => [14, 16, 32],  // 3 role(s)
+    'food_consumption' => [16, 71],
+    'food_low_stock' => [16, 71],
+    'food_orders' => [16, 71],
+    'food_stock_levels' => [16, 71],
+    'food_store' => [16, 32, 71],
+    'food_store_manager_dashboard' => [71],
     'formative_assessments' => [6, 63],  // 2 role(s)
     'generate_class_report' => [7],  // 1 role(s)
     'generate_subject_report' => [8],  // 1 role(s)
-    'goods_received' => [14],  // 1 role(s)
+    'goods_received' => [14, 71],
     'grading_scales' => [4, 5, 6],  // 3 role(s)
     'grading_status' => [4, 5, 6],  // 3 role(s)
     'headteacher_dashboard' => [5],  // 1 role(s)
@@ -195,8 +220,9 @@ private const ROUTE_ROLES = [
     'lesson_plan_approval' => [5, 6],  // 2 role(s)
     'lesson_plans_by_class' => [6],  // 1 role(s)
     'lesson_plans_by_teacher' => [6],  // 1 role(s)
-    'library_issue_return' => [14],  // 1 role(s)
-    'library_overdue' => [14],  // 1 role(s)
+    'librarian_dashboard' => [72],
+    'library_issue_return' => [72],
+    'library_overdue' => [72],
     'log_discipline_case' => [63],  // 1 role(s)
     'log_discipline_incident' => [7],  // 1 role(s)
     'low_stock_alerts' => [14],  // 1 role(s)
@@ -219,7 +245,7 @@ private const ROUTE_ROLES = [
     'manage_job_applications' => [4, 6],  // 2 role(s)
     'manage_job_vacancies' => [4],  // 1 role(s)
     'manage_lesson_plans' => [5, 6, 7, 8, 9, 63],  // 6 role(s)
-    'manage_library' => [3, 4, 5, 6, 14, 63],  // 6 role(s)
+    'manage_library' => [3, 4, 5, 6, 63, 72],
     'manage_menus' => [16],  // 1 role(s)
     'manage_page_content' => [4],  // 1 role(s)
     'manage_payments' => [3, 4, 10],  // 3 role(s)
@@ -242,7 +268,7 @@ private const ROUTE_ROLES = [
     'manage_transport_fee_structure' => [10],  // 1 role(s)
     'manage_uniform_sales' => [3, 4, 14],  // 3 role(s)
     'my_family' => [3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],
-    'uniform_catalog' => [3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],
+    'internal_products_catalog' => [14],
     'manage_users' => [2],  // 1 role(s)
     'manage_website' => [2, 3, 4],  // 3 role(s)
     'manage_whatsapp' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 63],
@@ -293,8 +319,8 @@ private const ROUTE_ROLES = [
     'placement_tests' => [4, 6],  // 2 role(s)
     'policy_violations' => [2, 63],  // 2 role(s)
     'pta_management' => [3, 4, 5],  // 3 role(s)
-    'purchase_orders' => [3, 10, 14, 16],  // 4 role(s)
-    'purchase_reports' => [14],  // 1 role(s)
+    'purchase_orders' => [3, 10, 14, 16, 71],
+    'purchase_reports' => [14, 71],
     'rate_limiting_status' => [2],  // 1 role(s)
     'reflection_journal' => [9],  // 1 role(s)
     'report_cards' => [3, 4, 5, 6],  // 4 role(s)
@@ -394,7 +420,7 @@ private const ROUTE_ROLES = [
     'upload_teaching_resource' => [8],  // 1 role(s)
     'vaccination_records' => [18],  // 1 role(s)
     'vendor_invoices' => [14],  // 1 role(s)
-    'vendors' => [3, 10, 14, 16],  // 4 role(s)
+    'vendors' => [3, 10, 14, 16, 71],
     'view_attendance' => [3, 4, 5, 6, 8, 63],  // 6 role(s)
     'view_calendar' => [21],  // 1 role(s)
     'view_class_lists' => [9],  // 1 role(s)
@@ -593,11 +619,20 @@ private const ROUTE_ROLES = [
     public static function isRouteAllowedForRole(string $route, int $roleId): bool
     {
         $route = self::ROUTE_ALIASES[$route] ?? $route;
+        $reportAccess = ReportRegistry::roleCanAccess($route, $roleId);
+        if ($reportAccess !== null) return $reportAccess;
+
+        // Role 2 is infrastructure-only and deny-by-default. Do this before
+        // dashboard and generic route handling so manually typed school URLs
+        // cannot cross the SYSTEM/SCHOOL boundary.
+        if ($roleId === 2) {
+            return in_array($route, self::SYSTEM_ADMIN_ROUTES, true);
+        }
+
         // Dashboard routes bypass the allowlist (each role has its own dashboard)
         $dashboardKeys = array_values(self::ROLE_DASHBOARDS);
         if (in_array($route, $dashboardKeys, true)) {
-            return ($roleId === 2) // System Admin can reach all dashboards
-                || (self::ROLE_DASHBOARDS[$roleId] ?? null) === $route;
+            return (self::ROLE_DASHBOARDS[$roleId] ?? null) === $route;
         }
 
         // If no restriction defined, the route is public within the app shell

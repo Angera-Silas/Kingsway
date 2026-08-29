@@ -4,7 +4,6 @@ namespace App\API\Includes;
 require_once __DIR__ . '/../../vendor/autoload.php';
 use App\Config\Config;
 Config::init();
-require_once __DIR__ . '/helpers.php';
 
 use App\Database\Database;
 use App\API\Services\PermissionContract;

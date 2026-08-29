@@ -74,13 +74,18 @@ final class AnalyticsReportScopeService
         $classIds = array_values(array_unique(array_map(static function (array $pair): int {
             return (int) $pair['class_id'];
         }, $pairs)));
+        $classTeacherPairs = $scope['class_teacher_pairs'] ?? [];
+        $defaultPairs = $classTeacherPairs !== [] ? $classTeacherPairs : $pairs;
+        $defaultClassIds = array_values(array_unique(array_map(static function (array $pair): int {
+            return (int) $pair['class_id'];
+        }, $defaultPairs)));
 
         $classId = $this->positiveInt($parameters['class_id'] ?? null);
         if (!$classId) {
-            if (count($classIds) !== 1) {
+            if (count($defaultClassIds) !== 1) {
                 throw new RuntimeException('Select one of your assigned classes to run this report.', 422);
             }
-            $classId = $classIds[0];
+            $classId = $defaultClassIds[0];
             $parameters['class_id'] = $classId;
         }
         if (!in_array($classId, $classIds, true)) {
@@ -93,11 +98,17 @@ final class AnalyticsReportScopeService
         $streamIds = array_values(array_unique(array_map(static function (array $pair): int {
             return (int) $pair['stream_id'];
         }, $classPairs)));
+        $defaultClassPairs = array_values(array_filter($defaultPairs, static function (array $pair) use ($classId): bool {
+            return (int) $pair['class_id'] === $classId;
+        }));
+        $defaultStreamIds = array_values(array_unique(array_map(static function (array $pair): int {
+            return (int) $pair['stream_id'];
+        }, $defaultClassPairs)));
         $streamId = $this->positiveInt($parameters['stream_id'] ?? null);
         $supportsStream = in_array('stream_id', $definition['allowed_filters'] ?? [], true);
         if (!$streamId) {
-            if (count($streamIds) === 1) {
-                $streamId = $streamIds[0];
+            if (count($defaultStreamIds) === 1) {
+                $streamId = $defaultStreamIds[0];
                 $parameters['stream_id'] = $streamId;
             } elseif ($supportsStream) {
                 throw new RuntimeException('Select one of your assigned streams to prevent cross-stream disclosure.', 422);

@@ -396,13 +396,10 @@ const ManageUsersController = {
             id="userUsername"
             name="username"
             value="${this.escapeHtml(user?.username || "")}"
-            minlength="3"
-            maxlength="30"
-            pattern="[A-Za-z][A-Za-z0-9_-]*"
             autocomplete="off"
-            required
+            readonly
           >
-          <div class="form-text">Start with a letter; use letters, numbers, underscores or hyphens.</div>
+          <div class="form-text">Generated automatically from the email address when the account is created.</div>
         </div>
         <div class="col-md-6">
           <label class="form-label" for="userEmail">Email</label>

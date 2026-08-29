@@ -106,7 +106,7 @@ $activePage = $activePage ?? 'home';
             
             <li><a class="dropdown-item" href="<?= $appBase ?>/uniform_catalog.php"><i class="bi bi-bag-heart me-2 text-success"></i>Uniform Store</a></li>
             <li><a class="dropdown-item" href="<?= $appBase ?>/contact.php"><i class="bi bi-envelope me-2 text-success"></i>Contact Us</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/parent_portal.php"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/parents/"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
           </ul>
         </li>
 

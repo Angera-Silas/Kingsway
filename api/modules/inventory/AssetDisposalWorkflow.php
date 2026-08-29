@@ -369,7 +369,6 @@ class AssetDisposalWorkflow extends WorkflowHandler
             $userRole = $user['role'] ?? '';
 
             $approvalLevels = [
-                'Inventory Manager' => 20000,
                 'Director' => 100000,
                 'System Administrator' => PHP_INT_MAX
             ];

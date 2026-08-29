@@ -1,7 +1,6 @@
 <?php
 namespace App\API\Modules\activities\workflows;
 
-require_once __DIR__ . '/../../../includes/WorkflowHandler.php';
 use App\API\Includes\WorkflowHandler;
 use PDO;
 use Exception;

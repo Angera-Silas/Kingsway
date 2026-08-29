@@ -12,11 +12,8 @@ use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
 use App\API\Services\SystemConfigService;
 use App\Config\DashboardRouter;
-use App\Services\PolicyEngine;
+use App\API\Services\PolicyEngine;
 use Firebase\JWT\JWT;
-
-require_once __DIR__ . '/../../includes/DashboardManager.php';
-require_once __DIR__ . '/../../../config/DashboardRouter.php';
 
 class AuthAPI extends BaseAPI
 {
@@ -946,7 +943,7 @@ class AuthAPI extends BaseAPI
         ?string $existingRefreshToken = null
     ): array {
         // Generate sidebar menu items based on user's roles and permissions
-        $dashboardManager = new \DashboardManager();
+        $dashboardManager = new \App\API\Includes\DashboardManager();
         $dashboardManager->setUser($userData);
 
         // Get filtered menu items for user's dashboard

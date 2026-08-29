@@ -176,7 +176,7 @@ const ConductReportsController = {
       const genBtn = document.getElementById("generateReports");
       if (genBtn) {
         genBtn.disabled = false;
-        genBtn.innerHTML = '<i class="fas fa-cogs me-1"></i>Generate Reports';
+        genBtn.innerHTML = '<i class="fas fa-file-pdf me-1"></i>Export PDF Reports';
       }
     }
   },

@@ -53,7 +53,6 @@ use App\API\Router\Router;
 use App\Config\Config;
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/includes/helpers.php';
 
 Config::init();
 

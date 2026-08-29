@@ -4,7 +4,6 @@ namespace App\API\Modules\admission;
 require_once dirname(__DIR__, 3) . '/vendor/autoload.php';
 use App\Config\Config;
 Config::init();
-require_once __DIR__ . '/../../includes/WorkflowHandler.php';
 
 use App\API\Includes\WorkflowHandler;
 use App\API\Services\ExtraChargeService;

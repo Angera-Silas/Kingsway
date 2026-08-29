@@ -26,9 +26,18 @@ class WebsiteController extends BaseController
 
     private function getEffectivePerms(): array
     {
-        $user = $this->user;
+        // RBACMiddleware enriches the request context after authentication.
+        // Read the live context instead of relying only on the controller's
+        // constructor snapshot, which can predate permission resolution.
+        $user = $_SERVER['auth_user'] ?? $this->user;
         if (!$user) return [];
-        return (array) ($user['effective_permissions'] ?? []);
+        $permissions = (array) ($user['effective_permissions'] ?? $user['permissions'] ?? []);
+        return array_values(array_unique(array_filter(array_map(
+            static fn($permission) => is_array($permission)
+                ? ($permission['code'] ?? $permission['permission_code'] ?? null)
+                : $permission,
+            $permissions
+        ))));
     }
 
     private function hasPerm(string $perm): bool
@@ -36,7 +45,7 @@ class WebsiteController extends BaseController
         if ($perm === 'website_view' && !$this->user && $this->isReadRequest()) {
             return true;
         }
-        if (!$this->user) return false;
+        if (!($_SERVER['auth_user'] ?? $this->user)) return false;
         $perms = $this->getEffectivePerms();
         return in_array($perm, $perms) || in_array(str_replace('_', '.', $perm), $perms);
     }
@@ -615,6 +624,14 @@ class WebsiteController extends BaseController
         if (!$this->hasPerm('website_applications_manage')) return $this->forbidden('Recruitment management access required.');
         if (!$id) return $this->badRequest('Interview ID required.');
         return $this->handleResponse($this->manager->completeJobInterview((int)$id, $data, $this->userId()));
+    }
+
+    // The browser route is /job-applications/interviews/{id}; keep the plural
+    // REST resource mapped explicitly instead of allowing the generic router to
+    // fall back to the application-status handler.
+    public function putJobApplicationsInterviews($id = null, $data = [], $segments = [])
+    {
+        return $this->putJobApplicationsInterview($id, $data, $segments);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

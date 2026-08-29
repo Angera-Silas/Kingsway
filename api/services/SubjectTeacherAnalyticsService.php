@@ -298,6 +298,39 @@ class SubjectTeacherAnalyticsService
         }
     }
 
+    public function getTodaySchedule(): array
+    {
+        try {
+            $stmt = $this->db->query(
+                "SELECT start_time, end_time, subject_name, class_name, stream_name,
+                        room_name, status
+                   FROM vw_timetable_entries
+                  WHERE teacher_id = ? AND day_of_week = WEEKDAY(CURDATE()) + 1
+                    AND status = 'scheduled'
+                  ORDER BY start_time",
+                [$this->userId]
+            );
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log('Subject teacher schedule error: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    public function getUpcomingEvents(): array
+    {
+        try {
+            $events = (new CalendarSyncService($this->db->getConnection()))->getUnifiedEvents();
+            $today = date('Y-m-d');
+            $events = array_values(array_filter($events, static fn(array $event): bool => ($event['start_date'] ?? '') >= $today && ($event['status'] ?? '') !== 'cancelled'));
+            usort($events, static fn(array $left, array $right): int => strcmp($left['start_date'] ?? '', $right['start_date'] ?? ''));
+            return array_slice($events, 0, 6);
+        } catch (Exception $e) {
+            error_log('Subject teacher events error: ' . $e->getMessage());
+            return [];
+        }
+    }
+
     /**
      * Get full dashboard data in a single call
      */
@@ -317,6 +350,8 @@ class SubjectTeacherAnalyticsService
                 'assessment_trends' => $this->getAssessmentTrendsChart()
             ],
             'tables' => [
+                'today_schedule' => $this->getTodaySchedule(),
+                'upcoming_events' => $this->getUpcomingEvents(),
                 'pending_assessments' => $this->getPendingAssessments(),
                 'exam_schedule' => $this->getExamSchedule()
             ],

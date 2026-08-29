@@ -364,6 +364,9 @@ class ScanController extends BaseController {
         }
 
         $status = $action === 'picked_up' ? 'picked_up' : 'dropped_off';
+        try {
+            $this->pdo->beginTransaction();
+            $dayBalance = $this->transportEntitlements->consumeSchoolDay((int)$student['student_id'], $routeId, date('Y-m-d'));
         $stmt = $this->pdo->prepare(
             "INSERT INTO student_transport_attendance
                 (student_id, route_id, attendance_date, trip_session, status, marked_time, marked_by)
@@ -378,10 +381,24 @@ class ScanController extends BaseController {
             $lookup->execute([(int)$student['student_id'], $tripSession]);
             $recordId = (int)$lookup->fetchColumn();
         }
+            $this->pdo->commit();
+        } catch (\InvalidArgumentException $error) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            $result['eligible'] = false;
+            $result['status'] = 'boarding_denied';
+            $result['message'] = $error->getMessage();
+            return $result;
+        } catch (\Throwable $error) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $error;
+        }
 
         $result['status'] = $status;
         $result['message'] = $action === 'picked_up' ? 'Student boarding recorded — payment coverage verified' : 'Student drop-off recorded';
         $result['attendance_id'] = $recordId;
+        $result['allocated_school_days'] = $dayBalance['allocated_school_days'] ?? null;
+        $result['used_school_days'] = $dayBalance['used_school_days'] ?? null;
+        $result['remaining_school_days'] = $dayBalance['remaining_school_days'] ?? null;
         $result['attendance_marked'] = true;
         return $result;
     }

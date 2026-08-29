@@ -3,7 +3,7 @@
  * Overview of transport billing/collections: per-route monthly ledger and overall arrears.
  */
 const transportFeesController = {
-  state: { routes: [], items: [] },
+  state: { routes: [], stops: [], items: [] },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
@@ -35,14 +35,31 @@ const transportFeesController = {
 
   async loadRoutes() {
     try {
-      const r = await this.API('GET', 'transport/all-routes');
+      const [r, stopResponse] = await Promise.all([
+        this.API('GET', 'transport/all-routes'),
+        this.API('GET', 'transport/all-stops'),
+      ]);
       const routes = r?.data || r?.items || [];
+      this.state.stops = stopResponse?.data || stopResponse?.items || [];
       this.state.routes = routes;
       const sel = document.getElementById('routeFilter');
       sel.innerHTML = '<option value="">All routes (summary)</option>' + routes.map(x => `<option value="${x.id}">${this.esc(x.name || x.route_name || x.id)}</option>`).join('');
       const entitlementRoute = document.getElementById('transportEntRoute');
       if (entitlementRoute) entitlementRoute.innerHTML = '<option value="">Select route</option>' + routes.map(x => `<option value="${x.id}">${this.esc(x.name || x.route_name || x.id)}</option>`).join('');
+      this.updateStopOptions();
     } catch (_) {}
+  },
+
+  updateStopOptions() {
+    const routeId = Number(document.getElementById('transportEntRoute')?.value || 0);
+    const stops = this.state.stops.filter(stop => Number(stop.route_id) === routeId && stop.status !== 'inactive');
+    const options = stops.length
+      ? '<option value="">Select point</option>' + stops.sort((a, b) => Number(a.sequence) - Number(b.sequence)).map(stop => `<option value="${stop.id}">${this.esc(stop.name)}</option>`).join('')
+      : `<option value="">${routeId ? 'No pickup/drop-off points configured' : 'Select a route first'}</option>`;
+    ['transportEntPickupStop', 'transportEntDropoffStop'].forEach(id => {
+      const select = document.getElementById(id);
+      if (select) select.innerHTML = options;
+    });
   },
 
   async loadData() {
@@ -112,11 +129,21 @@ const transportFeesController = {
   },
 
   setupEventListeners() {
+    if (!document.getElementById('transportEntDays')) {
+      const amountGroup = document.getElementById('transportEntAmount')?.closest('.col-md-4');
+      if (amountGroup) {
+        const group = document.createElement('div');
+        group.className = 'col-md-4';
+        group.innerHTML = '<label class="form-label">Paid school days</label><input type="number" min="1" step="1" class="form-control" id="transportEntDays" required><div class="form-text">Weekends, holidays and duplicate scans never reduce this balance.</div>';
+        amountGroup.before(group);
+      }
+    }
     ['routeFilter', 'monthFilter', 'yearFilter'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => this.loadData());
     });
     document.getElementById('transportEntType')?.addEventListener('change', () => this.updateEntitlementDates());
     document.getElementById('transportEntStart')?.addEventListener('change', () => this.updateEntitlementDates());
+    document.getElementById('transportEntRoute')?.addEventListener('change', () => this.updateStopOptions());
     document.getElementById('transportEntitlementForm')?.addEventListener('submit', (event) => { event.preventDefault(); this.saveEntitlement(); });
   },
 
@@ -146,13 +173,13 @@ const transportFeesController = {
 
   async saveEntitlement() {
     const button = document.getElementById('transportEntSubmit');
-    const data = { student_id: Number(document.getElementById('transportEntStudent').value), route_id: Number(document.getElementById('transportEntRoute').value), period_type: document.getElementById('transportEntType').value, period_start: document.getElementById('transportEntStart').value, period_end: document.getElementById('transportEntEnd').value, amount_due: Number(document.getElementById('transportEntAmount').value), source_type: document.getElementById('transportEntMethod').value === 'bursary' ? 'bursary' : 'prepaid' };
+    const data = { student_id: Number(document.getElementById('transportEntStudent').value), route_id: Number(document.getElementById('transportEntRoute').value), pickup_stop_id: Number(document.getElementById('transportEntPickupStop').value), dropoff_stop_id: Number(document.getElementById('transportEntDropoffStop').value), period_type: document.getElementById('transportEntType').value, period_start: document.getElementById('transportEntStart').value, period_end: document.getElementById('transportEntEnd').value, allocated_school_days: Number(document.getElementById('transportEntDays').value), amount_due: Number(document.getElementById('transportEntAmount').value), source_type: document.getElementById('transportEntMethod').value === 'bursary' ? 'bursary' : 'prepaid', notes: document.getElementById('transportEntNotes').value.trim() };
     const financialAccountId = Number(document.getElementById('transportEntFinancialAccount')?.value || 0);
     if (data.amount_due > 0 && data.source_type !== 'bursary' && !financialAccountId) { this.notify('Select the authorized transport receiving account', 'warning'); return; }
-    if (!data.student_id || !data.route_id || !data.period_start || !data.period_end || data.amount_due < 0) { this.notify('Complete the learner, route, dates and amount fields', 'warning'); return; }
+    if (!data.student_id || !data.route_id || !data.pickup_stop_id || !data.dropoff_stop_id || !data.period_start || !data.period_end || data.allocated_school_days < 1 || data.amount_due < 0) { this.notify('Complete the learner, route, pickup/drop-off points, eligible dates, paid school days and agreed charge', 'warning'); return; }
     button.disabled = true;
     try {
-      const entitlement = await this.API('POST', 'transport/entitlements', data);
+      const entitlement = await this.API('POST', 'transport/enrollments', data);
       const entitlementId = entitlement?.data?.id || entitlement?.data?.entitlement_id || entitlement?.id;
       const method = document.getElementById('transportEntMethod').value;
       if (entitlementId && data.amount_due > 0 && data.source_type !== 'bursary') {

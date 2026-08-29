@@ -1,0 +1,1 @@
+<?php $governedReportCode='HR_STAFF_ATTENDANCE_RATE'; $governedReportTitle='Staff Attendance Rate'; $governedReportLayout='distribution'; $governedPrimaryVisual='histogram'; require __DIR__.'/reports/governed_report.php';

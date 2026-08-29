@@ -41,7 +41,6 @@ define(
 );
 
 require_once __DIR__ . '/upload_paths.php';
-require_once __DIR__ . '/school_identity.php';
 
 /*
 |--------------------------------------------------------------------------

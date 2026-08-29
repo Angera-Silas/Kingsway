@@ -47,7 +47,6 @@ class AcademicAPI extends BaseAPI
         $this->libraryWorkflow = new LibraryManagementWorkflow();
         $this->curriculumWorkflow = new CurriculumPlanningWorkflow();
         $this->yearTransitionWorkflow = new AcademicYearTransitionWorkflow();
-        require_once __DIR__ . '/TermTransitionService.php';
         $this->termTransitionService = new TermTransitionService($this->db, $this->getCurrentUserId());
     }
     
@@ -595,7 +594,6 @@ class AcademicAPI extends BaseAPI
             }
 
             if ($yearId > 0) {
-                require_once __DIR__ . '/LearningAreaSetupService.php';
                 $learningAreaService = new LearningAreaSetupService($this->db);
                 $response['data']['learning_area_setup'] = $learningAreaService->seedForYear($yearId);
             }
@@ -614,7 +612,6 @@ class AcademicAPI extends BaseAPI
             return ['status' => 'error', 'message' => 'academic_year_id is required', 'code' => 400];
         }
 
-        require_once __DIR__ . '/LearningAreaSetupService.php';
         $learningAreaService = new LearningAreaSetupService($this->db);
         $summary = $learningAreaService->seedForYear($yearId);
 
@@ -631,7 +628,6 @@ class AcademicAPI extends BaseAPI
             return ['status' => 'error', 'message' => 'academic_year_class_id is required', 'code' => 400];
         }
 
-        require_once __DIR__ . '/LearningAreaSetupService.php';
         $learningAreaService = new LearningAreaSetupService($this->db);
         $coverage = $learningAreaService->getClassCoverage($aycId);
 
@@ -1258,7 +1254,6 @@ class AcademicAPI extends BaseAPI
                 [$calendarId, $date]
             );
 
-            require_once __DIR__ . '/../../services/CalendarSyncService.php';
             $sync = new CalendarSyncService($this->db);
             if ($dayId) {
                 $sync->syncDay($dayId);
@@ -2620,7 +2615,6 @@ class AcademicAPI extends BaseAPI
             }
 
             // Give the new term its calendar week grid (derived from dates).
-            require_once __DIR__ . '/AcademicCalendarService.php';
             $calendarService = new AcademicCalendarService($this->db);
             $calendarService->generateYearCalendar($yearId);
 
@@ -2639,7 +2633,6 @@ class AcademicAPI extends BaseAPI
     public function getAcademicYears($params = [])
     {
         try {
-            require_once __DIR__ . '/AcademicYearManager.php';
             $yearManager = new AcademicYearManager($this->db);
 
             $years = $yearManager->getAllYears($params ?? []);
@@ -2665,7 +2658,6 @@ class AcademicAPI extends BaseAPI
                 return errorResponse('Academic year ID is required', 400);
             }
 
-            require_once __DIR__ . '/AcademicYearManager.php';
             $yearManager = new AcademicYearManager($this->db);
             $year = $yearManager->getAcademicYear((int) $id);
 
@@ -2682,7 +2674,6 @@ class AcademicAPI extends BaseAPI
     public function getCurrentAcademicYear($params = [])
     {
         try {
-            require_once __DIR__ . '/AcademicYearManager.php';
             $yearManager = new AcademicYearManager($this->db);
 
             $year = $yearManager->getCurrentAcademicYear();
@@ -2703,7 +2694,6 @@ class AcademicAPI extends BaseAPI
     public function createAcademicYear($data)
     {
         try {
-            require_once __DIR__ . '/AcademicYearManager.php';
             $yearManager = new AcademicYearManager($this->db);
 
             $year = $yearManager->createAcademicYear($data);
@@ -2832,7 +2822,6 @@ return errorResponse($e->getMessage(), 400);
                 ], 400);
             }
 
-            require_once __DIR__ . '/AcademicYearManager.php';
             $yearManager = new AcademicYearManager($this->db);
 
             $yearManager->setCurrentYear($yearId);
@@ -2856,11 +2845,9 @@ return errorResponse($e->getMessage(), 400);
     public function generateAcademicCalendar($yearId, $weekCounts = [])
     {
         try {
-            require_once __DIR__ . '/AcademicCalendarService.php';
             $calendarService = new AcademicCalendarService($this->db);
             $result = $calendarService->generateYearCalendar((int) $yearId, is_array($weekCounts) ? $weekCounts : []);
 
-            require_once __DIR__ . '/../../services/CalendarSyncService.php';
             $sync = new CalendarSyncService($this->db);
             $sync->syncAcademicYear((int) $yearId);
 
@@ -2876,7 +2863,6 @@ return errorResponse($e->getMessage(), 400);
     public function getAcademicCalendar($yearId)
     {
         try {
-            require_once __DIR__ . '/AcademicCalendarService.php';
             $calendarService = new AcademicCalendarService($this->db);
             $calendar = $calendarService->getCalendar((int) $yearId);
             return successResponse($calendar);
@@ -2891,7 +2877,6 @@ return errorResponse($e->getMessage(), 400);
     public function validateAcademicCalendar($yearId)
     {
         try {
-            require_once __DIR__ . '/AcademicCalendarService.php';
             $calendarService = new AcademicCalendarService($this->db);
             return successResponse($calendarService->validateCalendar((int) $yearId));
         } catch (Exception $e) {
@@ -2969,11 +2954,9 @@ return errorResponse($e->getMessage(), 400);
                 [$termId]
             );
             if ($yearId > 0) {
-                require_once __DIR__ . '/AcademicCalendarService.php';
                 $calendarService = new AcademicCalendarService($this->db);
                 $calendarService->generateYearCalendar($yearId);
 
-                require_once __DIR__ . '/../../services/CalendarSyncService.php';
                 $sync = new CalendarSyncService($this->db);
                 $sync->syncAcademicYear($yearId);
             }

@@ -1,0 +1,1 @@
+<?php $governedReportCode='ADM_ENROLLED_COHORT'; $governedReportTitle='Enrolled Admissions by Cohort'; $governedReportLayout='composition'; $governedPrimaryVisual='treemap'; require __DIR__.'/reports/governed_report.php';

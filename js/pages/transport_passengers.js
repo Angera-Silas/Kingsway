@@ -357,6 +357,9 @@ const TransportPassengersController = {
           <p><strong>Drop-off Point:</strong> ${this.escape(transport.dropoff_point || "-")}</p>
           <p><strong>Pickup Time:</strong> ${this.escape(transport.pickup_time || "-")}</p>
           <p><strong>Drop-off Time:</strong> ${this.escape(transport.dropoff_time || "-")}</p>
+          <p><strong>Paid School Days:</strong> ${this.escape(transport.paid_school_days ?? "-")}</p>
+          <p><strong>Used School Days:</strong> ${this.escape(transport.used_school_days ?? 0)}</p>
+          <p><strong>Remaining School Days:</strong> ${this.escape(transport.remaining_school_days ?? "-")}</p>
           <p><strong>Status:</strong> ${this.escape(transport.status || "-")}</p>
         </div>
       </div>

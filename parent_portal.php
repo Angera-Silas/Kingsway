@@ -2,7 +2,7 @@
 // Parent Portal — standalone entry point (not inside admin app shell)
 $familyStaffMode = $familyStaffMode ?? false;
 $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
-$appBase = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+$appBase = $appBaseOverride ?? rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
 if ($appBase === '.') $appBase = '';
 // Public data helpers expose the open intake terms/grades for the in-page
 // "Apply for Admission" modal without adding a new API dependency.
@@ -15,11 +15,12 @@ $ppGrades = function_exists('kw_active_grades') ? kw_active_grades() : [];
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kingsway Prep School — Parent Portal</title>
+  <title><?= htmlspecialchars($parentPageTitle ?? 'Parent Portal', ENT_QUOTES, 'UTF-8') ?> — Kingsway Parent Portal</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
+  <link rel="stylesheet" href="<?= $appBase ?>/parents/assets/parent-cpanel.css?v=<?= asset_version('parents/assets/parent-cpanel.css') ?>">
   <style>
     /* ===== Kingsway brand palette ===== */
     :root {
@@ -106,7 +107,11 @@ $ppGrades = function_exists('kw_active_grades') ? kw_active_grades() : [];
     @media (max-width: 991.98px) { .portal-sidebar { position: fixed; left: -280px; transition: left .25s ease; box-shadow: 8px 0 28px rgba(0,0,0,.2); } .portal-sidebar.open { left: 0; } .portal-mobile-toggle { display: inline-flex; } .portal-header,.portal-content { padding-left: 1rem; padding-right: 1rem; } .portal-content { padding-top: 1.25rem; } }
     @media (max-width: 575.98px) { .portal-header { height: 66px; } .portal-header .portal-user-label { display: none; } }
   </style>
-  <script>window.APP_BASE = <?php echo json_encode($appBase); ?>; window.FAMILY_STAFF_MODE = <?php echo $familyStaffMode ? 'true' : 'false'; ?>;</script>
+  <script>
+    window.APP_BASE = <?= json_encode($appBase) ?>;
+    window.FAMILY_STAFF_MODE = <?= $familyStaffMode ? 'true' : 'false' ?>;
+    window.PARENT_INITIAL_SECTION = <?= json_encode($parentInitialSection ?? 'overview') ?>;
+  </script>
 </head>
 <body class="py-4">
 
@@ -189,19 +194,19 @@ $ppGrades = function_exists('kw_active_grades') ? kw_active_grades() : [];
     <div class="portal-brand d-flex align-items-center gap-2"><img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway" onerror="this.src='<?= $appBase ?>/images/official_school_logo.png'"><div><strong>KINGSWAY PREP</strong><small class="d-block text-white-50">Parent &amp; Family Centre</small></div></div>
     <nav class="portal-nav">
       <div class="portal-nav-label">Overview</div>
-      <a class="nav-link active" data-portal-section="overview"><i class="bi bi-grid-1x2-fill"></i>Dashboard</a>
-      <a class="nav-link" data-portal-section="children"><i class="bi bi-people-fill"></i>My Children</a>
+      <a href="<?= $appBase ?>/parents/dashboard.php" class="nav-link" data-portal-section="overview"><i class="bi bi-grid-1x2-fill"></i>Dashboard</a>
+      <a href="<?= $appBase ?>/parents/children.php" class="nav-link" data-portal-section="children"><i class="bi bi-people-fill"></i>My Children</a>
       <div class="portal-nav-label">School life</div>
-      <a class="nav-link" data-portal-section="academics"><i class="bi bi-mortarboard-fill"></i>Learning &amp; Results</a>
-      <a class="nav-link" data-portal-section="attendance"><i class="bi bi-calendar-check-fill"></i>Attendance</a>
-      <a class="nav-link" data-portal-section="messages"><i class="bi bi-chat-dots-fill"></i>Messages</a>
-      <a class="nav-link" data-portal-section="documents"><i class="bi bi-folder2-open"></i>Documents &amp; Reports</a>
+      <a href="<?= $appBase ?>/parents/results.php" class="nav-link" data-portal-section="academics"><i class="bi bi-mortarboard-fill"></i>Learning &amp; Results</a>
+      <a href="<?= $appBase ?>/parents/attendance.php" class="nav-link" data-portal-section="attendance"><i class="bi bi-calendar-check-fill"></i>Attendance</a>
+      <a href="<?= $appBase ?>/parents/messages.php" class="nav-link" data-portal-section="messages"><i class="bi bi-chat-dots-fill"></i>Messages</a>
+      <a href="<?= $appBase ?>/parents/documents.php" class="nav-link" data-portal-section="documents"><i class="bi bi-folder2-open"></i>Documents &amp; Reports</a>
       <div class="portal-nav-label">Accounts &amp; community</div>
-      <a class="nav-link" data-portal-section="fees"><i class="bi bi-receipt-cutoff"></i>Fees &amp; Payments</a>
-      <a class="nav-link" data-portal-section="transport"><i class="bi bi-bus-front-fill"></i>Transport</a>
-      <a class="nav-link" data-portal-section="uniforms"><i class="bi bi-bag-heart-fill"></i>Uniform Store</a>
-      <a class="nav-link" data-portal-section="pta"><i class="bi bi-person-hearts"></i>PTA &amp; Representatives</a>
-      <a class="nav-link" data-portal-section="settings"><i class="bi bi-gear-fill"></i>Account Settings</a>
+      <a href="<?= $appBase ?>/parents/fees.php" class="nav-link" data-portal-section="fees"><i class="bi bi-receipt-cutoff"></i>Fees &amp; Payments</a>
+      <a href="<?= $appBase ?>/parents/transport.php" class="nav-link" data-portal-section="transport"><i class="bi bi-bus-front-fill"></i>Transport</a>
+      <a href="<?= $appBase ?>/uniform_catalog.php" class="nav-link"><i class="bi bi-bag-heart-fill"></i>Uniform Store</a>
+      <a href="<?= $appBase ?>/parents/community.php" class="nav-link" data-portal-section="pta"><i class="bi bi-person-hearts"></i>PTA &amp; Representatives</a>
+      <a href="<?= $appBase ?>/parents/account.php" class="nav-link" data-portal-section="settings"><i class="bi bi-gear-fill"></i>Account Settings</a>
     </nav>
     <div class="mt-auto pt-4"><button class="nav-link w-100 border-0 bg-transparent text-start" id="btnLogout"><i class="bi bi-box-arrow-right"></i>Sign out</button></div>
   </aside>
@@ -213,7 +218,7 @@ $ppGrades = function_exists('kw_active_grades') ? kw_active_grades() : [];
 
 <!-- STUDENT DETAIL VIEW -->
 <div id="view-student" class="view portal-layout">
-  <aside class="portal-sidebar"><div class="portal-brand d-flex align-items-center gap-2"><img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway" onerror="this.src='<?= $appBase ?>/images/official_school_logo.png'"><div><strong>KINGSWAY PREP</strong><small class="d-block text-white-50">Parent &amp; Family Centre</small></div></div><nav class="portal-nav"><a class="nav-link active" id="btnBackToDashboard"><i class="bi bi-arrow-left"></i>Back to family dashboard</a><div class="portal-nav-label">Child workspace</div><a class="nav-link" data-tab="fees"><i class="bi bi-receipt"></i>Fees</a><a class="nav-link" data-tab="payments"><i class="bi bi-credit-card"></i>Payments</a><a class="nav-link" data-tab="statement"><i class="bi bi-file-text"></i>Statement</a><a class="nav-link" data-tab="attendance"><i class="bi bi-calendar-check"></i>Attendance</a><a class="nav-link" data-tab="performance"><i class="bi bi-graph-up-arrow"></i>Learning progress</a><a class="nav-link" data-tab="report-card"><i class="bi bi-award"></i>Report card</a><a class="nav-link" data-tab="messages"><i class="bi bi-chat-dots"></i>Messages</a><a class="nav-link" data-tab="portfolio"><i class="bi bi-folder2-open"></i>Portfolio</a></nav></aside><section class="portal-main"><header class="portal-header"><div><h1 id="studentDetailName">Child workspace</h1><small class="text-muted" id="studentDetailClass"></small></div><div class="d-flex align-items-center gap-2"><select id="childSwitcher" class="form-select form-select-sm" aria-label="Switch child"></select><button class="btn btn-outline-success btn-sm" id="studentMobileMenu"><i class="bi bi-list"></i></button></div></header><main class="portal-content"><div class="row g-3 mb-4" id="balanceSummaryCards"></div><div class="card border-0 shadow-sm rounded-4"><div class="card-header bg-white border-0 pb-0"><ul class="nav nav-tabs" id="studentDetailTabs"><li class="nav-item"><button class="nav-link active" data-tab="fees">Fee History</button></li><li class="nav-item"><button class="nav-link" data-tab="payments">Payments</button></li><li class="nav-item"><button class="nav-link" data-tab="statement">Statement</button></li><li class="nav-item"><button class="nav-item nav-link" data-tab="attendance">Attendance</button></li><li class="nav-item"><button class="nav-link" data-tab="performance">Learning progress</button></li><li class="nav-item"><button class="nav-link" data-tab="report-card">Report Card</button></li><li class="nav-item"><button class="nav-link" data-tab="messages">Messages</button></li><li class="nav-item"><button class="nav-link" data-tab="portfolio">Portfolio</button></li></ul></div><div class="card-body" id="studentDetailContent"><div class="text-center py-4"><div class="spinner-border text-primary"></div></div></div></div></main><footer class="portal-footer">Kingsway Preparatory School · Secure child information workspace</footer></section>
+  <aside class="portal-sidebar"><div class="portal-brand d-flex align-items-center gap-2"><img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway" onerror="this.src='<?= $appBase ?>/images/official_school_logo.png'"><div><strong>KINGSWAY PREP</strong><small class="d-block text-white-50">Parent &amp; Family Centre</small></div></div><nav class="portal-nav"><a href="<?= $appBase ?>/parents/dashboard.php" class="nav-link active" id="btnBackToDashboard"><i class="bi bi-arrow-left"></i>Family dashboard</a><a class="nav-link" data-tab="fees"><i class="bi bi-receipt"></i>Fees</a><a class="nav-link" data-tab="payments"><i class="bi bi-credit-card"></i>Payments</a><a class="nav-link" data-tab="attendance"><i class="bi bi-calendar-check"></i>Attendance</a><a class="nav-link" data-tab="performance"><i class="bi bi-graph-up-arrow"></i>Learning</a><a class="nav-link" data-tab="report-card"><i class="bi bi-award"></i>Report card</a><a class="nav-link" data-tab="transport"><i class="bi bi-bus-front"></i>Transport</a><a class="nav-link" data-tab="messages"><i class="bi bi-chat-dots"></i>Messages</a><a class="nav-link" data-tab="portfolio"><i class="bi bi-folder2-open"></i>Portfolio</a></nav></aside><section class="portal-main"><header class="portal-header"><div><h1 id="studentDetailName">Child workspace</h1><small class="text-muted" id="studentDetailClass"></small></div><div class="d-flex align-items-center gap-2"><select id="childSwitcher" class="form-select form-select-sm" aria-label="Switch child"></select></div></header><main class="portal-content"><div class="row g-3 mb-4" id="balanceSummaryCards"></div><div class="card border-0 shadow-sm rounded-4"><div class="card-header bg-white border-0 pb-0"><ul class="nav nav-tabs" id="studentDetailTabs"><li class="nav-item"><button class="nav-link active" data-tab="fees">Fee History</button></li><li class="nav-item"><button class="nav-link" data-tab="payments">Payments</button></li><li class="nav-item"><button class="nav-link" data-tab="statement">Statement</button></li><li class="nav-item"><button class="nav-link" data-tab="attendance">Attendance</button></li><li class="nav-item"><button class="nav-link" data-tab="performance">Learning progress</button></li><li class="nav-item"><button class="nav-link" data-tab="report-card">Report Card</button></li><li class="nav-item"><button class="nav-link" data-tab="transport">Transport</button></li><li class="nav-item"><button class="nav-link" data-tab="messages">Messages</button></li><li class="nav-item"><button class="nav-link" data-tab="portfolio">Portfolio</button></li></ul></div><div class="card-body" id="studentDetailContent"><div class="text-center py-4"><div class="spinner-border text-primary"></div></div></div></div></main><footer class="portal-footer">Kingsway Preparatory School · Secure child information workspace</footer></section>
 </div>
 
 <!-- M-Pesa Payment Modal -->

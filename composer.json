@@ -27,7 +27,16 @@
             "App\\API\\Services\\": "api/services/",
             "App\\API\\Controllers\\": "api/controllers/",
             "App\\API\\Router\\": "api/router/"
-}
+},
+        "classmap": [
+            "api/modules/system/SystemConfigAPI.php"
+        ],
+        "files": [
+            "api/includes/helpers.php",
+            "config/asset_helpers.php",
+            "config/public_helpers.php",
+            "config/school_identity.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

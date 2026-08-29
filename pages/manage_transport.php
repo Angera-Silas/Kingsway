@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', function () {
         contentId:   'transport-content',
         templateDir: '/pages/transport/',
         module:      'Transport',
-        scriptSrc:   '/js/pages/transport.js',
+        scriptSrc:   '/js/pages/transport_admin.js',
         levels: [
             {
                 file: 'admin_transport.php',

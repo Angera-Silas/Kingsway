@@ -5,11 +5,11 @@
  * Evaluates system policies against user actions.
  * Implements the rule engine for deny/allow/restrict/require/audit policies.
  * 
- * @package App\Services
+ * @package App\API\Services
  * @since 2025-12-28
  */
 
-namespace App\Services;
+namespace App\API\Services;
 
 use App\Database\Database;
 use Exception;

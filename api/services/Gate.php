@@ -4,13 +4,6 @@ namespace App\API\Services;
 
 use RuntimeException;
 
-// PolicyEngine is not PSR-4 autoloadable (its file lives under api/services but
-// declares namespace App\Services) so it is loaded directly here — the same
-// approach the repo's own PolicyEngineTest uses.
-require_once __DIR__ . '/PolicyEngine.php';
-
-use App\Services\PolicyEngine;
-
 /**
  * Gate - Laravel-style authorization facade over the existing PolicyEngine.
  *

@@ -73,7 +73,6 @@
     require_once __DIR__ . '/../vendor/autoload.php';
 use App\Config\Config;
 Config::init();
-    require_once __DIR__ . '/../config/Config.php';
     
     // Test environment detection
     $environment = Config::getEnvironment();

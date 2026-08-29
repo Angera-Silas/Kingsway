@@ -1,0 +1,1 @@
+<?php $governedReportCode='DISC_INCIDENT_TREND'; $governedReportTitle='Discipline Incident Trend'; $governedReportLayout='risk'; $governedPrimaryVisual='line'; require __DIR__.'/reports/governed_report.php';

@@ -56,9 +56,15 @@
 <!-- FILTER BAR -->
 <div class="pr-filter">
     <div class="row g-3 align-items-end">
-        <div class="col-md-3">
-            <label class="form-label small fw-semibold mb-1">Report Type</label>
-            <select class="form-select form-select-sm" id="reportType">
+        <div class="col-12">
+            <div class="nav nav-tabs flex-nowrap overflow-auto" role="tablist" aria-label="Performance report views">
+                <button class="nav-link active text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="class_performance">Class Performance</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="subject_analysis">Subject Analysis</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="top_performers">Top Performers</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="grade_distribution">Grade Distribution</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="improvement_tracking">Improvement Tracking</button>
+            </div>
+            <select class="d-none" id="reportType" aria-hidden="true" tabindex="-1">
                 <option value="class_performance">Class Performance Summary</option>
                 <option value="subject_analysis">Subject Analysis</option>
                 <option value="top_performers">Top Performers</option>
@@ -84,13 +90,9 @@
                 <option value="">All Subjects</option>
             </select>
         </div>
-        <div class="col-md-2">
-            <button class="btn btn-pr btn-sm w-100" id="generateBtn" onclick="performanceReportsCtrl.generateReport()">
-                <i class="bi bi-bar-chart me-1"></i>Generate
-            </button>
-        </div>
     </div>
 </div>
+<?php asset_script($appBase, 'js/components/report_tabs.js'); ?>
 
 <!-- KPI ROW -->
 <div class="row g-3 mb-3">
@@ -137,7 +139,7 @@
                     <tr id="tableHeaders"></tr>
                 </thead>
                 <tbody id="tableBody">
-                    <tr><td colspan="10" class="pr-empty"><i class="bi bi-graph-up"></i>Select filters and click Generate to view performance data</td></tr>
+                    <tr><td colspan="10" class="pr-empty"><i class="bi bi-graph-up"></i>Loading the default performance report…</td></tr>
                 </tbody>
                 <tfoot class="fw-bold" id="tableFooter"></tfoot>
             </table>

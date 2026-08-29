@@ -365,7 +365,12 @@ final class StaffAppointmentsService
         }
 
         $tempPassword = $this->generateTemporaryPassword();
-        $username = $this->uniqueUsername($appointment['candidate_first_name'], $appointment['candidate_last_name']);
+        $username = UsernameService::generate(
+            $this->db->getConnection(),
+            (string) $appointment['candidate_email'],
+            (string) $appointment['candidate_first_name'],
+            (string) $appointment['candidate_last_name']
+        );
         $staffNo = $this->nextStaffNumber();
 
         // 4NF identity model: persons holds first/last name + email; users links via
@@ -674,19 +679,6 @@ final class StaffAppointmentsService
     private function generateTemporaryPassword(): string
     {
         return bin2hex(random_bytes(4)) . 'K!';
-    }
-
-    private function uniqueUsername(string $firstName, string $lastName): string
-    {
-        $base = strtolower(preg_replace('/[^a-z0-9]+/i', '.', trim($firstName . '.' . $lastName)));
-        $base = trim($base, '.') ?: 'staff';
-        $username = $base;
-        $suffix = 1;
-        while ($this->db->query('SELECT id FROM users WHERE username = ?', [$username])->fetch()) {
-            $username = $base . $suffix;
-            $suffix++;
-        }
-        return $username;
     }
 
     private function nextStaffNumber(): string

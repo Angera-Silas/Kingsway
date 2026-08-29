@@ -9,12 +9,10 @@
  *
  * Also manages backup recovery codes (10 one-time-use codes).
  *
- * @package App\Services
+ * @package App\API\Services
  */
 
 namespace App\API\Services;
-
-require_once dirname(__DIR__, 2) . '/database/Database.php';
 
 use App\Database\Database;
 use PDO;

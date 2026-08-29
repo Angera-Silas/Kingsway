@@ -25,6 +25,15 @@ class SidebarConfigReader
         $roleIds = array_values(array_unique(array_map('intval', $roleIds)));
         if (!$roleIds) return [];
 
+        // SYSTEM and SCHOOL are separate trust domains. A System Administrator
+        // may have stale or accidental secondary role assignments, but those
+        // roles must never expand the infrastructure account into school data.
+        if (in_array(2, $roleIds, true)) {
+            // Preserve the explicitly curated system groups. The school-domain
+            // module organizer would otherwise reclassify them as school work.
+            return self::attachModuleReports(self::forRole(2), [2]);
+        }
+
         // The first assigned role supplies the primary navigation. Additional
         // roles contribute capabilities, not a second copy of their entire
         // menu. This is what makes Headteacher + Subject Teacher, Deputy +
@@ -119,7 +128,73 @@ class SidebarConfigReader
             }
         }
 
-        return self::organizeIntoModules($merged);
+        // The accountant menu is already deliberately arranged around finance
+        // workflows (Fee Structure, Student Billing, Payroll, Expenditure,
+        // Accounts & Balances, and so on). Reclassifying its individual routes
+        // by generic prefixes destroys those workflow groups and sends unknown
+        // finance routes to the Operations fallback.
+        if ($roleIds[0] === 10) {
+            return self::attachModuleReports($merged, $roleIds);
+        }
+
+        return self::attachModuleReports(self::organizeIntoModules($merged), $roleIds);
+    }
+
+    private static function attachModuleReports(array $menu, array $roleIds): array
+    {
+        // The catalogue is retired as a user destination. Reports are exposed
+        // as direct, module-owned routes authorized by ReportRegistry.
+        foreach ($menu as &$parent) {
+            if (($parent['url'] ?? null) === 'analytics_catalogue') $parent['_remove'] = true;
+            $parent['subitems'] = array_values(array_filter($parent['subitems'] ?? [], static fn(array $child): bool => ($child['url'] ?? null) !== 'analytics_catalogue'));
+        }
+        unset($parent);
+        $menu = array_values(array_filter($menu, static fn(array $parent): bool => empty($parent['_remove'])));
+        $legacyGroups = [];
+        foreach ($menu as $menuIndex => $parent) {
+            if (strtolower((string)($parent['label'] ?? '')) !== 'reports') continue;
+            foreach (($parent['subitems'] ?? []) as $child) {
+                $module = self::moduleForRoute((string)($child['url'] ?? ''), 'reports');
+                $label = str_ends_with($module, 'Reports') ? $module : $module . ' Reports';
+                $legacyGroups[$label][] = $child;
+            }
+            $menu[$menuIndex]['_remove'] = true;
+        }
+        $menu = array_values(array_filter($menu, static fn(array $parent): bool => empty($parent['_remove'])));
+        foreach ($legacyGroups as $label => $children) {
+            $parentId = 958000 + count($menu) * 100;
+            foreach ($children as $childIndex => &$child) {
+                $child['id'] = $parentId + $childIndex + 1;
+                $child['parent_id'] = $parentId;
+            }
+            unset($child);
+            $menu[] = self::item($parentId, null, ['label'=>$label,'url'=>null,'icon'=>'fas fa-chart-bar'], count($menu), $children);
+        }
+        $groups = [];
+        foreach (ReportRegistry::forRoles($roleIds) as $report) $groups[$report['module']][] = $report;
+        $index = 0;
+        $systemOnly = count($roleIds) === 1 && (int) $roleIds[0] === 2;
+        foreach ($groups as $module => $reports) {
+            $label = $module . ' Reports';
+            $existingIndex = null;
+            foreach ($menu as $menuIndex => $parent) {
+                if (($parent['label'] ?? '') === $label) { $existingIndex = $menuIndex; break; }
+            }
+            $parentId = ($systemOnly ? 29800 : 960000) + ($index++ * 100);
+            $children = [];
+            foreach ($reports as $childIndex => $report) {
+                $children[] = self::item($parentId + $childIndex + 1, $parentId, ['label'=>$report['title'],'url'=>$report['route']]);
+            }
+            if ($existingIndex !== null) {
+                $existingParentId = $menu[$existingIndex]['id'] ?? $parentId;
+                foreach ($children as &$child) $child['parent_id'] = $existingParentId;
+                unset($child);
+                $menu[$existingIndex]['subitems'] = array_merge($menu[$existingIndex]['subitems'] ?? [], $children);
+            } else {
+                $menu[] = self::item($parentId, null, ['label'=>$label,'url'=>null,'icon'=>'fas fa-chart-column'], count($menu), $children);
+            }
+        }
+        return $menu;
     }
 
     /**
@@ -157,13 +232,15 @@ class SidebarConfigReader
         }
 
         // Every authenticated school-domain staff member may browse the
-        // internal merchandise catalogue. The family workspace is resolved
-        // from the staff JWT and linked parents record; non-parent staff see
-        // a clear access message instead of receiving another login flow.
+        // internal merchandise catalogue (view-only). Sell + management
+        // actions are gated by inventory write permissions in the controller
+        // and the page controller. The family workspace is resolved from the
+        // staff JWT and linked parents record; non-parent staff see a clear
+        // access message instead of receiving another login flow.
         if ($roleId > 2) {
             $catalogParent = $roleId * 10000 + 9800;
             $items[] = self::item($catalogParent, null, [
-                'label' => 'Products Catalog', 'url' => 'uniform_catalog',
+                'label' => 'Products Catalog', 'url' => 'internal_products_catalog',
                 'icon' => 'fas fa-store', 'subitems' => []
             ], $groupIndex++);
             $familyParent = $roleId * 10000 + 9900;
@@ -187,6 +264,8 @@ class SidebarConfigReader
         array $subitems = []
     ): array {
         $url = $node['url'] ?? null;
+        // Generated IDs reserve 20000-29999 for role 2 and all its children.
+        $domain = ($id >= 20000 && $id < 30000) ? 'SYSTEM' : 'SCHOOL';
         return [
             'id'                    => $id,
             'parent_id'             => $parentId,
@@ -194,7 +273,7 @@ class SidebarConfigReader
             'icon'                  => $node['icon'] ?? null,
             'url'                   => $url,
             'route_url'             => $url,
-            'domain'                => 'SCHOOL',
+                'domain'                => $domain,
             'display_order'         => $displayOrder,
             'subitems'              => $subitems,
             'show_badge'            => false,
@@ -335,6 +414,17 @@ class SidebarConfigReader
             'Library' => ['icon' => 'fas fa-book', 'children' => []],
             'Inventory & Store' => ['icon' => 'fas fa-boxes', 'children' => []],
             'Reports & Analytics' => ['icon' => 'fas fa-chart-bar', 'children' => []],
+            'Enrollment & Admissions Reports' => ['icon' => 'fas fa-user-plus', 'children' => []],
+            'Academic & CBC Reports' => ['icon' => 'fas fa-graduation-cap', 'children' => []],
+            'Attendance Reports' => ['icon' => 'fas fa-clipboard-check', 'children' => []],
+            'Finance Reports' => ['icon' => 'fas fa-coins', 'children' => []],
+            'Staff & Workforce Reports' => ['icon' => 'fas fa-user-tie', 'children' => []],
+            'Inventory & Procurement Reports' => ['icon' => 'fas fa-boxes', 'children' => []],
+            'Catering & Nutrition Reports' => ['icon' => 'fas fa-utensils', 'children' => []],
+            'Discipline & Safeguarding Reports' => ['icon' => 'fas fa-gavel', 'children' => []],
+            'Health & Welfare Reports' => ['icon' => 'fas fa-heartbeat', 'children' => []],
+            'Boarding Reports' => ['icon' => 'fas fa-bed', 'children' => []],
+            'Communication Reports' => ['icon' => 'fas fa-comments', 'children' => []],
             'Resources' => ['icon' => 'fas fa-folder-open', 'children' => []],
             'Web Management' => ['icon' => 'fas fa-globe', 'children' => []],
             'Operations' => ['icon' => 'fas fa-cogs', 'children' => []],
@@ -398,12 +488,42 @@ class SidebarConfigReader
     {
         $route = strtolower(trim($url));
         $routeModules = [
+            'academic_reports' => 'Academic & CBC Reports',
+            'performance_reports' => 'Academic & CBC Reports',
+            'performance_analysis' => 'Academic & CBC Reports',
+            'term_reports' => 'Academic & CBC Reports',
+            'comparative_reports' => 'Academic & CBC Reports',
+            'student_progress_reports' => 'Academic & CBC Reports',
+            'generate_class_report' => 'Academic & CBC Reports',
+            'generate_subject_report' => 'Academic & CBC Reports',
+            'report_cards' => 'Academic & CBC Reports',
+            'class_report_cards' => 'Academic & CBC Reports',
+            'enrollment_reports' => 'Enrollment & Admissions Reports',
+            'enrollment_trends' => 'Enrollment & Admissions Reports',
+            'attendance_reports' => 'Attendance Reports',
+            'attendance_trends' => 'Attendance Reports',
+            'finance_reports' => 'Finance Reports',
+            'payment_reports' => 'Finance Reports',
+            'inventory_reports' => 'Inventory & Procurement Reports',
+            'purchase_reports' => 'Inventory & Procurement Reports',
+            'stock_reports' => 'Inventory & Procurement Reports',
+            'food_consumption' => 'Catering & Nutrition Reports',
+            'meal_statistics' => 'Catering & Nutrition Reports',
+            'discipline_reports' => 'Discipline & Safeguarding Reports',
+            'conduct_reports' => 'Discipline & Safeguarding Reports',
+            'monthly_discipline_report' => 'Discipline & Safeguarding Reports',
+            'weekly_discipline_report' => 'Discipline & Safeguarding Reports',
+            'health_reports' => 'Health & Welfare Reports',
+            'counseling_reports' => 'Health & Welfare Reports',
+            'boarding_reports' => 'Boarding Reports',
+            'exeat_reports' => 'Boarding Reports',
+            'communications_reports' => 'Communication Reports',
             'admissions_' => 'Admissions',
             'admission_' => 'Admissions',
-            'enrollment_reports' => 'Reports & Analytics',
+            'enrollment_reports' => 'Enrollment & Admissions Reports',
             'manage_subjects' => 'Academic',
-            'academic_reports' => 'Reports & Analytics',
-            'finance_reports' => 'Reports & Analytics',
+            'academic_reports' => 'Academic & CBC Reports',
+            'finance_reports' => 'Finance Reports',
             'academic_' => 'Academic',
             'my_schemes_of_work' => 'Academic',
             'schemes_of_work' => 'Academic',
@@ -494,6 +614,7 @@ class SidebarConfigReader
             'manage_library' => 'Library',
             'library_' => 'Library',
             'uniform_catalog' => 'Inventory & Store',
+            'internal_products_catalog' => 'Inventory & Store',
             'manage_inventory' => 'Inventory & Store',
             'manage_classes' => 'Learners',
             'class_streams' => 'Learners',
@@ -504,7 +625,7 @@ class SidebarConfigReader
             'special_needs' => 'Learners',
             'alumni_' => 'Learners',
             'view_attendance' => 'Attendance',
-            'attendance_reports' => 'Reports & Analytics',
+            'attendance_reports' => 'Attendance Reports',
             'attendance_' => 'Attendance',
             'class_mark_attendance' => 'Attendance',
             'manage_staff' => 'Staff',

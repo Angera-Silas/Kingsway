@@ -38,6 +38,7 @@ final class TeacherScopeService
             'visible_stream_ids' => [],
             'class_teacher_stream_ids' => [],
             'class_stream_pairs' => [],
+            'class_teacher_pairs' => [],
             'subject_stream_pairs' => [],
             'is_teacher' => false,
         ];
@@ -142,6 +143,9 @@ final class TeacherScopeService
                     'stream_id' => (int)$row['stream_id'],
                 ];
                 $scope['class_stream_pairs'][] = $pairValue;
+                if (in_array((int)$row['id'], $scope['class_teacher_stream_ids'], true)) {
+                    $scope['class_teacher_pairs'][] = $pairValue;
+                }
                 if (in_array((int)$row['id'], $scope['subject_stream_ids'], true)) {
                     $scope['subject_stream_pairs'][] = $pairValue;
                 }

@@ -181,7 +181,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!res?.token) throw new Error(res?.message || 'Login failed. Check your credentials.');
         setSpinnerLabel('Preparing your dashboard…');
       } catch (err) {
-        showLoginErr(err.message || 'Login failed. Please try again.');
+        const message = err.message || 'Login failed. Please try again.';
+        showLoginErr(message);
+
+        // A lockout is important enough to surface beyond the compact inline
+        // form error. The toast remains visible above the open login modal.
+        if (/account\s+(?:is\s+)?locked|account locked/i.test(message)) {
+          if (typeof window.showNotification === 'function') {
+            window.showNotification(message, 'warning');
+          } else if (typeof window.infoDialog === 'function') {
+            window.infoDialog('Account temporarily locked', message, { danger: true });
+          } else {
+            window.alert(message);
+          }
+        }
       }
     });
   }

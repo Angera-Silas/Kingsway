@@ -65,9 +65,27 @@ class VehicleManager
     }
     public function getAllVehicles()
     {
-        $stmt = $this->db->prepare("SELECT * FROM transport_vehicles");
+        $stmt = $this->db->prepare("SELECT v.*,
+                    (SELECT GROUP_CONCAT(DISTINCT tvr.route_id ORDER BY tvr.route_id) FROM transport_vehicle_routes tvr WHERE tvr.vehicle_id=v.id AND tvr.status='active') AS route_ids,
+                    (SELECT GROUP_CONCAT(DISTINCT tr.name ORDER BY tr.name SEPARATOR ', ') FROM transport_vehicle_routes tvr JOIN transport_routes tr ON tr.id=tvr.route_id WHERE tvr.vehicle_id=v.id AND tvr.status='active') AS route_names
+                FROM transport_vehicles v ORDER BY v.registration_number");
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    public function syncVehicleRoutes(int $vehicleId, array $routeIds): array
+    {
+        $routeIds = array_values(array_unique(array_filter(array_map('intval', $routeIds), fn($id) => $id > 0)));
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare("UPDATE transport_vehicle_routes SET status='inactive' WHERE vehicle_id=?")->execute([$vehicleId]);
+            $stmt = $this->db->prepare("INSERT INTO transport_vehicle_routes (vehicle_id,route_id,direction,status) VALUES (?,?,'pickup','active') ON DUPLICATE KEY UPDATE status='active'");
+            foreach ($routeIds as $routeId) $stmt->execute([$vehicleId, $routeId]);
+            $this->db->commit();
+            return ['vehicle_id' => $vehicleId, 'route_ids' => $routeIds];
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
     }
     // Assign vehicle to route (link stored in transport_vehicle_routes)
     public function assignVehicleToRoute($vehicleId, $routeId)

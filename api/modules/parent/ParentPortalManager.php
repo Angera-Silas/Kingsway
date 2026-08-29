@@ -571,6 +571,34 @@ class ParentPortalManager extends BaseAPI
         }
     }
 
+    public function getStudentTransport(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) return $access;
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT a.status, a.pickup_time, a.dropoff_time, a.expected_amount,
+                        r.name AS route_name, ps.name AS pickup_stop, ds.name AS dropoff_stop,
+                        v.registration_number, CONCAT_WS(' ', dp.first_name, dp.last_name) AS driver_name
+                   FROM student_transport_assignments a
+                   JOIN transport_routes r ON r.id = a.route_id
+              LEFT JOIN transport_stops ps ON ps.id = COALESCE(a.pickup_stop_id, a.stop_id)
+              LEFT JOIN transport_stops ds ON ds.id = COALESCE(a.dropoff_stop_id, a.stop_id)
+              LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = r.id AND tvr.status = 'active'
+              LEFT JOIN transport_vehicles v ON v.id = tvr.vehicle_id
+              LEFT JOIN staff d ON d.id = v.driver_id
+              LEFT JOIN persons dp ON dp.id = d.person_id
+                  WHERE a.student_id = ?
+               ORDER BY a.year DESC, a.month DESC LIMIT 1"
+            );
+            $stmt->execute([$studentId]);
+            return $this->successResponse($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+        } catch (Exception $e) {
+            error_log('[ParentPortalManager] transport: ' . $e->getMessage());
+            return $this->errorResponse('Failed to load transport information', 500);
+        }
+    }
+
     /**
      * Report-card-style performance data: subject scores, competencies, values.
      *

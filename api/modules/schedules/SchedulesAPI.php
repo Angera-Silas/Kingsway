@@ -1426,7 +1426,6 @@ class SchedulesAPI extends BaseAPI {
                 return errorResponse('No academic year found', 404);
             }
 
-            require_once __DIR__ . '/../academic/AcademicCalendarService.php';
             $calendarService = new \App\API\Modules\academic\AcademicCalendarService($this->db);
             $result = $calendarService->generateYearCalendar($yearId);
             $this->calendarSync->syncAcademicYear($yearId);

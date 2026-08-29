@@ -1,0 +1,1 @@
+<?php $governedReportCode='CAT_FOOD_CONSUMPTION'; $governedReportTitle='Food Consumption Trend'; $governedReportLayout='trend'; $governedPrimaryVisual='area'; require __DIR__.'/reports/governed_report.php';

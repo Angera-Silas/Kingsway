@@ -1403,11 +1403,11 @@ class PaymentsAPI extends BaseAPI
         if (strlen($phone) === 10 && substr($phone, 0, 1) === '0') $phone = '254' . substr($phone, 1);
         if (!preg_match('/^254[0-9]{9}$/', $phone)) return;
 
-        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
+        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parents/';
         $message = 'Kingsway received KES ' . number_format((float) $amount, 2)
             . ' for account ' . $reference . '. Receipt: KCB-' . $transactionReference . '.';
         if ($customerName !== '') $message .= ' Payer: ' . $customerName . '.';
-        if ($portalUrl !== '/parent_portal.php') $message .= ' View statement: ' . $portalUrl;
+        if ($portalUrl !== '/parents/') $message .= ' View statement: ' . $portalUrl;
 
         try {
             $manager = new \App\API\Modules\communications\CommunicationsManager($this->db);
@@ -1624,16 +1624,22 @@ class PaymentsAPI extends BaseAPI
     //   payment_method -> method, amount_paid -> amount, reference_no -> reference,
     //   payment_date -> payment_date (datetime), status -> status.
 
-    public function getRevenueSources()
+    public function getRevenueSources(array $filters = [])
     {
         try {
-            $rows = $this->db->query(
+            $where = ["status = 'confirmed'"];
+            $params = [];
+            if (!empty($filters['date_from'])) { $where[] = 'payment_date >= ?'; $params[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $where[] = 'payment_date <= ?'; $params[] = $filters['date_to']; }
+            $stmt = $this->db->prepare(
                 "SELECT method AS source, SUM(amount) AS total
                  FROM payments
-                 WHERE status = 'confirmed'
+                 WHERE " . implode(' AND ', $where) . "
                  GROUP BY method
                  ORDER BY total DESC"
-            )->fetchAll(\PDO::FETCH_ASSOC);
+            );
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse([
                 'sources' => $rows,
                 'timestamp' => date('Y-m-d H:i:s'),
@@ -1693,16 +1699,21 @@ class PaymentsAPI extends BaseAPI
         }
     }
 
-    public function getFeeStats()
+    public function getFeeStats(array $filters = [])
     {
         try {
-            $monthly = $this->db->query(
-                "SELECT COALESCE(SUM(amount), 0) AS monthly_collected
-                 FROM payments
-                 WHERE status = 'confirmed'
-                   AND YEAR(payment_date) = YEAR(NOW())
-                   AND MONTH(payment_date) = MONTH(NOW())"
-            )->fetch(\PDO::FETCH_ASSOC);
+            $paymentWhere = ["status = 'confirmed'"];
+            $paymentParams = [];
+            if (!empty($filters['date_from'])) { $paymentWhere[] = 'payment_date >= ?'; $paymentParams[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $paymentWhere[] = 'payment_date <= ?'; $paymentParams[] = $filters['date_to']; }
+            if (!$paymentParams) {
+                $paymentWhere[] = 'YEAR(payment_date) = YEAR(NOW()) AND MONTH(payment_date) = MONTH(NOW())';
+            }
+            $monthlyStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) AS monthly_collected FROM payments WHERE " . implode(' AND ', $paymentWhere)
+            );
+            $monthlyStmt->execute($paymentParams);
+            $monthly = $monthlyStmt->fetch(\PDO::FETCH_ASSOC);
             $monthlyCollected = (float) ($monthly['monthly_collected'] ?? 0);
 
             $overdue = $this->db->query(
@@ -1720,11 +1731,16 @@ class PaymentsAPI extends BaseAPI
             )->fetch(\PDO::FETCH_ASSOC);
             $totalExpected = (float) ($expected['total_expected'] ?? 0);
 
-            $collected = $this->db->query(
-                "SELECT COALESCE(SUM(amount), 0) AS amount_collected
-                 FROM payments
-                 WHERE status = 'confirmed' AND payment_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
-            )->fetch(\PDO::FETCH_ASSOC);
+            $collectedWhere = ["status = 'confirmed'"];
+            $collectedParams = [];
+            if (!empty($filters['date_from'])) { $collectedWhere[] = 'payment_date >= ?'; $collectedParams[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $collectedWhere[] = 'payment_date <= ?'; $collectedParams[] = $filters['date_to']; }
+            if (!$collectedParams) $collectedWhere[] = 'payment_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
+            $collectedStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) AS amount_collected FROM payments WHERE " . implode(' AND ', $collectedWhere)
+            );
+            $collectedStmt->execute($collectedParams);
+            $collected = $collectedStmt->fetch(\PDO::FETCH_ASSOC);
             $amountCollected = (float) ($collected['amount_collected'] ?? 0);
 
             $outstanding = $this->db->query(
@@ -1751,20 +1767,26 @@ class PaymentsAPI extends BaseAPI
         }
     }
 
-    public function getCollectionTrends()
+    public function getCollectionTrends(array $filters = [])
     {
         try {
-            $monthly = $this->db->query(
+            $where = ["status = 'confirmed'"];
+            $params = [];
+            if (!empty($filters['date_from'])) { $where[] = 'payment_date >= ?'; $params[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $where[] = 'payment_date <= ?'; $params[] = $filters['date_to']; }
+            if (!$params) $where[] = 'payment_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)';
+            $trendStmt = $this->db->prepare(
                 "SELECT DATE_FORMAT(payment_date, '%Y-%m') AS month,
                         DATE_FORMAT(payment_date, '%b') AS month_label,
                         SUM(amount) AS collected,
                         COUNT(DISTINCT student_id) AS students_paid
                  FROM payments
-                 WHERE status = 'confirmed'
-                   AND payment_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+                 WHERE " . implode(' AND ', $where) . "
                  GROUP BY DATE_FORMAT(payment_date, '%Y-%m')
                  ORDER BY month ASC"
-            )->fetchAll(\PDO::FETCH_ASSOC);
+            );
+            $trendStmt->execute($params);
+            $monthly = $trendStmt->fetchAll(\PDO::FETCH_ASSOC);
 
             $expected = $this->db->query(
                 "SELECT COALESCE(SUM(amount_due), 0) AS total_expected

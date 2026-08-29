@@ -174,7 +174,7 @@
                     <li><a class="dropdown-item" href="#" onclick="assessExamsCtrl.bulkEnterResults()"><i class="bi bi-pencil-square me-2"></i>Bulk Grade Entry</a></li>
                     <li><a class="dropdown-item" href="#" onclick="assessExamsCtrl.exportGradebook()"><i class="bi bi-download me-2"></i>Export Gradebook</a></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="#" onclick="assessExamsCtrl.goToReports()"><i class="bi bi-file-earmark-text me-2"></i>Generate Report Cards</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="assessExamsCtrl.goToReports()"><i class="bi bi-file-earmark-text me-2"></i>Report Cards</a></li>
                 </ul>
             </div>
         </div>

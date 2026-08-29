@@ -361,6 +361,20 @@ final class AnalyticsReportRegistryService
         $row['freshness_minutes'] = (int) $row['freshness_minutes'];
         $row['minimum_aggregation_size'] = (int) $row['minimum_aggregation_size'];
         $row['scope_types'] = empty($row['scope_types']) ? [] : explode(',', (string) $row['scope_types']);
+        // Compatibility for installations whose analytics metadata predates
+        // migration 192: discipline_incidents stores textual `type`, not a
+        // numeric category foreign key.
+        if (($row['code'] ?? '') === 'DISC_INCIDENT_TREND') {
+            $row['allowed_filters'] = array_values(array_unique(array_map(
+                static fn(string $filter): string => $filter === 'category_id' ? 'category' : $filter,
+                $row['allowed_filters'] ?? []
+            )));
+        }
+        // Attendance is stream-sensitive for class teachers. Older metadata
+        // omitted stream_id even though the executor and scope service support it.
+        if (($row['code'] ?? '') === 'ATT_CLASS_TERM_RATE' && !in_array('stream_id', $row['allowed_filters'] ?? [], true)) {
+            $row['allowed_filters'][] = 'stream_id';
+        }
         $row['capabilities'] = [
             'view' => !empty($row['can_view']),
             'execute' => !empty($row['can_execute']),

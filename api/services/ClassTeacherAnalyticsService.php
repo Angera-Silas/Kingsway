@@ -389,20 +389,13 @@ class ClassTeacherAnalyticsService
                 return [];
             }
 
-            // Map: class_schedules → timetable_entries (normalized schema)
-            $query = "SELECT 
-                        te.time_slot_id as time,
-                        la.name as subject,
-                        CONCAT(p.first_name, ' ', p.last_name) as teacher,
-                        aycs.room_id as location
-                      FROM timetable_entries te
-                      JOIN academic_year_class_streams aycs ON te.academic_year_class_stream_id = aycs.id
-                      JOIN learning_areas la ON te.learning_area_id = la.id
-                      JOIN staff st ON te.teacher_id = st.id
-                      LEFT JOIN persons p ON p.id = st.person_id
-                      WHERE te.academic_year_class_stream_id = ?
-                        AND te.day_of_week = WEEKDAY(CURDATE()) + 1
-                      ORDER BY te.time_slot_id ASC";
+            $query = "SELECT start_time, end_time, subject_name AS subject,
+                             teacher_name AS teacher, room_name, status
+                        FROM vw_timetable_entries
+                       WHERE academic_year_class_stream_id = ?
+                         AND day_of_week = WEEKDAY(CURDATE()) + 1
+                         AND status = 'scheduled'
+                       ORDER BY start_time";
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
@@ -493,6 +486,20 @@ class ClassTeacherAnalyticsService
     /**
      * Get full dashboard data in a single call
      */
+    public function getUpcomingEvents(): array
+    {
+        try {
+            $events = (new CalendarSyncService($this->db->getConnection()))->getUnifiedEvents();
+            $today = date('Y-m-d');
+            $events = array_values(array_filter($events, static fn(array $event): bool => ($event['start_date'] ?? '') >= $today && ($event['status'] ?? '') !== 'cancelled'));
+            usort($events, static fn(array $left, array $right): int => strcmp($left['start_date'] ?? '', $right['start_date'] ?? ''));
+            return array_slice($events, 0, 6);
+        } catch (Exception $e) {
+            error_log('Class teacher events error: ' . $e->getMessage());
+            return [];
+        }
+    }
+
     public function getFullDashboardData(): array
     {
         return [
@@ -510,6 +517,7 @@ class ClassTeacherAnalyticsService
             ],
             'tables' => [
                 'today_schedule' => $this->getTodaySchedule(),
+                'upcoming_events' => $this->getUpcomingEvents(),
                 'student_assessment_status' => $this->getStudentAssessmentStatus(),
                 'student_roster' => $this->getStudentRoster()
             ],

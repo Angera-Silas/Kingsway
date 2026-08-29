@@ -169,6 +169,13 @@ class ParentPortalController extends BaseController
         return $this->handleApiResponse($this->parent->getStudentAttendance((int)$id));
     }
 
+    /** GET /api/parent-portal/student-transport/{id} */
+    public function getStudentTransport($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentTransport((int) $id));
+    }
+
     /**
      * GET /api/parent-portal/student-performance/{id}
      */

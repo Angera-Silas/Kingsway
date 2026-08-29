@@ -1,8 +1,7 @@
 <?php
 // Main authenticated application shell.
 
-require_once __DIR__ . '/config/DashboardRouter.php';
-require_once __DIR__ . '/config/asset_helpers.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
 $appBase = rtrim(
     str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')),

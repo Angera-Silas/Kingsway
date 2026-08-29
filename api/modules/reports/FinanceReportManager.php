@@ -19,8 +19,18 @@ class FinanceReportManager extends BaseAPI
             $termId = $termRow['term_id'] ?? null;
         }
 
-        $where  = $termId ? 'WHERE fb.term_id = ?' : '';
-        $params = $termId ? [$termId] : [];
+        $where = [];
+        $params = [];
+        if ($termId) {
+            $where[] = '(fb.term_id = ? OR fb.term_id = (SELECT ayt.term_id FROM academic_year_terms ayt WHERE ayt.id = ?))';
+            $params[] = (int) $termId;
+            $params[] = (int) $termId;
+        }
+        if (!empty($filters['class_id'])) {
+            $where[] = 'ayc.class_id = ?';
+            $params[] = (int) $filters['class_id'];
+        }
+        $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
         $sql = "SELECT
                     c.name AS class_name,
@@ -33,7 +43,7 @@ class FinanceReportManager extends BaseAPI
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 LEFT JOIN classes c ON c.id = ayc.class_id
-                $where
+                $whereSql
                 GROUP BY c.id, c.name
                 ORDER BY c.name";
         $stmt = $this->db->prepare($sql);
@@ -83,6 +93,17 @@ class FinanceReportManager extends BaseAPI
      */
     public function getArrearsStats($filters = [])
     {
+        $where = ['fb.balance > 0'];
+        $params = [];
+        if (!empty($filters['academic_term_id'])) {
+            $where[] = '(fb.term_id = ? OR fb.term_id = (SELECT ayt.term_id FROM academic_year_terms ayt WHERE ayt.id = ?))';
+            $params[] = (int) $filters['academic_term_id'];
+            $params[] = (int) $filters['academic_term_id'];
+        }
+        if (!empty($filters['class_id'])) {
+            $where[] = 'ayc.class_id = ?';
+            $params[] = (int) $filters['class_id'];
+        }
         $sql = "SELECT
                     c.id AS class_id,
                     c.name AS class_name,
@@ -93,10 +114,11 @@ class FinanceReportManager extends BaseAPI
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 LEFT JOIN classes c ON c.id = ayc.class_id
-                WHERE fb.balance > 0
+                WHERE " . implode(' AND ', $where) . "
                 GROUP BY c.id, c.name
                 ORDER BY total_arrears DESC";
-        $stmt = $this->db->query($sql);
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 

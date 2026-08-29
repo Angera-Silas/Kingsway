@@ -83,16 +83,24 @@ class TransportAPI extends BaseAPI
             );
             $eligible = $this->db->prepare("SELECT COUNT(*) FROM student_transport_assignments WHERE student_id=? AND route_id=? AND status IN ('active','suspended')");
             $recorded = 0;
+            $balances = [];
+            $this->db->beginTransaction();
             foreach ($presentIds as $studentId) {
                 $eligible->execute([(int)$studentId, $routeId]);
                 if (!(int)$eligible->fetchColumn()) throw new \InvalidArgumentException('One or more selected learners are not active passengers on this route.');
+                if (in_array($status, ['picked_up', 'dropped_off'], true)) {
+                    $balances[(int)$studentId] = $this->entitlementManager->consumeSchoolDay((int)$studentId, $routeId, $date);
+                }
                 $stmt->execute([(int) $studentId, $routeId, $date, $tripSession, $status, (int) $userId]);
                 $recorded++;
             }
-            return $this->successResponse(['recorded' => $recorded, 'date' => $date]);
+            $this->db->commit();
+            return $this->successResponse(['recorded' => $recorded, 'date' => $date, 'school_day_balances' => $balances]);
         } catch (\InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
             return $this->errorResponse($e->getMessage(), 400);
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
             $this->logError($e, 'TransportAPI::recordStudentAttendance');
             return $this->errorResponse('An internal error occurred.', 500);
         }
@@ -112,6 +120,7 @@ class TransportAPI extends BaseAPI
     protected $paymentManager;
     protected $statusManager;
     protected $vehicleManager;
+    protected $entitlementManager;
 
     public function __construct()
     {
@@ -123,6 +132,7 @@ class TransportAPI extends BaseAPI
         $this->paymentManager = new StudentTransportPaymentManager($this->db);
         $this->statusManager = new StudentTransportStatusManager($this->db);
         $this->vehicleManager = new VehicleManager($this->db);
+        $this->entitlementManager = new StudentTransportEntitlementManager($this->db);
     }
 
     // Assign a route to a student or entity (stub, adjust as needed)
@@ -218,6 +228,10 @@ class TransportAPI extends BaseAPI
     {
         return $this->driverManager->deleteDriver($id);
     }
+    public function syncDriverRoutes($driverId, array $routeIds)
+    {
+        return $this->driverManager->syncDriverRoutes((int)$driverId, $routeIds);
+    }
 
     public function getRoute($id)
     {
@@ -251,6 +265,10 @@ class TransportAPI extends BaseAPI
     public function getAllStops()
     {
         return $this->stopManager->getAllStops();
+    }
+    public function syncRouteStops($routeId, array $stops)
+    {
+        return $this->stopManager->syncRouteStops((int)$routeId, $stops);
     }
     public function createStop($data)
     {
@@ -368,6 +386,10 @@ class TransportAPI extends BaseAPI
     public function assignVehicleToRoute($vehicleId, $routeId)
     {
         return $this->vehicleManager->assignVehicleToRoute($vehicleId, $routeId);
+    }
+    public function syncVehicleRoutes($vehicleId, array $routeIds)
+    {
+        return $this->vehicleManager->syncVehicleRoutes((int)$vehicleId, $routeIds);
     }
     public function setVehicleStatus($id, $status)
     {

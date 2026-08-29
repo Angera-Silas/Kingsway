@@ -1,9 +1,32 @@
 <?php
 /**
- * Governed Enterprise Analytics Catalogue.
- * Business logic lives in js/pages/analytics_catalogue.js.
+ * Retired collective report catalogue. Existing bookmarks are routed to the
+ * first module-owned report authorized for the signed-in user's primary role.
  */
 ?>
+<div class="container-fluid py-5 text-center" id="retiredAnalyticsCatalogue">
+    <span class="spinner-border text-success" aria-hidden="true"></span>
+    <p class="mt-3 text-muted">Opening your Reports &amp; Analytics workspace…</p>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    await window.AuthContext?.ready?.();
+    const user = window.AuthContext?.getUser?.() || {};
+    const roleIds = (user.roles || []).map((role) => Number(role.id ?? role.role_id ?? role));
+    const primary = Number(user.role_id || user.main_role_id || roleIds[0] || 0);
+    const destinations = {
+        2:'report_system_audit_summary', 3:'report_current_enrollment_by_class',
+        4:'report_current_enrollment_by_class', 5:'report_current_enrollment_by_class',
+        6:'report_cbc_class_assessment', 7:'report_cbc_class_assessment',
+        10:'report_fee_summary_by_class', 14:'report_inventory_stock_levels',
+        16:'report_food_consumption_trend', 32:'report_food_consumption_trend',
+        63:'report_discipline_incident_trend'
+    };
+    const route = destinations[primary] || roleIds.map((id) => destinations[id]).find(Boolean);
+    window.location.replace(`${window.APP_BASE || ''}/home.php?route=${route || 'dashboard_access_denied'}`);
+});
+</script>
+<?php return; ?>
 <style>
     .analytics-hero {
         background: linear-gradient(135deg, #123c2d, #1f7a55);
@@ -135,11 +158,6 @@
                         <span class="analytics-meta">Your authorized scope is enforced by the server.</span>
                     </div>
                     <div class="row g-2" id="analyticsFilterFields"></div>
-                    <div class="mt-3">
-                        <button class="btn btn-success" type="submit" id="analyticsRunButton">
-                            <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run report
-                        </button>
-                    </div>
                 </form>
 
                 <div id="analyticsResultRegion" hidden>

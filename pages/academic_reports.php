@@ -193,9 +193,6 @@
         <small>Class performance, subject analysis, CBC grade trends and student progress</small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-light btn-sm" id="generateReport" onclick="academicReportsCtrl.generateReport()">
-            <i class="bi bi-file-earmark-pdf me-1"></i>Generate Report
-        </button>
         <button class="btn btn-light btn-sm" onclick="academicReportsCtrl.exportReport()">
             <i class="bi bi-download me-1"></i>Export
         </button>
@@ -217,9 +214,15 @@
                 <option value="">All Terms</option>
             </select>
         </div>
-        <div class="col-md-3">
-            <label class="form-label small fw-semibold mb-1">Report Type</label>
-            <select class="form-select form-select-sm" id="reportType">
+        <div class="col-12">
+            <div class="nav nav-tabs flex-nowrap overflow-auto" role="tablist" aria-label="Academic report views">
+                <button class="nav-link active text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="class">Class Performance</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="subject">Subject Analysis</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="student">Student Progress</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="comparison">Term Comparison</button>
+                <button class="nav-link text-nowrap" type="button" data-report-tab-target="reportType" data-report-tab-value="grade_distribution">Grade Distribution</button>
+            </div>
+            <select class="d-none" id="reportType" aria-hidden="true" tabindex="-1">
                 <option value="class">Class Performance</option>
                 <option value="subject">Subject Analysis</option>
                 <option value="student">Student Progress</option>
@@ -233,13 +236,9 @@
                 <option value="">All Classes</option>
             </select>
         </div>
-        <div class="col-md-2">
-            <button class="btn btn-ar btn-sm w-100" onclick="academicReportsCtrl.generateReport()">
-                <i class="bi bi-bar-chart me-1"></i>Analyse
-            </button>
-        </div>
     </div>
 </div>
+<?php asset_script($appBase, 'js/components/report_tabs.js'); ?>
 
 <!-- KPI ROW -->
 <div class="row g-3 mb-3">

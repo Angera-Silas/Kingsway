@@ -54,7 +54,9 @@ const StaffAttendanceController = {
       }
     };
 
-    bind("generateBtn", "click", () => this.generateReport());
+    ["dateFrom", "dateTo", "department", "dutyType", "statusFilter"].forEach((id) => {
+      bind(id, "change", () => this.generateReport());
+    });
     bind("exportBtn", "click", () => this.exportData());
     bind("printBtn", "click", () => this.printReport());
     bind("loadStaffForMarkingBtn", "click", () => this.loadStaffForMarking());

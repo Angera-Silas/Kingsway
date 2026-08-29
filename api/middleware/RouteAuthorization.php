@@ -20,8 +20,6 @@
 
 namespace App\API\Middleware;
 
-require_once dirname(__DIR__, 2) . '/database/Database.php';
-
 use App\Database\Database;
 
 class RouteAuthorization
