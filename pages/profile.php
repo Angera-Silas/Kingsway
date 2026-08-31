@@ -1,8 +1,25 @@
-<div class="container-fluid py-3" id="profilePage">
+<script>
+window.location.replace((window.APP_BASE || '') + '/home.php?route=account_settings&section=profile');
+</script>
+<noscript><meta http-equiv="refresh" content="0;url=home.php?route=account_settings&amp;section=profile"></noscript>
+<div class="alert alert-info">Opening the unified Account Centre…</div>
+<?php /* Legacy profile markup retained below temporarily for rollback safety. */ ?>
+<div class="container-fluid py-3 d-none" id="profilePage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h2 class="h3 mb-0" id="profileGreeting">Welcome</h2>
-            <p class="text-muted mb-0">Your profile and staff information</p>
+            <p class="text-muted mb-0">Your profile and account information</p>
+        </div>
+        <div>
+            <button class="btn btn-outline-primary d-none" type="button" id="profileEditBtn">
+                <i class="bi bi-pencil me-1"></i>Edit Details
+            </button>
+            <button class="btn btn-outline-secondary d-none" type="button" id="profileCancelBtn">
+                <i class="bi bi-x me-1"></i>Cancel
+            </button>
+            <button class="btn btn-primary d-none" type="button" id="profileSaveBtn">
+                <i class="bi bi-check me-1"></i>Save Changes
+            </button>
         </div>
     </div>
 
@@ -15,22 +32,23 @@
                          style="width:80px;height:80px;font-size:2rem;
                                 background:var(--kw-primary);color:#fff;
                                 border-radius:50%;display:flex;align-items:center;
-                                justify-content:center"
+                                justify-content:center;overflow:hidden"
                          id="profileAvatar">U</div>
                     <h5 class="card-title mb-1" id="profileName">User</h5>
                     <p class="text-muted small mb-2" id="profileEmail">—</p>
                     <span class="badge bg-success mb-3" id="profileRole">User</span>
+                    <div id="profileDomainBadge"></div>
                     <hr>
                     <div class="text-start small">
-                        <div class="d-flex justify-content-between mb-2">
-                            <span class="text-muted">Staff Number</span>
-                            <strong id="profileEmployeeId">—</strong>
-                        </div>
                         <div class="d-flex justify-content-between mb-2">
                             <span class="text-muted">Phone</span>
                             <strong id="profilePhone">—</strong>
                         </div>
-                        <div class="d-flex justify-content-between mb-2">
+                        <div class="d-flex justify-content-between mb-2 d-none" id="profileEmployeeRow">
+                            <span class="text-muted">Staff Number</span>
+                            <strong id="profileEmployeeId">—</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2 d-none" id="profileDepartmentRow">
                             <span class="text-muted">Department</span>
                             <strong id="profileDepartment">—</strong>
                         </div>
@@ -38,7 +56,7 @@
                             <span class="text-muted">Academic Year</span>
                             <strong id="currentAcademicYear">—</strong>
                         </div>
-                        <div class="d-flex justify-content-between">
+                        <div class="d-flex justify-content-between d-none" id="profileTenureRow">
                             <span class="text-muted">With Kingsway</span>
                             <strong id="profileTenure">—</strong>
                         </div>
@@ -51,117 +69,35 @@
             </div>
         </div>
 
-        <!-- ── Employee Information ────────────────────────────────── -->
+        <!-- ── Personal / Employment / Statutory Cards ─────────────── -->
         <div class="col-lg-8">
+            <!-- Personal Information (rendered by controller, editable) -->
             <div class="card border-0 shadow-sm mb-3">
                 <div class="card-header bg-white">
                     <strong>Personal Information</strong>
                 </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">First Name</label>
-                            <input type="text" class="form-control" id="firstName" readonly>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Last Name</label>
-                            <input type="text" class="form-control" id="lastName" readonly>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Email</label>
-                            <input type="email" class="form-control" id="email" readonly>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Phone</label>
-                            <input type="tel" class="form-control" id="phone" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Gender</label>
-                            <input type="text" class="form-control" id="gender" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Date of Birth</label>
-                            <input type="text" class="form-control" id="dob" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Marital Status</label>
-                            <input type="text" class="form-control" id="maritalStatus" readonly>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label small fw-semibold">Address</label>
-                            <input type="text" class="form-control" id="address" readonly>
-                        </div>
-                    </div>
+                <div class="card-body" id="personalInfoFields">
+                    <p class="text-muted small mb-0">Loading...</p>
                 </div>
             </div>
 
-            <!-- ── Employment Details ──────────────────────────────── -->
-            <div class="card border-0 shadow-sm mb-3">
+            <!-- Employment Details (school domain only, read-only, rendered by controller) -->
+            <div class="card border-0 shadow-sm mb-3 d-none" id="employmentCard">
                 <div class="card-header bg-white">
                     <strong>Employment Details</strong>
                 </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Position / Job Title</label>
-                            <input type="text" class="form-control" id="position" readonly>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Department</label>
-                            <input type="text" class="form-control" id="department" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Contract Type</label>
-                            <input type="text" class="form-control" id="contractType" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Employment Date</label>
-                            <input type="text" class="form-control" id="employmentDate" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Supervisor</label>
-                            <input type="text" class="form-control" id="supervisor" readonly>
-                        </div>
-                    </div>
-                </div>
+                <div class="card-body" id="employmentFields"></div>
             </div>
 
-            <!-- ── Financial & Statutory ────────────────────────────── -->
-            <div class="card border-0 shadow-sm mb-3">
+            <!-- Financial & Statutory (school domain only, read-only, rendered by controller) -->
+            <div class="card border-0 shadow-sm mb-3 d-none" id="financialCard">
                 <div class="card-header bg-white">
                     <strong>Financial & Statutory Information</strong>
                 </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Bank Name</label>
-                            <input type="text" class="form-control" id="bankName" readonly>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Bank Account</label>
-                            <input type="text" class="form-control" id="bankAccount" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">KRA PIN</label>
-                            <input type="text" class="form-control" id="kraPin" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">NSSF No.</label>
-                            <input type="text" class="form-control" id="nssfNo" readonly>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">NHIF No.</label>
-                            <input type="text" class="form-control" id="nhifNo" readonly>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">TSC No.</label>
-                            <input type="text" class="form-control" id="tscNo" readonly>
-                        </div>
-                    </div>
-                </div>
+                <div class="card-body" id="financialFields"></div>
             </div>
 
-            <!-- ── Roles ────────────────────────────────────────────── -->
+            <!-- Roles -->
             <div class="card border-0 shadow-sm mb-3">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <strong>Roles</strong>
@@ -173,8 +109,8 @@
         </div>
     </div>
 
-    <!-- ── KPI Summary ────────────────────────────────────────────── -->
-    <div class="row g-3 mt-1">
+    <!-- ── KPI Summary (school domain only) ────────────────────────── -->
+    <div class="row g-3 mt-1 d-none" id="kpiSection">
         <div class="col-12">
             <div class="card border-0 shadow-sm">
                 <div class="card-header bg-white">

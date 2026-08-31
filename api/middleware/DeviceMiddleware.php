@@ -86,7 +86,7 @@ class DeviceMiddleware
             return !empty($result);
         } catch (\Exception $e) {
             // Log but don't block on database error
-            error_log("Device blacklist check failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Device blacklist check failed: " . $e->getMessage());
             return false;
         }
     }
@@ -113,7 +113,7 @@ class DeviceMiddleware
             ]);
         } catch (\Exception $e) {
             // Log but don't block on database error
-            error_log("Device logging failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Device logging failed: " . $e->getMessage());
         }
     }
 

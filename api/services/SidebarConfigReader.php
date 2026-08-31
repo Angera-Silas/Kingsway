@@ -142,59 +142,101 @@ class SidebarConfigReader
 
     private static function attachModuleReports(array $menu, array $roleIds): array
     {
-        // The catalogue is retired as a user destination. Reports are exposed
-        // as direct, module-owned routes authorized by ReportRegistry.
-        foreach ($menu as &$parent) {
-            if (($parent['url'] ?? null) === 'analytics_catalogue') $parent['_remove'] = true;
-            $parent['subitems'] = array_values(array_filter($parent['subitems'] ?? [], static fn(array $child): bool => ($child['url'] ?? null) !== 'analytics_catalogue'));
-        }
-        unset($parent);
-        $menu = array_values(array_filter($menu, static fn(array $parent): bool => empty($parent['_remove'])));
-        $legacyGroups = [];
-        foreach ($menu as $menuIndex => $parent) {
-            if (strtolower((string)($parent['label'] ?? '')) !== 'reports') continue;
-            foreach (($parent['subitems'] ?? []) as $child) {
-                $module = self::moduleForRoute((string)($child['url'] ?? ''), 'reports');
-                $label = str_ends_with($module, 'Reports') ? $module : $module . ' Reports';
-                $legacyGroups[$label][] = $child;
+        // One reporting destination. The previous implementation converted a
+        // single Reports menu into many top-level "... Reports" groups, which
+        // scattered related analysis throughout the sidebar and made labels
+        // overflow. Legacy report links and governed registry reports are now
+        // merged into one deduplicated Reports & Analytics section.
+        $reportChildren = [];
+        $cleanMenu = [];
+        foreach ($menu as $parent) {
+            $label = strtolower(trim((string)($parent['label'] ?? '')));
+            $isReportParent = $label === 'reports'
+                || $label === 'reports & analytics'
+                || str_ends_with($label, ' reports');
+            if ($isReportParent) {
+                $reportChildren = array_merge($reportChildren, $parent['subitems'] ?? []);
+                continue;
             }
-            $menu[$menuIndex]['_remove'] = true;
+            $children = [];
+            foreach (($parent['subitems'] ?? []) as $child) {
+                if (($child['url'] ?? null) === 'analytics_catalogue') {
+                    $reportChildren[] = $child;
+                    continue;
+                }
+                $children[] = $child;
+            }
+            $parent['subitems'] = $children;
+            if (($parent['url'] ?? null) === 'analytics_catalogue') {
+                $reportChildren[] = $parent;
+                continue;
+            }
+            if ($children || !empty($parent['url'])) $cleanMenu[] = $parent;
         }
-        $menu = array_values(array_filter($menu, static fn(array $parent): bool => empty($parent['_remove'])));
-        foreach ($legacyGroups as $label => $children) {
-            $parentId = 958000 + count($menu) * 100;
-            foreach ($children as $childIndex => &$child) {
-                $child['id'] = $parentId + $childIndex + 1;
-                $child['parent_id'] = $parentId;
+
+        $parentId = (count($roleIds) === 1 && (int)$roleIds[0] === 2) ? 29800 : 960000;
+        foreach (ReportRegistry::forRoles($roleIds) as $report) {
+            $reportChildren[] = ['label'=>$report['title'],'url'=>$report['route']];
+        }
+        $children = [];$seen = [];
+        foreach ($reportChildren as $child) {
+            $route = strtolower(trim((string)($child['url'] ?? '')));
+            if ($route === '' || isset($seen[$route])) continue;
+            $seen[$route] = true;
+            $fullLabel = (string)($child['label'] ?? 'Report');
+            $child['label'] = self::compactLabel($fullLabel, true);
+            $child['tooltip'] = $fullLabel;
+            $child['id'] = $parentId + count($children) + 1;
+            $child['parent_id'] = $parentId;
+            $children[] = self::item($child['id'], $parentId, $child, count($children));
+        }
+        if ($children) {
+            $cleanMenu[] = self::item($parentId, null, [
+                'label'=>'Reports & Analytics','url'=>null,'icon'=>'fas fa-chart-column'
+            ], count($cleanMenu), $children);
+        }
+        return self::compactMenuLabels($cleanMenu);
+    }
+
+    private static function compactMenuLabels(array $menu): array
+    {
+        foreach ($menu as &$parent) {
+            $parent['tooltip'] = $parent['tooltip'] ?? $parent['label'];
+            $parent['label'] = self::compactLabel((string)$parent['label']);
+            foreach (($parent['subitems'] ?? []) as &$child) {
+                $child['tooltip'] = $child['tooltip'] ?? $child['label'];
+                $child['label'] = self::compactLabel((string)$child['label']);
             }
             unset($child);
-            $menu[] = self::item($parentId, null, ['label'=>$label,'url'=>null,'icon'=>'fas fa-chart-bar'], count($menu), $children);
         }
-        $groups = [];
-        foreach (ReportRegistry::forRoles($roleIds) as $report) $groups[$report['module']][] = $report;
-        $index = 0;
-        $systemOnly = count($roleIds) === 1 && (int) $roleIds[0] === 2;
-        foreach ($groups as $module => $reports) {
-            $label = $module . ' Reports';
-            $existingIndex = null;
-            foreach ($menu as $menuIndex => $parent) {
-                if (($parent['label'] ?? '') === $label) { $existingIndex = $menuIndex; break; }
-            }
-            $parentId = ($systemOnly ? 29800 : 960000) + ($index++ * 100);
-            $children = [];
-            foreach ($reports as $childIndex => $report) {
-                $children[] = self::item($parentId + $childIndex + 1, $parentId, ['label'=>$report['title'],'url'=>$report['route']]);
-            }
-            if ($existingIndex !== null) {
-                $existingParentId = $menu[$existingIndex]['id'] ?? $parentId;
-                foreach ($children as &$child) $child['parent_id'] = $existingParentId;
-                unset($child);
-                $menu[$existingIndex]['subitems'] = array_merge($menu[$existingIndex]['subitems'] ?? [], $children);
-            } else {
-                $menu[] = self::item($parentId, null, ['label'=>$label,'url'=>null,'icon'=>'fas fa-chart-column'], count($menu), $children);
-            }
-        }
+        unset($parent);
         return $menu;
+    }
+
+    private static function compactLabel(string $label, bool $report=false): string
+    {
+        $map = [
+            'KCB Disbursement Reconciliation'=>'KCB Reconciliation',
+            'Payment Integration Accounts'=>'Payment Accounts',
+            'First School Administrator'=>'First School Admin',
+            'Academic Planning Oversight'=>'Academic Oversight',
+            'School-wide Grading Status'=>'Grading Status',
+            'Boarding Student Profiles'=>'Boarding Profiles',
+            'Assign Students to Routes'=>'Route Assignments',
+            'All Applications & Stages'=>'Applications',
+            'Subjects / Learning Areas'=>'Learning Areas',
+            'Daily Attendance Overview'=>'Daily Attendance',
+            'Subject Students by Class'=>'Subject Learners',
+            'Current Enrollment by Class & Stream'=>'Class Enrollment',
+            'Communication Delivery Summary'=>'Message Delivery',
+            'Enrolled Admissions by Cohort'=>'Admissions by Cohort',
+            'CBC Class Assessment Summary'=>'CBC Assessment',
+            'System Audit Trail Summary'=>'System Audit Trail',
+            'Discipline Incident Trend'=>'Discipline Trends',
+        ];
+        $label = $map[$label] ?? $label;
+        if ($report) $label = preg_replace('/\s+Reports?$/i', '', $label) ?: $label;
+        return $label;
     }
 
     /**
@@ -237,12 +279,19 @@ class SidebarConfigReader
         // and the page controller. The family workspace is resolved from the
         // staff JWT and linked parents record; non-parent staff see a clear
         // access message instead of receiving another login flow.
-        if ($roleId > 2) {
+        if ($roleId >= 2) {
             $catalogParent = $roleId * 10000 + 9800;
             $items[] = self::item($catalogParent, null, [
                 'label' => 'Products Catalog', 'url' => 'internal_products_catalog',
                 'icon' => 'fas fa-store', 'subitems' => []
             ], $groupIndex++);
+            if (in_array($roleId, [4, 14], true)) {
+                $managementParent = $roleId * 10000 + 9850;
+                $items[] = self::item($managementParent, null, [
+                    'label' => 'Manage Products', 'url' => 'products_catalog_management',
+                    'icon' => 'fas fa-box-open', 'subitems' => []
+                ], $groupIndex++);
+            }
             $familyParent = $roleId * 10000 + 9900;
             $items[] = self::item($familyParent, null, [
                 'label' => 'My Family', 'url' => 'my_family',
@@ -273,7 +322,7 @@ class SidebarConfigReader
             'icon'                  => $node['icon'] ?? null,
             'url'                   => $url,
             'route_url'             => $url,
-                'domain'                => $domain,
+            'domain'                => $domain,
             'display_order'         => $displayOrder,
             'subitems'              => $subitems,
             'show_badge'            => false,
@@ -283,7 +332,7 @@ class SidebarConfigReader
             'requires_confirmation' => false,
             'confirmation_message'  => null,
             'css_class'             => null,
-            'tooltip'               => null,
+            'tooltip'               => $node['tooltip'] ?? null,
         ];
     }
 
@@ -414,17 +463,6 @@ class SidebarConfigReader
             'Library' => ['icon' => 'fas fa-book', 'children' => []],
             'Inventory & Store' => ['icon' => 'fas fa-boxes', 'children' => []],
             'Reports & Analytics' => ['icon' => 'fas fa-chart-bar', 'children' => []],
-            'Enrollment & Admissions Reports' => ['icon' => 'fas fa-user-plus', 'children' => []],
-            'Academic & CBC Reports' => ['icon' => 'fas fa-graduation-cap', 'children' => []],
-            'Attendance Reports' => ['icon' => 'fas fa-clipboard-check', 'children' => []],
-            'Finance Reports' => ['icon' => 'fas fa-coins', 'children' => []],
-            'Staff & Workforce Reports' => ['icon' => 'fas fa-user-tie', 'children' => []],
-            'Inventory & Procurement Reports' => ['icon' => 'fas fa-boxes', 'children' => []],
-            'Catering & Nutrition Reports' => ['icon' => 'fas fa-utensils', 'children' => []],
-            'Discipline & Safeguarding Reports' => ['icon' => 'fas fa-gavel', 'children' => []],
-            'Health & Welfare Reports' => ['icon' => 'fas fa-heartbeat', 'children' => []],
-            'Boarding Reports' => ['icon' => 'fas fa-bed', 'children' => []],
-            'Communication Reports' => ['icon' => 'fas fa-comments', 'children' => []],
             'Resources' => ['icon' => 'fas fa-folder-open', 'children' => []],
             'Web Management' => ['icon' => 'fas fa-globe', 'children' => []],
             'Operations' => ['icon' => 'fas fa-cogs', 'children' => []],
@@ -487,6 +525,15 @@ class SidebarConfigReader
     private static function moduleForRoute(string $url, string $parentLabel): string
     {
         $route = strtolower(trim($url));
+        if ($parentLabel === 'reports'
+            || $parentLabel === 'reports & analytics'
+            || str_ends_with($parentLabel, ' reports')
+            || $route === 'analytics_catalogue'
+            || str_contains($route, 'report')
+            || str_ends_with($route, '_trends')
+            || ReportRegistry::route($route) !== null) {
+            return 'Reports & Analytics';
+        }
         $routeModules = [
             'academic_reports' => 'Academic & CBC Reports',
             'performance_reports' => 'Academic & CBC Reports',

@@ -310,6 +310,15 @@ const ManageUsersController = {
               <button
                 type="button"
                 class="btn btn-sm btn-outline-danger ms-1"
+                data-user-action="reset-mfa"
+                data-user-id="${userId}"
+                ${isCurrentUser ? 'disabled title="Use Account Settings for your own MFA"' : ""}
+              >
+                <i class="fas fa-shield-halved me-1"></i>Reset MFA
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-danger ms-1"
                 data-user-action="delete"
                 data-user-id="${userId}"
                 ${isCurrentUser ? 'disabled title="You cannot delete your own account"' : ""}
@@ -345,6 +354,27 @@ const ManageUsersController = {
 
     if (button.dataset.userAction === "delete") {
       await this.deleteUser(user);
+      return;
+    }
+
+    if (button.dataset.userAction === "reset-mfa") {
+      await this.resetMfa(user);
+    }
+  },
+
+  async resetMfa(user) {
+    const userId = Number(user.id ?? user.user_id ?? 0);
+    const label = user.username || user.email || `user ${userId}`;
+    if (!window.confirm(`Reset MFA for ${label}?\n\nAuthenticator factors, passkeys, recovery codes and active sessions will be revoked. Email verification will remain enabled.`)) return;
+
+    this.showState(`Resetting MFA for ${label}...`, "warning");
+    try {
+      await window.API.apiCall("/twofactor/admin-reset", "POST", { user_id: userId });
+      this.notify("MFA reset completed. The user must sign in again with email verification.", "success");
+      this.hideState();
+    } catch (error) {
+      console.error("[ManageUsersController] MFA reset failed:", error);
+      this.showState(this.formatError(error, "MFA reset failed."), this.isForbidden(error) ? "warning" : "danger");
     }
   },
 
@@ -362,6 +392,7 @@ const ManageUsersController = {
       : "Create user";
 
     const roleOptions = this.state.roles
+      .filter((role) => String(role.scope || "").toLowerCase() === "system" || Number(role.is_system) === 1)
       .map((role) => {
         const roleId = Number(role.id ?? role.role_id ?? 0);
         const selected =
@@ -454,13 +485,13 @@ const ManageUsersController = {
             id="userPassword"
             name="password"
             type="password"
-            minlength="8"
+            minlength="10"
             maxlength="128"
             autocomplete="new-password"
             ${editing ? "" : "required"}
           >
           <div class="form-text">
-            At least 8 characters with uppercase, lowercase, number and special character.
+            At least 10 characters with uppercase, lowercase, number and special character.
           </div>
         </div>
       </div>`;

@@ -7,6 +7,8 @@ Config::init();
 
 use App\Database\Database;
 use App\API\Services\PermissionContract;
+use App\API\Services\Logger;
+use App\API\Includes\FileLogger;
 use App\API\Core\FileLifecycleBase;
 use PDO;
 use PDOStatement;
@@ -67,7 +69,7 @@ class BaseAPI extends FileLifecycleBase
             // Suppress warnings from mkdir and verify after call.
             $this->ensureManagedDirectory($this->logDir);
             if (!is_dir($this->logDir)) {
-                error_log('BaseAPI: Failed to create log directory: ' . $this->logDir);
+                \App\API\Services\Logger::legacyError('BaseAPI: Failed to create log directory: ' . $this->logDir);
                 // Use system temp dir as a fallback to avoid throwing and breaking responses
                 $this->logDir = sys_get_temp_dir() . '/kingsway_logs';
                 $this->ensureManagedDirectory($this->logDir);
@@ -82,8 +84,9 @@ class BaseAPI extends FileLifecycleBase
         // NOTE: CORS handling moved to CORSMiddleware in the Router pipeline
         // This prevents double-handling and keeps middleware concerns in middleware
 
-        // Log API request
-        $this->logRequest();
+        // Request outcomes are logged once by ControllerRouter after the
+        // response is known. Constructor-time logging caused duplicate inbound
+        // traces whenever controllers composed multiple legacy API services.
     }
 
     protected function getCurrentUserId()
@@ -101,9 +104,9 @@ class BaseAPI extends FileLifecycleBase
 
     protected function logRequest()
     {
-        $method = $_SERVER['REQUEST_METHOD'];
-        $endpoint = $_SERVER['REQUEST_URI'];
-        $ip = $_SERVER['REMOTE_ADDR'];
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $endpoint = $_SERVER['REQUEST_URI'] ?? '';
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
         $params = [];
 
         // Get request parameters based on method
@@ -119,67 +122,44 @@ class BaseAPI extends FileLifecycleBase
             }
         }
 
-        // Remove sensitive data
-        unset($params['password'], $params['token']);
-
-        // Log request to system activity log
-        $message = sprintf(
-            'API Request: [%s] %s from IP %s with params %s',
-            $method,
-            $endpoint,
-            $ip,
-            json_encode($params)
-        );
-
-        $this->logToFile('system_activity.log', [
-            'request_id' => $this->request_id,
-            'timestamp' => date('Y-m-d H:i:s'),
-            'type' => 'request',
+        // Central logging service: every request is traced to a structured
+        // log file (category 'http'), never to the database. Values are never
+        // persisted: unknown/custom form keys can contain secrets or private
+        // records that a name-based redaction list cannot reliably identify.
+        Logger::request(sprintf('[%s] %s', $method, $endpoint), [
             'method' => $method,
             'endpoint' => $endpoint,
             'ip' => $ip,
-            'user_id' => $this->user_id,
             'module' => $this->module,
-            'params' => $params
+            'parameter_keys' => array_slice(array_map('strval', array_keys(is_array($params) ? $params : [])), 0, 100),
+            'parameter_count' => is_array($params) ? count($params) : 0,
         ]);
-
-        // Log to database
-        $this->logAction('request', null, $message);
     }
 
     protected function logAction($action_type, $record_id, $description)
     {
         try {
-            // Log to system activity log file (never database)
-            $this->logToFile('system_activity.log', [
-                'request_id' => $this->request_id,
-                'timestamp' => date('Y-m-d H:i:s'),
+            Logger::info('events', $description, [
                 'type' => 'action',
                 'action' => $action_type,
                 'module' => $this->module,
                 'record_id' => $record_id,
-                'user_id' => $this->user_id,
-                'description' => $description
             ]);
 
-            // For audit logs
+            // For audit-worthy actions, also write to the audit log file.
             if (in_array($action_type, ['create', 'update', 'delete'])) {
                 $this->logAudit($action_type, $record_id, $description);
             }
         } catch (Exception $e) {
-            // Log error but don't throw - we don't want logging to break the main flow
+            // Logging must never break the main flow.
             $this->logError($e, 'Failed to log action');
         }
     }
 
     protected function logError($e, $context = '')
     {
-        // Accept either Exception/Throwable or string
         if ($e instanceof \Throwable || $e instanceof \Exception) {
             $errorData = [
-                'request_id' => $this->request_id,
-                'timestamp' => date('Y-m-d H:i:s'),
-                'type' => 'error',
                 'module' => $this->module,
                 'context' => $context,
                 'message' => 'An internal error occurred.',
@@ -187,49 +167,53 @@ class BaseAPI extends FileLifecycleBase
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
-                'user_id' => $this->user_id,
-                'ip' => $_SERVER['REMOTE_ADDR']
+                'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
             ];
         } else {
-            // If string or array, log as message only
             $errorData = [
-                'request_id' => $this->request_id,
-                'timestamp' => date('Y-m-d H:i:s'),
-                'type' => 'error',
                 'module' => $this->module,
                 'context' => $context,
-                'message' => is_string($e) ? $e : json_encode($e),
-                'user_id' => $this->user_id,
-                'ip' => $_SERVER['REMOTE_ADDR']
+                'message' => is_string($e) ? $e : (is_array($e) ? json_encode($e) : (string) $e),
+                'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
             ];
         }
-        // Log to errors.log only (never DB)
-        $this->logToFile('errors.log', $errorData);
 
-        // Mirror into the structured FileLogger errors category so health checks
-        // and file-based readers share one source of truth.
-        try {
-            \App\API\Includes\FileLogger::write('errors', $errorData, 'error');
-        } catch (\Throwable $e) {
-            error_log('Failed to mirror error log: ' . $e->getMessage());
-        }
+        // Central error logging to the structured 'errors' file only.
+        Logger::error('errors', (string) ($errorData['message'] ?? 'An internal error occurred.'), $errorData);
     }
 
     protected function logAudit($action, $record_id, $description)
     {
-        // Write audit log to file only, never to database
-        $auditData = [
-            'request_id' => $this->request_id,
-            'timestamp' => date('Y-m-d H:i:s'),
-            'type' => 'audit',
-            'user_id' => $this->user_id,
-            'action' => $action,
+        // Central audit log file only, never the database.
+        Logger::audit((string) $action, (string) ($this->module ?? 'app'), $record_id, $description, [
             'module' => $this->module,
             'record_id' => $record_id,
-            'description' => $description,
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? null
-        ];
-        $this->logToFile('audit.log', $auditData);
+        ]);
+    }
+
+    /**
+     * Compatibility shim for legacy writers that pass a full filename.
+     * Routes through the structured FileLogger (category = basename) instead
+     * of appending to raw flat files under logs/. Deprecated: new code should
+     * use App\API\Services\Logger directly.
+     *
+     * @deprecated Use App\API\Services\Logger instead.
+     */
+    protected function logToFile($filename, $data)
+    {
+        try {
+            $category = preg_replace('/\.log$/i', '', basename((string) $filename)) ?: 'app';
+            $level = isset($data['level']) ? (string) $data['level'] : 'info';
+            if (!in_array($level, ['debug', 'info', 'warning', 'error', 'critical'], true)) {
+                $level = 'info';
+            }
+            if (isset($data['type']) && $data['type'] === 'error') {
+                $level = 'error';
+            }
+            FileLogger::write($category, is_array($data) ? $data : ['data' => $data], $level);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError("Failed to write to log file {$filename}: " . $e->getMessage());
+        }
     }
 
     protected function requireActionPermission(string $module, string $action): void
@@ -253,38 +237,6 @@ class BaseAPI extends FileLifecycleBase
     {
         if (in_array($action, ['create', 'edit', 'update', 'approve', 'reject', 'delete', 'export', 'print'], true)) {
             $this->logAudit($action, $recordId, $description);
-        }
-    }
-
-    protected function logToFile($filename, $data)
-    {
-        try {
-            // Use the instance logDir (set in constructor). If absent, compute a sane default.
-            $logDir = $this->logDir ?? (dirname(__DIR__, 2) . '/logs');
-
-            // Ensure directory exists and is writable. Try to create if missing, suppress warnings.
-            if (!is_dir($logDir)) {
-                $this->ensureManagedDirectory($logDir);
-            }
-
-            if (!is_dir($logDir) || !is_writable($logDir)) {
-                // Attempt to make it writable, but don't throw — fall back to sys temp dir.
-                @chmod($logDir, 0755);
-            }
-
-            if (!is_dir($logDir) || !is_writable($logDir)) {
-                $fallback = sys_get_temp_dir();
-                error_log("BaseAPI: Log directory not writable; falling back to {$fallback}");
-                $logDir = $fallback;
-            }
-
-            $logFile = rtrim($logDir, '\/') . '/' . $filename;
-            $logEntry = json_encode($data) . "\n";
-
-            // Use @ to suppress potential warnings and handle failure gracefully
-            @$this->writeManagedFile($logFile, $logEntry, FILE_APPEND);
-        } catch (Exception $e) {
-            error_log("Failed to write to log file {$filename}: " . $e->getMessage());
         }
     }
 

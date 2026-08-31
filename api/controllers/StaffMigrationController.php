@@ -166,8 +166,8 @@ final class StaffMigrationController extends BaseController
     {
         try {
             return $callback();
-        } catch (RuntimeException $e) { error_log('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); if ($e->getCode() === 401) { return $this->unauthorized($e->getMessage()); } if ($e->getCode() === 403) { return $this->forbidden($e->getMessage()); } return $this->badRequest($e->getMessage()); } catch (Throwable $e) {
-            error_log('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); if ($e->getCode() === 401) { return $this->unauthorized($e->getMessage()); } if ($e->getCode() === 403) { return $this->forbidden($e->getMessage()); } return $this->badRequest($e->getMessage()); } catch (Throwable $e) {
+            \App\API\Services\Logger::legacyError('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }

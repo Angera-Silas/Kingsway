@@ -1,7 +1,7 @@
 {
-  "name": "Kingsway Academy School Management System",
-  "short_name": "Kingsway Academy",
-  "description": "Comprehensive school management system for Kingsway Preparatory Academy",
+  "name": "Kingsway Preparatory School School Management System",
+  "short_name": "Kingsway Preparatory School",
+  "description": "Comprehensive school management system for Kingsway Preparatory School",
   "start_url": "./home.php",
   "scope": "./",
   "display": "standalone",

@@ -116,100 +116,37 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Your portal account is ' . $parent['user_status'], 403);
             }
 
-            $session = $this->createSession((int)$parent['user_id']);
-
+            $otpSessionId = $this->sendParentEmailOtp((int)$parent['user_id'], (string)$parent['email']);
+            if (!$otpSessionId) return $this->errorResponse('Verification email could not be delivered. Please try again later.', 503);
             return $this->successResponse([
-                'token'      => $session['token'],
-                'expires_at' => $session['expires_at'],
-                'parent'     => [
-                    'id'         => (int)$parent['parent_id'],
-                    'first_name' => $parent['first_name'],
-                    'last_name'  => $parent['last_name'],
-                    'email'      => $parent['email'],
-                ],
-            ], 'Login successful');
+                'requires_otp' => true,
+                'otp_session_id' => $otpSessionId,
+                'masked_destination' => $this->maskEmail((string)$parent['email']),
+                'expires_in' => 600,
+            ], 'Enter the verification code sent to your email.');
+        } catch (\RuntimeException $e) {
+            if ($e->getCode() === 429) return $this->errorResponse($e->getMessage(), 429);
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] '.$e->getMessage());
+            return $this->errorResponse('Login failed', 500);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Login failed', 500);
         }
     }
 
     /**
-     * SMS OTP request. Anti-enumeration: returns success even for unknown numbers.
+     * Email OTP request. Anti-enumeration: returns success for unknown addresses.
      *
-     * @param array $data {phone}
+     * @param array $data {email}
      * @return array
      */
     public function postLoginOtpRequest(array $data): array
     {
-        $phone = trim((string)($data['phone'] ?? ''));
-
-        // Normalize to 254XXXXXXXXX
-        if (strlen($phone) === 9) $phone = '254' . $phone;
-        if (strlen($phone) === 10 && $phone[0] === '0') $phone = '254' . substr($phone, 1);
-
-        try {
-            $stmt = $this->db->prepare(
-                "SELECT u.id AS user_id, p.phone
-                 FROM users u
-                 JOIN persons p ON p.id = u.person_id
-                 JOIN parents pr ON pr.person_id = u.person_id
-                 WHERE p.phone = :phone AND pr.status = 'active'
-                 LIMIT 1"
-            );
-            $stmt->execute([':phone' => $phone]);
-            $parent = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$parent) {
-                // Return success anyway to prevent phone enumeration
-                return $this->successResponse(['message' => 'If this number is registered, an OTP will be sent']);
-            }
-
-            $otp     = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-            $expires = date('Y-m-d H:i:s', strtotime('+10 minutes'));
-            $ip      = $_SERVER['REMOTE_ADDR'] ?? null;
-
-            // Invalidate any previous unverified login OTPs for this user
-            $this->db->prepare(
-                "UPDATE user_2fa_otp_sessions
-                 SET verified = 1
-                 WHERE user_id = ? AND otp_type = 'login' AND verified = 0"
-            )->execute([(int)$parent['user_id']]);
-
-            $ins = $this->db->prepare(
-                "INSERT INTO user_2fa_otp_sessions
-                    (user_id, otp_code, otp_type, method, otp_expires_at, ip_address)
-                 VALUES (?, ?, 'login', 'sms', ?, ?)"
-            );
-            $ins->execute([
-                (int)$parent['user_id'],
-                password_hash($otp, PASSWORD_DEFAULT),
-                $expires,
-                $ip,
-            ]);
-            $sessionId = (int)$this->db->lastInsertId();
-
-            // Send OTP via SMS (non-fatal on delivery failure)
-            try {
-                $delivery = new OTPDeliveryService();
-                $delivery->sendSMSOTP($phone, $otp, 'login');
-            } catch (\Throwable $e) {
-                error_log('[ParentPortal] OTP SMS failed: ' . $e->getMessage());
-            }
-
-            return $this->successResponse([
-                'otp_session_id' => $sessionId,
-                'message'        => 'OTP sent to registered phone number',
-                'expires_in'     => '10 minutes',
-            ]);
-        } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return $this->errorResponse('OTP request failed', 500);
-        }
+        return $this->errorResponse('For your security, enter your email and password to request a verification code.', 403);
     }
 
     /**
-     * Verify the SMS OTP and issue a session token.
+     * Verify the email OTP and issue a session token.
      *
      * @param array $data {otp_session_id, otp_code}
      * @return array
@@ -252,10 +189,12 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Invalid OTP code', 400);
             }
 
-            // Mark verified
-            $this->db->prepare(
-                "UPDATE user_2fa_otp_sessions SET verified = 1 WHERE id = ?"
-            )->execute([$sessionId]);
+            // Consume exactly once. A concurrent replay loses this update.
+            $consume = $this->db->prepare(
+                "UPDATE user_2fa_otp_sessions SET verified = 1 WHERE id = ? AND verified = 0"
+            );
+            $consume->execute([$sessionId]);
+            if ($consume->rowCount() !== 1) return $this->errorResponse('OTP session was already used.', 409);
 
             $parent = $this->getParentByUserId((int)$session['user_id']);
             if (!$parent) {
@@ -275,9 +214,35 @@ class ParentPortalManager extends BaseAPI
                 ],
             ], 'Login successful');
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('OTP verification failed', 500);
         }
+    }
+
+    private function sendParentEmailOtp(int $userId, string $email): ?int
+    {
+        try {
+            $tfa = new \App\API\Services\TwoFactorService($this->db);
+            $code = $tfa->generateOTP($userId, 'email', 'login');
+            if (!$code) return null;
+            if (!(new OTPDeliveryService())->sendEmailOTP($email, $code, 'login')) {
+                $tfa->invalidateLatestOTP($userId, 'login', 'email');
+                return null;
+            }
+            $stmt = $this->db->prepare("SELECT id FROM user_2fa_otp_sessions WHERE user_id=? AND otp_type='login' AND method='email' AND verified=0 ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$userId]);
+            return (int)($stmt->fetchColumn() ?: 0) ?: null;
+        } catch (\RuntimeException $error) {
+            if ($error->getCode() === 429) throw $error;
+            \App\API\Services\Logger::legacyError('[ParentPortal] Email OTP failed: '.$error->getMessage());
+            return null;
+        }
+    }
+
+    private function maskEmail(string $email): string
+    {
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+        return substr($local, 0, 1).str_repeat('*', max(2, strlen($local)-1)).'@'.$domain;
     }
 
     /**
@@ -295,7 +260,7 @@ class ParentPortalManager extends BaseAPI
                      WHERE id = ?"
                 )->execute([$this->sessionId]);
             } catch (Exception $e) {
-                error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+                \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             }
         }
         return $this->successResponse(['message' => 'Logged out successfully']);
@@ -348,7 +313,7 @@ class ParentPortalManager extends BaseAPI
                 'children' => $children,
             ]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -382,7 +347,7 @@ class ParentPortalManager extends BaseAPI
             $data = $this->buildStudentFeesData($studentId);
             return $this->successResponse(['academic_years' => $data]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to load fees', 500);
         }
     }
@@ -404,7 +369,7 @@ class ParentPortalManager extends BaseAPI
             $rows = $this->fetchPaymentHistory($studentId);
             return $this->successResponse($rows);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to load payment history', 500);
         }
     }
@@ -437,7 +402,7 @@ class ParentPortalManager extends BaseAPI
                 'generated_at' => date('Y-m-d H:i:s'),
             ]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to generate statement', 500);
         }
     }
@@ -476,7 +441,7 @@ class ParentPortalManager extends BaseAPI
 
             return $this->successResponse(['per_term' => $rows, 'total_balance' => $totalBalance]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to load balance', 500);
         }
     }
@@ -566,7 +531,7 @@ class ParentPortalManager extends BaseAPI
                 'monthly'    => $monthly,
             ]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -594,7 +559,7 @@ class ParentPortalManager extends BaseAPI
             $stmt->execute([$studentId]);
             return $this->successResponse($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] transport: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] transport: ' . $e->getMessage());
             return $this->errorResponse('Failed to load transport information', 500);
         }
     }
@@ -649,7 +614,7 @@ class ParentPortalManager extends BaseAPI
             }
             $path = (string) $release['pdf_path'];
             if (!is_file($path) || !hash_equals((string) $release['pdf_sha256'], (string) hash_file('sha256', $path))) {
-                error_log('[ParentPortalManager] Released report card PDF failed integrity verification: ' . (int) $release['id']);
+                \App\API\Services\Logger::legacyError('[ParentPortalManager] Released report card PDF failed integrity verification: ' . (int) $release['id']);
                 return $this->errorResponse('The released report card is temporarily unavailable.', 503);
             }
             $payload = json_decode((string) $release['report_data_json'], true);
@@ -670,7 +635,7 @@ class ParentPortalManager extends BaseAPI
             )->execute([(int) $release['id'], $this->parentId]);
             return $this->successResponse($payload, 'Official report card loaded');
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] official report card: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] official report card: ' . $e->getMessage());
             return $this->errorResponse('Unable to load the released report card.', 500);
         }
     }
@@ -757,7 +722,7 @@ class ParentPortalManager extends BaseAPI
                 'lesson_plans' => $plans->fetchAll(PDO::FETCH_ASSOC),
             ], 'Learning plans loaded');
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage());
             return $this->errorResponse('Unable to load learning plans', 500);
         }
     }
@@ -807,7 +772,7 @@ class ParentPortalManager extends BaseAPI
 
             return $this->successResponse($messages);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -932,7 +897,7 @@ class ParentPortalManager extends BaseAPI
 
             return $this->successResponse(['message_id' => $messageId], 'Message sent successfully', 201);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -981,7 +946,7 @@ class ParentPortalManager extends BaseAPI
                 'artifacts' => $artifacts,
             ]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1020,7 +985,7 @@ class ParentPortalManager extends BaseAPI
 
             return $this->successResponse(['scale' => $scale, 'rules' => $rules]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1132,7 +1097,7 @@ class ParentPortalManager extends BaseAPI
 
             return $this->errorResponse($result['message'] ?? 'Failed to initiate M-Pesa payment', 400);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1156,7 +1121,7 @@ class ParentPortalManager extends BaseAPI
 
             return $this->successResponse($raw);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1496,7 +1461,7 @@ class ParentPortalManager extends BaseAPI
                 'status' => 'success',
             ]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         }
     }
 
@@ -1606,7 +1571,7 @@ class ParentPortalManager extends BaseAPI
 
             return $this->successResponse($payload);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1663,7 +1628,7 @@ class ParentPortalManager extends BaseAPI
                 $pivoted['motto']   = $row['motto'] ?? '';
             }
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         }
 
         return $pivoted;
@@ -1818,7 +1783,7 @@ class ParentPortalManager extends BaseAPI
                                      WHERE mrs.recipient_id = ?)"
             )->execute([(int)$this->user_id, $conversationId, (int)$this->user_id, (int)$this->user_id]);
         } catch (Exception $e) {
-            error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         }
     }
 }

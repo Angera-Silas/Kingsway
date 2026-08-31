@@ -3,7 +3,7 @@
 namespace App\Config;
 
 /**
- * Kingsway Academy Configuration Class
+ * Kingsway Preparatory School Configuration Class
  * 
  * Self-contained configuration manager that:
  * - Loads .env file
@@ -38,10 +38,34 @@ class Config
         // Step 2: Detect environment
         self::$environment = self::detectEnvironment();
 
+        // Govern native PHP warnings/notices from API entry points, CLI jobs
+        // and standalone workers that do not pass through api/index.php.
+        self::configureRuntimeLogging();
+
         // Step 3: Load environment-specific config file
         self::loadEnvironmentConfig();
 
         self::$loaded = true;
+    }
+
+    private static function configureRuntimeLogging(): void
+    {
+        $environment = in_array(self::$environment, ['production', 'staging'], true)
+            ? self::$environment
+            : 'development';
+        $directory = dirname(__DIR__) . '/logs/' . $environment;
+        $dirMode = $environment === 'production' ? 0770 : 0777;
+        if (!is_dir($directory)) {
+            @mkdir($directory, $dirMode, true);
+        }
+        @chmod($directory, $dirMode);
+        date_default_timezone_set((string) ($_ENV['APP_TIMEZONE'] ?? 'Africa/Nairobi'));
+        ini_set('log_errors', '1');
+        ini_set('error_log', $directory . '/php-errors-' . date('Y-m-d') . '.log');
+        if ($environment === 'production') {
+            ini_set('display_errors', '0');
+            ini_set('display_startup_errors', '0');
+        }
     }
 
     /**
@@ -100,6 +124,14 @@ class Config
                 list($key, $value) = explode('=', $line, 2);
                 $key = trim($key);
                 $value = trim($value, '"\'');
+
+                // Deployment-provided environment variables take precedence
+                // over repository/local .env values. This prevents a local
+                // APP_ENV=development entry from downgrading production.
+                $processValue = getenv($key);
+                if ($processValue !== false && $processValue !== '') {
+                    $value = (string) $processValue;
+                }
 
                 $_ENV[$key] = $value;
                 putenv("$key=$value");

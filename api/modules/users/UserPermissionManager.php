@@ -70,7 +70,7 @@ class UserPermissionManager
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -94,7 +94,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -136,7 +136,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($permissions)
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -163,7 +163,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($permissions)
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -189,7 +189,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($permissions)
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -212,7 +212,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($permissions)
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -234,7 +234,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'data' => $permissions
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -265,7 +265,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'data' => $summary
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -292,7 +292,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'permission_code' => $permissionCode
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -317,7 +317,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'data' => $results
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -362,7 +362,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -392,7 +392,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -424,7 +424,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -454,7 +454,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -481,7 +481,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($users)
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -504,7 +504,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($users)
             ];
         } catch (Exception $e) {
-            error_log('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserPermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }

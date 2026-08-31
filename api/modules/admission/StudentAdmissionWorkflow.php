@@ -187,7 +187,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 $this->db->rollBack();
             }
             $this->logError('admission_submit_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -615,7 +615,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('document_upload_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -709,7 +709,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('document_verify_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -789,7 +789,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('interview_schedule_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -867,7 +867,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
             $this->logError('interview_session_assignment_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage());
             return formatResponse(false, null, $e->getMessage());
         }
     }
@@ -989,7 +989,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('interview_assessment_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1039,7 +1039,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('placement_offer_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1101,7 +1101,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('fee_payment_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1230,7 +1230,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
             $this->logError('manual_payment_verification_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage());
             return formatResponse(false, null, 'Payment verification failed');
         }
     }
@@ -1299,7 +1299,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 try {
                     (new \App\API\Services\CommunicationOutboxService($this->db))->processOne((int) $queued['communication_id']);
                 } catch (\Throwable $dispatchError) {
-                    error_log('[AdmissionPaymentNotification] dispatch deferred: ' . $dispatchError->getMessage());
+                    \App\API\Services\Logger::legacyError('[AdmissionPaymentNotification] dispatch deferred: ' . $dispatchError->getMessage());
                 }
             }
         }
@@ -1369,7 +1369,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['space_available' => true, 'next_stage' => $nextStage], 'Space confirmed.');
         } catch (Exception $e) {
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1405,7 +1405,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['next_stage' => 'student_admission_number'], 'Student admitted.');
         } catch (Exception $e) {
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1490,7 +1490,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1558,7 +1558,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['card_id' => $cardId, 'next_stage' => 'final_enrollment'], 'Student ID card generated.');
         } catch (Exception $e) {
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1589,7 +1589,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['next_stage' => 'enrolled'], 'Final enrollment completed.');
         } catch (Exception $e) {
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1738,7 +1738,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             try {
                 $this->sendPlacementPaymentNotification((int) $application_id, (string) ($out['admission_no'] ?? ''), (int) $class_id, (int) $stream_id);
             } catch (\Throwable $notificationError) {
-                error_log('[AdmissionPaymentNotification] ' . $notificationError->getMessage());
+                \App\API\Services\Logger::legacyError('[AdmissionPaymentNotification] ' . $notificationError->getMessage());
             }
 
             return formatResponse(true, [
@@ -1752,7 +1752,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('enrollment_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1823,7 +1823,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $this->db->rollBack();
             }
             $this->logError('director_confirmation_failed', $e->getMessage());
-            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -2271,7 +2271,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                     $dispatch->processOne((int) $queued['communication_id']);
                 } catch (\Throwable $dispatchError) {
                     // The durable outbox record remains queued for the worker.
-                    error_log('[AdmissionInterviewNotification] immediate dispatch deferred: ' . $dispatchError->getMessage());
+                    \App\API\Services\Logger::legacyError('[AdmissionInterviewNotification] immediate dispatch deferred: ' . $dispatchError->getMessage());
                 }
             }
         }

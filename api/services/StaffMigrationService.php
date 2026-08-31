@@ -107,6 +107,10 @@ final class StaffMigrationService
         $instructions->getColumnDimension('B')->setWidth(110);
         $instructions->getStyle('A1:B20')->getAlignment()->setWrapText(true)->setVertical('top');
 
+        // The data worksheet must be the sheet users see first. Importing also
+        // addresses it by name, so workbook active-sheet state can never turn
+        // the Instructions sheet into staff data.
+        $spreadsheet->setActiveSheetIndexByName('Staff Import');
         (new Xlsx($spreadsheet))->save($path);
 
         return $path;
@@ -115,7 +119,11 @@ final class StaffMigrationService
     public function spreadsheetToCsv(string $path): string
     {
         $spreadsheet = IOFactory::load($path);
-        $rows = $spreadsheet->getActiveSheet()->toArray(null, true, true, false);
+        $sheet = $spreadsheet->getSheetByName('Staff Import');
+        if ($sheet === null) {
+            throw new RuntimeException('The Excel workbook must contain a "Staff Import" worksheet.');
+        }
+        $rows = $sheet->toArray(null, true, true, false);
         $handle = fopen('php://temp', 'r+');
         if ($handle === false) {
             throw new RuntimeException('Unable to prepare spreadsheet data.');
@@ -217,7 +225,7 @@ final class StaffMigrationService
             try {
                 $this->processEmailQueue(count($created));
             } catch (Throwable $mailError) {
-                error_log('Staff import invitation delivery failed: '.$mailError->getMessage());
+                \App\API\Services\Logger::legacyError('Staff import invitation delivery failed: '.$mailError->getMessage());
             }
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
@@ -290,7 +298,15 @@ final class StaffMigrationService
                 ->execute([(int)$message['id']]);
             try {
                 $payload = json_decode($message['payload_json'], true, 512, JSON_THROW_ON_ERROR);
-                $body = $this->renderStaffInvitationEmail($payload);
+                // Every system email must use the same branded renderer. Sending the
+                // invitation fragment directly left the CID logo unused, so Gmail
+                // exposed it as an attachment and the message lost the formal layout.
+                $body = $service->renderFormalEmail(
+                    $message['subject'] ?: 'Your Kingsway account is ready',
+                    $this->renderStaffInvitationEmail($payload),
+                    '',
+                    ''
+                );
                 $ok = $service->sendEmail([$message['recipient'] => $payload['name'] ?? $message['recipient']], $message['subject'] ?: 'Your Kingsway account is ready', $body);
                 if (!$ok) {
                     throw new RuntimeException('SMTP delivery failed.');
@@ -513,12 +529,14 @@ final class StaffMigrationService
         $setup=htmlspecialchars((string)($payload['setup_url']??$payload['activation_url']??''),ENT_QUOTES,'UTF-8');
         $login=htmlspecialchars((string)($payload['login_url']??''),ENT_QUOTES,'UTF-8');
         return "<p>Dear {$name},</p>"
-            . "<p>Your Kingsway staff account has been created.</p>"
-            . "<p><strong>Username:</strong> {$username}<br><strong>Default password:</strong> {$password}</p>"
-            . "<p>Open this setup link and create your private password before accessing your dashboard:</p>"
-            . "<p><a href=\"{$setup}\">Create your private password</a></p>"
-            . ($login ? "<p>Login page: <a href=\"{$login}\">{$login}</a></p>" : '')
-            . "<p>This setup link expires in 72 hours. You will be required to update missing staff details during first access.</p>";
+            . "<p>Welcome to Kingsway Preparatory School. Your staff account is ready.</p>"
+            . "<p><strong>Username:</strong> {$username}" . ($password !== '' ? "<br><strong>Temporary password:</strong> {$password}" : '') . "</p>"
+            . "<p><strong>Before you can open your dashboard, please complete these steps:</strong></p>"
+            . "<ol><li>Open the secure setup link below.</li><li>Create a new private password. Do not continue using the temporary password.</li><li>Sign in and complete every required staff-profile field.</li><li>After your profile is complete, the system will take you to your role dashboard.</li></ol>"
+            . "<p><a href=\"{$setup}\" style=\"display:inline-block;padding:12px 20px;background:#075985;color:#fff;text-decoration:none;border-radius:6px\">Set up my Kingsway account</a></p>"
+            . ($login ? "<p>After setup, sign in here: <a href=\"{$login}\">{$login}</a></p>" : '')
+            . "<p>The secure setup link expires in 72 hours. If it expires, contact the School Administrator for a new invitation.</p>"
+            . "<p>If you were not expecting this account, please do not use these credentials and contact the school.</p>";
     }
     private function validateRow(array $r,int $row,array $dupes): array
     {
@@ -646,8 +664,8 @@ final class StaffMigrationService
     {
         return [
             'Jane', 'Wanjiku', 'jane.wanjiku@example.com', '0712345678',
-            'ACA', 'Class Teacher', '2024-01-08', 'permanent', 'Class Teacher',
-            'Njeri', '', '', 'female', '1993-02-10', 'single', 'Teaching', 'Teacher',
+            'ACAD', 'Class Teacher', '2024-01-08', 'permanent', 'Class Teacher',
+            'Njeri', '', '', 'female', '1993-02-10', 'single', 'Teaching Staff', 'Lower Primary Teacher',
             'A123456789B', 'NSSF001', 'NHIF001', 'TSC001', 'Nairobi',
             'KCB', '1234567890', '45000', '08:00:00', '17:00:00',
             '15', 'yes', '45000', 'jane.wanjiku@example.com', '0712345678',

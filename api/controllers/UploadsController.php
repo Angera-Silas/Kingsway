@@ -57,7 +57,7 @@ final class UploadsController extends BaseController
                     $this->downloads()->publicDownloadUrl($token),
             ], 'School document uploaded successfully.');
         } catch (Throwable $exception) {
-            error_log('[UploadsController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[UploadsController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return $this->unprocessable('An internal error occurred.');
         }
     }

@@ -61,7 +61,7 @@ class ClassTeacherAnalyticsService
                 $this->streamId = null;
             }
         } catch (Exception $e) {
-            error_log("loadAssignedClass error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("loadAssignedClass error: " . $e->getMessage());
             $this->classId = null;
             $this->streamId = null;
         }
@@ -117,7 +117,7 @@ class ClassTeacherAnalyticsService
                 'class_name' => $classResult['class_name'] ?? 'Unknown'
             ];
         } catch (Exception $e) {
-            error_log("getMyStudentsStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getMyStudentsStats error: " . $e->getMessage());
             return ['total' => 0, 'male' => 0, 'female' => 0, 'class_name' => 'Error'];
         }
     }
@@ -158,7 +158,7 @@ class ClassTeacherAnalyticsService
                 'percentage' => $percentage
             ];
         } catch (Exception $e) {
-            error_log("getTodayAttendanceStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getTodayAttendanceStats error: " . $e->getMessage());
             return ['present' => 0, 'absent' => 0, 'late' => 0, 'percentage' => 0];
         }
     }
@@ -199,7 +199,7 @@ class ClassTeacherAnalyticsService
                 'overdue' => (int) ($result['overdue'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getPendingAssessmentsStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getPendingAssessmentsStats error: " . $e->getMessage());
             return ['pending' => 0, 'graded_this_week' => 0, 'overdue' => 0];
         }
     }
@@ -228,7 +228,7 @@ class ClassTeacherAnalyticsService
                 'this_week' => (int) ($result['this_week'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getLessonPlansStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getLessonPlansStats error: " . $e->getMessage());
             return ['total' => 0, 'approved' => 0, 'pending' => 0, 'this_week' => 0];
         }
     }
@@ -255,7 +255,7 @@ class ClassTeacherAnalyticsService
                 'unread_responses' => (int) ($result['unread_responses'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getCommunicationsStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getCommunicationsStats error: " . $e->getMessage());
             return ['total_sent' => 0, 'sent_this_week' => 0, 'unread_responses' => 0];
         }
     }
@@ -287,7 +287,7 @@ class ClassTeacherAnalyticsService
                 'needs_support' => (int) ($result['needs_support'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getClassPerformanceStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getClassPerformanceStats error: " . $e->getMessage());
             return ['average_score' => 0, 'high_performers' => 0, 'needs_support' => 0];
         }
     }
@@ -329,7 +329,7 @@ class ClassTeacherAnalyticsService
 
             return ['labels' => $labels, 'data' => $data];
         } catch (Exception $e) {
-            error_log("getWeeklyAttendanceTrend error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getWeeklyAttendanceTrend error: " . $e->getMessage());
             return ['labels' => [], 'data' => []];
         }
     }
@@ -370,7 +370,7 @@ class ClassTeacherAnalyticsService
 
             return ['labels' => $labels, 'data' => $data];
         } catch (Exception $e) {
-            error_log("getAssessmentPerformanceChart error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getAssessmentPerformanceChart error: " . $e->getMessage());
             return ['labels' => [], 'data' => []];
         }
     }
@@ -399,7 +399,7 @@ class ClassTeacherAnalyticsService
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("getTodaySchedule error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getTodaySchedule error: " . $e->getMessage());
             return [];
         }
     }
@@ -437,7 +437,7 @@ class ClassTeacherAnalyticsService
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("getStudentAssessmentStatus error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getStudentAssessmentStatus error: " . $e->getMessage());
             return [];
         }
     }
@@ -474,7 +474,7 @@ class ClassTeacherAnalyticsService
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("getStudentRoster error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getStudentRoster error: " . $e->getMessage());
             return [];
         }
     }
@@ -495,7 +495,7 @@ class ClassTeacherAnalyticsService
             usort($events, static fn(array $left, array $right): int => strcmp($left['start_date'] ?? '', $right['start_date'] ?? ''));
             return array_slice($events, 0, 6);
         } catch (Exception $e) {
-            error_log('Class teacher events error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Class teacher events error: ' . $e->getMessage());
             return [];
         }
     }

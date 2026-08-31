@@ -197,7 +197,7 @@ class InternalMessagingManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[InternalMessagingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[InternalMessagingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'data' => null, 'error' => 'An internal error occurred.'];
         }
 
@@ -242,7 +242,7 @@ class InternalMessagingManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[InternalMessagingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[InternalMessagingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'data' => null, 'error' => 'An internal error occurred.'];
         }
 

@@ -406,7 +406,7 @@ class RouteAuthorization
                 'status' => $authorized ? 'success' : 'failure',
             ]);
         } catch (\Exception $e) {
-            error_log("Authorization log failed - User: {$user_id}, Role: {$role_id}, Route: {$route}, Result: " . ($authorized ? 'ALLOWED' : 'DENIED'));
+            \App\API\Services\Logger::legacyError("Authorization log failed - User: {$user_id}, Role: {$role_id}, Route: {$route}, Result: " . ($authorized ? 'ALLOWED' : 'DENIED'));
         }
     }
 }

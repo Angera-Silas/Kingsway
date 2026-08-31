@@ -458,7 +458,7 @@ class PolicyEngine
                 ]);
             }
         } catch (Exception $e) {
-            error_log("Failed to log policy audit: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to log policy audit: " . $e->getMessage());
         }
     }
 

@@ -1,3 +1,24 @@
+// Account settings is loaded inside the authenticated shell, not public.js.
+// Keep WebAuthn wire conversion available in this controller as well.
+window.arrayBufferToBase64 ||= function (buffer) {
+    let binary = '';
+    new Uint8Array(buffer).forEach((byte) => { binary += String.fromCharCode(byte); });
+    return btoa(binary);
+};
+window.recursiveBase64StrToArrayBuffer ||= function convert(value, key = '') {
+    if (Array.isArray(value)) return value.map((item) => convert(item, key));
+    if (value && typeof value === 'object') {
+        Object.keys(value).forEach((childKey) => { value[childKey] = convert(value[childKey], childKey); });
+        return value;
+    }
+    if (typeof value === 'string' && ['challenge', 'id'].includes(key)) {
+        const normalized = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4);
+        const binary = atob(normalized);
+        return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    }
+    return value;
+};
+
 const accountSettings = {
     initialized: false,
     state: {
@@ -18,6 +39,10 @@ const accountSettings = {
         this.initialized = true;
         this.setupEventListeners();
         await this.loadData();
+        const requestedSection = new URLSearchParams(window.location.search).get('section');
+        if (requestedSection && document.querySelector(`[data-settings-section="${CSS.escape(requestedSection)}"]`)) {
+            this.showSection(requestedSection, false);
+        }
     },
 
     setupEventListeners() {
@@ -37,21 +62,12 @@ const accountSettings = {
         // ── 2FA method selection ──
         document.getElementById('tfa-setup-totp')?.addEventListener('click', () => this.setupTOTP());
         document.getElementById('tfa-setup-email')?.addEventListener('click', () => this.setupEmail());
-        document.getElementById('tfa-setup-sms')?.addEventListener('click', () => this.setupSMS());
-        document.getElementById('tfa-setup-whatsapp')?.addEventListener('click', () => this.setupWhatsApp());
         document.getElementById('tfa-setup-passkey')?.addEventListener('click', () => this.setupPasskey());
 
         // ── 2FA verify setup code ──
         document.getElementById('tfa-verify-code-btn')?.addEventListener('click', () => this.verifySetupCode());
         document.getElementById('tfa-verify-code-input')?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') this.verifySetupCode();
-        });
-
-        // ── 2FA disable ──
-        document.getElementById('tfa-disable-btn')?.addEventListener('click', () => this.showDisableModal());
-        document.getElementById('tfa-confirm-disable-btn')?.addEventListener('click', () => this.disableTFA());
-        document.getElementById('tfa-disable-password')?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') this.disableTFA();
         });
 
         // ── Backup codes ──
@@ -104,7 +120,7 @@ const accountSettings = {
         if (el('profile-role')) el('profile-role').textContent = roleNames.join(', ') || u.role_name || '—';
     },
 
-    showSection(section) {
+    showSection(section, updateUrl = true) {
         if (!section) return;
         document.querySelectorAll('[data-settings-section]').forEach((node) => {
             node.classList.toggle('d-none', node.dataset.settingsSection !== section);
@@ -113,6 +129,12 @@ const accountSettings = {
             node.classList.toggle('active', node.dataset.settingsTarget === section);
         });
         document.querySelector('[data-settings-section="' + section + '"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (updateUrl) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('route', 'account_settings');
+            url.searchParams.set('section', section);
+            window.history.replaceState({}, '', url);
+        }
     },
 
     renderTFAStatus(status) {
@@ -140,8 +162,9 @@ const accountSettings = {
         const passkeyList = document.getElementById('tfa-passkeys-list');
         const safe = (value) => String(value || '').replace(/[&<>'"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
         if (passkeyList) passkeyList.innerHTML = passkeys.length
-            ? `<strong>Passkeys:</strong> ${passkeys.map(p => safe(p.label || 'Passkey')).join(', ')}`
+            ? `<strong class="d-block mb-2">Passkeys</strong>${passkeys.map(p => `<div class="d-flex justify-content-between align-items-center border-top py-2"><span>${safe(p.label || 'Passkey')} <small class="text-muted">${safe(p.last_used_at || 'Not used yet')}</small></span><button class="btn btn-sm btn-outline-danger" data-revoke-passkey="${Number(p.id)}">Revoke</button></div>`).join('')}`
             : '<strong>Passkeys:</strong> None registered';
+        passkeyList?.querySelectorAll('[data-revoke-passkey]').forEach(button => button.addEventListener('click', () => this.revokePasskey(Number(button.dataset.revokePasskey))));
 
         // Toggle sections
         document.getElementById('tfa-setup-section')?.classList.remove('d-none');
@@ -176,7 +199,7 @@ const accountSettings = {
     async setupTOTP() {
         try {
             const resp = await window.API.apiCall('/twofactor/setup/totp', 'POST', { current_password: await this.requestReauth() });
-            const d = resp?.data || {};
+            const d = resp?.data || resp || {};
             this.state.pendingSetup = { method: 'totp', ...d };
 
             this.showSetupUI('totp', d.secret, d.qr_code_url);
@@ -188,7 +211,7 @@ const accountSettings = {
     async setupEmail() {
         try {
             const resp = await window.API.apiCall('/twofactor/setup/email', 'POST', { current_password: await this.requestReauth() });
-            const d = resp?.data || {};
+            const d = resp?.data || resp || {};
             this.state.pendingSetup = { method: 'email', ...d };
 
             this.showSetupUI('email');
@@ -201,7 +224,7 @@ const accountSettings = {
     async setupSMS() {
         try {
             const resp = await window.API.apiCall('/twofactor/setup/sms', 'POST', { current_password: await this.requestReauth() });
-            const d = resp?.data || {};
+            const d = resp?.data || resp || {};
             this.state.pendingSetup = { method: 'sms', ...d };
 
             this.showSetupUI('sms');
@@ -214,7 +237,7 @@ const accountSettings = {
     async setupWhatsApp() {
         try {
             const resp = await window.API.apiCall('/twofactor/setup/whatsapp', 'POST', { current_password: await this.requestReauth() });
-            const d = resp?.data || {};
+            const d = resp?.data || resp || {};
             this.state.pendingSetup = { method: 'whatsapp', ...d };
             this.showSetupUI('whatsapp');
             showNotification(resp?.message || 'Verification code sent to WhatsApp', 'success');
@@ -238,6 +261,12 @@ const accountSettings = {
             showNotification('Passkey registered successfully', 'success');
             await this.loadData();
         } catch (e) { showNotification(e.message || 'Passkey registration failed', 'danger'); }
+    },
+
+    async revokePasskey(id) {
+        if (!(await window.confirmAction('Revoke passkey', 'This device will no longer be able to verify sign-ins. Continue?', { confirmText: 'Revoke', danger: true }))) return;
+        try { await window.API.apiCall(`/twofactor/passkey/${id}`, 'DELETE', { current_password: await this.requestReauth() }); showNotification('Passkey revoked', 'success'); await this.loadData(); }
+        catch (e) { showNotification(e.message || 'Could not revoke passkey', 'danger'); }
     },
 
     showSetupUI(method, secret, qrUrl) {
@@ -288,7 +317,7 @@ const accountSettings = {
 
         try {
             const resp = await window.API.apiCall('/twofactor/setup/verify', 'POST', { code, current_password: await this.requestReauth() });
-            const d = resp?.data || {};
+            const d = resp?.data || resp || {};
 
             // Show backup codes
             if (d.backup_codes && d.backup_codes.length) {
@@ -331,7 +360,12 @@ const accountSettings = {
             ">
                 <i class="bi bi-clipboard me-1"></i>Copy to clipboard
             </button>
+            <button class="btn btn-sm btn-outline-secondary mt-2 ms-2" id="downloadBackupCodes"><i class="bi bi-download me-1"></i>Download</button>
         `;
+        container.querySelector('#downloadBackupCodes')?.addEventListener('click', () => {
+            const blob = new Blob([`Kingsway recovery codes\nGenerated: ${new Date().toISOString()}\n\n${codes.join('\n')}\n`], { type: 'text/plain' });
+            const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'kingsway-recovery-codes.txt'; link.click(); URL.revokeObjectURL(link.href);
+        });
         container.classList.remove('d-none');
     },
 
@@ -397,7 +431,7 @@ const accountSettings = {
 
         try {
             const resp = await window.API.apiCall('/twofactor/backup/generate', 'POST', { current_password: await this.requestReauth() });
-            const d = resp?.data || {};
+            const d = resp?.data || resp || {};
 
             if (d.backup_codes && d.backup_codes.length) {
                 this.showBackupCodes(d.backup_codes);
@@ -424,8 +458,8 @@ const accountSettings = {
             showNotification('Please fill in all password fields', 'warning');
             return;
         }
-        if (newPass.length < 8) {
-            showNotification('New password must be at least 8 characters', 'warning');
+        if (newPass.length < 10) {
+            showNotification('New password must be at least 10 characters', 'warning');
             return;
         }
         if (newPass !== confirm) {

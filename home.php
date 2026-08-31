@@ -33,6 +33,9 @@ if (!headers_sent()) {
 <!doctype html>
 <html lang="en">
 <head>
+    <!-- Load first: silences every console.* call and routes warnings/errors to the
+         central file logger (never the browser console). -->
+    <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
     <meta charset="utf-8">
     <meta
         name="viewport"
@@ -40,7 +43,7 @@ if (!headers_sent()) {
     >
     <meta name="theme-color" content="#178a50">
 
-    <title>Kingsway Preparatory Academy</title>
+    <title>Kingsway Preparatory School</title>
 
     <link
         rel="icon"
@@ -177,6 +180,7 @@ if (!headers_sent()) {
 <?php
 $files = [
     'js/api.js',
+    'js/core/frontend_logger.js',
     'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
@@ -215,6 +219,13 @@ foreach ($files as $file) {
 }
 ?>
 <script>
+    // Frontend telemetry logger: safe to initialize once the API client exists.
+    // It buffers + batches events to the same file logger as the backend.
+    if (window.AppLogger && typeof window.AppLogger.init === "function") {
+        window.AppLogger.init();
+    }
+</script>
+<script>
     (async function () {
         const route = window.REQUESTED_ROUTE;
 
@@ -235,7 +246,7 @@ foreach ($files as $file) {
                 );
             } else {
                 window.location.replace(
-                    (window.APP_BASE || '') + '/home.php?route=profile'
+                    (window.APP_BASE || '') + '/home.php?route=account_settings'
                 );
             }
             return;

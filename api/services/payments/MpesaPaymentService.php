@@ -217,7 +217,7 @@ class MpesaPaymentService
             $message = $response['ResponseDescription'] ?? 'Failed to initiate M-Pesa payment';
             return $this->respond(false, $response, $message, 400);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] STK Push error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK Push error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -254,7 +254,7 @@ class MpesaPaymentService
                 'webhook'  => json_encode($response),
             ]);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] Failed to log STK request: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] Failed to log STK request: ' . $e->getMessage());
         }
     }
 
@@ -296,7 +296,7 @@ class MpesaPaymentService
                 $this->providerResponseFailed($response) ? 502 : 200
             );
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] STK query error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK query error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -413,7 +413,7 @@ class MpesaPaymentService
                     try {
                         (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
                     } catch (\Throwable $workflowError) {
-                        error_log('[MpesaPaymentService] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                        \App\API\Services\Logger::legacyError('[MpesaPaymentService] payment workflow advancement deferred: ' . $workflowError->getMessage());
                     }
                 }
             }
@@ -441,7 +441,7 @@ class MpesaPaymentService
                             $stkBillRef
                         );
                     } catch (\Throwable $feeRoutingError) {
-                        error_log('[MpesaPaymentService] STK fee routing failed: ' . $feeRoutingError->getMessage());
+                        \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK fee routing failed: ' . $feeRoutingError->getMessage());
                     }
                 }
             }
@@ -456,11 +456,11 @@ class MpesaPaymentService
                         (new TransportPaymentService($this->getDb()))->reconcileDaraja($checkoutRequestId, $mpesaReceipt ?: $checkoutRequestId, (float)($amount ?: 0));
                     }
                 } catch (\Throwable $transportError) {
-                    error_log('[MpesaPaymentService] transport reconciliation failed: ' . $transportError->getMessage());
+                    \App\API\Services\Logger::legacyError('[MpesaPaymentService] transport reconciliation failed: ' . $transportError->getMessage());
                 }
             }
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] Failed to record STK success: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] Failed to record STK success: ' . $e->getMessage());
         }
     }
 
@@ -488,7 +488,7 @@ class MpesaPaymentService
 
             $phone = $this->normalizePhone((string) ($row['phone_number'] ?? ''));
             if (!preg_match('/^254[0-9]{9}$/', $phone)) {
-                error_log('[MpesaPaymentService] payment SMS skipped: no valid payer phone on tx ' . $transactionId);
+                \App\API\Services\Logger::legacyError('[MpesaPaymentService] payment SMS skipped: no valid payer phone on tx ' . $transactionId);
                 return;
             }
 
@@ -545,7 +545,7 @@ class MpesaPaymentService
                 $sent ? 'queued' : 'failed'
             );
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] payment SMS failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] payment SMS failed: ' . $e->getMessage());
         }
     }
 
@@ -593,7 +593,7 @@ class MpesaPaymentService
                 $annualBalance !== false ? (float) $annualBalance : null,
             ];
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] fee balance lookup failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] fee balance lookup failed: ' . $e->getMessage());
             return [null, null];
         }
     }
@@ -633,7 +633,7 @@ class MpesaPaymentService
                         'checkout' => $checkoutId,
                     ]);
                 } catch (Exception $e) {
-                    error_log('[MpesaPaymentService] failed-status update: ' . $e->getMessage());
+                    \App\API\Services\Logger::legacyError('[MpesaPaymentService] failed-status update: ' . $e->getMessage());
                 }
                 $this->logWebhook('mpesa_stk', $callbackData, 'failed');
             }
@@ -644,7 +644,7 @@ class MpesaPaymentService
                 'result_desc' => $resultDesc,
             ], 'STK callback processed');
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] processCallback error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] processCallback error: ' . $e->getMessage());
             return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
@@ -670,7 +670,7 @@ class MpesaPaymentService
 
             return ['ResultCode' => '0', 'ResultDesc' => 'Success'];
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] validateC2BPayment error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] validateC2BPayment error: ' . $e->getMessage());
             return ['ResultCode' => 'C2B00011', 'ResultDesc' => 'System error'];
         }
     }
@@ -758,7 +758,7 @@ class MpesaPaymentService
                 'amount' => $amount,
             ], 'C2B confirmation processed');
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] processC2BConfirmation error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] processC2BConfirmation error: ' . $e->getMessage());
             return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
@@ -778,7 +778,7 @@ class MpesaPaymentService
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
             $studentId = $student ? (int) $student['id'] : null;
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] C2B student lookup: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] C2B student lookup: ' . $e->getMessage());
         }
 
         $date = $this->client->formatTransactionDate((string) ($callbackData['TransTime'] ?? ''));
@@ -856,7 +856,7 @@ class MpesaPaymentService
             }
             return $this->respond(false, $response, $response['ResponseDescription'] ?? 'Registration failed');
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] registerC2BUrls error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] registerC2BUrls error: ' . $e->getMessage());
             return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
@@ -894,13 +894,13 @@ class MpesaPaymentService
                         'webhook' => json_encode($response),
                     ]);
                 } catch (Exception $e) {
-                    error_log('[MpesaPaymentService] simulate log: ' . $e->getMessage());
+                    \App\API\Services\Logger::legacyError('[MpesaPaymentService] simulate log: ' . $e->getMessage());
                 }
             }
 
             return $this->respond(($response['ResponseCode'] ?? '1') === '0', $response, $response['ResponseDescription'] ?? 'C2B simulate failed');
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] simulateC2B error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] simulateC2B error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -932,7 +932,7 @@ class MpesaPaymentService
                 || (isset($response['ResponseCode']) && (string) $response['ResponseCode'] !== '0');
             return $this->respond($failed ? false : true, $response, $failed ? ($response['ResponseMessage'] ?? 'Pull transaction query failed') : 'Pulled C2B transactions', $failed ? 502 : 200);
         } catch (\Exception $e) {
-            error_log('[MpesaPaymentService] pullTransactions error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] pullTransactions error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -967,7 +967,7 @@ class MpesaPaymentService
             $failed = $this->providerResponseFailed($response);
             return $this->respond(!$failed, $response, $failed ? 'Transaction status query failed' : 'Transaction status queried', $failed ? 502 : 200);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] transaction status error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] transaction status error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -992,7 +992,7 @@ class MpesaPaymentService
             $failed = $this->providerResponseFailed($response);
             return $this->respond(!$failed, $response, $failed ? 'Account balance query failed' : 'Account balance queried', $failed ? 502 : 200);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] account balance error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] account balance error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -1023,7 +1023,7 @@ class MpesaPaymentService
             $failed = $this->providerResponseFailed($response);
             return $this->respond(!$failed, $response, $failed ? 'Reversal request failed' : 'Reversal request submitted', $failed ? 502 : 200);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] reversal error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] reversal error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -1048,7 +1048,7 @@ class MpesaPaymentService
             $failed = $this->providerResponseFailed($response);
             return $this->respond(!$failed, $response, $failed ? 'QR generation failed' : 'QR generated', $failed ? 502 : 200);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] QR error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] QR error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -1078,7 +1078,7 @@ class MpesaPaymentService
             $failed = $this->providerResponseFailed($response);
             return $this->respond(!$failed, $response, $failed ? ($response['errorMessage'] ?? 'B2B payment failed') : 'B2B payment submitted', $failed ? 502 : 200);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] B2B error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] B2B error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
@@ -1107,7 +1107,7 @@ class MpesaPaymentService
             }
             return $this->respond(true, $student, 'Student found');
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] validateAdmissionNumber error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] validateAdmissionNumber error: ' . $e->getMessage());
             return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
@@ -1135,7 +1135,7 @@ class MpesaPaymentService
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             return $this->respond(true, ['transactions' => $rows], 'Transactions retrieved');
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] getPaymentsByAdmission error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] getPaymentsByAdmission error: ' . $e->getMessage());
             return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
@@ -1160,7 +1160,7 @@ class MpesaPaymentService
                 'request_method' => $_SERVER['REQUEST_METHOD'] ?? null,
             ]);
         } catch (Exception $e) {
-            error_log('[MpesaPaymentService] logWebhook error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] logWebhook error: ' . $e->getMessage());
         }
     }
 }

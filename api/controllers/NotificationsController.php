@@ -45,7 +45,7 @@ class NotificationsController extends BaseController
                 'Notifications retrieved'
             );
         } catch (\Exception $e) {
-            error_log('[NotificationsController::getNotifications] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[NotificationsController::getNotifications] ' . $e->getMessage());
             return $this->serverError('Failed to load notifications');
         }
     }
@@ -65,7 +65,7 @@ class NotificationsController extends BaseController
             $stmt->execute([':status' => $read ? 'read' : 'unread', ':id' => $notificationId, ':uid' => (int) $userId]);
             return $this->success(['updated' => $stmt->rowCount() > 0], $read ? 'Notification marked as read' : 'Notification marked as unread');
         } catch (\Exception $e) {
-            error_log('[NotificationsController::putNotification] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[NotificationsController::putNotification] ' . $e->getMessage());
             return $this->serverError('Failed to update notification');
         }
     }
@@ -120,7 +120,7 @@ class NotificationsController extends BaseController
                 'Notifications marked as read'
             );
         } catch (\Exception $e) {
-            error_log('[NotificationsController::postMarkAllRead] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[NotificationsController::postMarkAllRead] ' . $e->getMessage());
             return $this->serverError('Failed to mark notifications as read');
         }
     }
@@ -194,7 +194,7 @@ class NotificationsController extends BaseController
                 $inserted > 0 ? 'Notification broadcast sent' : 'Notification broadcast sent (0 recipients)'
             );
         } catch (\Exception $e) {
-            error_log('[NotificationsController::postPush] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[NotificationsController::postPush] ' . $e->getMessage());
             return $this->serverError('Failed to broadcast notification');
         }
     }

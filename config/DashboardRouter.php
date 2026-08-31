@@ -16,7 +16,7 @@ class DashboardRouter
     /** System-domain pages explicitly approved for the System Administrator. */
     private const SYSTEM_ADMIN_ROUTES = [
         'system_administrator_dashboard',
-        'manage_users', 'account_status', 'manage_roles',
+        'manage_users', 'bootstrap_school_administrator', 'account_status', 'manage_roles',
         'role_permission_matrix', 'resource_based_permissions',
         'authentication_logs', 'failed_login_attempts', 'active_sessions',
         'token_management', 'ip_whitelist_blacklist',
@@ -27,11 +27,12 @@ class DashboardRouter
         'role_navigation_config', 'analytics_catalogue', 'system_health',
         'error_logs', 'background_jobs', 'api_metrics', 'rate_limiting_status',
         'migrations', 'backups', 'data_retention', 'activity_audit_logs',
+        'log_viewer',
         'permission_changes', 'policy_violations', 'security_incidents',
         'api_explorer', 'webhook_registry', 'system_diagnostics', 'job_inspector',
         'communications/messages_inbox', 'manage_system_announcements',
         'manage_sms_configurations', 'manage_email_configurations',
-        'manage_whatsapp_configurations', 'profile',
+        'manage_whatsapp_configurations', 'account_settings', 'profile',
     ];
     // role_id => dashboard file key (without .php)
     private const ROLE_DASHBOARDS = [
@@ -119,6 +120,7 @@ private const ROUTE_ROLES = [
     'attendance_trends' => [3, 6, 63],  // 3 role(s)
     'audit_logs' => [10],  // 1 role(s)
     'authentication_logs' => [2],  // 1 role(s)
+    'log_viewer' => [2],  // 1 role(s)
     'background_jobs' => [2],  // 1 role(s)
     'backups' => [2],  // 1 role(s)
     'bank_accounts' => [3, 10],  // 2 role(s)
@@ -230,7 +232,7 @@ private const ROUTE_ROLES = [
     'manage_activities' => [3, 5, 21],  // 3 role(s)
     'manage_admissions_payments' => [10],  // 1 role(s)
     'manage_announcements' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],  // 20 role(s)
-    'manage_articles' => [6, 21, 63],  // 3 role(s)
+    'manage_articles' => [4, 6, 21, 63],
     'manage_boarding' => [3, 4, 5, 18],  // 4 role(s)
     'manage_boarding_fee_structure' => [10],  // 1 role(s)
     'manage_classes' => [3, 4, 5, 6],  // 4 role(s)
@@ -251,10 +253,10 @@ private const ROUTE_ROLES = [
     'manage_payments' => [3, 4, 10],  // 3 role(s)
     'manage_payrolls' => [3, 4, 10],  // 3 role(s)
     'manage_public_downloads' => [4],  // 1 role(s)
-    'manage_public_events' => [6, 21, 63],  // 3 role(s)
+    'manage_public_events' => [4, 6, 21, 63],
     'manage_requisitions' => [14],  // 1 role(s)
     'manage_roles' => [2],  // 1 role(s)
-    'manage_school_gallery' => [21],  // 1 role(s)
+    'manage_school_gallery' => [4, 21],
     'manage_sms' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 63],
     'manage_staff' => [3, 4, 5, 63],  // 4 role(s)
     'manage_staff_meetings' => [4],  // 1 role(s)
@@ -268,8 +270,13 @@ private const ROUTE_ROLES = [
     'manage_transport_fee_structure' => [10],  // 1 role(s)
     'manage_uniform_sales' => [3, 4, 14],  // 3 role(s)
     'my_family' => [3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],
-    'internal_products_catalog' => [14],
+    'internal_products_catalog' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64, 71, 72],
+    'internal_product_details' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64, 71, 72],
+    'internal_catalog_account' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64, 71, 72],
+    'catalog_orders_management' => [3, 4, 14],
+    'products_catalog_management' => [4, 14],
     'manage_users' => [2],  // 1 role(s)
+    'bootstrap_school_administrator' => [2],
     'manage_website' => [2, 3, 4],  // 3 role(s)
     'manage_whatsapp' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 63],
     'mark_attendance' => [6, 7, 8, 23, 63],  // 5 role(s)

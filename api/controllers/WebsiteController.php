@@ -317,7 +317,7 @@ class WebsiteController extends BaseController
                 'selected_academic_year' => $yearLabel,
             ], 'Printable downloads available.');
         } catch (\Throwable $exception) {
-            error_log('[WebsiteController] printable downloads: ' . $exception->getMessage());
+            \App\API\Services\Logger::legacyError('[WebsiteController] printable downloads: ' . $exception->getMessage());
             return $this->serverError('Printable downloads are temporarily unavailable.');
         }
     }
@@ -380,7 +380,7 @@ class WebsiteController extends BaseController
                 'download_url' => $this->generatedDownloadUrl($pdfPath),
             ], 'PDF generated.');
         } catch (\Throwable $exception) {
-            error_log('[WebsiteController] printable download generation: ' . $exception->getMessage());
+            \App\API\Services\Logger::legacyError('[WebsiteController] printable download generation: ' . $exception->getMessage());
             return $this->serverError('Unable to generate this PDF right now.');
         }
     }

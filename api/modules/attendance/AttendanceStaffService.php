@@ -35,7 +35,7 @@ class AttendanceStaffService
             $result = $this->api->getStaffAttendanceHistory($staffId);
             return $controller->handleResponse($result);
         } catch (\RuntimeException $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->serverError('An internal error occurred.');
         }
     }
@@ -88,7 +88,7 @@ class AttendanceStaffService
             foreach ($staff as $s) { $status = $s['effective_status'] ?? 'not_marked'; if (isset($summary[$status])) $summary[$status]++; }
             return $controller->success(['date' => $date, 'summary' => $summary, 'staff' => $staff], 'Staff attendance retrieved');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -147,7 +147,7 @@ class AttendanceStaffService
             }
             return $controller->success(['created' => $created, 'updated' => $updated, 'auto_marked' => $autoMarked, 'total' => $created + $updated, 'date' => $date, 'shift' => $shift], 'Staff attendance marked successfully');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -178,7 +178,7 @@ class AttendanceStaffService
             if ($dayNumber >= 6 || !$isWorkingDay) { $shifts = ['morning' => 'Morning Shift (06:00–14:00)', 'afternoon' => 'Afternoon Shift (14:00–22:00)', 'night' => 'Night Shift (22:00–06:00)', 'full_day' => 'Full Day']; }
             return $controller->success(['date' => $date, 'day_name' => $dayName, 'day_type' => $dayType, 'event_name' => $eventName, 'is_working_day' => $isWorkingDay, 'only_roster' => $onlyRosterStaff, 'available_shifts' => $shifts, 'current_shift' => $shift, 'staff' => $staff, 'summary' => $summary]);
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->serverError('An internal error occurred.');
         }
     }
@@ -205,7 +205,7 @@ class AttendanceStaffService
             foreach ($rows as $r) { $aggregate[$r['status'] ?? 'absent']++; $aggregate['total']++; }
             return $controller->success(['records' => $rows, 'aggregate' => $aggregate], 'Staff attendance report retrieved');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->serverError('An internal error occurred.');
         }
     }

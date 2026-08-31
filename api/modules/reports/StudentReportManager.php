@@ -113,7 +113,7 @@ class StudentReportManager extends BaseAPI
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            error_log('[StudentReportManager::getAttendanceRates] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[StudentReportManager::getAttendanceRates] ' . $e->getMessage());
             throw new \RuntimeException('Attendance report data could not be queried.', 0, $e);
         }
     }
@@ -201,7 +201,7 @@ class StudentReportManager extends BaseAPI
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            error_log('[StudentReportManager::getScoreDistributions] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[StudentReportManager::getScoreDistributions] ' . $e->getMessage());
             return [];
         }
     }
@@ -267,7 +267,7 @@ class StudentReportManager extends BaseAPI
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            error_log('[StudentReportManager::getExamReports] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[StudentReportManager::getExamReports] ' . $e->getMessage());
             return [];
         }
     }

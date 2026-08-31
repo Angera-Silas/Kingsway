@@ -129,7 +129,7 @@ class PushController extends BaseController
             $all[] = $record;
             @$this->writeManagedFile($this->storeFile(), json_encode(array_values($all), JSON_UNESCAPED_SLASHES), LOCK_EX);
         } catch (\Throwable $e) {
-            error_log('PushController appendSubscription failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('PushController appendSubscription failed: ' . $e->getMessage());
         }
     }
 
@@ -153,7 +153,7 @@ class PushController extends BaseController
             }
             return $removed;
         } catch (\Throwable $e) {
-            error_log('PushController removeSubscription failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('PushController removeSubscription failed: ' . $e->getMessage());
             return 0;
         }
     }

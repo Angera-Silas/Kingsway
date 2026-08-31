@@ -2046,7 +2046,7 @@ class SchedulesAPI extends BaseAPI {
             return errorResponse($e->getMessage(), $code);
         }
     }
-    private function notifyScheduleTransition(string $type,int $id,string $status): void { try{$n=new NotificationService($this->db);$label=$type==='duty'?'duty roster':'exam timetable';$recipients=$status==='submitted'?['role:headteacher','role:deputy_head_academic','role:school_admin']:'all_staff';$n->push($recipients,'schedule_workflow',ucfirst($label).' '.$status,"The {$label} draft #{$id} is now {$status}.",'medium',['reference_type'=>$type.'_schedule_draft','reference_id'=>$id,'action_url'=>'home.php?route='.($type==='duty'?'duty_roster':'exam_timetable_drafts')]);}catch(\Throwable $e){error_log('[SchedulesAPI] notification failed: '.$e->getMessage());} }
+    private function notifyScheduleTransition(string $type,int $id,string $status): void { try{$n=new NotificationService($this->db);$label=$type==='duty'?'duty roster':'exam timetable';$recipients=$status==='submitted'?['role:headteacher','role:deputy_head_academic','role:school_admin']:'all_staff';$n->push($recipients,'schedule_workflow',ucfirst($label).' '.$status,"The {$label} draft #{$id} is now {$status}.",'medium',['reference_type'=>$type.'_schedule_draft','reference_id'=>$id,'action_url'=>'home.php?route='.($type==='duty'?'duty_roster':'exam_timetable_drafts')]);}catch(\Throwable $e){\App\API\Services\Logger::legacyError('[SchedulesAPI] notification failed: '.$e->getMessage());} }
     private function publishScheduleDraft(string $type,int $id,string $entryTable,int $actor): void {
         if($type==='duty'){$q=$this->db->prepare("SELECT * FROM {$entryTable} WHERE draft_id=?");$q->execute([$id]);$ins=$this->db->prepare("INSERT INTO staff_duty_roster(staff_id,date,duty_type_id,shift,start_time,end_time,location,notes,is_swap,swapped_with_id) VALUES(?,?,?,?,?,?,?,?,?,?)");foreach($q as $e)$ins->execute([$e['staff_id'],$e['date'],$e['duty_type_id'],$e['shift'],$e['start_time'],$e['end_time'],$e['location'],$e['notes'],empty($e['swapped_with_id'])?0:1,$e['swapped_with_id']]);}
         else {
@@ -2245,7 +2245,7 @@ class SchedulesAPI extends BaseAPI {
             $this->db->commit();
             return successResponse(['id' => $id, 'status' => 'draft', 'entry_count' => count($entries)], 'Timetable draft saved');
         } catch (\InvalidArgumentException $e) { if ($this->db->inTransaction()) $this->db->rollBack(); return errorResponse($e->getMessage(), 400); }
-          catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); error_log('[SchedulesAPI] timetable draft save failed: ' . $e->getMessage()); return errorResponse('Timetable draft could not be saved', 400); }
+          catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); \App\API\Services\Logger::legacyError('[SchedulesAPI] timetable draft save failed: ' . $e->getMessage()); return errorResponse('Timetable draft could not be saved', 400); }
     }
 
     public function getTimetableDraft($id): array

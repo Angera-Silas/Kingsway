@@ -247,7 +247,7 @@ const payrollController = {
         <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
         </head><body class="p-4">
         <div class="container">
-          <div class="text-center mb-3"><h3>Kingsway Academy</h3><h5 class="text-muted">Payslip - ${months[parseInt(month)] || month} ${year}</h5></div>
+          <div class="text-center mb-3"><h3>Kingsway Preparatory School</h3><h5 class="text-muted">Payslip - ${months[parseInt(month)] || month} ${year}</h5></div>
           <hr>
           <p><strong>Name:</strong> ${payslip.first_name || payslip.staff_name || ""} ${payslip.last_name || ""} | <strong>Staff No:</strong> ${payslip.staff_no || "-"}</p>
           <table class="table table-bordered">

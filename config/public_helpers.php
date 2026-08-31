@@ -335,6 +335,8 @@ function kw_school_values(): array {
         ['name'=>'Unity',          'description'=>'Together we achieve more, divided we fall',      'icon'=>'bi-people-fill',        'color'=>'#ff9800'],
         ['name'=>'Peace',          'description'=>'Harmony in our diverse school community',        'icon'=>'bi-peace',              'color'=>'#9c27b0'],
         ['name'=>'Patriotism',     'description'=>'Pride in our Kenyan heritage and culture',       'icon'=>'bi-flag-fill',          'color'=>'#f44336'],
+        ['name'=>'Integrity',      'description'=>'Honesty and transparency in all we do',          'icon'=>'bi-shield-check-fill',  'color'=>'#00695c'],
+        ['name'=>'Excellence',     'description'=>'Striving for the highest standard in all things','icon'=>'bi-star-fill',          'color'=>'#f9c80e'],
     ];
 }
 
@@ -344,12 +346,18 @@ function kw_school_history(): array {
     $rows = kw_table('school_history', '', 'display_order ASC');
     if (!empty($rows)) return $rows;
     return [
-        ['year'=>'2005','event_title'=>'Foundation',            'description'=>'Kingsway Preparatory School was founded with 3 streams and 120 pupils committed to quality education in Londiani.'],
-        ['year'=>'2010','event_title'=>'Growth & Recognition',  'description'=>'Enrolment surpassed 400 students. The school received its first regional award for academic excellence.'],
-        ['year'=>'2015','event_title'=>'Boarding Programme',    'description'=>'Introduction of the full boarding programme. Dormitory facilities expanded for students from across the region.'],
-        ['year'=>'2019','event_title'=>'CBC Transition',        'description'=>'Seamless transition to Kenya\'s Competency-Based Curriculum, positioning Kingsway as a model CBC school.'],
-        ['year'=>'2022','event_title'=>'Digital Transformation','description'=>'Launch of the new 40-workstation ICT Computer Lab and introduction of smart classrooms.'],
-        ['year'=>date('Y'),'event_title'=>'Today',             'description'=>'Over 1,200 students enrolled, 80+ qualified staff, and a track record of 98% KJSEA pass rates.'],
+        ['year'=>'2007','event_title'=>'The Calling',
+         'description'=>'Local lay-ministry couple Daniel Bett and his wife, Sabina, shared a desire to provide Christian education for children in the Simotwet community near Londiani.'],
+        ['year'=>'2008','event_title'=>'A School is Born',
+         'description'=>'Daniel and Sabina Bett started Kingsway Preparatory School in 2008. Beginning with only a few children and limited facilities, they worked to make Christian education available to families in the community.'],
+        ['year'=>'2008–2011','event_title'=>'Growth Through Faith',
+         'description'=>'Despite the difficulties, Kingsway grew from its first few children into a flourishing school. It became a shining light — academic standards were high, and children were involved in Bible studies, preaching, singing groups, Pathfinder clubs, and Sabbath School programs.'],
+        ['year'=>'2009–2015','event_title'=>'Community Impact',
+         'description'=>'The school provided job opportunities for villagers in a community where unemployment had reached 90%. The morale of residents and the local economy continued to increase as the ministry expanded.'],
+        ['year'=>'2015–Present','event_title'=>'Building for the Future',
+         'description'=>'Kingsway began incorporating industries into its ministry — a farm with greenhouses, a vegetable garden, and a bakery. These industries support the school and train older students and adults for business development.'],
+        ['year'=>date('Y'),'event_title'=>'Today',
+         'description'=>'Kingsway Preparatory School continues to grow, now serving learners from Pre-Primary through Junior Secondary (Grade 9). The team hopes the children will leave prepared for eternity.'],
     ];
 }
 

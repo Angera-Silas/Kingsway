@@ -171,20 +171,10 @@
                     <button
                         class="dropdown-item"
                         type="button"
-                        onclick="goToProfile()"
-                    >
-                        <i class="bi bi-person me-2"></i>
-                        My profile
-                    </button>
-                </li>
-                <li>
-                    <button
-                        class="dropdown-item"
-                        type="button"
                         id="account-settings-button"
                     >
-                        <i class="bi bi-gear me-2"></i>
-                        Account settings
+                        <i class="bi bi-person-gear me-2"></i>
+                        My account
                     </button>
                 </li>
                 <li><hr class="dropdown-divider"></li>

@@ -48,6 +48,8 @@
     },
     "scripts": {
         "test": "phpunit",
-        "check:assets": "php scripts/check_asset_versioning.php"
+        "check:assets": "php scripts/check_asset_versioning.php",
+        "check:logging": "php scripts/check_logging_policy.php",
+        "test:logging": "php scripts/test_logging_system.php"
     }
 }

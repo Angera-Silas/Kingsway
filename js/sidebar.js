@@ -106,6 +106,7 @@
     );
 
     const label = escapeHtml(item.label || "Menu");
+    const tooltip = escapeHtml(item.tooltip || item.label || "Menu");
     const icon = escapeHtml(item.icon || "bi bi-circle");
 
     return `
@@ -114,7 +115,7 @@
         data-route="${escapeHtml(routeData.route)}"
         data-params="${escapeHtml(routeData.params)}"
         class="app-sidebar-item sidebar-link"
-        title="${label}"
+        title="${tooltip}"
       >
         <span class="app-sidebar-icon">
           <i class="${icon}"></i>
@@ -127,6 +128,7 @@
   function renderParentItem(item) {
     const submenuId = createId(item.label || "menu");
     const label = escapeHtml(item.label || "Menu");
+    const tooltip = escapeHtml(item.tooltip || item.label || "Menu");
     const icon = escapeHtml(item.icon || "bi bi-folder");
 
     const children = item.subitems
@@ -145,6 +147,7 @@
         const subIcon = escapeHtml(
           subitem.icon || "bi bi-dot"
         );
+        const subTooltip = escapeHtml(subitem.tooltip || subitem.label || "Submenu");
 
         return `
           <a
@@ -152,7 +155,7 @@
             data-route="${escapeHtml(routeData.route)}"
             data-params="${escapeHtml(routeData.params)}"
             class="app-sidebar-subitem sidebar-link"
-            title="${subLabel}"
+            title="${subTooltip}"
           >
             <span class="app-sidebar-subicon">
               <i class="${subIcon}"></i>
@@ -170,7 +173,7 @@
         data-submenu-target="#${submenuId}"
         aria-expanded="false"
         aria-controls="${submenuId}"
-        title="${label}"
+        title="${tooltip}"
       >
         <span class="app-sidebar-icon">
           <i class="${icon}"></i>

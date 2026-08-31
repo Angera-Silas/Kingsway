@@ -176,7 +176,7 @@ class VendorsController extends BaseController
             $mobile->execute([$supplierId]);
             return $this->success(['bank_accounts' => $bank->fetchAll(\PDO::FETCH_ASSOC), 'mobile_accounts' => $mobile->fetchAll(\PDO::FETCH_ASSOC)]);
         } catch (\Throwable $e) {
-            error_log('[VendorsController] payment accounts: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[VendorsController] payment accounts: ' . $e->getMessage());
             return $this->badRequest('Failed to load vendor payment accounts.');
         }
     }
@@ -194,7 +194,7 @@ class VendorsController extends BaseController
             $stmt->execute([$supplierId, $data['bank_name'], $data['bank_code'] ?? null, $data['account_name'], $data['account_number'], $data['currency'] ?? 'KES', !empty($data['is_primary']) ? 1 : 0]);
             return $this->created(['id' => (int) $pdo->lastInsertId()], 'Bank account saved for verification.');
         } catch (\Throwable $e) {
-            error_log('[VendorsController] bank account: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[VendorsController] bank account: ' . $e->getMessage());
             return $this->badRequest('Unable to save bank account.');
         }
     }
@@ -212,7 +212,7 @@ class VendorsController extends BaseController
             $stmt->execute([$supplierId, $data['phone_number'], $data['account_name'], !empty($data['is_primary']) ? 1 : 0]);
             return $this->created(['id' => (int) $pdo->lastInsertId()], 'M-Pesa account saved for verification.');
         } catch (\Throwable $e) {
-            error_log('[VendorsController] mobile account: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[VendorsController] mobile account: ' . $e->getMessage());
             return $this->badRequest('Unable to save mobile account.');
         }
     }
@@ -248,7 +248,7 @@ class VendorsController extends BaseController
             $stmt->execute($params);
             return $this->success(['id' => $id], 'Payment account updated.');
         } catch (\Throwable $e) {
-            error_log('[VendorsController] update payment account: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[VendorsController] update payment account: ' . $e->getMessage());
             return $this->badRequest('Unable to update payment account.');
         }
     }

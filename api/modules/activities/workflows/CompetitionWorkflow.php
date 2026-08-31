@@ -21,7 +21,7 @@ class CompetitionWorkflow extends WorkflowHandler
 
     public function registerForCompetition($data, $userId)
     {
-        error_log("[CompetitionWorkflow] registerForCompetition called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
+        \App\API\Services\Logger::legacyError("[CompetitionWorkflow] registerForCompetition called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
         try {
             $required = ['activity_id', 'competition_name', 'venue', 'competition_date'];
             foreach ($required as $field) {
@@ -53,7 +53,7 @@ class CompetitionWorkflow extends WorkflowHandler
 
     public function prepareTeam($workflowId, $data, $userId)
     {
-        error_log("[CompetitionWorkflow] prepareTeam called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[CompetitionWorkflow] prepareTeam called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
             $this->db->beginTransaction();
@@ -83,7 +83,7 @@ class CompetitionWorkflow extends WorkflowHandler
 
     public function recordParticipation($workflowId, $data, $userId)
     {
-        error_log("[CompetitionWorkflow] recordParticipation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[CompetitionWorkflow] recordParticipation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $this->db->beginTransaction();
 
@@ -107,7 +107,7 @@ class CompetitionWorkflow extends WorkflowHandler
 
     public function reportResults($workflowId, $data, $userId)
     {
-        error_log("[CompetitionWorkflow] reportResults called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[CompetitionWorkflow] reportResults called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $this->db->beginTransaction();
 
@@ -145,7 +145,7 @@ class CompetitionWorkflow extends WorkflowHandler
 
     public function recognizeAchievements($workflowId, $data, $userId)
     {
-        error_log("[CompetitionWorkflow] recognizeAchievements called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[CompetitionWorkflow] recognizeAchievements called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $this->db->beginTransaction();
 

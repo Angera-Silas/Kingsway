@@ -108,7 +108,7 @@ $sidebar_items = [];
                             else if (window.KingswayBootstrap?.initialize) await window.KingswayBootstrap.initialize();
                         } catch(e) {}
                         var di = window.AuthContext?.getDashboardInfo?.();
-                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=profile';
+                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=account_settings';
                         setTimeout(function() { window.location.replace((window.APP_BASE || '') + dest); }, 1500);
                     })();
                     </script>
@@ -123,7 +123,7 @@ $sidebar_items = [];
                             else if (window.KingswayBootstrap?.initialize) await window.KingswayBootstrap.initialize();
                         } catch(e) {}
                         var di = window.AuthContext?.getDashboardInfo?.();
-                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=profile';
+                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=account_settings';
                         window.location.replace((window.APP_BASE || '') + dest);
                     })();
                     </script>

@@ -1125,6 +1125,7 @@ class StaffAPI extends BaseAPI {
                 'email' => $data['email'],
                 'password' => $temporaryPassword,
                 'first_name' => $data['first_name'],
+                'middle_name' => $data['middle_name'] ?? null,
                 'last_name' => $data['last_name'],
                 'role_ids' => $roleIds,
                 'status' => 'active',
@@ -1227,10 +1228,12 @@ class StaffAPI extends BaseAPI {
                 $temporaryPassword,
                 $invitationToken
             );
-            try {
-                (new StaffMigrationService($this->db))->processEmailQueue(1);
-            } catch (Exception $mailError) {
-                error_log('Manual staff invitation delivery failed: ' . $mailError->getMessage());
+            if (empty($data['defer_invitation_delivery'])) {
+                try {
+                    (new StaffMigrationService($this->db))->processEmailQueue(1);
+                } catch (Exception $mailError) {
+                    \App\API\Services\Logger::legacyError('Manual staff invitation delivery failed: ' . $mailError->getMessage());
+                }
             }
 
             // Ensure a placeholder profile picture. In the normalized schema the photo is a
@@ -1852,8 +1855,16 @@ class StaffAPI extends BaseAPI {
                 SELECT
                     s.*,
                     p.email,
+                    p.middle_name,
+                    p.phone,
+                    p.gender,
+                    p.dob AS date_of_birth,
+                    p.photo_url,
                     sc.category_name,
                     d.name AS department_name,
+                    spp.kra_pin,
+                    spp.nssf_no,
+                    spp.nhif_no,
                     CONCAT_WS(' ', sp.first_name, sp.last_name) AS supervisor_name,
                     (
                         SELECT COUNT(DISTINCT ayc.class_id)
@@ -1882,6 +1893,7 @@ class StaffAPI extends BaseAPI {
                 LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
                 LEFT JOIN persons sp ON sp.id = supervisor.person_id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id
                 LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE s.id = ?
@@ -2494,6 +2506,21 @@ class StaffAPI extends BaseAPI {
                     $data['emergency_contact_relationship'] ?? null,
                 ]);
             }
+        }
+
+        // 5. Individual attendance/work schedule supplied during onboarding.
+        if (!empty($data['work_start_time']) && !empty($data['work_end_time'])) {
+            $lateThreshold = max(0, (int)($data['late_threshold_minutes'] ?? 15));
+            $this->db->prepare(
+                'INSERT INTO staff_attendance_profiles
+                    (staff_id, work_start_time, work_end_time, late_threshold_minutes, is_active)
+                 VALUES (?, ?, ?, ?, 1)
+                 ON DUPLICATE KEY UPDATE
+                    work_start_time = VALUES(work_start_time),
+                    work_end_time = VALUES(work_end_time),
+                    late_threshold_minutes = VALUES(late_threshold_minutes),
+                    is_active = 1'
+            )->execute([$staffId, $data['work_start_time'], $data['work_end_time'], $lateThreshold]);
         }
     }
 

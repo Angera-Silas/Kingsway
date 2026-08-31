@@ -129,7 +129,7 @@ class TermHolidayWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -226,7 +226,7 @@ class TermHolidayWorkflow extends WorkflowHandler
             }
             return ['success' => true, 'conflicts' => $conflicts, 'next_stage' => empty($conflicts) ? 'activate' : 'define'];
         } catch (Exception $e) {
-            error_log('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -249,7 +249,7 @@ class TermHolidayWorkflow extends WorkflowHandler
             $this->advanceStage($instance_id, 'completed', 'activated');
             return ['success' => true, 'next_stage' => 'completed'];
         } catch (Exception $e) {
-            error_log('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }

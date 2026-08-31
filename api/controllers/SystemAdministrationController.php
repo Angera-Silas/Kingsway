@@ -53,7 +53,7 @@ final class SystemAdministrationController extends BaseController
                 $_SERVER['HTTP_USER_AGENT'] ?? null
             );
         } catch (Throwable $e) {
-            error_log('[SystemAdministrationController] Audit failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[SystemAdministrationController] Audit failed: ' . $e->getMessage());
         }
     }
 
@@ -76,7 +76,7 @@ final class SystemAdministrationController extends BaseController
             $key = trim((string)($data['key'] ?? $_GET['key'] ?? ''));
             return $this->success($this->service->resource($key, $data));
         } catch (Throwable $e) {
-            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -99,7 +99,7 @@ return $this->badRequest('An internal error occurred.');
             return $recordId ? $this->success($result, 'Record updated') : $this->created($result, 'Record created');
         } catch (Throwable $e) {
             $this->audit('save_failed', (string)($data['key'] ?? 'system'), null, ['error' => 'An internal error occurred.'], 'failure');
-            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->unprocessable('An internal error occurred.');
         }
     }
@@ -120,7 +120,7 @@ return $this->unprocessable('An internal error occurred.');
             $this->audit('delete', $key, $recordId);
             return $this->success(null, 'Record deleted');
         } catch (Throwable $e) {
-            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->unprocessable('An internal error occurred.');
         }
     }
@@ -140,7 +140,7 @@ return $this->unprocessable('An internal error occurred.');
             $this->audit($action, $resource, isset($payload['id']) ? (int)$payload['id'] : null, $payload);
             return $this->success($result, 'Action completed');
         } catch (Throwable $e) {
-            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->unprocessable('An internal error occurred.');
         }
     }

@@ -25,31 +25,28 @@ const parentPortalController = {
     },
 
     async init() {
-        if (window.AuthContext?.ready) await window.AuthContext.ready();
-        GradingScale.preload(function () {
-            var familyBase = window.FAMILY_STAFF_MODE ? '/family' : '/parent-portal';
-            return apiCall(familyBase + '/grading-scale', 'GET', null, null, { noRedirect: true, headers: window.FAMILY_STAFF_MODE && window.AuthContext?.getToken ? { Authorization: 'Bearer ' + window.AuthContext.getToken() } : undefined }).then(function (res) {
-                var data = res && res.data !== undefined ? res.data : res;
-                return { scale: data && data.scale ? data.scale : null, rules: data && data.rules ? data.rules : [] };
-            });
-        });
+        // Only the explicit staff-family mode uses the internal AuthContext.
+        // Normal parents authenticate exclusively with the parent portal token.
+        if (window.FAMILY_STAFF_MODE && window.AuthContext?.ready) await window.AuthContext.ready();
+        this.bindEvents();
+        const forceParentLogin = new URLSearchParams(window.location.search).get('login') === '1';
+        if (forceParentLogin && !window.FAMILY_STAFF_MODE) this.clearAuth();
         var stored = window.FAMILY_STAFF_MODE
             ? (window.AuthContext?.getToken?.() || null)
-            : deobfuscate(sessionStorage.getItem('pp_token'));
+            : (forceParentLogin ? null : deobfuscate(sessionStorage.getItem('pp_token')));
         var expires = sessionStorage.getItem('pp_expires');
         if (window.FAMILY_STAFF_MODE && stored && window.AuthContext?.isAuthenticated?.()) {
             this.state.token = stored;
-            this.showView('dashboard');
-            this.loadDashboard();
+            await this.loadDashboard(true);
         } else if (stored && expires && new Date(expires) > new Date()) {
             this.state.token = stored;
-            this.showView('dashboard');
-            this.loadDashboard();
+            // A timestamp in sessionStorage is not proof of authentication.
+            // Keep the login view visible until the backend validates the token.
+            await this.loadDashboard(true);
         } else {
             this.clearAuth();
             this.showView('auth');
         }
-        this.bindEvents();
     },
 
     showView(name) {
@@ -59,8 +56,21 @@ const parentPortalController = {
         document.body.classList.toggle('portal-authenticated', name === 'dashboard' || name === 'student');
     },
 
+    preloadGradingScale() {
+        var self = this;
+        if (!window.GradingScale?.preload) return;
+        GradingScale.preload(function () {
+            return self.apiFetch('/grading-scale', 'GET').then(function (res) {
+                var data = res && res.data !== undefined ? res.data : res;
+                return { scale: data && data.scale ? data.scale : null, rules: data && data.rules ? data.rules : [] };
+            });
+        });
+    },
+
     apiFetch(path, method, body) {
-        var opts = { noRedirect: true };
+        // Parent tokens are independent from internal staff JWT/refresh cookies.
+        // A parent 401 must return to the parent login, never trigger staff refresh.
+        var opts = { noRedirect: true, skipAuthRefresh: !window.FAMILY_STAFF_MODE };
         if (this.state.token) opts.headers = { Authorization: 'Bearer ' + this.state.token };
         var base = window.FAMILY_STAFF_MODE ? '/family' : '/parent-portal';
         return Promise.resolve(apiCall(base + path, method || 'GET', body, null, opts))
@@ -87,7 +97,13 @@ const parentPortalController = {
         this.on('loginPassword', 'keydown', function (e) { if (e.key === 'Enter') self.submitEmailLogin(); });
         this.on('btnRequestOtp', 'click', function () { self.requestOTP(); });
         this.on('btnVerifyOtp', 'click', function () { self.verifyOTP(); });
-        this.on('btnResendOtp', 'click', function () { self.setView('otp-step-2', false); self.setView('otp-step-1', true); });
+        this.on('btnResendOtp', 'click', function () {
+            self.state.otpSessionId = null;
+            document.getElementById('loginPassword').value = '';
+            self.setView('tab-otp', false);
+            self.setView('tab-email', true);
+            document.getElementById('loginPassword')?.focus();
+        });
         this.on('btnLogout', 'click', function () { self.logout(); });
         var backToDashboard = document.getElementById('btnBackToDashboard');
         if (backToDashboard && !backToDashboard.getAttribute('href')) {
@@ -155,23 +171,36 @@ const parentPortalController = {
         this.apiFetch('/login', 'POST', { email: email, password: password })
             .then(function (resp) {
                 var d = resp.data || resp;
+                if (d.requires_otp) {
+                    self.state.otpSessionId = d.otp_session_id;
+                    var otpEmail = document.getElementById('otpEmail');
+                    if (otpEmail) otpEmail.value = email;
+                    document.querySelectorAll('#loginTabs .nav-link').forEach(function (button) {
+                        button.classList.toggle('active', button.dataset.tab === 'otp');
+                    });
+                    self.setView('tab-email', false);
+                    self.setView('tab-otp', true);
+                    self.setView('otp-step-1', false);
+                    self.setView('otp-step-2', true);
+                    return;
+                }
                 self.storeAuth(d.token, d.expires_at, d.parent);
-                self.showView('dashboard');
-                self.loadDashboard();
+                return self.loadDashboard(true);
             })
             .catch(function (err) { self.showErr(errEl, err.message || 'Login failed'); })
             .finally(function () { spinner.classList.add('d-none'); });
     },
 
     requestOTP() {
-        var phone = this.val('otpPhone');
+        var email = this.val('otpEmail');
         var errEl = document.getElementById('otpRequestError');
         var self = this;
         errEl.classList.add('d-none');
-        if (!phone) { this.showErr(errEl, 'Phone number required'); return; }
-        this.apiFetch('/login-otp-request', 'POST', { phone: phone })
+        if (!email) { this.showErr(errEl, 'Email address required'); return; }
+        this.apiFetch('/login-otp-request', 'POST', { email: email })
             .then(function (resp) {
                 var d = resp.data || resp;
+                if (!d.otp_session_id) throw new Error('If the account exists, check its email for a verification code.');
                 self.state.otpSessionId = d.otp_session_id;
                 self.setView('otp-step-1', false);
                 self.setView('otp-step-2', true);
@@ -189,8 +218,7 @@ const parentPortalController = {
             .then(function (resp) {
                 var d = resp.data || resp;
                 self.storeAuth(d.token, d.expires_at, d.parent);
-                self.showView('dashboard');
-                self.loadDashboard();
+                return self.loadDashboard(true);
             })
             .catch(function (err) { self.showErr(errEl, err.message || 'Invalid OTP'); });
     },
@@ -201,13 +229,15 @@ const parentPortalController = {
         this.showView('auth');
     },
 
-    loadDashboard() {
+    loadDashboard(validateBeforeReveal = false) {
         var self = this;
         this.setLoading(true);
-        this.apiFetch('/dashboard', 'GET')
+        return this.apiFetch('/dashboard', 'GET')
             .then(function (resp) {
                 var d = resp.data || resp;
                 var parent = d.parent || {};
+                if (validateBeforeReveal) self.showView('dashboard');
+                self.preloadGradingScale();
                 self.state.parent = parent;
                 var titleEl = document.getElementById('portalPageTitle');
                 if (titleEl) titleEl.textContent = 'Family dashboard';
@@ -220,6 +250,11 @@ const parentPortalController = {
                 self.applyInitialRoute();
             })
             .catch(function (err) {
+                if (validateBeforeReveal) {
+                    self.clearAuth();
+                    self.showView('auth');
+                    return;
+                }
                 document.getElementById('childrenCards').innerHTML =
                     '<div class="col-12"><div class="alert alert-danger">Failed to load dashboard: ' + self.esc(err.message) + '</div></div>';
             })

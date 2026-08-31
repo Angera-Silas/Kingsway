@@ -1518,7 +1518,7 @@ class AcademicAPI extends BaseAPI
                             $platform->queueForParent($target['id'], $channel, 'parent_event', $eventVars, $options);
                         }
                     } catch (Exception $e) {
-                        error_log('[AcademicAPI] Parent meeting communication queue failed: ' . $e->getMessage());
+                        \App\API\Services\Logger::legacyError('[AcademicAPI] Parent meeting communication queue failed: ' . $e->getMessage());
                     }
                 }
             }
@@ -2704,7 +2704,7 @@ class AcademicAPI extends BaseAPI
                 'data' => $year
             ], 201);
         } catch (\InvalidArgumentException $e) {
-            error_log('[AcademicAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse($e->getMessage(), 400);
         } catch (Exception $e) {
             return $this->handleException($e);

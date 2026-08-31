@@ -3,7 +3,7 @@
  * CRUD for public website news articles.
  */
 const manageArticlesController = {
-  state: { items: [], newsCats: [] },
+  state: { items: [], newsCats: [], editorRange: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
@@ -92,12 +92,87 @@ const manageArticlesController = {
     else { wrap.style.display = 'none'; }
   },
 
+  rememberCaret() {
+    const selection = window.getSelection();
+    const editor = document.getElementById('newsContent');
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+      this.state.editorRange = selection.getRangeAt(0).cloneRange();
+    }
+  },
+
+  insertHtml(html) {
+    const editor = document.getElementById('newsContent');
+    editor.focus();
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    if (this.state.editorRange) selection.addRange(this.state.editorRange);
+    else {
+      const range = document.createRange();
+      range.selectNodeContents(editor); range.collapse(false); selection.addRange(range);
+    }
+    document.execCommand('insertHTML', false, html);
+    this.rememberCaret();
+  },
+
+  async uploadMedia(file) {
+    if (!file) throw new Error('Choose a media file first.');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('context', 'public');
+    form.append('description', 'Public website story media');
+    form.append('tags', 'website,news');
+    const uploaded = await window.API.system.uploadMedia(form);
+    const mediaId = uploaded?.data?.data ?? uploaded?.data?.id ?? uploaded?.data;
+    if (!mediaId) throw new Error('The media upload did not return an identifier.');
+    const preview = await window.API.system.getMediaPreview(mediaId);
+    const url = preview?.data?.data?.url ?? preview?.data?.url ?? preview?.data?.data ?? preview?.data;
+    if (typeof url !== 'string' || !url) throw new Error('The uploaded media URL is unavailable.');
+    return url;
+  },
+
+  async handleFileInsert(input, kind) {
+    const files = [...(input.files || [])];
+    if (!files.length) return;
+    this.notify('Uploading media…', 'info');
+    try {
+      const urls = [];
+      for (const file of files) urls.push(await this.uploadMedia(file));
+      if (kind === 'cover') {
+        document.getElementById('newsImageUrl').value = urls[0];
+        this.previewNewsImg(urls[0]);
+      } else if (kind === 'image') {
+        this.insertHtml(`<figure><img src="${this.esc(urls[0])}" alt=""><figcaption>Click here to add an image caption</figcaption></figure><p><br></p>`);
+      } else if (kind === 'video') {
+        this.insertHtml(`<figure><video controls preload="metadata" src="${this.esc(urls[0])}"></video><figcaption>Click here to add a video caption</figcaption></figure><p><br></p>`);
+      } else {
+        this.insertHtml(`<div class="story-slider" data-story-slider="true">${urls.map(url => `<img src="${this.esc(url)}" alt="">`).join('')}</div><p><br></p>`);
+      }
+      this.notify('Media inserted successfully.');
+    } catch (error) { this.notify(error.message || 'Media upload failed.', 'danger'); }
+    finally { input.value = ''; }
+  },
+
+  previewStory() {
+    const title = this.esc(document.getElementById('newsTitle').value || 'Untitled story');
+    const cover = this.esc(document.getElementById('newsImageUrl').value);
+    const content = document.getElementById('newsContent').innerHTML;
+    let modal = document.getElementById('storyPreviewModal');
+    if (!modal) {
+      modal = document.createElement('div'); modal.id = 'storyPreviewModal'; modal.className = 'modal fade';
+      modal.innerHTML = '<div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Public story preview</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="storyPreviewBody"></div></div></div>';
+      document.body.appendChild(modal);
+    }
+    document.getElementById('storyPreviewBody').innerHTML = `<article class="mx-auto" style="max-width:850px">${cover ? `<img src="${cover}" class="w-100 rounded-4 mb-4" style="max-height:450px;object-fit:cover">` : ''}<h1 class="fw-bold">${title}</h1><div class="article-body mt-4">${content}</div></article>`;
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  },
+
   async openModal(id = null) {
     document.getElementById('newsEditId').value = id || '';
     document.getElementById('wsNewsModalTitle').textContent = id ? 'Edit Article' : 'New Article';
-    ['newsTitle', 'newsExcerpt', 'newsContent', 'newsAuthor', 'newsImageUrl'].forEach(f => {
+    ['newsTitle', 'newsExcerpt', 'newsAuthor', 'newsImageUrl'].forEach(f => {
       const el = document.getElementById(f); if (el) el.value = '';
     });
+    document.getElementById('newsContent').innerHTML = '';
     document.getElementById('newsImgPreviewWrap').style.display = 'none';
     document.getElementById('newsStatus').value   = 'published';
     document.getElementById('newsCategory').value = 'Announcement';
@@ -107,7 +182,7 @@ const manageArticlesController = {
       if (a) {
         document.getElementById('newsTitle').value     = a.title || '';
         document.getElementById('newsExcerpt').value   = a.excerpt || '';
-        document.getElementById('newsContent').value   = a.content || '';
+        document.getElementById('newsContent').innerHTML = a.content || '';
         document.getElementById('newsAuthor').value    = a.author || '';
         document.getElementById('newsImageUrl').value  = a.image_url || '';
         document.getElementById('newsStatus').value    = a.status || 'published';
@@ -123,7 +198,7 @@ const manageArticlesController = {
     const payload = {
       title:     document.getElementById('newsTitle').value.trim(),
       excerpt:   document.getElementById('newsExcerpt').value.trim(),
-      content:   document.getElementById('newsContent').value.trim(),
+      content:   document.getElementById('newsContent').innerHTML.trim(),
       author:    document.getElementById('newsAuthor').value.trim(),
       image_url: document.getElementById('newsImageUrl').value.trim(),
       category:  document.getElementById('newsCategory').value,
@@ -160,8 +235,30 @@ const manageArticlesController = {
     });
     const searchEl = document.getElementById('newsSearch');
     if (searchEl) searchEl.addEventListener('keyup', () => this.loadData());
-    const urlEl = document.getElementById('newsImageUrl');
-    if (urlEl) urlEl.addEventListener('input', () => this.previewNewsImg(urlEl.value));
+    const editor = document.getElementById('newsContent');
+    ['keyup','mouseup','input','focus'].forEach(event => editor?.addEventListener(event, () => this.rememberCaret()));
+    document.querySelectorAll('.story-toolbar [data-command]').forEach(button => button.addEventListener('click', () => {
+      editor.focus(); document.execCommand(button.dataset.command, false); this.rememberCaret();
+    }));
+    document.querySelectorAll('.story-toolbar [data-block]').forEach(button => button.addEventListener('click', () => {
+      editor.focus(); document.execCommand('formatBlock', false, button.dataset.block); this.rememberCaret();
+    }));
+    document.querySelectorAll('.story-toolbar [data-insert]').forEach(button => button.addEventListener('mousedown', () => this.rememberCaret()));
+    document.querySelectorAll('.story-toolbar [data-insert]').forEach(button => button.addEventListener('click', () => {
+      const type = button.dataset.insert;
+      if (type === 'link') {
+        const url = window.prompt('Enter the web address (https://…)');
+        if (url && /^https?:\/\//i.test(url)) { editor.focus(); document.execCommand('createLink', false, url); }
+        else if (url) this.notify('Enter a complete http:// or https:// address.', 'warning');
+        return;
+      }
+      document.getElementById(type === 'slider' ? 'storySliderFiles' : type === 'video' ? 'storyVideoFile' : 'storyImageFile').click();
+    }));
+    document.getElementById('newsCoverFile')?.addEventListener('change', event => this.handleFileInsert(event.target, 'cover'));
+    document.getElementById('storyImageFile')?.addEventListener('change', event => this.handleFileInsert(event.target, 'image'));
+    document.getElementById('storySliderFiles')?.addEventListener('change', event => this.handleFileInsert(event.target, 'slider'));
+    document.getElementById('storyVideoFile')?.addEventListener('change', event => this.handleFileInsert(event.target, 'video'));
+    document.getElementById('newsPreviewBtn')?.addEventListener('click', () => this.previewStory());
   },
 
   async init() {

@@ -8,7 +8,7 @@
         <div class="footer-brand d-flex align-items-center gap-2 mb-3">
           <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
           <div>
-            <div class="footer-brand-name">Kingsway Prep School</div>
+            <div class="footer-brand-name">Kingsway Preparatory School</div>
             <div class="footer-tagline">In God We Soar</div>
           </div>
         </div>
@@ -23,11 +23,8 @@
           </a>
         </div>
         <div class="social-links mt-4">
-          <a href="#" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
-          <a href="#" aria-label="Twitter/X"><i class="bi bi-twitter-x"></i></a>
-          <a href="#" aria-label="Instagram"><i class="bi bi-instagram"></i></a>
-          <a href="#" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
-          <a href="#" aria-label="WhatsApp"><i class="bi bi-whatsapp"></i></a>
+          <a href="https://www.facebook.com/profile.php/?id=100066942647437" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
+          <a href="https://www.instagram.com/p/DE7jLBkIEjS/?utm_source=ig_web_copy_link&amp;igsi=NTc4MTIwNjQ2YQ==" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><i class="bi bi-instagram"></i></a>
         </div>
       </div>
 
@@ -131,7 +128,7 @@
     }
   })();
 </script>
-<?php asset_script($appBase, 'public/js/public.js'); ?>
+<?php asset_script($appBase, 'js/public.js'); ?>
 <?php if (!empty($pageScript)): ?>
 <!-- Page controller: pages are thin HTML shells; js/pages/public/<name>.js renders
      the dynamic sections through window.PublicSite. Falls back to SSR-only output

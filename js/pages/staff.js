@@ -1624,7 +1624,7 @@ const staffManagementController = {
       content.innerHTML = `
         <div class="border p-4">
           <div class="text-center mb-3">
-            <h4>Kingsway Academy</h4>
+            <h4>Kingsway Preparatory School</h4>
             <h6 class="text-muted">Payslip for ${this.escapeHtml(this.getMonthName(month))} ${this.escapeHtml(String(year))}</h6>
           </div>
           <hr>

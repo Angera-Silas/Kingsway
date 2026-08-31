@@ -254,7 +254,7 @@ class SubjectTeacherAnalyticsService
 
             return ['labels' => $labels, 'data' => $data];
         } catch (\Exception $e) {
-            error_log("getSubjectPerformanceChart error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getSubjectPerformanceChart error: " . $e->getMessage());
             return ['labels' => [], 'data' => []];
         }
     }
@@ -293,7 +293,7 @@ class SubjectTeacherAnalyticsService
 
             return ['labels' => $labels, 'data' => $data];
         } catch (\Exception $e) {
-            error_log("getAssessmentTrendsChart error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getAssessmentTrendsChart error: " . $e->getMessage());
             return ['labels' => [], 'data' => []];
         }
     }
@@ -312,7 +312,7 @@ class SubjectTeacherAnalyticsService
             );
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log('Subject teacher schedule error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Subject teacher schedule error: ' . $e->getMessage());
             return [];
         }
     }
@@ -326,7 +326,7 @@ class SubjectTeacherAnalyticsService
             usort($events, static fn(array $left, array $right): int => strcmp($left['start_date'] ?? '', $right['start_date'] ?? ''));
             return array_slice($events, 0, 6);
         } catch (Exception $e) {
-            error_log('Subject teacher events error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Subject teacher events error: ' . $e->getMessage());
             return [];
         }
     }

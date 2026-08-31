@@ -35,7 +35,7 @@ class AttendanceController extends BaseController
         try {
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) { error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     public function index()
@@ -98,7 +98,7 @@ class AttendanceController extends BaseController
             // Return the full structured response (data, absent_students, absent_staff, summary)
             return $this->success($trends, 'Attendance trends retrieved');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }
@@ -124,7 +124,7 @@ return $this->serverError('An internal error occurred.');
         $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
         if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
         try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
-        catch (RuntimeException $e) { error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
+        catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
 
         $staffId = $staffId ?? ($data['staffId'] ?? null);
         $scope = $this->getAccessibleStaffScope();
@@ -149,7 +149,7 @@ return $this->serverError('An internal error occurred.');
         $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
         if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
         try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
-        catch (RuntimeException $e) { error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
+        catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
 
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
         $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
@@ -553,7 +553,7 @@ return $this->serverError('An internal error occurred.');
             $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
             return $this->success($service->list($data), 'Expected attendance registers retrieved');
         } catch (\Throwable $e) {
-            error_log('[AttendanceController] expected registers failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AttendanceController] expected registers failed: ' . $e->getMessage());
             return $this->serverError('Expected attendance registers unavailable');
         }
     }
@@ -570,7 +570,7 @@ return $this->serverError('An internal error occurred.');
             $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
             return $this->success($service->process($data['date'] ?? null), 'Attendance registers reconciled');
         } catch (\Throwable $e) {
-            error_log('[AttendanceController] register worker failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AttendanceController] register worker failed: ' . $e->getMessage());
             return $this->serverError('Attendance register reconciliation failed');
         }
     }
@@ -592,7 +592,7 @@ return $this->serverError('An internal error occurred.');
         } catch (\RuntimeException $e) {
             return $this->forbidden($e->getMessage());
         } catch (\Throwable $e) {
-            error_log('[AttendanceController] gate event failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AttendanceController] gate event failed: ' . $e->getMessage());
             return $this->serverError('Gate attendance event could not be processed');
         }
     }

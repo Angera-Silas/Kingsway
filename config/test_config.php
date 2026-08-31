@@ -283,7 +283,7 @@ Config::init();
     </div>
     
     <p style="text-align: center; color: #999; margin-top: 40px;">
-        <small>Kingsway Academy Management System | Configuration Test v1.0</small>
+        <small>Kingsway Preparatory School Management System | Configuration Test v1.0</small>
     </p>
 </body>
 </html>

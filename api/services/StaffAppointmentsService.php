@@ -379,9 +379,9 @@ final class StaffAppointmentsService
         try {
             $personId = $this->nextId('persons');
             $this->db->query(
-                "INSERT INTO persons (id, first_name, middle_name, last_name, email)
-                 VALUES (?, ?, NULL, ?, ?)",
-                [$personId, $appointment['candidate_first_name'], $appointment['candidate_last_name'], $appointment['candidate_email']]
+                "INSERT INTO persons (id, first_name, middle_name, last_name, email, phone)
+                 VALUES (?, ?, NULL, ?, ?, ?)",
+                [$personId, $appointment['candidate_first_name'], $appointment['candidate_last_name'], $appointment['candidate_email'], $appointment['candidate_phone'] ?? null]
             );
 
             $userId = $this->nextId('users');
@@ -449,12 +449,21 @@ final class StaffAppointmentsService
             throw $e;
         }
 
+        $emailSent = $this->queueWelcomeInvitation(
+            $userId,
+            $staffId,
+            $appointment,
+            $username,
+            $tempPassword,
+            $actorId
+        );
+
         return [
             'user_id' => $userId,
             'staff_id' => $staffId,
             'staff_no' => $staffNo,
             'username' => $username,
-            'email_sent' => $this->sendWelcomeEmail($appointment, $username, $tempPassword),
+            'email_sent' => $emailSent,
         ];
     }
 
@@ -687,24 +696,48 @@ final class StaffAppointmentsService
         return $service->generate();
     }
 
-    private function sendWelcomeEmail(array $appointment, string $username, string $password): bool
+    private function queueWelcomeInvitation(
+        int $userId,
+        int $staffId,
+        array $appointment,
+        string $username,
+        string $password,
+        int $actorId
+    ): bool
     {
         try {
-            $service = new MessageService($this->db->getConnection());
-            $body = $service->renderFormalEmail(
-                'Welcome to Kingsway Preparatory School',
-                '<p>Your staff account has been created.</p>' .
-                '<p><strong>Username:</strong> ' . htmlspecialchars($username, ENT_QUOTES, 'UTF-8') . '</p>' .
-                '<p><strong>Temporary password:</strong> ' . htmlspecialchars($password, ENT_QUOTES, 'UTF-8') . '</p>' .
-                '<p>Please change your password after your first login.</p>',
-                '',
-                ''
+            $this->db->query(
+                "UPDATE user_invitations SET status='revoked', revoked_at=NOW(), updated_at=NOW()
+                 WHERE user_id=? AND status='pending'",
+                [$userId]
             );
-            return (bool)$service->sendEmail([
-                $appointment['candidate_email'] => trim($appointment['candidate_first_name'] . ' ' . $appointment['candidate_last_name'])
-            ], 'Your Kingsway staff account', $body);
-        } catch (Exception $e) {
-            error_log('Staff appointment welcome email failed: ' . $e->getMessage());
+            $token = bin2hex(random_bytes(32));
+            $this->db->query(
+                "INSERT INTO user_invitations
+                    (user_id, staff_id, email, token_hash, status, expires_at, created_by, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 72 HOUR), ?, NOW(), NOW())",
+                [$userId, $staffId, strtolower($appointment['candidate_email']), hash('sha256', $token), $actorId]
+            );
+            $base = defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://localhost/Kingsway';
+            $payload = [
+                'name' => trim($appointment['candidate_first_name'] . ' ' . $appointment['candidate_last_name']),
+                'username' => $username,
+                'temporary_password' => $password,
+                'setup_url' => $base . '/reset_default_password.php?token=' . rawurlencode($token),
+                'login_url' => $base . '/index.php',
+                'profile_url' => $base . '/home.php?route=complete_staff_profile',
+                'expires_hours' => 72,
+            ];
+            $this->db->query(
+                "INSERT INTO outbound_messages
+                    (user_id, channel, recipient, template_key, subject, payload_json, status, attempts, next_attempt_at, created_at, updated_at)
+                 VALUES (?, 'email', ?, 'staff_account_invitation', 'Welcome to Kingsway — set up your staff account', ?, 'queued', 0, NOW(), NOW(), NOW())",
+                [$userId, strtolower($appointment['candidate_email']), json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]
+            );
+            $delivery = (new StaffMigrationService($this->db->getConnection()))->processEmailQueue(1);
+            return (int)($delivery['sent'] ?? 0) === 1;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('Staff appointment invitation failed: ' . $e->getMessage());
             return false;
         }
     }

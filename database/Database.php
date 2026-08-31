@@ -28,7 +28,7 @@ class Database
                 )
             );
         } catch (PDOException $e) {
-            error_log("Connection failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Connection failed: " . $e->getMessage());
             throw new Exception("Database connection failed");
         }
     }
@@ -67,7 +67,7 @@ class Database
             $stmt->execute($params);
             return $stmt;
         } catch (PDOException $e) {
-            error_log("Query failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Query failed: " . $e->getMessage());
             throw new Exception("Database query failed");
         }
     }

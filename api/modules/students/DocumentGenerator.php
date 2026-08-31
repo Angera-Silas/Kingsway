@@ -104,7 +104,7 @@ class DocumentGenerator extends BaseAPI
 
         } catch (Exception $e) {
             $this->logError('generateLeavingCertificate', $e->getMessage());
-            error_log('[DocumentGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[DocumentGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -179,7 +179,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         } catch (Exception $e) {
             $this->logError('generateClearanceForm', $e->getMessage());
-            error_log('[DocumentGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[DocumentGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }

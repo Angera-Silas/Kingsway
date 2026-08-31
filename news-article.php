@@ -10,7 +10,14 @@ kw_increment_news_views($id);
 
 $pageTitle  = htmlspecialchars($article['title']);
 $activePage = 'news';
-$related    = array_filter(kw_latest_news(7), fn($n) => $n['id'] != $id);
+$related    = array_filter(kw_latest_news(7, 1, (string)$article['category']), fn($n) => $n['id'] != $id);
+if (count($related) < 3) {
+  $existingIds = array_map(fn($n) => (int)$n['id'], $related);
+  foreach (kw_latest_news(10) as $candidate) {
+    if ((int)$candidate['id'] !== $id && !in_array((int)$candidate['id'], $existingIds, true)) $related[] = $candidate;
+    if (count($related) >= 3) break;
+  }
+}
 $related    = array_slice(array_values($related), 0, 3);
 
 $catColors = ['Sports'=>'#198754','Academic'=>'#1976d2','Infrastructure'=>'#e91e63',

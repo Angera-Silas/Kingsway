@@ -289,7 +289,7 @@ class TransportBillingManager
                 ':notes' => $notes,
             ]);
         } catch (Exception $e) {
-            error_log("TransportBilling: could not insert bill_payment: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("TransportBilling: could not insert bill_payment: " . $e->getMessage());
         }
 
         // Mirror bank/cheque transport payments into bank_transactions so they
@@ -310,7 +310,7 @@ class TransportBillingManager
                     'Transport payment' . ($referenceNo ? " ({$referenceNo})" : ''),
                 ]);
             } catch (Exception $e) {
-                error_log("TransportBilling: could not mirror bank_transaction: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError("TransportBilling: could not mirror bank_transaction: " . $e->getMessage());
             }
         }
 

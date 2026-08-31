@@ -67,7 +67,7 @@ class InternTeacherAnalyticsService
                 'total_students' => (int) ($result['total_students'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getAssignedClassesStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getAssignedClassesStats error: " . $e->getMessage());
             return ['total_classes' => 0, 'subjects' => 0, 'total_students' => 0];
         }
     }
@@ -96,7 +96,7 @@ class InternTeacherAnalyticsService
                 'average_rating' => round((float) ($result['average_rating'] ?? 0), 1)
             ];
         } catch (Exception $e) {
-            error_log("getLessonObservationsStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getLessonObservationsStats error: " . $e->getMessage());
             return ['total_observations' => 0, 'completed' => 0, 'upcoming' => 0, 'average_rating' => 0];
         }
     }
@@ -125,7 +125,7 @@ class InternTeacherAnalyticsService
                 'teaching_aids' => (int) ($result['teaching_aids'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getTeachingResourcesStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getTeachingResourcesStats error: " . $e->getMessage());
             return ['total_resources' => 0, 'lesson_plans' => 0, 'teaching_aids' => 0, 'accessed_this_week' => 0];
         }
     }
@@ -162,7 +162,7 @@ class InternTeacherAnalyticsService
                 'needs_support' => (int) ($result['needs_support'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getStudentPerformanceStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getStudentPerformanceStats error: " . $e->getMessage());
             return ['students_taught' => 0, 'average_score' => 0, 'high_performers' => 0, 'needs_support' => 0];
         }
     }
@@ -196,7 +196,7 @@ class InternTeacherAnalyticsService
                 'percentage' => $percentage
             ];
         } catch (Exception $e) {
-            error_log("getDevelopmentProgressStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getDevelopmentProgressStats error: " . $e->getMessage());
             return ['total_competencies' => 0, 'achieved' => 0, 'in_progress' => 0, 'not_started' => 0, 'completion_percentage' => 0];
         }
     }
@@ -239,7 +239,7 @@ class InternTeacherAnalyticsService
             $stmt = $this->db->query($query, [$this->userId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("getAssignedClassesTable error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getAssignedClassesTable error: " . $e->getMessage());
             return [];
         }
     }
@@ -274,7 +274,7 @@ class InternTeacherAnalyticsService
             $stmt = $this->db->query($query, [$this->userId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("getObservationsTable error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getObservationsTable error: " . $e->getMessage());
             return [];
         }
     }
@@ -299,7 +299,7 @@ class InternTeacherAnalyticsService
             $stmt = $this->db->query($query, [$this->userId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("getCompetenciesTable error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getCompetenciesTable error: " . $e->getMessage());
             return [];
         }
     }

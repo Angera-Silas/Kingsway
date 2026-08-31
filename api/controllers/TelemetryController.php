@@ -3,6 +3,7 @@
 namespace App\API\Controllers;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\Logger;
 
 /**
  * Telemetry Controller
@@ -13,9 +14,9 @@ use App\API\Includes\BaseAPI;
  * (it is registered as a public endpoint in AuthMiddleware so a mid-refresh
  * token can't trap the reporter in a retry loop).
  *
- * Entries are appended to logs/telemetry.log (one JSON object per line) so they
- * can be ingested by a log pipeline later without a schema migration. Sending
- * timestamps, ids and payload structure come straight from the client.
+ * Entries are redacted and sent through the governed central logger. This
+ * endpoint requires an authenticated user; anonymous telemetry is rejected by
+ * AuthMiddleware to prevent log injection and disk exhaustion.
  */
 class TelemetryController extends BaseAPI
 {
@@ -41,31 +42,6 @@ class TelemetryController extends BaseAPI
     }
 
     /**
-     * Resolve a directory we can actually write to (mirrors BaseAPI's fallback:
-     * project logs/ if writable, otherwise a per-user temp dir). Telemetry must
-     * never fail loud when the web-server user lacks write access to the app dir.
-     */
-    private function resolveLogDir(): string
-    {
-        $candidates = [
-            dirname(__DIR__, 2) . '/logs',
-            sys_get_temp_dir() . '/kingsway_logs',
-            sys_get_temp_dir(),
-        ];
-        foreach ($candidates as $dir) {
-            try {
-                $this->ensureManagedDirectory($dir);
-            } catch (\Throwable $exception) {
-                continue;
-            }
-            if (is_dir($dir) && is_writable($dir)) {
-                return $dir;
-            }
-        }
-        return sys_get_temp_dir();
-    }
-
-    /**
      * Normalize and append the batch to the telemetry log file.
      * Failures are swallowed: a broken telemetry sink must never surface an
      * error to the client or trigger retry storms.
@@ -77,23 +53,15 @@ class TelemetryController extends BaseAPI
             if (!is_array($entries)) {
                 $entries = [$entries];
             }
-
-            $logDir = $this->resolveLogDir();
-
-            $userId = $this->user_id ?? ($_SERVER['auth_user']['user_id'] ?? null);
-            $line = json_encode([
-                'kind'      => $kind,
-                'received'  => date('c'),
-                'user_id'   => $userId,
-                'entries'   => $entries,
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-            if ($line !== false) {
-                @$this->writeManagedFile($logDir . '/telemetry.log', $line . "\n", FILE_APPEND | LOCK_EX);
-            }
+            $entries = array_slice($entries, 0, 25);
+            Logger::log('client', $kind === 'error' ? 'error' : 'info', 'Browser telemetry batch received', [
+                'telemetry_kind' => $kind,
+                'entry_count' => count($entries),
+                'entries' => Logger::redactFields($entries),
+            ]);
         } catch (\Throwable $e) {
             // Swallow — telemetry must never fail loud.
-            error_log('TelemetryController ingest failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('TelemetryController ingest failed: ' . $e->getMessage());
         }
 
         return [

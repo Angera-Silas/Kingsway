@@ -25,7 +25,7 @@ class TwoFactorService
     private const TOTP_PERIOD = 30;      // seconds per code
     private const TOTP_DIGITS = 6;       // code length
     private const TOTP_ALGORITHM = 'sha1';
-    private const TOTP_ISSUER = 'Kingsway Academy';
+    private const TOTP_ISSUER = 'Kingsway Preparatory School';
 
     /** OTP delivery defaults */
     private const OTP_LENGTH = 6;
@@ -118,7 +118,12 @@ class TwoFactorService
     {
         $configured = defined('TFA_ENCRYPTION_KEY') ? (string) TFA_ENCRYPTION_KEY : '';
         if ($configured === '') throw new \RuntimeException('TFA_ENCRYPTION_KEY is not configured');
-        $key = ctype_xdigit($configured) ? hex2bin($configured) : hash('sha256', $configured, true);
+        // Decode only a complete 256-bit hexadecimal key. Human-readable
+        // secrets can happen to contain hex characters only; those must still
+        // be derived through SHA-256 rather than decoded into a short key.
+        $key = strlen($configured) === 64 && ctype_xdigit($configured)
+            ? hex2bin($configured)
+            : hash('sha256', $configured, true);
         if ($key === false || strlen($key) !== 32) throw new \RuntimeException('Invalid TFA encryption key');
         return $key;
     }
@@ -175,6 +180,31 @@ class TwoFactorService
     {
         if (!in_array($method, ['email', 'sms', 'whatsapp'], true)) return null;
 
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
+        try {
+        // Serialize requests per user. Without this row lock, two concurrent
+        // resend clicks could both pass the cooldown check and create codes.
+        $lock = $this->db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');
+        $lock->execute([$userId]);
+        if (!$lock->fetchColumn()) throw new \RuntimeException('User account not found.');
+
+        $recent = $this->db->prepare(
+            "SELECT COUNT(*) AS window_count,
+                    TIMESTAMPDIFF(SECOND, MAX(created_at), NOW()) AS seconds_since_last
+             FROM user_2fa_otp_sessions
+             WHERE user_id=? AND otp_type=? AND method=?
+               AND created_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+        );
+        $recent->execute([$userId, $otpType, $method]);
+        $rate = $recent->fetch(PDO::FETCH_ASSOC) ?: [];
+        if ($rate['seconds_since_last'] !== null && (int)$rate['seconds_since_last'] < 60) {
+            throw new \RuntimeException('Please wait 60 seconds before requesting another verification code.', 429);
+        }
+        if ((int)($rate['window_count'] ?? 0) >= 5) {
+            throw new \RuntimeException('Too many verification codes requested. Try again in 15 minutes.', 429);
+        }
+
         $code = str_pad(
             (string) random_int(0, pow(10, self::OTP_LENGTH) - 1),
             self::OTP_LENGTH,
@@ -182,7 +212,6 @@ class TwoFactorService
             STR_PAD_LEFT
         );
 
-        $expires = date('Y-m-d H:i:s', time() + (self::OTP_TTL_MINUTES * 60));
         $ip = $_SERVER['REMOTE_ADDR'] ?? null;
 
         // Invalidate any previous unverified OTPs for this user/type
@@ -195,18 +224,30 @@ class TwoFactorService
         $stmt = $this->db->prepare(
             "INSERT INTO user_2fa_otp_sessions
              (user_id, otp_code, otp_type, method, otp_expires_at, ip_address)
-             VALUES (?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL " . self::OTP_TTL_MINUTES . " MINUTE), ?)"
         );
         $stmt->execute([
             $userId,
             password_hash($code, PASSWORD_DEFAULT),
             $otpType,
             $method,
-            $expires,
             $ip,
         ]);
 
+        if ($ownsTransaction) $this->db->commit();
         return $code;
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
+    }
+
+    public function invalidateLatestOTP(int $userId, string $otpType, string $method): void
+    {
+        $this->db->prepare(
+            "UPDATE user_2fa_otp_sessions SET verified=1
+             WHERE user_id=? AND otp_type=? AND method=? AND verified=0"
+        )->execute([$userId, $otpType, $method]);
     }
 
     /**
@@ -240,10 +281,11 @@ class TwoFactorService
         )->execute([$attempts, $session['id']]);
 
         if (password_verify($code, $session['otp_code'])) {
-            $this->db->prepare(
-                "UPDATE user_2fa_otp_sessions SET verified = 1 WHERE id = ?"
-            )->execute([$session['id']]);
-            return true;
+            $consume = $this->db->prepare(
+                "UPDATE user_2fa_otp_sessions SET verified = 1 WHERE id = ? AND verified = 0"
+            );
+            $consume->execute([$session['id']]);
+            return $consume->rowCount() === 1;
         }
 
         return false;
@@ -419,6 +461,8 @@ class TwoFactorService
     public function createLoginChallenge(int $userId, string $method): string
     {
         $raw = bin2hex(random_bytes(32));
+        $this->db->prepare("UPDATE user_two_factor_challenges SET status='expired' WHERE user_id=? AND status='pending'")
+            ->execute([$userId]);
         $stmt = $this->db->prepare("INSERT INTO user_two_factor_challenges (user_id, challenge_hash, method, expires_at, ip_address, user_agent) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), ?, ?)");
         $stmt->execute([$userId, hash('sha256', $raw), $method, $_SERVER['REMOTE_ADDR'] ?? null, substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 512)]);
         return $raw;
@@ -439,15 +483,18 @@ class TwoFactorService
     public function markChallengeVerified(string $raw, int $userId): bool
     {
         $row = $this->challenge($raw, $userId); if (!$row) return false;
-        $this->db->prepare("UPDATE user_two_factor_challenges SET status='verified', verified_at=NOW() WHERE id=? AND status='pending'")->execute([$row['id']]);
+        $update = $this->db->prepare("UPDATE user_two_factor_challenges SET status='verified', verified_at=NOW() WHERE id=? AND status='pending'");
+        $update->execute([$row['id']]);
+        if ($update->rowCount() !== 1) return false;
         $this->audit($userId, 'challenge_verified', $row['method'], true, (int) $row['id']); return true;
     }
 
     public function consumeLoginChallenge(string $raw, int $userId): bool
     {
         $row = $this->challenge($raw, $userId, ['verified']); if (!$row) return false;
-        $this->db->prepare("UPDATE user_two_factor_challenges SET status='consumed', consumed_at=NOW() WHERE id=? AND status='verified'")->execute([$row['id']]);
-        return true;
+        $consume = $this->db->prepare("UPDATE user_two_factor_challenges SET status='consumed', consumed_at=NOW() WHERE id=? AND status='verified'");
+        $consume->execute([$row['id']]);
+        return $consume->rowCount() === 1;
     }
 
     public function registerChallengeFailure(string $raw, ?int $userId = null): void
@@ -495,6 +542,48 @@ class TwoFactorService
         return $methods;
     }
 
+    public function setPrimaryMethod(int $userId, string $method): bool
+    {
+        if (!in_array($method, $this->getEnabledMethods($userId), true)) return false;
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare('UPDATE user_two_factor_methods SET is_primary=0 WHERE user_id=?')->execute([$userId]);
+            if ($method !== 'passkey') {
+                $this->db->prepare('UPDATE user_two_factor_methods SET is_primary=1 WHERE user_id=? AND method=? AND is_enabled=1')->execute([$userId, $method]);
+            }
+            $this->db->prepare('UPDATE users SET two_factor_enabled=1,two_factor_method=?,two_factor_verified_at=NOW() WHERE id=?')->execute([$method, $userId]);
+            $this->audit($userId, 'primary_method_changed', $method, true);
+            $this->db->commit(); return true;
+        } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
+    }
+
+    public function administrativeReset(int $targetUserId, int $actorUserId): void
+    {
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare("DELETE FROM user_two_factor_methods WHERE user_id=? AND method<>'email'")->execute([$targetUserId]);
+            $this->db->prepare(
+                "INSERT INTO user_two_factor_methods(user_id,method,is_primary,is_enabled,verified_at)
+                 VALUES(?,'email',1,1,NULL)
+                 ON DUPLICATE KEY UPDATE is_enabled=1,is_primary=1,verified_at=NULL,
+                    secret_ciphertext=NULL,last_used_timestep=NULL"
+            )->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_passkeys WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_passkey_challenges WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_2fa_backup_codes WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_2fa_otp_sessions WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare("UPDATE user_two_factor_challenges SET status='expired' WHERE user_id=? AND status='pending'")->execute([$targetUserId]);
+            // An MFA reset is an account-recovery event. Existing sessions must
+            // not survive it, otherwise a lost or stolen device remains logged in.
+            $this->db->prepare('UPDATE refresh_tokens SET revoked_at=COALESCE(revoked_at,NOW()) WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare("UPDATE user_sessions SET session_status='logged_out',logout_time=COALESCE(logout_time,NOW()) WHERE user_id=? AND session_status='active'")->execute([$targetUserId]);
+            $this->db->prepare("UPDATE users SET two_factor_enabled=1,two_factor_method='email',two_factor_secret=NULL,two_factor_verified_at=NULL,backup_codes_generated_at=NULL WHERE id=?")->execute([$targetUserId]);
+            $this->db->prepare("INSERT INTO user_two_factor_audit_events(user_id,event_type,method,success,ip_address,user_agent,metadata) VALUES(?,'administrative_reset','email',1,?,?,?)")
+                ->execute([$targetUserId,$_SERVER['REMOTE_ADDR']??null,substr($_SERVER['HTTP_USER_AGENT']??'',0,512),json_encode(['actor_user_id'=>$actorUserId])]);
+            $this->db->commit();
+        } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
+    }
+
     public function setChallengeMethod(string $raw, int $userId, string $method): bool
     {
         if (!in_array($method, $this->getEnabledMethods($userId), true)) return false;
@@ -538,7 +627,7 @@ class TwoFactorService
      */
     public function verifyUserPassword(int $userId, string $password): bool
     {
-        $stmt = $this->db->prepare("SELECT password FROM users WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT password_hash FROM users WHERE id = ?");
         $stmt->execute([$userId]);
         $hash = $stmt->fetchColumn();
 
@@ -575,9 +664,7 @@ class TwoFactorService
         ];
     }
 
-    /**
-     * Store a pending TOTP setup secret (plaintext, 15-minute TTL).
-     */
+    /** Store an encrypted pending TOTP setup secret with a 15-minute TTL. */
     public function storePendingSecret(int $userId, string $secret, string $method): void
     {
         if ($method !== 'totp') return;
@@ -587,13 +674,12 @@ class TwoFactorService
         );
         $stmt->execute([$userId]);
 
-        $expires = date('Y-m-d H:i:s', time() + 900);
         $stmt = $this->db->prepare(
             "INSERT INTO user_2fa_otp_sessions
              (user_id, otp_code, otp_type, method, otp_expires_at)
-             VALUES (?, ?, 'setup_pending', 'totp', ?)"
+             VALUES (?, ?, 'setup_pending', 'totp', DATE_ADD(NOW(), INTERVAL 15 MINUTE))"
         );
-        $stmt->execute([$userId, $secret, $expires]);
+        $stmt->execute([$userId, $this->encryptSecret($secret)]);
     }
 
     /**
@@ -612,6 +698,9 @@ class TwoFactorService
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($row && $row['method'] === 'totp') {
+            $decrypted = $this->decryptSecret((string)$row['secret']);
+            // Compatibility with setup rows created before encrypted pending storage.
+            $row['secret'] = $decrypted ?: $row['secret'];
             return $row;
         }
 

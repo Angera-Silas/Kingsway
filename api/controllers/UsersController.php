@@ -180,6 +180,49 @@ class UsersController extends BaseController
     }
 
     /**
+     * PUT /api/users/profile/update
+     *
+     * Self-service update of the authenticated user's own personal/account
+     * details (name, middle name, email, phone, gender, date of birth, photo).
+     * Works for SCHOOL-domain users (shared person row) and SYSTEM-domain users
+     * (no linked staff record). Never touches employment/payroll/statutory data.
+     */
+    public function putProfileUpdate($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        $userId = $this->getCurrentUserId();
+        if ($userId <= 0) {
+            return $this->unauthorized('Authentication required');
+        }
+        $result = $this->api->updateSelfProfile($userId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/{id}/login-history
+     *
+     * Self-scoped login/session history for the current user (both system- and
+     * school-domain accounts). Users may only ever see their own history.
+     */
+    public function getLoginHistory($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        $ownId = $this->getCurrentUserId();
+        if ($ownId <= 0) {
+            return $this->unauthorized('Authentication required');
+        }
+        if ($id !== null && (int) $id !== $ownId) {
+            return $this->forbidden('You may only view your own login history');
+        }
+        $result = $this->api->loginHistory($ownId);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * POST /api/users/password/reset
      */
     public function postPasswordReset($id = null, $data = [], $segments = [])

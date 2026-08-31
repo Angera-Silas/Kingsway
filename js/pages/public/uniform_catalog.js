@@ -11,43 +11,48 @@
 
   var S = PS.escapeHtml;
   var base = String(window.APP_BASE || '').replace(/\/+$/, '');
-  var FALLBACK_IMG = base + '/images/official_school_logo.png';
-
-  /* Keyword → fallback image for products with no uploaded image */
-  var IMAGE_MAP = [
-    [/shirt/i,           base + '/images/uniforms/shirt.jpg'],
-    [/skirt/i,           base + '/images/uniforms/skirt.jpg'],
-    [/sweater/i,         base + '/images/uniforms/sweater.jpg'],
-    [/pullover/i,        base + '/images/uniforms/sweater.jpg'],
-    [/jersey/i,          base + '/images/uniforms/sweater.jpg'],
-    [/trouser/i,         base + '/images/uniforms/trousers.jpg'],
-    [/pant/i,            base + '/images/uniforms/trousers.jpg'],
-    [/track/i,           base + '/images/uniforms/tracksuit.jpg'],
-    [/sock/i,            base + '/images/uniforms/socks.jpg'],
-    [/shoe/i,            base + '/images/uniforms/shoes.jpg'],
-    [/boot/i,            base + '/images/uniforms/shoes.jpg'],
-    [/dress/i,           base + '/images/uniforms/dress.jpg'],
-    [/cardigan/i,        base + '/images/uniforms/cardigan.jpg'],
-    [/hat|cap|beret/i,   base + '/images/uniforms/hat.jpg'],
-    [/tie/i,             base + '/images/uniforms/tie.jpg'],
-    [/belt/i,            base + '/images/uniforms/belt.jpg'],
-    [/bag|backpack/i,    base + '/images/uniforms/bag.jpg'],
-    [/apron/i,           base + '/images/uniforms/apron.jpg'],
-    [/lab.?coat/i,       base + '/images/uniforms/labcoat.jpg'],
-  ];
+  var FALLBACK_IMG = base + '/uploads/school_assets/official_school_logo.png';
+  var PUBLIC_CATEGORIES = ['formal-uniform', 'school-uniforms', 'sportswear', 'bags', 'branded-merchandise', 'accessories'];
+  var CATEGORY_LABELS = {
+    'formal-uniform': 'Formal uniforms',
+    'school-uniforms': 'School uniforms',
+    sportswear: 'Games & sportswear',
+    bags: 'School bags',
+    'branded-merchandise': 'Weekend wear',
+    accessories: 'Uniform accessories',
+  };
 
   function productImage(p) {
     if (p.image_url && p.image_url !== FALLBACK_IMG) return p.image_url;
-    var title = (p.title || '') + ' ' + (p.description || '');
-    for (var i = 0; i < IMAGE_MAP.length; i++) {
-      if (IMAGE_MAP[i][0].test(title)) return IMAGE_MAP[i][1];
-    }
     return FALLBACK_IMG;
   }
 
   var page = {
     initialized: false,
     products: [],
+    activeCategory: 'all',
+    query: '',
+
+    publicProducts: function () {
+      var seen = new Set();
+      return this.products.filter(function (p) {
+        var key = String(p.slug || p.id || '');
+        if (!key || seen.has(key) || PUBLIC_CATEGORIES.indexOf(String(p.category_slug || '')) === -1) return false;
+        seen.add(key);
+        return true;
+      });
+    },
+
+    visibleProducts: function () {
+      var query = this.query;
+      return this.publicProducts().filter(function (p) {
+        if (page.activeCategory !== 'all' && p.category_slug !== page.activeCategory) return false;
+        if (!query) return true;
+        var variantNames = (p.variants || []).map(function (v) { return v.name || v.color_name || ''; }).join(' ');
+        return (String(p.title || '') + ' ' + String(p.description || '') + ' ' +
+          String(p.product_type || '') + ' ' + variantNames).toLowerCase().indexOf(query) !== -1;
+      });
+    },
 
     async init() {
       if (this.initialized) return;
@@ -61,6 +66,7 @@
         var payload = await resp.json();
         this.products = (payload.data && payload.data.products) || payload.products || [];
         this.render();
+        this.renderCategories();
         this.bindSearch();
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[uniform_catalog] load failed:', err);
@@ -74,56 +80,75 @@
     render: function () {
       var el = document.getElementById('ucGrid');
       if (!el) return;
-      if (!this.products.length) {
-        el.innerHTML = '<div class="col-12 text-center py-5">' +
-          '<i class="bi bi-bag-x fs-1 text-muted d-block mb-3"></i>' +
-          '<p class="text-muted">No uniforms available yet. Check back soon!</p></div>';
+      var visible = this.visibleProducts();
+      if (!visible.length) {
+        el.innerHTML = '<div class="catalog-empty"><i class="bi bi-bag-x fs-1 d-block mb-3"></i>' +
+          '<p class="mb-0">No matching school uniforms are available right now.</p></div>';
         this.updateCount(0);
         return;
       }
-      this.updateCount(this.products.length);
-      el.innerHTML = this.products.map(function (p) { return page.card(p); }).join('');
+      this.updateCount(visible.length);
+      el.innerHTML = visible.map(function (p, i) { return page.card(p, i); }).join('');
       if (window.PublicUI && window.PublicUI.observeReveals) window.PublicUI.observeReveals(el);
     },
 
-    card: function (p) {
+    renderCategories: function(){
+      var el = document.getElementById('ucCategories');
+      if (!el) return;
+      var categories = Array.from(new Set(this.publicProducts().map(function (p) { return p.category_slug; })));
+      el.innerHTML = '<button class="' + (this.activeCategory === 'all' ? 'btn-success' : '') + '" data-category="all">All uniforms</button>' +
+        categories.map(function (c) {
+          return '<button class="' + (page.activeCategory === c ? 'btn-success' : '') + '" data-category="' + S(c) + '">' + S(CATEGORY_LABELS[c] || c) + '</button>';
+        }).join('');
+      el.querySelectorAll('[data-category]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          page.activeCategory = btn.dataset.category;
+          page.render();
+          page.renderCategories();
+        });
+      });
+    },
+
+    card: function (p, index) {
       var img = productImage(p);
       var sizes = p.sizes || [];
       var count = sizes.length;
       var lo = Infinity, hi = 0;
       for (var i = 0; i < count; i++) {
         var price = Number(sizes[i].unit_price) || 0;
+        if (price <= 0) continue;
         if (price < lo) lo = price;
         if (price > hi) hi = price;
       }
       if (lo === Infinity) lo = 0;
-      var priceStr = count
+      var priceStr = lo > 0
         ? (lo === hi
           ? 'KES ' + lo.toLocaleString()
           : 'KES ' + lo.toLocaleString() + ' – ' + hi.toLocaleString())
         : '';
       var href = base + '/product_details.php?id=' + encodeURIComponent(p.id);
+      var available = sizes.reduce(function (total, size) { return total + Number(size.available || 0); }, 0);
+      var swatches = (p.variants || []).slice(0, 6).map(function (variant) {
+        var color = variant.swatch_hex || variant.swatch || '#0b5d3b';
+        return '<span class="catalog-swatch" style="background:' + S(color) + '" title="' + S(variant.name || variant.color_name || 'Variant') + '"></span>';
+      }).join('');
 
-      return '<div class="col-sm-6 col-lg-4 col-xl-3 reveal">' +
-        '<a href="' + href + '" class="text-decoration-none">' +
-        '<article class="card-modern h-100">' +
-        '<div class="card-img-wrap">' +
-        '<img src="' + S(img) + '" alt="' + S(p.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
-        '</div>' +
-        '<div class="p-3">' +
-        '<h6 class="card-title mb-1">' + S(p.title) + '</h6>' +
-        '<p class="card-excerpt mb-2">' + S((p.description || '').substring(0, 80)) + ((p.description || '').length > 80 ? '…' : '') + '</p>' +
-        '<div class="d-flex align-items-center justify-content-between">' +
-        '<div>' +
-        (count
-          ? '<span class="small text-muted"><i class="bi bi-rulers me-1"></i>' + count + ' size' + (count > 1 ? 's' : '') + '</span>'
-          : '<span class="small text-muted">Coming soon</span>') +
-        (priceStr ? '<div class="fw-bold mt-1" style="color:var(--green-dark);font-size:.88rem">' + priceStr + '</div>' : '') +
-        '</div>' +
-        '<span class="btn btn-success btn-sm rounded-pill px-3">' +
-        (count ? 'Buy Now' : 'View') +
-        '<i class="bi bi-arrow-right ms-1"></i></span>' +
-        '</div></div></article></a></div>';
+      return '<article class="catalog-product-card reveal">' +
+        '<a href="' + href + '" class="text-decoration-none d-block">' +
+        '<div class="catalog-product-media">' +
+        '<img src="' + S(img) + '?v=20260831-3" alt="' + S(p.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
+        '<span class="catalog-product-number">' + String(index + 1).padStart(2, '0') + '</span>' +
+        '<span class="catalog-product-state">' + (available > 0 ? 'In stock' : 'Coming Soon') + '</span>' +
+        '</div></a>' +
+        '<div class="catalog-product-info">' +
+        '<span class="catalog-product-category">' + S(CATEGORY_LABELS[p.category_slug] || p.category_slug || 'School uniform') + '</span>' +
+        '<h3 class="catalog-product-title">' + S(p.title) + '</h3>' +
+        '<p class="catalog-product-desc">' + S((p.description || 'Official Kingsway Preparatory School uniform item.').substring(0, 105)) + ((p.description || '').length > 105 ? '…' : '') + '</p>' +
+        (swatches ? '<div class="catalog-swatches" aria-label="Available colours">' + swatches + '</div>' : '') +
+        '<div class="catalog-product-footer"><div><div class="catalog-product-price">' + (available > 0 ? (priceStr || 'Price on request') : 'Coming Soon') + '</div>' +
+        '<small class="text-muted">' + (count ? count + ' size' + (count === 1 ? '' : 's') : 'Details available') + '</small></div>' +
+        '<a href="' + href + '" class="catalog-view-link" aria-label="View ' + S(p.title) + '"><i class="bi bi-arrow-up-right"></i></a></div>' +
+        '</div></article>';
     },
 
     updateCount: function (n) {
@@ -135,16 +160,8 @@
       var input = document.getElementById('ucSearch');
       if (!input) return;
       input.addEventListener('input', function () {
-        var q = input.value.toLowerCase().trim();
-        var cards = document.querySelectorAll('#ucGrid .col-sm-6');
-        var visible = 0;
-        cards.forEach(function (col) {
-          var text = (col.textContent || '').toLowerCase();
-          var show = !q || text.indexOf(q) !== -1;
-          col.style.display = show ? '' : 'none';
-          if (show) visible++;
-        });
-        page.updateCount(visible);
+        page.query = input.value.toLowerCase().trim();
+        page.render();
       });
     },
   };

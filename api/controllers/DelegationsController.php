@@ -86,7 +86,7 @@ class DelegationsController extends BaseController
             $row = $this->delegationService->findDelegation($delegator, $delegate, $menuItem);
             return $this->created(['row' => $row, 'granted_permissions' => $granted]);
         } catch (\Exception $e) {
-            error_log('[DelegationsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[DelegationsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('Failed to create delegation', 'An internal error occurred.');
         }
     }

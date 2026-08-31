@@ -152,7 +152,7 @@ class SchedulesWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -197,7 +197,7 @@ class SchedulesWorkflow extends WorkflowHandler
             }
             return ['success' => true, 'conflicts' => $conflicts, 'next_stage' => empty($conflicts) ? 'timetable_approval' : 'timetable_planning'];
         } catch (\Exception $e) {
-            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -226,7 +226,7 @@ class SchedulesWorkflow extends WorkflowHandler
             $this->advanceStage($instance_id, 'timetable_publication', 'approved');
             return ['success' => true, 'next_stage' => 'timetable_publication'];
         } catch (\Exception $e) {
-            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -255,7 +255,7 @@ class SchedulesWorkflow extends WorkflowHandler
             $this->advanceStage($instance_id, 'completed', 'published');
             return ['success' => true, 'next_stage' => 'completed'];
         } catch (\Exception $e) {
-            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }

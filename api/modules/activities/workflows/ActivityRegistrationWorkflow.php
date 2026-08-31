@@ -34,7 +34,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function initiateRegistration($data, $userId)
     {
-        error_log("[ActivityRegistrationWorkflow] initiateRegistration called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
+        \App\API\Services\Logger::legacyError("[ActivityRegistrationWorkflow] initiateRegistration called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
         try {
             // Validate required fields
             $required = ['student_id', 'activity_id'];
@@ -200,7 +200,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function reviewApplication($workflowId, $data, $userId)
     {
-        error_log("[ActivityRegistrationWorkflow] reviewApplication called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityRegistrationWorkflow] reviewApplication called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -249,7 +249,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function approveRegistration($workflowId, $data, $userId)
     {
-        error_log("[ActivityRegistrationWorkflow] approveRegistration called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityRegistrationWorkflow] approveRegistration called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -312,7 +312,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function rejectRegistration($workflowId, $reason, $userId)
     {
-        error_log("[ActivityRegistrationWorkflow] rejectRegistration called. userId=" . var_export($userId, true) . ", reason=" . var_export($reason, true) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityRegistrationWorkflow] rejectRegistration called. userId=" . var_export($userId, true) . ", reason=" . var_export($reason, true) . ", workflowId=" . var_export($workflowId, true));
         $transactionStarted = false;
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
@@ -383,7 +383,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function confirmParticipation($workflowId, $userId)
     {
-        error_log("[ActivityRegistrationWorkflow] confirmParticipation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityRegistrationWorkflow] confirmParticipation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -428,7 +428,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function activateParticipation($workflowId, $userId)
     {
-        error_log("[ActivityRegistrationWorkflow] activateParticipation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityRegistrationWorkflow] activateParticipation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
             $metadata = json_decode($workflow['data_json'], true);
@@ -484,7 +484,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function completeParticipation($workflowId, $data, $userId)
     {
-        error_log("[ActivityRegistrationWorkflow] completeParticipation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityRegistrationWorkflow] completeParticipation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
             $metadata = json_decode($workflow['data_json'], true);

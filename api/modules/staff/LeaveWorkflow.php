@@ -491,7 +491,7 @@ class LeaveWorkflow extends WorkflowHandler
                 : NotificationService::deniedText($label, $approver, $reason);
             $service->push($recipients, 'leave_request', $title, $message, 'medium');
         } catch (Exception $e) {
-            error_log('[LeaveWorkflow] Notification push failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[LeaveWorkflow] Notification push failed: ' . $e->getMessage());
         }
     }
 

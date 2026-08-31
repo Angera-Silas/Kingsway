@@ -239,7 +239,7 @@ class AdmissionAdminManager extends BaseAPI
                 'timestamp' => date('Y-m-d H:i:s'),
             ], 'Pending admissions retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -614,7 +614,7 @@ class AdmissionAdminManager extends BaseAPI
                 'timestamp' => date('Y-m-d H:i:s'),
             ], 'Workflow queues retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -718,7 +718,7 @@ class AdmissionAdminManager extends BaseAPI
                 ],
             ], 'Application details retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -758,7 +758,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse(['windows' => $rows ?: []], 'Admission windows retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -859,7 +859,7 @@ class AdmissionAdminManager extends BaseAPI
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -920,7 +920,7 @@ class AdmissionAdminManager extends BaseAPI
             $stmt->execute([$next, $openedAt, $closedAt, $id]);
             return $this->successResponse(['id' => $id, 'status' => $next], 'Admission window updated');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -956,7 +956,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse(['terms' => $rows ?: []], 'Open admission terms retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -990,7 +990,7 @@ class AdmissionAdminManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['sessions' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], 'Interview sessions retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage());
             return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -1069,7 +1069,7 @@ class AdmissionAdminManager extends BaseAPI
             }
             return $this->successResponse(['id' => $id, 'calendar_event_id' => $eventId], 'Interview session saved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage());
             return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -1136,7 +1136,7 @@ class AdmissionAdminManager extends BaseAPI
             $result = $this->workflow()->notifyInterviewAssignment((int) $row['id'], (int) $row['session_id'], 'assigned');
             if (($result['status'] ?? '') !== 'success') return $this->errorResponse($result['message'] ?? 'Unable to queue interview notifications', 422);
             return $this->successResponse(null, $result['message'] ?? 'Interview notifications queued');
-        } catch (Exception $e) { error_log('[AdmissionAdminManager] '.$e->getMessage()); return $this->errorResponse('Unable to queue interview notification.', 422); }
+        } catch (Exception $e) { \App\API\Services\Logger::legacyError('[AdmissionAdminManager] '.$e->getMessage()); return $this->errorResponse('Unable to queue interview notification.', 422); }
     }
 
     // ========================================================================
@@ -1245,7 +1245,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse(['application_id' => $id], 'Application updated');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -1307,7 +1307,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse(['classes' => $classes], 'Placement classes retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1359,7 +1359,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse($stats, 'Admission statistics retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1402,7 +1402,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse($tests, 'Placement tests retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1462,7 +1462,7 @@ class AdmissionAdminManager extends BaseAPI
                 201
             );
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1513,7 +1513,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse(['id' => (int) $id], 'Placement test results recorded successfully');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1639,7 +1639,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse($notifications, 'Notifications retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1655,7 +1655,7 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->successResponse(['space_check' => $result], 'Class space availability checked');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1731,7 +1731,7 @@ class AdmissionAdminManager extends BaseAPI
                 'to_stage' => $result['to_stage'] ?? null,
             ], 'Workflow stage advanced successfully');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->errorResponse('An internal error occurred.');
         }
@@ -1807,7 +1807,7 @@ class AdmissionAdminManager extends BaseAPI
             $stmt->execute(['academic_year' => $academicYear]);
             return $this->successResponse(['payments' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], 'Paid admission payments retrieved');
         } catch (Exception $e) {
-            error_log('[AdmissionAdminManager] paid admission payments: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] paid admission payments: ' . $e->getMessage());
             return $this->errorResponse('Unable to load paid admission payments');
         }
     }

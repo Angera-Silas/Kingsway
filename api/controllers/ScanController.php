@@ -413,7 +413,7 @@ class ScanController extends BaseController {
             );
             $stmt->execute([$studentId, $operatorId, $context, $action ?: 'verify', $result, $recordId, $clientReference, $reason]);
         } catch (\Throwable $e) {
-            error_log('[ScanController] scan audit failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[ScanController] scan audit failed: ' . $e->getMessage());
         }
     }
 
