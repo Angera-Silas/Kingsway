@@ -220,6 +220,21 @@ class BaseAPI extends FileLifecycleBase
     {
         $user = $this->getCurrentUser() ?? [];
         if (!PermissionContract::userCan($user, $module, $action)) {
+            $userId = (int) ($user['user_id'] ?? $user['id'] ?? 0);
+            \App\API\Includes\SecurityEventNotifier::permissionDenied(
+                'Forbidden: missing permission for ' . $module . '.' . $action,
+                [
+                    'entity' => 'permission',
+                    'entity_id' => $module . '.' . $action,
+                    'details' => [
+                        'module' => $module,
+                        'action' => $action,
+                        'role_ids' => $user['role_ids'] ?? null,
+                    ],
+                    'user_id' => $userId ?: null,
+                    'username' => $user['username'] ?? null,
+                ]
+            );
             http_response_code(403);
             throw new RuntimeException(
                 'Forbidden: missing permission for ' . $module . '.' . $action,

@@ -30,6 +30,39 @@ class AcademicManager extends BaseAPI
         parent::__construct('academic');
     }
 
+    /** Add an exact learning-area/grade assignment boundary to a curriculum query. */
+    private function addCurriculumScope(
+        array &$conditions,
+        array &$params,
+        array $query,
+        string $areaColumn,
+        ?string $gradeColumn = null,
+        string $prefix = 'scope'
+    ): void {
+        if (!array_key_exists('_scope_contexts', $query)) return;
+        $contexts = is_array($query['_scope_contexts']) ? $query['_scope_contexts'] : [];
+        if (!$contexts) {
+            $conditions[] = '1=0';
+            return;
+        }
+        $clauses = [];
+        foreach (array_values($contexts) as $index => $context) {
+            $areaId = (int) ($context['learning_area_id'] ?? 0);
+            if (!$areaId) continue;
+            $areaKey = ':' . $prefix . '_area_' . $index;
+            $clause = $areaColumn . '=' . $areaKey;
+            $params[$areaKey] = $areaId;
+            $grade = trim((string) ($context['grade_level'] ?? ''));
+            if ($gradeColumn && $grade !== '') {
+                $gradeKey = ':' . $prefix . '_grade_' . $index;
+                $clause = '(' . $clause . ' AND ' . $gradeColumn . '=' . $gradeKey . ')';
+                $params[$gradeKey] = $grade;
+            }
+            $clauses[] = $clause;
+        }
+        $conditions[] = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1=0';
+    }
+
     // ==================== TEACHING RESOURCES ====================
 
     public function getResources(array $data): array
@@ -1778,17 +1811,21 @@ class AcademicManager extends BaseAPI
 
     // ==================== CBC: ASSESSMENT TYPES / TOOLS / CORE LISTS ====================
 
-    public function getAssessmentTools(): array
+    public function getAssessmentTools(array $query = []): array
     {
         try {
+            $conditions = ["at.status = 'active'"];
+            $params = [];
+            $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'tool_scope');
             $rows = $this->dbQuery(
                 "SELECT at.id, at.tool_name, at.tool_code, at.description, at.assessment_type_id, at.learning_area_id, at.grade_level,
                         a_type.name AS assessment_type_name, la.name AS learning_area_name
                  FROM assessment_tools at
                  LEFT JOIN assessment_type_classifications a_type ON a_type.id = at.assessment_type_id
                  LEFT JOIN learning_areas la ON la.id = at.learning_area_id
-                 WHERE at.status = 'active'
-                 ORDER BY at.tool_name"
+                 WHERE " . implode(' AND ', $conditions) . "
+                 ORDER BY at.tool_name",
+                $params
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
@@ -2118,7 +2155,12 @@ class AcademicManager extends BaseAPI
         try {
             $laId  = (int) ($data['learning_area_id'] ?? 0);
             $familyId = (int) ($data['learning_area_family_id'] ?? 0);
-            $where = $laId ? 'WHERE s.learning_area_id=:la' : ($familyId ? 'WHERE la.learning_area_family_id=:laf' : '');
+            $conditions = [];
+            $params = [];
+            if ($laId) { $conditions[] = 's.learning_area_id=:la'; $params[':la'] = $laId; }
+            elseif ($familyId) { $conditions[] = 'la.learning_area_family_id=:laf'; $params[':laf'] = $familyId; }
+            $this->addCurriculumScope($conditions, $params, $data, 's.learning_area_id', 's.grade_level', 'strand_scope');
+            $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
             $rows = $this->dbQuery(
                 "SELECT s.id, s.code, s.name, s.grade_level, s.level_range, s.sort_order,
                         la.id AS learning_area_id, la.name AS learning_area_name,
@@ -2128,7 +2170,7 @@ class AcademicManager extends BaseAPI
                  LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                  $where
                  ORDER BY s.grade_level, s.sort_order, s.id",
-                $laId ? [':la' => $laId] : ($familyId ? [':laf' => $familyId] : [])
+                $params
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
@@ -4016,24 +4058,31 @@ class AcademicManager extends BaseAPI
     {
         try {
             if ($id) {
+                $conditions = ['ss.id = :id'];
+                $params = [':id' => $id];
+                $this->addCurriculumScope($conditions, $params, $query, 's.learning_area_id', 's.grade_level', 'sub_one_scope');
                 $row = $this->dbQuery(
                     "SELECT ss.*, s.name AS strand_name, s.code AS strand_code
                      FROM sub_strands ss
                      LEFT JOIN strands s ON s.id = ss.strand_id
-                     WHERE ss.id = :id",
-                    [':id' => $id]
+                     WHERE " . implode(' AND ', $conditions),
+                    $params
                 )->fetch(PDO::FETCH_ASSOC);
                 return $row ? $this->successResponse($row) : $this->errorResponse('Sub-strand not found', 404);
             }
             $strandId = (int) ($query['strand_id'] ?? 0);
-            $where = $strandId ? 'WHERE ss.strand_id=:sid' : '';
+            $conditions = [];
+            $params = [];
+            if ($strandId) { $conditions[] = 'ss.strand_id=:sid'; $params[':sid'] = $strandId; }
+            $this->addCurriculumScope($conditions, $params, $query, 's.learning_area_id', 's.grade_level', 'sub_scope');
+            $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
             $stmt = $this->dbQuery(
                 "SELECT ss.*, s.name AS strand_name, s.code AS strand_code
                  FROM sub_strands ss
                  LEFT JOIN strands s ON s.id = ss.strand_id
                  $where
                  ORDER BY s.sort_order, ss.sort_order, ss.id",
-                $strandId ? [':sid' => $strandId] : []
+                $params
             );
             return $this->successResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
         } catch (Exception $e) {
@@ -4127,12 +4176,15 @@ class AcademicManager extends BaseAPI
     {
         try {
             if ($id) {
+                $conditions = ['lo.id = :id'];
+                $params = [':id' => $id];
+                $this->addCurriculumScope($conditions, $params, $query, 'lo.learning_area_id', 'lo.grade_level', 'outcome_one_scope');
                 $row = $this->dbQuery(
                     "SELECT lo.*, la.name AS learning_area_name
                      FROM learning_outcomes lo
                      LEFT JOIN learning_areas la ON la.id = lo.learning_area_id
-                     WHERE lo.id = :id",
-                    [':id' => $id]
+                     WHERE " . implode(' AND ', $conditions),
+                    $params
                 )->fetch(PDO::FETCH_ASSOC);
                 return $row ? $this->successResponse($row) : $this->errorResponse('Learning outcome not found', 404);
             }
@@ -4142,6 +4194,7 @@ class AcademicManager extends BaseAPI
             if (!empty($query['strand_id'])) { $conds[] = 's.id=:stid'; $params[':stid'] = (int) $query['strand_id']; }
             if (!empty($query['learning_area_id'])) { $conds[] = 'lo.learning_area_id=:laid'; $params[':laid'] = (int) $query['learning_area_id']; }
             if (!empty($query['grade_level'])) { $conds[] = 'lo.grade_level=:gl'; $params[':gl'] = $query['grade_level']; }
+            $this->addCurriculumScope($conds, $params, $query, 'lo.learning_area_id', 'lo.grade_level', 'outcome_scope');
             $where = $conds ? 'WHERE ' . implode(' AND ', $conds) : '';
             $stmt = $this->dbQuery(
                 "SELECT lo.*, la.name AS learning_area_name, ss.name AS sub_strand_name
@@ -4259,24 +4312,31 @@ class AcademicManager extends BaseAPI
     {
         try {
             if ($id) {
+                $conditions = ['ar.id = :id'];
+                $params = [':id' => $id];
+                $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'rubric_one_scope');
                 $row = $this->dbQuery(
                     "SELECT ar.*, at.tool_name
                      FROM assessment_rubrics ar
                      LEFT JOIN assessment_tools at ON at.id = ar.tool_id
-                     WHERE ar.id = :id",
-                    [':id' => $id]
+                     WHERE " . implode(' AND ', $conditions),
+                    $params
                 )->fetch(PDO::FETCH_ASSOC);
                 return $row ? $this->successResponse($row) : $this->errorResponse('Assessment rubric not found', 404);
             }
             $toolId = (int) ($query['tool_id'] ?? 0);
-            $where = $toolId ? 'WHERE ar.tool_id=:tid' : '';
+            $conditions = [];
+            $params = [];
+            if ($toolId) { $conditions[] = 'ar.tool_id=:tid'; $params[':tid'] = $toolId; }
+            $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'rubric_scope');
+            $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
             $stmt = $this->dbQuery(
                 "SELECT ar.*, at.tool_name
                  FROM assessment_rubrics ar
                  LEFT JOIN assessment_tools at ON at.id = ar.tool_id
                  $where
                  ORDER BY ar.sort_order, ar.id",
-                $toolId ? [':tid' => $toolId] : []
+                $params
             );
             return $this->successResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
         } catch (Exception $e) {
@@ -4531,19 +4591,25 @@ class AcademicManager extends BaseAPI
     public function getStrandCompetencies(?int $id, array $query): array
     {
         try {
+            $scopeConds = [];
+            $scopeParams = [];
+            $this->addCurriculumScope($scopeConds, $scopeParams, $query, 's.learning_area_id', 's.grade_level');
             if ($id) {
+                $scopeWhere = $scopeConds ? ' AND ' . implode(' AND ', $scopeConds) : '';
                 $row = $this->dbQuery(
                     "SELECT sc.*, s.name AS strand_name, cc.name AS competency_name
                      FROM strand_competency sc
                      LEFT JOIN strands s ON s.id = sc.strand_id
                      LEFT JOIN core_competencies cc ON cc.id = sc.competency_id
-                     WHERE sc.id = :id",
-                    [':id' => $id]
+                     WHERE sc.id = :id $scopeWhere",
+                    array_merge([':id' => $id], $scopeParams)
                 )->fetch(PDO::FETCH_ASSOC);
                 return $row ? $this->successResponse($row) : $this->errorResponse('Strand-competency mapping not found', 404);
             }
             $conds = [];
             $params = [];
+            $conds = array_merge($conds, $scopeConds);
+            $params = array_merge($params, $scopeParams);
             if (!empty($query['strand_id'])) { $conds[] = 'sc.strand_id=:sid'; $params[':sid'] = (int) $query['strand_id']; }
             if (!empty($query['competency_id'])) { $conds[] = 'sc.competency_id=:cid'; $params[':cid'] = (int) $query['competency_id']; }
             $where = $conds ? 'WHERE ' . implode(' AND ', $conds) : '';
@@ -4627,33 +4693,36 @@ class AcademicManager extends BaseAPI
     public function getCurriculumTree(array $query): array
     {
         try {
-            $laWhere = '';
+            $laConditions = [];
             $laParams = [];
             if (!empty($query['learning_area_family_id'])) {
-                $laWhere = 'WHERE la.learning_area_family_id=:lafid';
+                $laConditions[] = 'la.learning_area_family_id=:lafid';
                 $laParams[':lafid'] = (int) $query['learning_area_family_id'];
             } elseif (!empty($query['learning_area_id'])) {
-                $laWhere = 'WHERE la.id=:laid';
+                $laConditions[] = 'la.id=:laid';
                 $laParams[':laid'] = (int) $query['learning_area_id'];
             }
+            $this->addCurriculumScope($laConditions, $laParams, $query, 'la.id', null, 'tree_area_scope');
+            $laWhere = $laConditions ? 'WHERE ' . implode(' AND ', $laConditions) : '';
             $areas = $this->dbQuery(
                 "SELECT la.id, la.code, la.name FROM learning_areas la $laWhere ORDER BY la.name",
                 $laParams
             )->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($areas as &$area) {
-                $sWhere = '';
+                $sConditions = ['s.learning_area_id=:laid'];
                 $sParams = [];
-                $sWhere = 'WHERE s.learning_area_id=:laid';
                 $sParams[':laid'] = $area['id'];
                 if (!empty($query['grade_level'])) {
-                    $sWhere .= ' AND s.grade_level=:grade';
+                    $sConditions[] = 's.grade_level=:grade';
                     $sParams[':grade'] = $query['grade_level'];
                 }
                 if (!empty($query['strand_id'])) {
-                    $sWhere .= ' AND s.id=:sid';
+                    $sConditions[] = 's.id=:sid';
                     $sParams[':sid'] = (int) $query['strand_id'];
                 }
+                $this->addCurriculumScope($sConditions, $sParams, $query, 's.learning_area_id', 's.grade_level', 'tree_strand_scope');
+                $sWhere = 'WHERE ' . implode(' AND ', $sConditions);
                 $strands = $this->dbQuery(
                     "SELECT s.id, s.code, s.name, s.grade_level, s.variant, s.source_subject, s.level_range, s.sort_order
                      FROM strands s $sWhere ORDER BY s.sort_order, s.id",
@@ -4800,6 +4869,9 @@ class AcademicManager extends BaseAPI
     {
         try {
             if ($id) {
+                $conditions = ['s.id = :id'];
+                $params = [':id' => $id];
+                $this->addCurriculumScope($conditions, $params, $query, 's.learning_area_id', 's.grade_level', 'curriculum_one_scope');
                 $row = $this->dbQuery(
                     "SELECT s.id, s.code AS strand_code, s.grade_level,
                             la.id AS learning_area_id, la.name AS learning_area,
@@ -4814,8 +4886,8 @@ class AcademicManager extends BaseAPI
                      FROM strands s
                 JOIN learning_areas la ON la.id = s.learning_area_id
                 LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
-                     WHERE s.id = :id",
-                    [':id' => $id]
+                     WHERE " . implode(' AND ', $conditions),
+                    $params
                 )->fetch(PDO::FETCH_ASSOC);
                 return $this->successResponse($row ?: null);
             }
@@ -4855,6 +4927,7 @@ class AcademicManager extends BaseAPI
                 $params[':q3'] = '%' . $query['search'] . '%';
                 $params[':q4'] = '%' . $query['search'] . '%';
             }
+            $this->addCurriculumScope($conds, $params, $query, 's.learning_area_id', 's.grade_level', 'curriculum_scope');
             $where = $conds ? 'WHERE ' . implode(' AND ', $conds) : '';
 
             $total = (int) $this->dbQuery(

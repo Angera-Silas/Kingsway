@@ -2,16 +2,19 @@
 namespace App\API\Controllers;
 
 use App\API\Services\catalog\CatalogCommerceService;
+use App\API\Services\catalog\CatalogStockService;
 use App\Database\Database;
 
 /** Authenticated staff catalogue shopping and authorised store oversight. */
 final class CommerceController extends BaseController
 {
     private CatalogCommerceService $commerce;
-    public function __construct(){parent::__construct();$this->commerce=new CatalogCommerceService(Database::getInstance()->getConnection());}
+    private CatalogStockService $stock;
+    public function __construct(){parent::__construct();$db=Database::getInstance()->getConnection();$this->commerce=new CatalogCommerceService($db);$this->stock=new CatalogStockService($db);}
     private function staffId(): int { $id=(int)($this->user['id']??$this->user['user_id']??0);if(!$id)throw new \RuntimeException('Authentication required');return $id; }
     private function manager(): ?array { if(!$this->userHasAny([], [3,4,14], ['director','school administrator','uniform store manager']))return $this->forbidden('Catalogue sales oversight is restricted');return null; }
     private function storeManager(): ?array { if(!$this->userHasAny([], [4,14], ['school administrator','uniform store manager']))return $this->forbidden('Uniform Store management is required');return null; }
+    private function schoolAdmin(): ?array { if(!$this->userHasAny([], [4], ['school administrator']))return $this->forbidden('School Administrator approval is required');return null; }
 
     public function getProduct($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('Product ID is required');return $this->success($this->commerce->product((int)$id,'staff'));}
     public function getCart($id=null,$data=[],$segments=[]){return $this->success($this->commerce->cart('staff',$this->staffId()));}
@@ -31,6 +34,19 @@ final class CommerceController extends BaseController
     public function getManagement($id=null,$data=[],$segments=[]){if($g=$this->manager())return $g;return $this->success($this->commerce->management($data));}
     public function getPointOfSaleOptions($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;return $this->success($this->commerce->pointOfSaleOptions());}
     public function postPointOfSale($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->created($this->commerce->pointOfSale($data,$this->staffId()),'Counter sale completed');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function getStockIntakeOptions($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;return $this->success($this->stock->intakeOptions());}
+    public function postStockReceipts($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->created($this->stock->receive($data,$this->staffId()),'Stock received and unit labels generated');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function postStockIdentifyExisting($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->success($this->stock->identifyExistingStock($this->staffId()),'Existing stock identities generated');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function getStockUnits($id=null,$data=[],$segments=[]){if($g=$this->manager())return $g;$result=$this->stock->units($data);$result['can_manage']=$this->userHasAny([], [4,14], ['school administrator','uniform store manager']);return $this->success($result);}
+    public function getStockUnit($id=null,$data=[],$segments=[]){if($g=$this->manager())return $g;try{return $this->success($this->stock->lookup((string)($data['code']??$id??''),$this->staffId(),$data['scanner_reference']??null));}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function getStockUnitEvents($id=null,$data=[],$segments=[]){if($g=$this->manager())return $g;return $this->success(['events'=>$this->stock->unitEvents((int)$id)]);}
+    public function postStockLabels($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->success(['labels'=>$this->stock->labels((array)($data['unit_ids']??[]))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function postOrderUnitScan($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->success($this->commerce->scanOrderUnit((int)$id,(string)($data['unit_code']??''),$this->staffId(),$data['scanner_reference']??null),'Unit assigned to order');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function getOrderPacking($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->success($this->commerce->orderPacking((int)$id));}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function postOrderDispatch($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->success($this->commerce->dispatchOrder((int)$id,$this->staffId(),$data['note']??null),'Order dispatched');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function getDiscounts($id=null,$data=[],$segments=[]){if($g=$this->manager())return $g;$result=$this->stock->discounts();$result['can_create']=$this->userHasAny([], [4,14], ['school administrator','uniform store manager']);$result['can_approve']=$this->userHasAny([], [4], ['school administrator']);return $this->success($result);}
+    public function postDiscounts($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->created($this->stock->createDiscount($data,$this->staffId()),'Offer submitted for School Administrator approval');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
+    public function putDiscountDecision($id=null,$data=[],$segments=[]){if($g=$this->schoolAdmin())return $g;try{return $this->success($this->stock->decideDiscount((int)$id,(string)($data['decision']??''),$data['note']??null,$this->staffId()),'Offer decision recorded');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
     public function putOrdersStatus($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->success($this->commerce->updateOrderStatus((int)$id,(string)($data['status']??''),$this->staffId(),$data['note']??null),'Order updated');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
     public function putReviewsModerate($id=null,$data=[],$segments=[]){if($g=$this->storeManager())return $g;try{return $this->success($this->commerce->moderateReview((int)$id,(string)($data['status']??''),$this->staffId()),'Review moderated');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}}
 }

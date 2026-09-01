@@ -1616,7 +1616,7 @@ class InventoryController extends BaseController
     {
         if ($guard = $this->guardUniformCatalogManage()) return $guard;
         $productId=(int)($data['product_id']??$id??0); if(!$productId||empty($_FILES['file']))return $this->badRequest('product_id and image file are required');
-        try { $stored=(new UploadService())->store($_FILES['file'],'uniform_catalog_image',['owner_id'=>(string)$productId,'prefix'=>'uniform']); return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->addImage($productId,(string)$stored['url'],$data['alt_text']??null,!empty($data['is_primary']),(int)($data['variant_id']??0)?:null,(string)($data['view_type']??'catalog')),'Uniform catalogue image uploaded'); }
+        try { $stored=(new UploadService())->store($_FILES['file'],'uniform_catalog_image',['owner_id'=>(string)$productId,'prefix'=>'uniform']); return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->addImage($productId,(string)($stored['relative_path']??''),$data['alt_text']??null,!empty($data['is_primary']),(int)($data['variant_id']??0)?:null,(string)($data['view_type']??'catalog')),'Uniform catalogue image uploaded'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 

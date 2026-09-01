@@ -408,5 +408,18 @@ class RouteAuthorization
         } catch (\Exception $e) {
             \App\API\Services\Logger::legacyError("Authorization log failed - User: {$user_id}, Role: {$role_id}, Route: {$route}, Result: " . ($authorized ? 'ALLOWED' : 'DENIED'));
         }
+
+        // Mirror denied route access into the audit journal with the canonical
+        // 'rbac_denied' action so the Audit & Forensics console reports it.
+        if (!$authorized) {
+            \App\API\Includes\SecurityEventNotifier::rbacDenied(
+                "Route '{$route}' is not available for this user",
+                [
+                    'entity' => 'route',
+                    'entity_id' => $route,
+                    'details' => ['role_id' => $role_id, 'type' => 'authorization'],
+                ]
+            );
+        }
     }
 }

@@ -6,11 +6,8 @@
 
 namespace App\API\Modules\dashboard;
 
-// role_sidebars.php is procedural config data (returns an array), not a class,
-// so it cannot be autoloaded and is intentionally required here.
-require_once __DIR__ . '/../../../config/role_sidebars.php';
-
 use App\Config\DashboardRouter;
+use App\API\Services\SidebarConfigReader;
 
 class DashboardAPI
 {
@@ -88,12 +85,10 @@ class DashboardAPI
 
     private function getSidebars()
     {
-        global $role_sidebars;
-
         return [
             'success' => true,
-            'data' => $role_sidebars,
-            'message' => 'Sidebar config retrieved',
+            'data' => SidebarConfigReader::forAllRoles(),
+            'message' => 'Effective sidebar config retrieved',
         ];
     }
 }

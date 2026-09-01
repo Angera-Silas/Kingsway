@@ -164,6 +164,11 @@ class PublicController extends BaseAPI
             $imgSt = $pdo->prepare('SELECT id, variant_id, url, alt_text, view_type, is_primary, display_order FROM uniform_catalog_images WHERE product_id = ? ORDER BY is_primary DESC, display_order, id');
             $imgSt->execute([(int) $id]);
             $product['images'] = $imgSt->fetchAll(\PDO::FETCH_ASSOC);
+            $uploadService = new \App\API\Services\UploadService();
+            foreach ($product['images'] as &$image) {
+                $image['url'] = $uploadService->publicUrl($image['url'] ?? null);
+            }
+            unset($image);
 
             // Fetch all available sizes for this product
             $variantSt=$pdo->prepare("SELECT id,item_id,code,name,color_name,swatch_hex,is_default,display_order FROM uniform_catalog_variants WHERE product_id=? AND status='active' ORDER BY display_order,id");

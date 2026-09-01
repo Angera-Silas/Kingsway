@@ -339,6 +339,14 @@ class AuthMiddleware
      */
     private static function deny($code, $message)
     {
+        \App\API\Includes\SecurityEventNotifier::unauthorizedAccess(
+            $message,
+            [
+                'entity' => 'auth_token',
+                'entity_id' => null,
+                'details' => ['status_code' => $code],
+            ]
+        );
         http_response_code($code);
         if (!headers_sent()) {
             header('Content-Type: application/json; charset=utf-8');
