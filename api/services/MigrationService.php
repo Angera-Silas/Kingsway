@@ -8,7 +8,7 @@ class MigrationService
     private PDO $db;
     private string $migrationsDir;
 
-    public function __construct(PDO $db, string $migrationsDir = null)
+    public function __construct(PDO $db, ?string $migrationsDir = null)
     {
         $this->db = $db;
         $this->migrationsDir = $migrationsDir ?: dirname(__DIR__, 2) . '/database/migrations';

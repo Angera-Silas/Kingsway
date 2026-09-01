@@ -200,6 +200,10 @@ class RateLimitMiddleware
      */
     private static function deny($code, $message)
     {
+        \App\API\Includes\SecurityEventNotifier::securityIncident(
+            $message,
+            ['entity' => 'rate_limit', 'details' => ['status_code' => $code]]
+        );
         http_response_code($code);
         header('Retry-After: ' . self::TIME_WINDOW);
         if (!headers_sent()) {

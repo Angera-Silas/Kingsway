@@ -24,6 +24,11 @@ const internalProductsCatalogController = {
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   },
 
+  versionedImage(url, version) {
+    const value = String(url || '');
+    return `${value}${value.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
+  },
+
   notify(message, type = 'success') {
     if (typeof showNotification === 'function') {
       showNotification(message, type);
@@ -278,7 +283,7 @@ const internalProductsCatalogController = {
       const href = `${base}/product_details.php?id=${encodeURIComponent(p.id)}`;
       return `<article class="catalog-product-card">
         <a href="${href}" class="text-decoration-none d-block"><div class="catalog-product-media">
-          <img src="${this.esc(image)}?v=20260831-3" alt="${this.esc(p.title)}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
+          <img src="${this.esc(this.versionedImage(image, '20260831-3'))}" alt="${this.esc(p.title)}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
           <span class="catalog-product-number">${String(index + 1).padStart(2, '0')}</span>
           <span class="catalog-product-state">${available > 0 ? 'In stock' : 'Coming Soon'}</span>
         </div></a>

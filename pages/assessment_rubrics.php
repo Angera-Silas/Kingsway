@@ -11,10 +11,10 @@
             <small class="text-muted">Manage 4-level CBC rubric criteria for assessment tools</small>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-primary btn-sm" onclick="RubricsController.openToolModal()">
+            <button class="btn btn-outline-primary btn-sm" data-curriculum-manage onclick="RubricsController.openToolModal()">
                 <i class="bi bi-wrench-adjustable"></i> New Assessment Tool
             </button>
-            <button class="btn btn-success btn-sm" onclick="RubricsController.openModal()">
+            <button class="btn btn-success btn-sm" data-curriculum-manage onclick="RubricsController.openModal()">
                 <i class="bi bi-plus-circle"></i> Add Rubric
             </button>
         </div>

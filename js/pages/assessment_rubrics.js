@@ -6,6 +6,7 @@ function escapeHtml(value) {
 
 const RubricsController = {
     initialized: false,
+    canManage: false,
     state: {
         rubrics: [],
         tools: [],
@@ -18,11 +19,14 @@ const RubricsController = {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
-        if (!window.AuthContext?.hasPermission?.('academics_manage') &&
+        const teacher = (window.AuthContext?.getRoles?.() || []).some(role => [7,8,9].includes(Number(role?.id || role)) || /teacher|intern/i.test(String(role?.name || role)));
+        if (!teacher && !window.AuthContext?.hasPermission?.('academics_manage') &&
             !window.AuthContext?.hasPermission?.('assessments_rubric_manage') &&
             !window.AuthContext?.hasPermission?.('assessments_manage')) {
             return showNotification('Access denied.', 'error');
         }
+        this.canManage = !teacher || window.AuthContext?.hasPermission?.('assessments_rubric_manage');
+        document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !this.canManage));
         this.setupEventListeners();
         await this.loadToolReferences();
         await this.loadTools();
@@ -141,14 +145,14 @@ const RubricsController = {
                 <td class="text-muted small">${escapeHtml(r.level_4_descriptor || '—')}</td>
                 <td>${r.points_per_level || 0}</td>
                 <td>${r.sort_order || 1}</td>
-                <td>
+                <td>${this.canManage ? `
                     <button class="btn btn-sm btn-outline-primary me-1" onclick="RubricsController.openModal(${r.id})">
                         <i class="bi bi-pencil"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-danger" onclick="RubricsController.delete(${r.id})">
                         <i class="bi bi-trash"></i>
                     </button>
-                </td>
+                ` : '<a class="btn btn-sm btn-outline-success" href="home.php?route=curriculum_proposals">Propose</a>'}</td>
             </tr>
         `).join('');
     },

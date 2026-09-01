@@ -82,8 +82,7 @@ return [
             'icon' => 'fas fa-sitemap',
             'subitems' => [
                 ['label' => 'Route Registry', 'url' => 'route_registry'],
-                ['label' => 'Sidebar Menus', 'url' => 'sidebar_menus'],
-                ['label' => 'Role Navigation Config', 'url' => 'role_navigation_config'],
+                ['label' => 'Role Navigation', 'url' => 'sidebar_menus'],
             ]
         ],
 
@@ -400,6 +399,8 @@ return [
                 ['label' => 'Inventory Overview', 'url' => 'manage_inventory'], //view stock and every asset the school has.
                 ['label' => 'Uniform Sales', 'url' => 'manage_uniform_sales'],
                 ['label' => 'Catalogue Orders', 'url' => 'catalog_orders_management'],
+                ['label' => 'Unit Traceability', 'url' => 'uniform_unit_tracking'],
+                ['label' => 'Offers', 'url' => 'uniform_discounts'],
             ]
         ],
 
@@ -500,6 +501,8 @@ return [
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
                 ['label' => 'Uniform Sales', 'url' => 'manage_uniform_sales'],
                 ['label' => 'Catalogue Orders', 'url' => 'catalog_orders_management'],
+                ['label' => 'Unit Traceability', 'url' => 'uniform_unit_tracking'],
+                ['label' => 'Offers & Discounts', 'url' => 'uniform_discounts'],
             ]
         ],
 
@@ -545,6 +548,7 @@ return [
                 ['label' => 'CBC Manager', 'url' => 'cbc_curriculum'],
                 ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
                 ['label' => 'Grading Scales', 'url' => 'grading_scales'],
+                ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
 
             ]
@@ -718,6 +722,7 @@ return [
                 ['label' => 'CBC Manager', 'url' => 'cbc_curriculum'],
                 ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
                 ['label' => 'Grading Scales', 'url' => 'grading_scales'],
+                ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
             ]
         ],
@@ -906,6 +911,7 @@ return [
                 ['label' => 'CBC Manager', 'url' => 'cbc_curriculum'],
                 ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
                 ['label' => 'Grading Scales', 'url' => 'grading_scales'],
+                ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
                 ['label' => 'Academic Years', 'url' => 'academic_years'],
                 ['label' => 'Academic Calendar', 'url' => 'academic_calendar'],
@@ -1068,6 +1074,18 @@ return [
         ['label' => 'Dashboard', 'url' => 'class_teacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
+        [
+            'label' => 'Academic',
+            'url' => null,
+            'icon' => 'fas fa-graduation-cap',
+            'subitems' => [
+                ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
+                ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
+                ['label' => 'Grading Scales', 'url' => 'grading_scales'],
+                ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
+            ]
+        ],
+
         // MY CLASS — primary daily view
         [
             'label' => 'My Class',
@@ -1210,6 +1228,18 @@ return [
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         [
+            'label' => 'Academic',
+            'url' => null,
+            'icon' => 'fas fa-graduation-cap',
+            'subitems' => [
+                ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
+                ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
+                ['label' => 'Grading Scales', 'url' => 'grading_scales'],
+                ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
+            ]
+        ],
+
+        [
             'label' => 'My Subjects',
             'url' => null,
             'icon' => 'fas fa-book-reader',
@@ -1333,6 +1363,18 @@ return [
     // =========================================================================
     9 => [
         ['label' => 'Dashboard', 'url' => 'intern_student_teacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        [
+            'label' => 'Academic',
+            'url' => null,
+            'icon' => 'fas fa-graduation-cap',
+            'subitems' => [
+                ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
+                ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
+                ['label' => 'Grading Scales', 'url' => 'grading_scales'],
+                ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
+            ]
+        ],
 
         [
             'label' => 'My Assignments',
@@ -1576,24 +1618,26 @@ return [
         ['label' => 'Dashboard', 'url' => 'store_manager_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
         [
-            'label' => 'Uniform Stock',
+            'label' => 'Stock & Products',
             'url' => null,
             'icon' => 'fas fa-boxes',
             'subitems' => [
                 ['label' => 'Product Catalogue', 'url' => 'internal_products_catalog'],
                 ['label' => 'Manage Products', 'url' => 'products_catalog_management'],
-                ['label' => 'Uniform Stock & Sizes', 'url' => 'manage_uniform_sales'],
-                ['label' => 'Low Stock Uniforms', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Stock Intake', 'url' => 'uniform_stock_intake'],
+                ['label' => 'Unit Traceability', 'url' => 'uniform_unit_tracking'],
+                ['label' => 'Stock & Sizes', 'url' => 'manage_uniform_sales'],
             ]
         ],
 
         [
-            'label' => 'Uniform Sales',
+            'label' => 'Sales & Orders',
             'url' => null,
             'icon' => 'fas fa-shopping-cart',
             'subitems' => [
-                ['label' => 'Manage Sales', 'url' => 'manage_uniform_sales'],
-                ['label' => 'Online & Staff Orders', 'url' => 'catalog_orders_management'],
+                ['label' => 'Point of Sale', 'url' => 'uniform_point_of_sale'],
+                ['label' => 'Orders & Dispatch', 'url' => 'catalog_orders_management'],
+                ['label' => 'Offers & Discounts', 'url' => 'uniform_discounts'],
                 ['label' => 'Sales Records', 'url' => 'uniform_sales_records'],
             ]
         ],

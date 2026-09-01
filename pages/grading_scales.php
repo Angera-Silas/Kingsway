@@ -16,10 +16,10 @@
             <select class="form-select form-select-sm" id="scaleFilter" style="width:auto;" onchange="GradingScalesCtrl.selectScale()">
                 <option value="">Select Scale</option>
             </select>
-            <button class="btn btn-outline-primary btn-sm" onclick="GradingScalesCtrl.openScaleModal()">
+            <button class="btn btn-outline-primary btn-sm" data-curriculum-manage onclick="GradingScalesCtrl.openScaleModal()">
                 <i class="bi bi-plus-circle me-1"></i> New Scale
             </button>
-            <button class="btn btn-success btn-sm" onclick="GradingScalesCtrl.openRuleModal()">
+            <button class="btn btn-success btn-sm" data-curriculum-manage onclick="GradingScalesCtrl.openRuleModal()">
                 <i class="bi bi-plus-circle me-1"></i> Add Grade
             </button>
         </div>

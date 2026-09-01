@@ -160,6 +160,10 @@ class CsrfMiddleware
 
     private static function deny(int $code, string $message): void
     {
+        \App\API\Includes\SecurityEventNotifier::securityIncident(
+            $message,
+            ['entity' => 'csrf', 'details' => ['status_code' => $code]]
+        );
         http_response_code($code);
         if (!headers_sent()) {
             header('Content-Type: application/json; charset=utf-8');
