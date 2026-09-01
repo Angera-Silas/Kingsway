@@ -1,6 +1,6 @@
 /**
  * report_cards.js — Report Cards Controller
- * Kingsway Academy Management System
+ * Kingsway Preparatory School Management System
  * Integrates with AcademicContext for academic year awareness
  *
  * API Endpoints:
@@ -401,7 +401,7 @@ const reportCardsCtrl = (() => {
     </style>
 </head>
 <body>
-    <h2>Kingsway Academy Report Card</h2>
+    <h2>Kingsway Preparatory School Report Card</h2>
     <p class="meta">Term: ${esc(termLabel || '—')} | Generated: ${new Date().toLocaleString()}</p>
     <table>
         <tr><th>Student</th><td>${esc(studentName)}</td><th>Admission No</th><td>${esc(student.admission_no || '—')}</td></tr>

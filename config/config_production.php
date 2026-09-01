@@ -7,7 +7,7 @@ namespace App\Config;
 use RuntimeException;
 
 /**
- * Kingsway Academy
+ * Kingsway Preparatory School
  * Production environment configuration.
  *
  * Loaded when APP_ENV=production.
@@ -46,7 +46,6 @@ define(
 );
 
 require_once __DIR__ . '/upload_paths.php';
-require_once __DIR__ . '/school_identity.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -136,8 +135,8 @@ define(
 );
 define('TFA_ENCRYPTION_KEY', $_ENV['TFA_ENCRYPTION_KEY'] ?? '');
 define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'kingswaypreparatoryschool.sc.ke');
-if (strlen((string) TFA_ENCRYPTION_KEY) < 64) {
-    throw new \RuntimeException('TFA_ENCRYPTION_KEY must be a 64-character hex key in production.');
+if (strlen((string) TFA_ENCRYPTION_KEY) < 64 || !ctype_xdigit((string) TFA_ENCRYPTION_KEY)) {
+    throw new \RuntimeException('TFA_ENCRYPTION_KEY must be a hexadecimal key of at least 64 characters in every environment.');
 }
 
 // Backs the unguessable slugs that secure role-scoped real-time buffer files.

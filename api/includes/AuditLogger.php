@@ -51,7 +51,7 @@ class AuditLogger
             ]);
             return true;
         } catch (\Exception $e) {
-            error_log("Audit log failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Audit log failed: " . $e->getMessage());
             return false;
         }
     }
@@ -246,108 +246,110 @@ class AuditLogger
     }
 
     /**
-     * Get audit logs for a user
+     * Get audit logs for a user (file-based).
      */
     public function getUserLogs(int $userId, int $limit = 50, int $offset = 0): array
     {
-        $sql = "SELECT * FROM audit_logs 
-                WHERE entity = 'user' AND entity_id = ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$userId, $limit, $offset]);
-        
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $limit = max(1, min((int) $limit, 500));
+        $offset = max(0, (int) $offset);
+        $entries = FileLogger::recent('audit', $limit + $offset);
+        $rows = [];
+        foreach ($entries as $e) {
+            $eUserId = $e['user_id'] ?? null;
+            if ((string) $eUserId !== (string) $userId) {
+                continue;
+            }
+            $rows[] = $e;
+        }
+        return array_slice($rows, $offset, $limit);
     }
 
     /**
-     * Get all audit logs with filters
+     * Get all audit logs with filters (file-based).
      */
     public function getLogs(array $filters = [], int $limit = 100, int $offset = 0): array
     {
-        $sql = "SELECT al.*, u.username as performer_username 
-                FROM audit_logs al
-                LEFT JOIN users u ON al.user_id = u.id
-                WHERE 1=1";
-        
-        $params = [];
+        $limit = max(1, min((int) $limit, 500));
+        $offset = max(0, (int) $offset);
+        // Pull a generous tail so filters can be applied without missing recent entries.
+        $entries = FileLogger::recent('audit', max(1000, $limit + $offset));
+        $rows = [];
 
-        if (!empty($filters['action'])) {
-            $sql .= " AND al.action = ?";
-            $params[] = $filters['action'];
+        foreach ($entries as $e) {
+            if (!empty($filters['action']) && ($e['action'] ?? null) !== $filters['action']) {
+                continue;
+            }
+            if (!empty($filters['entity']) && ($e['entity'] ?? null) !== $filters['entity']) {
+                continue;
+            }
+            if (isset($filters['user_id']) && $filters['user_id'] !== '' && (string) ($e['user_id'] ?? null) !== (string) $filters['user_id']) {
+                continue;
+            }
+            if (isset($filters['entity_id']) && $filters['entity_id'] !== '' && (string) ($e['entity_id'] ?? null) !== (string) $filters['entity_id']) {
+                continue;
+            }
+            if (!empty($filters['status']) && ($e['status'] ?? null) !== $filters['status']) {
+                continue;
+            }
+            if (!empty($filters['start_date']) && ($e['timestamp'] ?? '') < ($filters['start_date'] . ' 00:00:00')) {
+                continue;
+            }
+            if (!empty($filters['end_date']) && ($e['timestamp'] ?? '') > ($filters['end_date'] . ' 23:59:59')) {
+                continue;
+            }
+
+            $row = $e;
+            $row['performer_username'] = $e['username'] ?? null;
+            $rows[] = $row;
         }
 
-        if (!empty($filters['entity'])) {
-            $sql .= " AND al.entity = ?";
-            $params[] = $filters['entity'];
-        }
-
-        if (!empty($filters['user_id'])) {
-            $sql .= " AND al.user_id = ?";
-            $params[] = $filters['user_id'];
-        }
-
-        if (!empty($filters['entity_id'])) {
-            $sql .= " AND al.entity_id = ?";
-            $params[] = $filters['entity_id'];
-        }
-
-        if (!empty($filters['status'])) {
-            $sql .= " AND al.status = ?";
-            $params[] = $filters['status'];
-        }
-
-        if (!empty($filters['start_date'])) {
-            $sql .= " AND al.created_at >= ?";
-            $params[] = $filters['start_date'];
-        }
-
-        if (!empty($filters['end_date'])) {
-            $sql .= " AND al.created_at <= ?";
-            $params[] = $filters['end_date'];
-        }
-
-        $sql .= " ORDER BY al.created_at DESC LIMIT ? OFFSET ?";
-        $params[] = $limit;
-        $params[] = $offset;
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_slice($rows, $offset, $limit);
     }
 
     /**
-     * Get audit log statistics
+     * Get audit log statistics (file-based).
      */
     public function getStats(array $filters = []): array
     {
-        $sql = "SELECT 
-                    COUNT(*) as total_logs,
-                    COUNT(DISTINCT user_id) as unique_users,
-                    COUNT(CASE WHEN status = 'success' THEN 1 END) as successful_actions,
-                    COUNT(CASE WHEN status = 'failure' THEN 1 END) as failed_actions,
-                    COUNT(CASE WHEN action LIKE '%login%' THEN 1 END) as login_attempts
-                FROM audit_logs
-                WHERE 1=1";
-        
-        $params = [];
+        $entries = FileLogger::recent('audit', 5000);
+        $total = 0;
+        $users = [];
+        $successful = 0;
+        $failed = 0;
+        $loginAttempts = 0;
 
-        if (!empty($filters['start_date'])) {
-            $sql .= " AND created_at >= ?";
-            $params[] = $filters['start_date'];
+        foreach ($entries as $e) {
+            if (!empty($filters['start_date']) && ($e['timestamp'] ?? '') < ($filters['start_date'] . ' 00:00:00')) {
+                continue;
+            }
+            if (!empty($filters['end_date']) && ($e['timestamp'] ?? '') > ($filters['end_date'] . ' 23:59:59')) {
+                continue;
+            }
+
+            $total++;
+            $userId = $e['user_id'] ?? null;
+            if ($userId !== null && $userId !== '') {
+                $users[(string) $userId] = true;
+            }
+            $status = strtolower((string) ($e['status'] ?? ''));
+            if (in_array($status, ['success', 'ok', 'completed'], true)) {
+                $successful++;
+            }
+            if (in_array($status, ['failure', 'failed', 'error'], true)) {
+                $failed++;
+            }
+            if (stripos((string) ($e['action'] ?? ''), 'login') !== false) {
+                $loginAttempts++;
+            }
         }
 
-        if (!empty($filters['end_date'])) {
-            $sql .= " AND created_at <= ?";
-            $params[] = $filters['end_date'];
-        }
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        return [
+            'total_logs' => $total,
+            'unique_users' => count($users),
+            'successful_actions' => $successful,
+            'failed_actions' => $failed,
+            'login_attempts' => $loginAttempts,
+        ];
     }
 
     /**
@@ -423,7 +425,7 @@ class AuditLogger
             $this->db->exec($sql);
             return true;
         } catch (\Exception $e) {
-            error_log("Failed to create audit_logs table: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to create audit_logs table: " . $e->getMessage());
             return false;
         }
     }

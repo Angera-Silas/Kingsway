@@ -60,7 +60,7 @@ class UniformSalesManager extends BaseAPI
                 'total_count' => count($items)
             ], 'Uniform items retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -105,7 +105,7 @@ return $this->formatError('An internal error occurred.', 500);
                 'sizes' => $sizes
             ], 'Uniform sizes retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -172,7 +172,7 @@ return $this->formatError('An internal error occurred.', 500);
                 throw $e;
             }
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -230,7 +230,7 @@ return $this->formatError('An internal error occurred.', 500);
                 ]
             ], 'Student uniform sales retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -258,7 +258,7 @@ return $this->formatError('An internal error occurred.', 500);
                 'payment_status' => $payment_status
             ], 'Uniform sale payment status updated');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -325,7 +325,7 @@ return $this->formatError('An internal error occurred.', 500);
                 'inventory_status' => $stockStatus
             ], 'Uniform sales dashboard data retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -354,7 +354,7 @@ return $this->formatError('An internal error occurred.', 500);
                 'payment_summary' => $summary
             ], 'Uniform payment summary retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -395,7 +395,7 @@ return $this->formatError('An internal error occurred.', 500);
                 'sizes' => $sizes
             ], 'Student uniform profile updated');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -418,7 +418,7 @@ return $this->formatError('An internal error occurred.', 500);
 
             return $this->formatSuccess($profile, 'Student uniform profile retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -514,7 +514,7 @@ return $this->formatError('An internal error occurred.', 500);
                 ]
             ], 'Uniform sales retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -589,7 +589,7 @@ return $this->formatError('An internal error occurred.', 500);
                 throw $e;
             }
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -645,7 +645,7 @@ return $this->formatError('An internal error occurred.', 500);
                 'summary' => $summary
             ], 'Low stock uniforms retrieved');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -743,7 +743,7 @@ return $this->formatError('An internal error occurred.', 500);
                 'by_size' => $bySize
             ], 'Uniform sales report generated');
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -802,7 +802,7 @@ return $this->formatError('An internal error occurred.', 500);
                 throw $e;
             }
         } catch (Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -917,7 +917,7 @@ return $this->formatError('An internal error occurred.', 500);
                 throw $e;
             }
         } catch (\Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -960,7 +960,7 @@ return $this->formatError('An internal error occurred.', 500);
                                  'total_pages' => (int)ceil($total / $limit)],
             ], 'Purchases retrieved');
         } catch (\Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -997,7 +997,7 @@ return $this->formatError('An internal error occurred.', 500);
 
             return $this->formatSuccess(['purchase' => $header, 'items' => $lines]);
         } catch (\Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -1027,7 +1027,7 @@ return $this->formatError('An internal error occurred.', 500);
 
             return $this->formatSuccess($result ?? [], 'Payment recorded');
         } catch (\Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -1064,7 +1064,7 @@ return $this->formatError('An internal error occurred.', 500);
 
             return $this->formatSuccess(['sale' => $sale, 'payments' => $payments]);
         } catch (\Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }
@@ -1127,7 +1127,7 @@ return $this->formatError('An internal error occurred.', 500);
                                  'total_pages' => (int)ceil($total / $limit)],
             ]);
         } catch (\Exception $e) {
-            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->formatError('An internal error occurred.', 500);
         }
     }

@@ -12,11 +12,9 @@ use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
 use App\API\Services\SystemConfigService;
 use App\Config\DashboardRouter;
-use App\Services\PolicyEngine;
+use App\API\Services\PolicyEngine;
+use App\API\Services\Logger;
 use Firebase\JWT\JWT;
-
-require_once __DIR__ . '/../../includes/DashboardManager.php';
-require_once __DIR__ . '/../../../config/DashboardRouter.php';
 
 class AuthAPI extends BaseAPI
 {
@@ -46,36 +44,7 @@ class AuthAPI extends BaseAPI
         $this->communicationsApi = new CommunicationsAPI();
         $this->authSessionService = new AuthSessionService($this->db);
 
-        // Check if database-driven config is available
-        // DISABLED: $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
-    }
-
-    /**
-     * Check if database-driven config tables exist
-     */
-    private function checkDatabaseConfigAvailable(): bool
-    {
-        try {
-            // Check for sidebar_menu_items table (renamed from menu_items to avoid collision with food menu)
-            $stmt = $this->db->query("SHOW TABLES LIKE 'sidebar_menu_items'");
-            if ($stmt->rowCount() === 0) {
-                return false;
-            }
-
-            // Consider the database config available if either per-role sidebar mappings exist
-            // OR role->dashboard mappings exist (role_dashboards). Some deployments use one or the other.
-            $stmt = $this->db->query("SELECT COUNT(*) as cnt FROM role_sidebar_menus");
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $roleSidebarCount = (int) ($result['cnt'] ?? 0);
-
-            $stmt = $this->db->query("SELECT COUNT(*) as cnt FROM role_dashboards");
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $roleDashboardsCount = (int) ($result['cnt'] ?? 0);
-
-            return ($roleSidebarCount > 0) || ($roleDashboardsCount > 0);
-        } catch (\Exception $e) {
-            return false;
-        }
+        // Sidebar navigation is file-driven through SidebarConfigReader.
     }
 
     /**
@@ -146,13 +115,13 @@ class AuthAPI extends BaseAPI
             try {
                 $this->sendResetEmail($user['email'], $displayName ?: ($user['username'] ?? $user['email']), $resetLink);
             } catch (\Throwable $e) {
-                error_log('Password reset email failed: ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('Password reset email failed: ' . $e->getMessage());
             }
         } catch (\Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('Forgot password failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Forgot password failed: ' . $e->getMessage());
         }
 
         return [
@@ -201,6 +170,22 @@ class AuthAPI extends BaseAPI
             return [
                 'success' => false,
                 'message' => 'Token and new password are required.'
+            ];
+        }
+
+        $confirmation = $data['password_confirmation'] ?? $data['confirm_password'] ?? null;
+        if ($confirmation !== null && !hash_equals((string)$newPassword, (string)$confirmation)) {
+            return [
+                'success' => false,
+                'message' => 'Password confirmation does not match.'
+            ];
+        }
+
+        $confirmation = $data['password_confirmation'] ?? $data['confirm_password'] ?? null;
+        if ($confirmation !== null && !hash_equals((string)$newPassword, (string)$confirmation)) {
+            return [
+                'success' => false,
+                'message' => 'Password confirmation does not match.'
             ];
         }
 
@@ -274,7 +259,7 @@ class AuthAPI extends BaseAPI
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('Reset password failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Reset password failed: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'Password reset failed. Please try again.'
@@ -322,10 +307,11 @@ class AuthAPI extends BaseAPI
             // {2fa_verified: true, user_id: <id>}.
             $tfa = new \App\API\Services\TwoFactorService();
             $userId = (int) ($userData['id'] ?? 0);
+            $isTestUser = (int) ($userData['is_test_user'] ?? 0) === 1;
             $requiredMethod = $tfa->getRequiredMethod($userId);
             $policyForced   = $tfa->is2FARequiredByPolicy($userId);
 
-            if ($requiredMethod || $policyForced) {
+            if (!$isTestUser && ($requiredMethod || $policyForced)) {
                 // For policy-forced users who haven't set up 2FA yet,
                 // return 'setup_required' so the frontend can redirect them.
                 if (!$requiredMethod && $policyForced) {
@@ -356,6 +342,15 @@ class AuthAPI extends BaseAPI
                     ],
                     'message' => 'Two-factor verification required.',
                 ];
+            }
+            if ($isTestUser && ($requiredMethod || $policyForced)) {
+                Logger::audit(
+                    'test_mfa_bypass',
+                    'user',
+                    $userId,
+                    'MFA was bypassed for an explicitly flagged test account.',
+                    ['username' => $userData['username'] ?? null, 'policy_forced' => $policyForced]
+                );
             }
             // ── end 2FA gate ──────────────────────────────────────────────
 
@@ -427,6 +422,7 @@ class AuthAPI extends BaseAPI
              $loginData['data']['csrf_token'] = $this->generateCsrfToken(
                  (int) $userData['id']
              );
+             $loginData['data']['test_mfa_bypassed'] = !empty($userData['is_test_user']);
 
             try {
                 if (!empty($userData['force_password_change'])) {
@@ -455,7 +451,7 @@ class AuthAPI extends BaseAPI
                 unset($result['data']['refresh_token']);
                 return $result;
             } catch (\Throwable $error) {
-                error_log(
+                \App\API\Services\Logger::legacyError(
                     'Authenticated session creation failed: ' .
                     $error->getMessage()
                 );
@@ -468,7 +464,7 @@ class AuthAPI extends BaseAPI
                             $issuedRefreshToken
                         );
                     } catch (\Throwable $cleanupError) {
-                        error_log(
+                        \App\API\Services\Logger::legacyError(
                             'Failed to clean up refresh token after session ' .
                             'creation error: ' .
                             $cleanupError->getMessage()
@@ -566,7 +562,7 @@ class AuthAPI extends BaseAPI
             unset($result['data']['refresh_token']);
             return $result;
         } catch (\Throwable $error) {
-            error_log('2FA login session creation failed: ' . $error->getMessage());
+            \App\API\Services\Logger::legacyError('2FA login session creation failed: ' . $error->getMessage());
             return ['status' => 'error', 'message' => 'Session could not be established', 'data' => null];
         }
     }
@@ -592,8 +588,8 @@ class AuthAPI extends BaseAPI
         if (empty($userData['permissions'])) {
             $permsRes = $this->userPermissionManager->getEffectivePermissions($userId);
             $userData['permissions'] = $permsRes['data'] ?? [];
-            error_log("DEBUG: Fetched permissions for user $userId: " . count($userData['permissions']) . " items");
-            error_log("DEBUG: First permission: " . json_encode($userData['permissions'][0] ?? 'EMPTY'));
+            \App\API\Services\Logger::legacyError("DEBUG: Fetched permissions for user $userId: " . count($userData['permissions']) . " items");
+            \App\API\Services\Logger::legacyError("DEBUG: First permission: " . json_encode($userData['permissions'][0] ?? 'EMPTY'));
         }
 
         $userRoles = $userData['roles'] ?? [];
@@ -643,7 +639,7 @@ class AuthAPI extends BaseAPI
             }
         }
         $userPermissions = array_values(array_filter(array_unique($userPermissions)));
-        error_log("DEBUG: userPermissions extracted: " . count($userPermissions) . " items");
+        \App\API\Services\Logger::legacyError("DEBUG: userPermissions extracted: " . count($userPermissions) . " items");
 
         // NOTE: Per-item menu delegation (the legacy `role_delegations_items` /
         // `user_delegations_items` tables) has been retired. Those tables no
@@ -679,7 +675,7 @@ class AuthAPI extends BaseAPI
                 $dashboardInfo = $this->normalizeDashboardInfo($dashboardInfo);
             } catch (\Exception $e) {
                 // Could be missing role_dashboards table or other DB issue
-                error_log('getDashboardForRole failed: ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('getDashboardForRole failed: ' . $e->getMessage());
                 $dashboardInfo = null;
             }
 
@@ -697,7 +693,7 @@ class AuthAPI extends BaseAPI
                         }
                     }
                 } catch (\Exception $e) {
-                    error_log('DashboardRouter fallback failed: ' . $e->getMessage());
+                    \App\API\Services\Logger::legacyError('DashboardRouter fallback failed: ' . $e->getMessage());
                 }
             }
 
@@ -855,7 +851,7 @@ class AuthAPI extends BaseAPI
                 ]
             ];
         } catch (\Exception $e) {
-            error_log("Database config failed, falling back to files: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Database config failed, falling back to files: " . $e->getMessage());
             // Fall back to file-based config on error
             return $this->buildLoginResponseFromFiles(
                 $userData,
@@ -906,7 +902,7 @@ class AuthAPI extends BaseAPI
 
             return $result['name'] ?? 'home';
         } catch (\Exception $e) {
-            error_log("getDefaultRouteForRole error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getDefaultRouteForRole error: " . $e->getMessage());
             return 'home';
         }
     }
@@ -946,7 +942,7 @@ class AuthAPI extends BaseAPI
         ?string $existingRefreshToken = null
     ): array {
         // Generate sidebar menu items based on user's roles and permissions
-        $dashboardManager = new \DashboardManager();
+        $dashboardManager = new \App\API\Includes\DashboardManager();
         $dashboardManager->setUser($userData);
 
         // Get filtered menu items for user's dashboard
@@ -979,7 +975,7 @@ class AuthAPI extends BaseAPI
             }
         }
 
-        error_log("Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
+        \App\API\Services\Logger::legacyError("Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
 
         // If no sidebar items found, try to get first accessible dashboard
         if (empty($sidebarItems)) {
@@ -1116,7 +1112,7 @@ class AuthAPI extends BaseAPI
             $stmt->execute([$userId, $token, $expiresAt]);
             return $token;
         } catch (\Exception $e) {
-            error_log('Error generating refresh token: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error generating refresh token: ' . $e->getMessage());
             return null;
         }
     }
@@ -1297,7 +1293,7 @@ class AuthAPI extends BaseAPI
             unset($refreshResult['data']['refresh_token']);
             return $refreshResult;
         } catch (\Exception $e) {
-            error_log('Error exchanging refresh token: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error exchanging refresh token: ' . $e->getMessage());
             return [
                 'success' => false,
                 'code' => 500,
@@ -1332,7 +1328,7 @@ class AuthAPI extends BaseAPI
                 'message' => 'Refresh token revoked successfully'
             ];
         } catch (\Exception $e) {
-            error_log('Error revoking refresh token: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error revoking refresh token: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'Token revocation failed'
@@ -1478,7 +1474,7 @@ class AuthAPI extends BaseAPI
 
             return !$hasStaffData;
         } catch (\Throwable $error) {
-            error_log('Staff profile completion check failed: ' . $error->getMessage());
+            \App\API\Services\Logger::legacyError('Staff profile completion check failed: ' . $error->getMessage());
             return false;
         }
     }
@@ -1529,9 +1525,14 @@ class AuthAPI extends BaseAPI
             $this->db->beginTransaction();
 
             $stmt = $this->db->prepare('
-                SELECT id, user_id
-                FROM user_invitations
-                WHERE token_hash = ?
+                SELECT ui.id, ui.user_id, ui.staff_id,
+                       EXISTS(
+                           SELECT 1 FROM users account
+                           JOIN parents parent_record ON parent_record.person_id = account.person_id
+                           WHERE account.id = ui.user_id AND parent_record.status = "active"
+                       ) AS is_parent
+                FROM user_invitations ui
+                WHERE ui.token_hash = ?
                   AND status = "pending"
                   AND expires_at > NOW()
                 LIMIT 1
@@ -1573,13 +1574,18 @@ class AuthAPI extends BaseAPI
 
             return [
                 'success' => true,
-                'message' => 'Password has been updated. You may now sign in.'
+                'message' => 'Password has been updated. You may now sign in.',
+                'data' => [
+                    'account_type' => !empty($invitation['is_parent']) && empty($invitation['staff_id'])
+                        ? 'parent'
+                        : 'staff'
+                ]
             ];
         } catch (\Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('Default password reset failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Default password reset failed: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'Password setup failed. Please request a new setup link.'

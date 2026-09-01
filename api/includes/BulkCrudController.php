@@ -1,9 +1,6 @@
 <?php
 namespace App\API\Includes;
 
-require_once __DIR__ . '/BulkOperationsHelper.php';
-require_once __DIR__ . '/ExportHelper.php';
-
 use App\API\Modules\system\MediaManager;
 
 class BulkCrudController {

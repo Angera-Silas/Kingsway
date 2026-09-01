@@ -1043,17 +1043,12 @@ class SystemConfigAPI
     public function importLegacyRoutes(): array
     {
         try {
-            // Path to legacy route authorization file
-            $legacyFile = dirname(dirname(__DIR__)) . '/middleware/RouteAuthorization.php';
-
-            if (!file_exists($legacyFile)) {
+            if (!class_exists(\App\API\Middleware\RouteAuthorization::class)) {
                 return $this->errorResponse('Legacy RouteAuthorization.php file not found');
             }
 
-            require_once $legacyFile;
-
             // Get ROLE_ROUTE_MATRIX using reflection
-            $reflectionClass = new \ReflectionClass('RouteAuthorization');
+            $reflectionClass = new \ReflectionClass(\App\API\Middleware\RouteAuthorization::class);
             $matrix = $reflectionClass->getConstant('ROLE_ROUTE_MATRIX');
 
             if (!$matrix || !is_array($matrix)) {

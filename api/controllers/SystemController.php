@@ -7,6 +7,7 @@ use App\API\Modules\system\DashboardRegistryManager;
 use App\API\Services\AuthSessionService;
 use App\API\Services\IpAccessControlService;
 use App\API\Services\SystemAdminAnalyticsService;
+use App\API\Services\Logger;
 use Exception;
 
 class SystemController extends BaseController
@@ -209,7 +210,7 @@ class SystemController extends BaseController
             }
             return $this->handleApiResponse($this->systemAdminManager->getPendingApprovals($userId));
         } catch (Exception $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -257,7 +258,10 @@ class SystemController extends BaseController
             return $auth;
         }
         return $this->success($this->systemAdminManager->getAuditRows([
-            'permission_create', 'permission_update', 'permission_delete', 'role_permission_assign', 'role_permission_remove'
+            'permission_create', 'permission_update', 'permission_delete',
+            'permission_definition_create', 'permission_definition_update', 'permission_definition_delete',
+            'role_permission_assign', 'role_permission_remove',
+            'role_create', 'role_update', 'role_delete',
         ], null, 200), 'Permission changes retrieved');
     }
 
@@ -278,7 +282,7 @@ class SystemController extends BaseController
                 'Auth events retrieved'
             );
         } catch (Exception $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -300,10 +304,10 @@ class SystemController extends BaseController
                 'Active sessions retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('Active session retrieval failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Active session retrieval failed: ' . $e->getMessage());
             return $this->serverError('Failed to retrieve active sessions');
         }
     }
@@ -328,16 +332,16 @@ class SystemController extends BaseController
             );
             return $this->success($result, 'Session revoked');
         } catch (\DomainException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('Active session revocation failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Active session revocation failed: ' . $e->getMessage());
             return $this->serverError('The active session could not be revoked');
         }
     }
@@ -355,7 +359,7 @@ class SystemController extends BaseController
                 'System runtime health retrieved'
             );
         } catch (Exception $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -373,7 +377,7 @@ class SystemController extends BaseController
                 'System errors retrieved'
             );
         } catch (Exception $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -391,7 +395,7 @@ class SystemController extends BaseController
                 'System warnings retrieved'
             );
         } catch (Exception $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -409,7 +413,7 @@ class SystemController extends BaseController
                 'API load metrics retrieved'
             );
         } catch (Exception $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -498,12 +502,222 @@ class SystemController extends BaseController
                 'Authentication logs retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('Authentication log retrieval failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Authentication log retrieval failed: ' . $e->getMessage());
             return $this->serverError('Failed to retrieve authentication logs');
         }
+    }
+
+    // GET /api/system/log-categories
+    public function getLogCategories($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        try {
+            return $this->success([
+                'categories' => Logger::categories(),
+                'environment' => \App\API\Includes\FileLogger::environment(),
+                'policy' => \App\API\Includes\FileLogger::policy(),
+            ], 'Log categories retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[SystemController] Log category retrieval failed: ' . $e->getMessage());
+            return $this->serverError('Failed to retrieve log categories');
+        }
+    }
+
+    // GET /api/system/log-file — download one governed journal by safe basename.
+    public function getLogFile($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        $requested = basename((string) ($_GET['file'] ?? $data['file'] ?? ''));
+        if ($requested === '') return $this->badRequest('A log filename is required.');
+        foreach (\App\API\Includes\FileLogger::journalPaths('', true) as $path) {
+            if (!hash_equals(basename($path), $requested)) continue;
+            $content = @file_get_contents($path);
+            if (!is_string($content)) return $this->serverError('The log file could not be read.');
+            Logger::audit('system_log_file_downloaded', 'system_logs', null, 'Governed log journal downloaded', ['file' => $requested, 'bytes' => strlen($content)]);
+            return $this->success(['filename' => $requested, 'mime_type' => str_ends_with($requested, '.gz') ? 'application/gzip' : 'application/x-ndjson', 'content_base64' => base64_encode($content)], 'Log file prepared');
+        }
+        return $this->notFound('Log file not found');
+    }
+
+    // POST /api/system/log-archive-category — safe retention, never deletion.
+    public function postLogArchiveCategory($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        $category = preg_replace('/[^a-z0-9_-]/i', '', (string) ($data['category'] ?? ''));
+        if ($category === '') return $this->badRequest('A valid journal category is required.');
+        $known = array_column(Logger::categories(), 'category');
+        if (!in_array($category, $known, true)) return $this->notFound('Log category not found');
+        $archived = \App\API\Includes\FileLogger::archiveNow($category);
+        Logger::audit('system_log_archived', 'system_logs', $category, 'System log journal manually archived', ['archived' => $archived]);
+        return $this->success(['category' => $category, 'archived' => $archived], $archived ? 'Journal archived' : 'Journal was already empty');
+    }
+
+    // GET /api/system/log-viewer
+    public function getLogViewer($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $filters = array_merge($_GET, is_array($data) ? $data : []);
+            // Whitelist the allowed filter keys so clients only shape the query
+            // within the governed set.
+            $allowed = ['category', 'level', 'search', 'tag', 'user_id', 'date_from', 'date_to', 'page', 'limit', 'order', 'since', 'include_analytics', 'include_archives', 'include_regex', 'exclude_regex'];
+            $filters = array_intersect_key($filters, array_flip($allowed));
+            $result = Logger::read($filters);
+            $result['monitoring'] = Logger::activePresence();
+            $includeAnalytics = !isset($filters['include_analytics']) || filter_var($filters['include_analytics'], FILTER_VALIDATE_BOOLEAN);
+            if ($includeAnalytics) $result['analytics'] = Logger::analytics($filters);
+            $userIds = [];
+            foreach ([$result['entries'] ?? [], $result['monitoring']['sessions'] ?? [], $result['analytics']['users'] ?? []] as $rows) {
+                foreach ($rows as $row) {
+                    $userId = (int) ($row['user_id'] ?? 0);
+                    if ($userId > 0) $userIds[$userId] = $userId;
+                }
+            }
+            $userIds = array_values($userIds);
+            if ($userIds) {
+                $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+                $stmt = $this->db->getConnection()->prepare("SELECT u.id,u.username,CONCAT_WS(' ',p.first_name,p.last_name) AS full_name FROM users u LEFT JOIN persons p ON p.id=u.person_id WHERE u.id IN ($placeholders)");
+                $stmt->execute($userIds);
+                $names = [];
+                foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) $names[(int) $row['id']] = ['username' => $row['username'], 'full_name' => $row['full_name']];
+                if (isset($result['analytics']['users'])) {
+                    foreach ($result['analytics']['users'] as &$row) $row = array_merge($row, $names[(int) $row['user_id']] ?? []);
+                    unset($row);
+                }
+                foreach ($result['monitoring']['sessions'] as &$row) $row = array_merge($row, $names[(int) ($row['user_id'] ?? 0)] ?? []);
+                unset($row);
+                foreach ($result['entries'] as &$row) {
+                    $identity = $names[(int) ($row['user_id'] ?? 0)] ?? [];
+                    if ($identity) $row['user'] = trim((string) ($identity['full_name'] ?: $identity['username']));
+                }
+                unset($row);
+            }
+            return $this->success($result, 'Log entries retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('Log viewer retrieval failed: ' . $e->getMessage());
+            return $this->serverError('Failed to retrieve log entries');
+        }
+    }
+
+    // GET /api/system/log-export — redacted, bounded audit evidence export.
+    public function getLogExport($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            $input = array_merge($_GET, is_array($data) ? $data : []);
+            $allowed = ['category', 'level', 'search', 'tag', 'user_id', 'date_from', 'date_to', 'order', 'include_archives', 'include_regex', 'exclude_regex'];
+            $filters = array_intersect_key($input, array_flip($allowed));
+            $format = strtolower((string) ($input['format'] ?? 'csv'));
+            if (!in_array($format, ['csv', 'pdf'], true)) return $this->badRequest('Export format must be csv or pdf.');
+            $result = Logger::exportEntries($filters, $format === 'pdf' ? 2000 : 10000);
+            $entries = $result['entries'] ?? [];
+            $stamp = date('Ymd-His');
+
+            if ($format === 'csv') {
+                $stream = fopen('php://temp', 'w+');
+                fputcsv($stream, ['timestamp', 'level', 'category', 'user_id', 'user', 'ip', 'method', 'route', 'status', 'action/type/event', 'message', 'request_id', 'archive']);
+                foreach ($entries as $row) {
+                    fputcsv($stream, [
+                        $row['timestamp'] ?? '', $row['level'] ?? '', $row['_category'] ?? '',
+                        $row['user_id'] ?? '', $row['user'] ?? '', $row['ip'] ?? '',
+                        $row['method'] ?? '', $row['route'] ?? '', $row['status'] ?? '',
+                        $row['action'] ?? $row['type'] ?? $row['event'] ?? '', $row['message'] ?? '',
+                        $row['request_id'] ?? '', !empty($row['_archive']) ? 'yes' : 'no',
+                    ]);
+                }
+                rewind($stream); $content = stream_get_contents($stream); fclose($stream);
+                $mime = 'text/csv';
+            } else {
+                $escape = static fn ($value) => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $rows = '';
+                foreach ($entries as $row) {
+                    $label = $row['action'] ?? $row['type'] ?? $row['event'] ?? $row['message'] ?? '';
+                    $rows .= '<tr><td>' . $escape($row['timestamp'] ?? '') . '</td><td>' . $escape($row['level'] ?? '') . '</td><td>' . $escape($row['_category'] ?? '') . '</td><td>' . $escape($row['user_id'] ?? '') . '</td><td>' . $escape($row['route'] ?? '') . '</td><td>' . $escape($label) . '</td></tr>';
+                }
+                $html = '<style>body{font-family:DejaVu Sans;color:#173528;font-size:9px}h1{color:#075f35}table{width:100%;border-collapse:collapse}th{background:#075f35;color:#fff}th,td{padding:5px;border:1px solid #ddd;text-align:left}small{color:#666}</style><h1>Kingsway System Audit Report</h1><small>Generated ' . $escape(date('c')) . ' · Environment: ' . $escape(\App\API\Includes\FileLogger::environment()) . ' · Filtered records: ' . count($entries) . '</small><table><thead><tr><th>Time</th><th>Level</th><th>Category</th><th>User</th><th>Route</th><th>Activity</th></tr></thead><tbody>' . $rows . '</tbody></table>';
+                $pdf = new \Dompdf\Dompdf(['isRemoteEnabled' => false]);
+                $pdf->loadHtml($html); $pdf->setPaper('A4', 'landscape'); $pdf->render();
+                $content = $pdf->output(); $mime = 'application/pdf';
+            }
+            Logger::audit('system_log_exported', 'system_logs', null, 'System audit report exported', ['format' => $format, 'records' => count($entries), 'filters' => $filters]);
+            return $this->success([
+                'filename' => "kingsway-audit-{$stamp}.{$format}", 'mime_type' => $mime,
+                'content_base64' => base64_encode($content), 'exported' => count($entries),
+                'matching_total' => (int) ($result['total'] ?? count($entries)),
+                'truncated' => (int) ($result['total'] ?? 0) > count($entries),
+            ], 'Audit report generated');
+        } catch (\Throwable $e) {
+            Logger::error('errors', 'Audit report export failed', ['exception_class' => get_class($e), 'error' => $e->getMessage()]);
+            return $this->serverError('Failed to generate audit report');
+        }
+    }
+
+    // POST /api/system/client-log
+    // Frontend browser telemetry ingest. Any authenticated user may push client
+    // logs; only allowlisted fields are persisted to the central `client` log
+    // file, correlated with the ambient request/session trace.
+    public function postClientLog($id = null, $data = [], $segments = [])
+    {
+        if (!is_array($data) || empty($data)) {
+            return $this->handleApiResponse([
+                'success' => true, 'message' => 'No client events received.',
+            ]);
+        }
+
+        $events = isset($data['events']) && is_array($data['events']) ? $data['events'] : [$data];
+        if (count($events) > 25) {
+            $events = array_slice($events, 0, 25);
+        }
+
+        $allowedLevels = ['debug', 'info', 'success', 'warning', 'error', 'critical', 'audit'];
+        $written = 0;
+
+        foreach ($events as $event) {
+            if (!is_array($event) || empty($event['message'])) {
+                continue;
+            }
+            $level = strtolower((string) ($event['level'] ?? 'info'));
+            if (!in_array($level, $allowedLevels, true)) {
+                $level = 'info';
+            }
+            $category = preg_replace('/[^a-z0-9_-]/i', '_', (string) ($event['category'] ?? 'app')) ?: 'app';
+            $message = Logger::redactText(mb_substr((string) $event['message'], 0, 1200));
+
+            $context = [];
+            if (!empty($event['context']) && is_string($event['context']) && strlen($event['context']) <= 5000) {
+                $decoded = json_decode($event['context'], true);
+                if (is_array($decoded)) {
+                    // Shallow-redact sensitive keys before persisting.
+                    $decoded = Logger::redactFields($decoded);
+                    $context = $decoded;
+                }
+            }
+            foreach (['action', 'entity', 'entity_id'] as $k) {
+                if (isset($event[$k]) && $event[$k] !== '') {
+                    $context[$k] = (string) $event[$k];
+                }
+            }
+            if (!empty($event['route'])) {
+                $context['client_route'] = mb_substr((string) $event['route'], 0, 300);
+            }
+
+            Logger::log($category === 'audit' ? 'audit' : 'client', $level, $message, $context);
+            $written++;
+        }
+
+        return $this->handleApiResponse([
+            'success' => true,
+            'message' => "$written client event(s) recorded.",
+            'written' => $written,
+        ]);
     }
 
     // GET /api/system/failed-login-attempts
@@ -520,10 +734,10 @@ class SystemController extends BaseController
                 'Failed login attempts retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('Failed login attempt retrieval failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Failed login attempt retrieval failed: ' . $e->getMessage());
             return $this->serverError('Failed to retrieve failed login attempts');
         }
     }
@@ -701,7 +915,7 @@ class SystemController extends BaseController
         if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
         }
-        return $this->handleApiResponse($this->systemAdminManager->getStateRecords('role_navigation', 'Role navigation config retrieved'));
+        return $this->handleApiResponse($this->systemAdminManager->getSidebarMenus());
     }
 
     // ========================================================================
@@ -771,10 +985,10 @@ class SystemController extends BaseController
                 'IP access rules retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('IP rule registry retrieval failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('IP rule registry retrieval failed: ' . $e->getMessage());
             return $this->serverError('IP access rules could not be retrieved');
         }
     }
@@ -794,13 +1008,13 @@ class SystemController extends BaseController
             );
             return $this->created($rule, 'IP access rule created');
         } catch (\DomainException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->conflict('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('IP rule creation failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('IP rule creation failed: ' . $e->getMessage());
             return $this->serverError('The IP access rule could not be created');
         }
     }
@@ -826,16 +1040,16 @@ class SystemController extends BaseController
             );
             return $this->success($rule, 'IP access rule updated');
         } catch (\DomainException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('IP rule update failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('IP rule update failed: ' . $e->getMessage());
             return $this->serverError('The IP access rule could not be updated');
         }
     }
@@ -860,16 +1074,16 @@ class SystemController extends BaseController
             );
             return $this->success($result, 'IP access rule deleted');
         } catch (\DomainException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('IP rule deletion failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('IP rule deletion failed: ' . $e->getMessage());
             return $this->serverError('The IP access rule could not be deleted');
         }
     }
@@ -891,10 +1105,10 @@ class SystemController extends BaseController
                 'Tokens retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('Token registry retrieval failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Token registry retrieval failed: ' . $e->getMessage());
             return $this->serverError('Token records could not be retrieved');
         }
     }
@@ -921,16 +1135,16 @@ class SystemController extends BaseController
             );
             return $this->success($result, 'Token revoked');
         } catch (\DomainException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('Token revocation failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Token revocation failed: ' . $e->getMessage());
             return $this->serverError('The token could not be revoked');
         }
     }

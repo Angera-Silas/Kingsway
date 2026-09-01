@@ -115,7 +115,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -182,7 +182,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -266,7 +266,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -310,7 +310,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -356,7 +356,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $this->directorApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -402,7 +402,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $result;
 
         } catch (Exception $e) {
-            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -440,7 +440,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, ['id' => $id, 'status' => 'active'], 'Fee structure activated successfully');
 
         } catch (Exception $e) {
-            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -468,7 +468,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $result ? $result['id'] : null;
 
         } catch (Exception $e) {
-            error_log("Failed to get instance ID: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to get instance ID: " . $e->getMessage());
             return null;
         }
     }
@@ -537,7 +537,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return true;
         } catch (Exception $e) {
-            error_log("Failed to process stage {$stage}: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to process stage {$stage}: " . $e->getMessage());
             return false;
         }
     }

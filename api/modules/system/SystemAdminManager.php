@@ -3,6 +3,7 @@ namespace App\API\Modules\system;
 
 use App\API\Includes\BaseAPI;
 use App\API\Includes\AuditLogger;
+use App\API\Services\SidebarConfigReader;
 use Exception;
 
 /**
@@ -89,6 +90,36 @@ class SystemAdminManager extends BaseAPI
         return null;
     }
 
+    /**
+     * Resolve user_id => username map for audit rows.
+     *
+     * Audit journal entries store only user_id; the display layer joins to
+     * users (read-side enrichment only — logs stay in files, never the DB).
+     */
+    private function resolveUsernames(array $userIds): array
+    {
+        $map = [];
+        $ids = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn ($id) => $id > 0)));
+        if (empty($ids)) {
+            return $map;
+        }
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $this->db->prepare(
+                "SELECT id, username FROM users WHERE id IN ({$placeholders})"
+            );
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll() as $row) {
+                $map[(int) $row['id']] = $row['username'];
+            }
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] Username resolution failed: ' . $e->getMessage());
+        }
+
+        return $map;
+    }
+
     // ───────────────────────── ACTIVITY AUDIT LOGS ─────────────────────────
 
     public function getActivityAuditLogs(array $filters = [])
@@ -104,6 +135,12 @@ class SystemAdminManager extends BaseAPI
             $entries = \App\API\Includes\FileLogger::recent('audit', max(2000, $limit + $offset));
             $filtered = [];
             foreach ($entries as $e) {
+                // Plumbing actions written once per state-changing request add
+                // noise, not forensic value; they can be surfaced through the
+                // dedicated log viewer. Exclude them from the activity console.
+                if (in_array($e['action'] ?? '', ['post_request', 'test_mfa_bypass'], true)) {
+                    continue;
+                }
                 if ($search !== '') {
                     $haystack = strtolower(($e['action'] ?? '') . ' ' . ($e['entity'] ?? '') . ' ' . ($e['username'] ?? ''));
                     if (strpos($haystack, strtolower($search)) === false) {
@@ -124,11 +161,26 @@ class SystemAdminManager extends BaseAPI
 
             $total = count($filtered);
             $page = array_slice($filtered, $offset, $limit);
+
+            // Read-side username enrichment: entries carry user_id; resolve once.
+            $usernames = $this->resolveUsernames(array_map(
+                static fn ($e) => (int) ($e['user_id'] ?? 0),
+                $page
+            ));
+
             $rows = [];
             foreach ($page as $e) {
+                $userId = (int) ($e['user_id'] ?? 0);
+                $userName = $e['username'] ?? ($usernames[$userId] ?? null);
+                // The audit journal deliberately does not persist emails; the
+                // persons join below is only for discovery display parity.
+                if (empty($userName) && $userId > 0) {
+                    $userName = $usernames[$userId] ?? null;
+                }
                 $rows[] = [
                     'id' => null,
-                    'user_name' => $e['username'] ?? null,
+                    'user_id' => $userId ?: null,
+                    'user_name' => $userName,
                     'action' => $e['action'] ?? null,
                     'resource_type' => $e['entity'] ?? null,
                     'resource_id' => $e['entity_id'] ?? null,
@@ -149,7 +201,7 @@ class SystemAdminManager extends BaseAPI
                 'pagination' => ['limit' => $limit, 'offset' => $offset, 'total' => $total],
             ], 'Activity audit logs retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->successResponse([
                 'data'  => [],
                 'stats' => ['total' => 0, 'errors' => 0, 'warnings' => 0, 'today' => 0],
@@ -172,6 +224,21 @@ class SystemAdminManager extends BaseAPI
             }
             $rows[] = $e;
         }
+
+        // Read-side username enrichment for incident/violation/permission rows.
+        $usernames = $this->resolveUsernames(array_map(
+            static fn ($e) => (int) ($e['user_id'] ?? 0),
+            $rows
+        ));
+        foreach ($rows as &$e) {
+            $userId = (int) ($e['user_id'] ?? 0);
+            if (empty($e['username']) && $userId > 0) {
+                $e['username'] = $usernames[$userId] ?? null;
+            }
+            $e['user_id'] = $userId ?: null;
+        }
+        unset($e);
+
         return $rows;
     }
 
@@ -185,7 +252,7 @@ class SystemAdminManager extends BaseAPI
                 : [];
             return $this->successResponse($rows, 'Background jobs retrieved');
         } catch (Exception $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -337,7 +404,7 @@ class SystemAdminManager extends BaseAPI
                 ],
             ], 'Pending approvals retrieved');
         } catch (Exception $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -372,7 +439,7 @@ class SystemAdminManager extends BaseAPI
             );
             return $this->successResponse($stmt ? ($stmt->fetchAll() ?: []) : [], 'Account status retrieved');
         } catch (Exception $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -469,7 +536,7 @@ class SystemAdminManager extends BaseAPI
 
             return $this->successResponse(['id' => (int) $userId], 'Account status updated');
         } catch (Exception $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -506,7 +573,7 @@ class SystemAdminManager extends BaseAPI
             $stmt = $this->db->query("SELECT * FROM {$this->routesTable()} ORDER BY domain, name");
             return $this->successResponse($stmt ? ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) : [], 'Routes retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -543,7 +610,7 @@ class SystemAdminManager extends BaseAPI
 
             return $this->successResponse(['id' => $newId], 'Route created successfully', 201);
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -580,7 +647,7 @@ class SystemAdminManager extends BaseAPI
 
             return $this->successResponse(null, 'Route updated successfully');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -594,7 +661,7 @@ class SystemAdminManager extends BaseAPI
             $this->db->prepare("DELETE FROM {$this->routesTable()} WHERE id = ?")->execute([$routeId]);
             return $this->successResponse(null, 'Route deleted successfully');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -613,7 +680,7 @@ class SystemAdminManager extends BaseAPI
                 ->execute([$normalized, (int) $routeId]);
             return $this->successResponse(null, 'Route status updated');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -667,7 +734,7 @@ class SystemAdminManager extends BaseAPI
             $modules = array_map([$this, 'mapRouteToToggleItem'], $routes);
             return $this->successResponse($modules, 'Modules retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -700,7 +767,7 @@ class SystemAdminManager extends BaseAPI
                 'Module updated successfully'
             );
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -731,7 +798,7 @@ class SystemAdminManager extends BaseAPI
             $items = array_map([$this, 'mapRouteToToggleItem'], $routes);
             return $this->successResponse($items, 'Module enablement settings retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -765,7 +832,7 @@ class SystemAdminManager extends BaseAPI
                 'Module enablement setting updated successfully'
             );
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -791,7 +858,7 @@ class SystemAdminManager extends BaseAPI
 
             return $this->successResponse($roles, 'Roles retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -868,7 +935,7 @@ class SystemAdminManager extends BaseAPI
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -980,7 +1047,7 @@ class SystemAdminManager extends BaseAPI
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1040,7 +1107,7 @@ class SystemAdminManager extends BaseAPI
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1111,7 +1178,7 @@ class SystemAdminManager extends BaseAPI
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1256,7 +1323,7 @@ class SystemAdminManager extends BaseAPI
                 'matrix' => $matrix,
             ], 'Role permission matrix retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1269,7 +1336,7 @@ class SystemAdminManager extends BaseAPI
             $stmt = $this->db->query('SELECT * FROM permissions ORDER BY entity, action, code');
             return $this->successResponse($stmt ? ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) : [], 'Permissions retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1359,7 +1426,7 @@ class SystemAdminManager extends BaseAPI
                 ],
             ], 'Resource permission definitions retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to load resource permission definitions', 500);
         }
     }
@@ -1422,7 +1489,7 @@ class SystemAdminManager extends BaseAPI
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to create permission', 500);
         }
     }
@@ -1525,7 +1592,7 @@ class SystemAdminManager extends BaseAPI
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to update permission', 500);
         }
     }
@@ -1585,7 +1652,7 @@ class SystemAdminManager extends BaseAPI
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to delete permission', 500);
         }
     }
@@ -1831,7 +1898,7 @@ class SystemAdminManager extends BaseAPI
             $stmt->execute([$roleId]);
             return $this->successResponse($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [], 'Role permissions retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1874,7 +1941,7 @@ class SystemAdminManager extends BaseAPI
 
             return $this->successResponse(['assigned' => $count], 'Permissions assigned to role');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1911,7 +1978,7 @@ class SystemAdminManager extends BaseAPI
 
             return $this->successResponse(null, 'Permission removed from role');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
     }
@@ -1921,120 +1988,104 @@ class SystemAdminManager extends BaseAPI
     public function getSidebarMenus()
     {
         try {
-            $stmt = $this->db->query('SELECT * FROM sidebar_menu_items ORDER BY parent_id, display_order, name');
-            return $this->successResponse($stmt ? ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) : [], 'Sidebar menus retrieved');
+            $roleNames = [];
+            $stmt = $this->db->query('SELECT id, name FROM roles');
+            foreach ($stmt ? ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) : [] as $role) {
+                $roleNames[(int) $role['id']] = $role['name'];
+            }
+
+            $records = [];
+            foreach (SidebarConfigReader::forAllRoles() as $roleId => $menu) {
+                foreach ($menu as $parentOrder => $parent) {
+                    $parentLabel = (string) ($parent['label'] ?? '');
+                    $parentRoute = (string) ($parent['url'] ?? '');
+                    if ($parentRoute !== '') {
+                        $records[] = $this->effectiveNavigationRecord(
+                            (int) $roleId,
+                            $roleNames[(int) $roleId] ?? ('Role ' . $roleId),
+                            $parentLabel,
+                            '',
+                            $parentRoute,
+                            (int) $parentOrder
+                        );
+                    }
+                    foreach (($parent['subitems'] ?? []) as $childOrder => $child) {
+                        $records[] = $this->effectiveNavigationRecord(
+                            (int) $roleId,
+                            $roleNames[(int) $roleId] ?? ('Role ' . $roleId),
+                            (string) ($child['label'] ?? ''),
+                            $parentLabel,
+                            (string) ($child['url'] ?? ''),
+                            ((int) $parentOrder * 100) + (int) $childOrder
+                        );
+                    }
+                }
+            }
+            return $this->successResponse($records, 'Effective role navigation retrieved');
         } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 400);
         }
+    }
+
+    private function effectiveNavigationRecord(
+        int $roleId,
+        string $roleName,
+        string $label,
+        string $section,
+        string $route,
+        int $sortOrder
+    ): array {
+        return [
+            'id' => $roleId . ':' . $route,
+            'role_id' => $roleId,
+            'role_name' => $roleName,
+            'section' => $section ?: 'Direct',
+            'menu_label' => $label,
+            'label' => $label,
+            'route' => $route,
+            'sort_order' => $sortOrder,
+            'visible' => true,
+            'status' => 'effective',
+            'source' => 'config/role_sidebars.php',
+        ];
     }
 
     public function getRoleSidebarAssignments($roleId)
     {
-        try {
-            if (!$roleId) {
-                return $this->errorResponse('Role ID is required', 400);
-            }
-            $stmt = $this->db->prepare(
-                "SELECT sm.* FROM sidebar_menu_items sm
-                 JOIN role_sidebar_menus rsm ON sm.id = rsm.menu_item_id
-                 WHERE rsm.role_id = ?
-                 ORDER BY sm.parent_id, sm.display_order"
-            );
-            $stmt->execute([$roleId]);
-            return $this->successResponse($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [], 'Role sidebar assignments retrieved');
-        } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return $this->errorResponse('An internal error occurred.', 400);
-        }
+        if (!$roleId) return $this->errorResponse('Role ID is required', 400);
+        $result = $this->getSidebarMenus();
+        if (empty($result['success'])) return $result;
+        $result['data'] = array_values(array_filter(
+            $result['data'] ?? [],
+            static fn(array $row): bool => (int) ($row['role_id'] ?? 0) === (int) $roleId
+        ));
+        return $result;
     }
 
     public function createSidebarMenu(array $data)
     {
-        if (empty($data['name']) || empty($data['label'])) {
-            return $this->errorResponse('name and label are required', 400);
-        }
-        try {
-            $this->db->prepare(
-                'INSERT INTO sidebar_menu_items (name,label,icon,url,route_id,parent_id,menu_type,display_order,domain,is_active) VALUES (?,?,?,?,?,?,?,?,?,?)'
-            )->execute([
-                $data['name'],
-                $data['label'],
-                $data['icon'] ?? null,
-                $data['url'] ?? null,
-                $data['route_id'] ?? null,
-                $data['parent_id'] ?? null,
-                $data['menu_type'] ?? 'sidebar',
-                (int) ($data['display_order'] ?? 0),
-                $data['domain'] ?? 'SYSTEM',
-                (int) ($data['is_active'] ?? 1),
-            ]);
-            return $this->successResponse(['id' => (int) $this->db->lastInsertId()], 'Sidebar menu created', 201);
-        } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return $this->errorResponse('An internal error occurred.', 400);
-        }
+        return $this->errorResponse('Role navigation is file-managed in config/role_sidebars.php', 409);
     }
 
     public function updateSidebarMenu($menuId, array $data)
     {
-        $menuId = $menuId ?? $data['id'] ?? null;
-        if (!$menuId) {
-            return $this->errorResponse('Menu ID is required', 400);
-        }
-        $fields = [];
-        $values = [];
-        foreach (['name', 'label', 'icon', 'url', 'route_id', 'parent_id', 'menu_type', 'display_order', 'domain', 'is_active'] as $field) {
-            if (array_key_exists($field, $data)) {
-                $fields[] = "$field = ?";
-                $values[] = $data[$field];
-            }
-        }
-        if (!$fields) {
-            return $this->errorResponse('No supported menu fields provided', 400);
-        }
-        $values[] = $menuId;
-        try {
-            $this->db->prepare('UPDATE sidebar_menu_items SET ' . implode(', ', $fields) . ' WHERE id = ?')->execute($values);
-            return $this->successResponse(null, 'Sidebar menu updated');
-        } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return $this->errorResponse('An internal error occurred.', 400);
-        }
+        return $this->errorResponse('Role navigation is file-managed in config/role_sidebars.php', 409);
     }
 
     public function deleteSidebarMenu($menuId)
     {
-        $menuId = $menuId ?? null;
-        if (!$menuId) {
-            return $this->errorResponse('Menu ID is required', 400);
-        }
-        try {
-            $this->db->prepare('DELETE FROM role_sidebar_menus WHERE menu_item_id = ?')->execute([$menuId]);
-            $this->db->prepare('DELETE FROM sidebar_menu_items WHERE id = ?')->execute([$menuId]);
-            return $this->successResponse(null, 'Sidebar menu deleted');
-        } catch (\Throwable $e) {
-            error_log('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return $this->errorResponse('An internal error occurred.', 400);
-        }
+        return $this->errorResponse('Role navigation is file-managed in config/role_sidebars.php', 409);
     }
 
     public function assignRoleSidebarMenu($roleId, $menuId)
     {
-        if (!$roleId || !$menuId) {
-            return $this->errorResponse('role_id and menu_item_id are required', 400);
-        }
-        $this->db->prepare('INSERT IGNORE INTO role_sidebar_menus (role_id,menu_item_id) VALUES (?,?)')->execute([$roleId, $menuId]);
-        return $this->successResponse(null, 'Menu assigned to role');
+        return $this->errorResponse('Role navigation is file-managed in config/role_sidebars.php', 409);
     }
 
     public function removeRoleSidebarMenu($roleId, $menuId)
     {
-        if (!$roleId || !$menuId) {
-            return $this->errorResponse('role_id and menu_item_id are required', 400);
-        }
-        $this->db->prepare('DELETE FROM role_sidebar_menus WHERE role_id = ? AND menu_item_id = ?')->execute([$roleId, $menuId]);
-        return $this->successResponse(null, 'Menu removed from role');
+        return $this->errorResponse('Role navigation is file-managed in config/role_sidebars.php', 409);
     }
 
     // ───────────────────────── GENERIC ROW FETCHER ─────────────────────────

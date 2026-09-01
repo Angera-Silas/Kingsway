@@ -16,7 +16,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
       <li class="breadcrumb-item active">About Us</li>
     </ol></nav>
     <h1 class="page-title">About Kingsway</h1>
-    <p class="mt-2" style="color:rgba(255,255,255,.7);font-size:1rem">Excellence, Character &amp; Leadership since <span id="about-founded">2005</span></p>
+    <p class="mt-2" style="color:rgba(255,255,255,.7);font-size:1rem">Excellence, Character &amp; Leadership since <span id="about-founded">2008</span></p>
   </div>
 </div>
 

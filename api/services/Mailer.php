@@ -174,7 +174,7 @@ class Mailer
         try {
             \App\API\Includes\FileLogger::write('mailer', array_merge(['sent_at' => date('Y-m-d H:i:s')], $data), $level);
         } catch (\Throwable $ignored) {
-            error_log('Mailer: ' . json_encode($data));
+            \App\API\Services\Logger::legacyError('Mailer: ' . json_encode($data));
         }
     }
 }

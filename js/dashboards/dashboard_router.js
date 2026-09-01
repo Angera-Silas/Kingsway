@@ -39,7 +39,9 @@ const DashboardRouter = {
     11: 34, // Accountant (M-Pesa)
     12: 33, // Accountant (Assets)
     13: 32, // Accountant (Vendors)
-    14: 30, // Store Manager / Accountant (Controls)
+    14: 30, // Uniform Store Manager
+    71: 30, // Food Store Manager
+    72: 30, // Librarian
     16: 25, // Catering Manager/Cook Lead
     18: 20, // Matron/Housemother
     21: 18, // HOD Talent Development
@@ -131,6 +133,8 @@ const DashboardRouter = {
         9: "intern_student_teacher_dashboard",
         10: "school_accountant_dashboard",
         14: "store_manager_dashboard",
+        71: "food_store_manager_dashboard",
+        72: "librarian_dashboard",
         16: "catering_manager_cook_lead_dashboard",
         18: "matron_housemother_dashboard",
         21: "hod_talent_development_dashboard",
@@ -152,7 +156,9 @@ const DashboardRouter = {
         8: "Subject Teacher",
         9: "Intern/Student Teacher",
         10: "School Accountant",
-        14: "Store Manager",
+        14: "Uniform Store Manager",
+        71: "Food Store Manager",
+        72: "Librarian",
         16: "Catering Manager/Cook Lead",
         18: "Matron/Housemother",
         21: "HOD Talent Development",

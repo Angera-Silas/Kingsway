@@ -5,11 +5,11 @@
  * Evaluates system policies against user actions.
  * Implements the rule engine for deny/allow/restrict/require/audit policies.
  * 
- * @package App\Services
+ * @package App\API\Services
  * @since 2025-12-28
  */
 
-namespace App\Services;
+namespace App\API\Services;
 
 use App\Database\Database;
 use Exception;
@@ -97,6 +97,21 @@ class PolicyEngine
             if ($evaluation['matches']) {
                 switch ($policy['rule_type']) {
                     case 'deny':
+                        \App\API\Includes\SecurityEventNotifier::policyViolation(
+                            ($policy['display_name'] ?? $policy['name']) . ' denied this action',
+                            [
+                                'entity' => 'policy',
+                                'entity_id' => $policy['name'],
+                                'details' => [
+                                    'rule_type' => 'deny',
+                                    'policy_display_name' => $policy['display_name'] ?? null,
+                                    'description' => $policy['description'] ?? null,
+                                    'context_user_id' => $context['user_id'] ?? null,
+                                    'context_route' => $context['route']['name'] ?? null,
+                                ],
+                                'user_id' => $context['user_id'] ?? null,
+                            ]
+                        );
                         return [
                             'allowed' => false,
                             'reason' => 'denied_by_policy',
@@ -126,6 +141,21 @@ class PolicyEngine
                         // Require policies enforce additional conditions
                         $requireMet = $this->checkRequirement($policy, $context);
                         if (!$requireMet) {
+                            \App\API\Includes\SecurityEventNotifier::policyViolation(
+                                ($policy['display_name'] ?? $policy['name']) . ' requirements were not met',
+                                [
+                                    'entity' => 'policy',
+                                    'entity_id' => $policy['name'],
+                                    'details' => [
+                                        'rule_type' => 'require',
+                                        'policy_display_name' => $policy['display_name'] ?? null,
+                                        'description' => $policy['description'] ?? null,
+                                        'context_user_id' => $context['user_id'] ?? null,
+                                        'context_route' => $context['route']['name'] ?? null,
+                                    ],
+                                    'user_id' => $context['user_id'] ?? null,
+                                ]
+                            );
                             return [
                                 'allowed' => false,
                                 'reason' => 'requirement_not_met',
@@ -456,9 +486,18 @@ class PolicyEngine
                     'user_id' => $entry['context']['user_id'] ?? null,
                     'status' => 'info',
                 ]);
+                \App\API\Includes\FileLogger::write('audit', [
+                    'type' => 'audit',
+                    'action' => 'policy_audit',
+                    'entity' => 'policy',
+                    'entity_id' => $entry['policy'] ?? null,
+                    'user_id' => $entry['context']['user_id'] ?? null,
+                    'details' => ['policy' => $entry['policy'] ?? null],
+                    'status' => 'info',
+                ]);
             }
         } catch (Exception $e) {
-            error_log("Failed to log policy audit: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to log policy audit: " . $e->getMessage());
         }
     }
 

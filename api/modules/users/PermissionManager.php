@@ -40,6 +40,13 @@ class PermissionManager
         $sql = 'INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)';
         $stmt = $this->db->prepare($sql);
         $ok = $stmt->execute([$roleId, $formPermissionId]);
+        \App\API\Includes\SecurityEventNotifier::permissionChange(
+            'role_permission',
+            $roleId,
+            'role_permission_assign',
+            'Permission assigned to role',
+            ['details' => ['role_id' => $roleId, 'permission_id' => $formPermissionId]]
+        );
         return ['success' => $ok, 'data' => ['role_id' => $roleId, 'form_permission_id' => $formPermissionId]];
     }
     public function revokePermissionFromRole($roleId, $formPermissionId)
@@ -47,6 +54,13 @@ class PermissionManager
         $sql = 'DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?';
         $stmt = $this->db->prepare($sql);
         $ok = $stmt->execute([$roleId, $formPermissionId]);
+        \App\API\Includes\SecurityEventNotifier::permissionChange(
+            'role_permission',
+            $roleId,
+            'role_permission_remove',
+            'Permission revoked from role',
+            ['details' => ['role_id' => $roleId, 'permission_id' => $formPermissionId]]
+        );
         return ['success' => $ok, 'data' => ['role_id' => $roleId, 'form_permission_id' => $formPermissionId]];
     }
     public function getPermissionsByUser($userId)
@@ -102,7 +116,7 @@ class PermissionManager
 
             return ['success' => true, 'data' => ['user_id' => $userId, 'permissions_assigned' => count($permissions)]];
         } catch (Exception $e) {
-            error_log('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -134,7 +148,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
 
             return ['success' => true, 'data' => ['user_id' => $userId, 'permissions_revoked' => count($permissions)]];
         } catch (Exception $e) {
-            error_log('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }

@@ -68,7 +68,7 @@ class IDCardTemplateRenderer
                     return "data:{$mime};base64," . base64_encode($imageData);
                 }
             }
-            error_log("IDCardTemplateRenderer: Failed to fetch remote image: {$path}");
+            \App\API\Services\Logger::legacyError("IDCardTemplateRenderer: Failed to fetch remote image: {$path}");
             return $this->getPlaceholderDataUri();
         }
 
@@ -76,14 +76,14 @@ class IDCardTemplateRenderer
         $absolutePath = $this->resolveAbsolutePath($path);
         
         if (!file_exists($absolutePath)) {
-            error_log("IDCardTemplateRenderer: Image not found: {$absolutePath}");
+            \App\API\Services\Logger::legacyError("IDCardTemplateRenderer: Image not found: {$absolutePath}");
             return $this->getPlaceholderDataUri();
         }
         
         // Get image info
         $imageInfo = getimagesize($absolutePath);
         if (!$imageInfo) {
-            error_log("IDCardTemplateRenderer: Invalid image: {$absolutePath}");
+            \App\API\Services\Logger::legacyError("IDCardTemplateRenderer: Invalid image: {$absolutePath}");
             return $this->getPlaceholderDataUri();
         }
         
@@ -91,7 +91,7 @@ class IDCardTemplateRenderer
         $imageData = file_get_contents($absolutePath);
         
         if ($imageData === false) {
-            error_log("IDCardTemplateRenderer: Failed to read image: {$absolutePath}");
+            \App\API\Services\Logger::legacyError("IDCardTemplateRenderer: Failed to read image: {$absolutePath}");
             return $this->getPlaceholderDataUri();
         }
         
@@ -211,7 +211,7 @@ class IDCardTemplateRenderer
     public function generateQRCodeDataUri($data, $size = 300)
     {
         if (!class_exists('\Endroid\QrCode\QrCode')) {
-            error_log("IDCardTemplateRenderer: QR code library not installed");
+            \App\API\Services\Logger::legacyError("IDCardTemplateRenderer: QR code library not installed");
             return $this->getPlaceholderDataUri();
         }
         
@@ -226,7 +226,7 @@ class IDCardTemplateRenderer
             $base64 = base64_encode($result->getString());
             return "data:image/png;base64,{$base64}";
         } catch (Exception $e) {
-            error_log("IDCardTemplateRenderer: QR generation failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("IDCardTemplateRenderer: QR generation failed: " . $e->getMessage());
             return $this->getPlaceholderDataUri();
         }
     }
@@ -248,7 +248,7 @@ class IDCardTemplateRenderer
         $logoUri = $this->resolveImageDataUri($school['school_logo'] ?? ($student['school_logo'] ?? ''));
         $photoUri = $this->resolveImageDataUri($student['photo_url'] ?? '');
 
-        $schoolName = htmlspecialchars($school['school_name'] ?? 'Kingsway Academy');
+        $schoolName = htmlspecialchars($school['school_name'] ?? 'Kingsway Preparatory School');
         $schoolAddress = htmlspecialchars($school['school_address'] ?? '');
         $schoolPhone = htmlspecialchars($school['school_phone'] ?? '');
         $studentName = strtoupper(htmlspecialchars(trim($student['first_name'] . ' ' . $student['last_name'])));
@@ -324,7 +324,7 @@ HTML;
             $qrUri = $this->generateQRCodeDataUri($qrData, 300);
         }
 
-        $schoolName = htmlspecialchars($school['school_name'] ?? 'Kingsway Academy');
+        $schoolName = htmlspecialchars($school['school_name'] ?? 'Kingsway Preparatory School');
         $schoolAddress = htmlspecialchars($school['school_address'] ?? '');
         $schoolPhone = htmlspecialchars($school['school_phone'] ?? '');
         $schoolEmail = htmlspecialchars($school['school_email'] ?? '');
@@ -367,7 +367,7 @@ HTML;
         $logoUri = $this->resolveImageDataUri($school['logo'] ?? '');
         $photoUri = $this->resolveImageDataUri($staff['photo_url'] ?? '');
         
-        $schoolName = htmlspecialchars($school['name'] ?? 'Kingsway Academy');
+        $schoolName = htmlspecialchars($school['name'] ?? 'Kingsway Preparatory School');
         $schoolMotto = htmlspecialchars($school['motto'] ?? 'Excellence in Education');
         $staffName = strtoupper(htmlspecialchars($staff['first_name'] . ' ' . $staff['last_name']));
         $staffNumber = htmlspecialchars($staff['staff_number'] ?? '');
@@ -440,7 +440,7 @@ HTML;
         
         $qrUri = $this->generateQRCodeDataUri($qrData, 200);
         
-        $schoolName = htmlspecialchars($school['name'] ?? 'Kingsway Academy');
+        $schoolName = htmlspecialchars($school['name'] ?? 'Kingsway Preparatory School');
         $schoolAddress = htmlspecialchars($school['address'] ?? '');
         $schoolPhone = htmlspecialchars($school['phone'] ?? '');
         $schoolEmail = htmlspecialchars($school['email'] ?? '');
@@ -530,7 +530,7 @@ HTML;
 HTML;
         }
         
-        $schoolName = htmlspecialchars($school['name'] ?? 'Kingsway Academy');
+        $schoolName = htmlspecialchars($school['name'] ?? 'Kingsway Preparatory School');
         
         return <<<HTML
 <!DOCTYPE html>
@@ -854,7 +854,7 @@ HTML;
             $content .= '<div class="side-wrap">' . $front . '</div>';
         }
 
-        $schoolName = htmlspecialchars($school['school_name'] ?? ($school['name'] ?? 'Kingsway Academy'));
+        $schoolName = htmlspecialchars($school['school_name'] ?? ($school['name'] ?? 'Kingsway Preparatory School'));
 
         return <<<HTML
 <!DOCTYPE html>

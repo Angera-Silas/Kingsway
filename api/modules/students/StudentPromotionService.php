@@ -85,7 +85,7 @@ class StudentPromotionService
         try {
             return $controller->success($this->promotionManager->getPromotionCandidates(array_merge($_GET, $data)));
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->badRequest('An internal error occurred.');
         }
     }
@@ -98,7 +98,7 @@ class StudentPromotionService
             if ($userId <= 0) { return $controller->unauthorized('Authenticated user ID could not be resolved'); }
             return $controller->success($this->promotionManager->executePromotionV2($data, $userId));
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->badRequest('An internal error occurred.');
         }
     }

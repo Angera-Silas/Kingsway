@@ -24,14 +24,15 @@ class StudentTransportEntitlementManager
     {
         $start = date('Y-m-01', strtotime($month));
         $end = date('Y-m-t', strtotime($start));
+        $allocatedDays = max(1, $this->countSchoolDays($start, $end));
         $periodId = $this->ensurePeriod('month', $start, $end, null, date('F Y', strtotime($start)), $userId);
         $stmt = $this->db->prepare(
             "INSERT INTO student_transport_entitlements
-                (student_id, assignment_id, route_id, period_id, amount_due, source_type, created_by)
-             VALUES (?, ?, ?, ?, ?, 'subscription', ?)
-             ON DUPLICATE KEY UPDATE amount_due = VALUES(amount_due), entitlement_status='active'"
+                (student_id, assignment_id, route_id, period_id, amount_due, allocated_school_days, source_type, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, 'subscription', ?)
+             ON DUPLICATE KEY UPDATE amount_due = VALUES(amount_due), allocated_school_days=VALUES(allocated_school_days), entitlement_status='active'"
         );
-        $stmt->execute([$studentId, $assignmentId ?: null, $routeId, $periodId, $amount, $userId]);
+        $stmt->execute([$studentId, $assignmentId ?: null, $routeId, $periodId, $amount, $allocatedDays, $userId]);
         if ($stmt->rowCount() > 0) return (int)$this->db->lastInsertId();
         $lookup = $this->db->prepare("SELECT id FROM student_transport_entitlements WHERE student_id=? AND route_id=? AND period_id=? LIMIT 1");
         $lookup->execute([$studentId, $routeId, $periodId]);
@@ -46,6 +47,7 @@ class StudentTransportEntitlementManager
         $start = (string)($data['period_start'] ?? '');
         $end = (string)($data['period_end'] ?? '');
         $amount = (float)($data['amount_due'] ?? 0);
+        $allocatedDays = max(1, (int)($data['allocated_school_days'] ?? $this->countSchoolDays($start, $end)));
         if (!$studentId || !$routeId || !$start || !$end || $amount < 0) throw new RuntimeException('student_id, route_id, dates and amount_due are required');
         if (!in_array($type, ['day','week','month','term','year','custom'], true)) throw new RuntimeException('Invalid transport entitlement period');
         if ($end < $start) throw new RuntimeException('period_end must not be before period_start');
@@ -56,12 +58,12 @@ class StudentTransportEntitlementManager
         $periodId = $this->ensurePeriod($type, $start, $end, !empty($data['academic_year_term_id']) ? (int)$data['academic_year_term_id'] : null, $data['label'] ?? null, $userId);
         $stmt = $this->db->prepare(
             "INSERT INTO student_transport_entitlements
-                (student_id, assignment_id, route_id, period_id, amount_due, source_type, created_by)
-             VALUES (?, NULLIF(?, 0), ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE amount_due=VALUES(amount_due), entitlement_status='active'"
+                (student_id, assignment_id, route_id, period_id, amount_due, allocated_school_days, source_type, created_by)
+             VALUES (?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE amount_due=VALUES(amount_due), allocated_school_days=VALUES(allocated_school_days), entitlement_status='active'"
         );
         $source = in_array(($data['source_type'] ?? 'prepaid'), ['subscription','prepaid','bursary','waiver','override'], true) ? $data['source_type'] : 'prepaid';
-        $stmt->execute([$studentId, $assignmentId, $routeId, $periodId, $amount, $source, $userId]);
+        $stmt->execute([$studentId, $assignmentId, $routeId, $periodId, $amount, $allocatedDays, $source, $userId]);
         $id = (int)$this->db->lastInsertId();
         if (!$id) {
             $q = $this->db->prepare("SELECT id FROM student_transport_entitlements WHERE student_id=? AND route_id=? AND period_id=? LIMIT 1");
@@ -86,6 +88,7 @@ class StudentTransportEntitlementManager
         $start = (string) ($data['period_start'] ?? '');
         $end = (string) ($data['period_end'] ?? '');
         $amount = (float) ($data['amount_due'] ?? 0);
+        $allocatedDays = max(1, (int)($data['allocated_school_days'] ?? $this->countSchoolDays($start, $end)));
 
         if (!$studentId || !$routeId || !$pickupStopId || !$dropoffStopId || !$start || !$end) {
             throw new RuntimeException('student_id, route_id, pickup/dropoff stops, period dates and amount_due are required');
@@ -140,13 +143,13 @@ class StudentTransportEntitlementManager
 
             $entitlement = $this->db->prepare(
                 "INSERT INTO student_transport_entitlements
-                 (student_id,assignment_id,route_id,period_id,amount_due,source_type,created_by)
-                 VALUES (?,?,?,?,?,?,?)
-                 ON DUPLICATE KEY UPDATE assignment_id=VALUES(assignment_id), amount_due=VALUES(amount_due), entitlement_status='active'"
+                 (student_id,assignment_id,route_id,period_id,amount_due,allocated_school_days,source_type,created_by)
+                 VALUES (?,?,?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE assignment_id=VALUES(assignment_id), amount_due=VALUES(amount_due), allocated_school_days=VALUES(allocated_school_days), entitlement_status='active'"
             );
             $source = in_array(($data['source_type'] ?? 'subscription'), ['subscription','prepaid','bursary','waiver','override'], true)
                 ? $data['source_type'] : 'subscription';
-            $entitlement->execute([$studentId, $assignmentId, $routeId, $periodId, $amount, $source, $userId]);
+            $entitlement->execute([$studentId, $assignmentId, $routeId, $periodId, $amount, $allocatedDays, $source, $userId]);
             $id = (int) $this->db->lastInsertId();
             if (!$id) {
                 $lookup = $this->db->prepare('SELECT id FROM student_transport_entitlements WHERE student_id=? AND route_id=? AND period_id=?');
@@ -213,7 +216,9 @@ class StudentTransportEntitlementManager
         if ($override->fetchColumn()) return ['decision'=>'authorized_override','payment_status'=>'waived','balance'=>0,'period_type'=>'override'];
 
         $stmt = $this->db->prepare(
-            "SELECT e.id, e.amount_due, e.source_type, p.period_type, p.period_start, p.period_end,
+            "SELECT e.id, e.amount_due, e.allocated_school_days, e.source_type, p.period_type, p.period_start, p.period_end,
+                    (SELECT COUNT(*) FROM student_transport_day_usage u WHERE u.entitlement_id=e.id) AS used_school_days,
+                    EXISTS(SELECT 1 FROM student_transport_day_usage u WHERE u.entitlement_id=e.id AND u.usage_date=?) AS used_today,
                     COALESCE(SUM(CASE WHEN tp.payment_status='confirmed' THEN a.amount ELSE 0 END),0) paid
              FROM student_transport_entitlements e
              JOIN transport_entitlement_periods p ON p.id=e.period_id
@@ -221,20 +226,53 @@ class StudentTransportEntitlementManager
              LEFT JOIN transport_entitlement_payments tp ON tp.id=a.payment_id
              WHERE e.student_id=? AND e.route_id=? AND e.entitlement_status='active'
                AND p.status='open' AND p.period_start<=? AND p.period_end>=?
-             GROUP BY e.id, e.amount_due, e.source_type, p.period_type, p.period_start, p.period_end
+             GROUP BY e.id, e.amount_due, e.allocated_school_days, e.source_type, p.period_type, p.period_start, p.period_end
              ORDER BY DATEDIFF(p.period_end,p.period_start) DESC, e.id DESC"
         );
-        $stmt->execute([$studentId, $routeId, $date, $date]);
+        $stmt->execute([$date, $studentId, $routeId, $date, $date]);
         $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $partial = null;
         foreach ($candidates as $row) {
             $due = (float)$row['amount_due']; $paid = (float)$row['paid'];
-            if (in_array($row['source_type'], ['waiver', 'bursary'], true) || $due <= 0 || $paid >= $due) return ['decision'=>'approved','payment_status'=>in_array($row['source_type'], ['waiver', 'bursary'], true) ? $row['source_type'] : ($due<=0?'waived':'paid'),'balance'=>max(0,$due-$paid),'period_type'=>$row['period_type'],'period_start'=>$row['period_start'],'period_end'=>$row['period_end'],'entitlement_id'=>(int)$row['id']];
+            $remainingDays = max(0, (int)$row['allocated_school_days'] - (int)$row['used_school_days']);
+            $coverageAvailable = $remainingDays > 0 || (bool)$row['used_today'];
+            if ($coverageAvailable && (in_array($row['source_type'], ['waiver', 'bursary'], true) || $due <= 0 || $paid >= $due)) return ['decision'=>'approved','payment_status'=>in_array($row['source_type'], ['waiver', 'bursary'], true) ? $row['source_type'] : ($due<=0?'waived':'paid'),'balance'=>max(0,$due-$paid),'period_type'=>$row['period_type'],'period_start'=>$row['period_start'],'period_end'=>$row['period_end'],'entitlement_id'=>(int)$row['id'],'allocated_school_days'=>(int)$row['allocated_school_days'],'used_school_days'=>(int)$row['used_school_days'],'remaining_school_days'=>$remainingDays,'used_today'=>(bool)$row['used_today']];
             // A partially paid annual entitlement must not block a fully paid
             // month/term entitlement that also covers this date.
-            if ($partial === null) $partial = ['decision'=>'deny_unpaid','payment_status'=>$paid>0?'partial':'unpaid','balance'=>max(0,$due-$paid),'period_type'=>$row['period_type'],'period_start'=>$row['period_start'],'period_end'=>$row['period_end'],'entitlement_id'=>(int)$row['id']];
+            if ($partial === null) $partial = !$coverageAvailable
+                ? ['decision'=>'deny_no_days','payment_status'=>$paid>0?'paid':'waived','balance'=>max(0,$due-$paid),'period_type'=>$row['period_type'],'period_start'=>$row['period_start'],'period_end'=>$row['period_end'],'entitlement_id'=>(int)$row['id'],'allocated_school_days'=>(int)$row['allocated_school_days'],'used_school_days'=>(int)$row['used_school_days'],'remaining_school_days'=>0]
+                : ['decision'=>'deny_unpaid','payment_status'=>$paid>0?'partial':'unpaid','balance'=>max(0,$due-$paid),'period_type'=>$row['period_type'],'period_start'=>$row['period_start'],'period_end'=>$row['period_end'],'entitlement_id'=>(int)$row['id'],'allocated_school_days'=>(int)$row['allocated_school_days'],'used_school_days'=>(int)$row['used_school_days'],'remaining_school_days'=>$remainingDays];
         }
         return $partial ?: ['decision'=>'deny_no_entitlement','payment_status'=>'unpaid','balance'=>null,'period_type'=>null];
+    }
+
+    public function consumeSchoolDay(int $studentId, int $routeId, string $date, ?int $attendanceId = null): array
+    {
+        if (!$this->isSchoolDay($date)) throw new \InvalidArgumentException('Transport attendance can only consume configured school days');
+        $access = $this->getAccess($studentId, $routeId, $date);
+        if (($access['decision'] ?? '') !== 'approved' && ($access['decision'] ?? '') !== 'authorized_override') {
+            throw new \InvalidArgumentException(($access['remaining_school_days'] ?? null) === 0 ? 'No paid transport school days remain' : 'The learner has no active paid transport coverage for this date');
+        }
+        if (!empty($access['entitlement_id'])) {
+            $stmt = $this->db->prepare('INSERT IGNORE INTO student_transport_day_usage (entitlement_id,student_id,route_id,usage_date,first_attendance_id) VALUES (?,?,?,?,?)');
+            $stmt->execute([(int)$access['entitlement_id'], $studentId, $routeId, $date, $attendanceId]);
+            $access = $this->getAccess($studentId, $routeId, $date);
+        }
+        return $access;
+    }
+
+    private function isSchoolDay(string $date): bool
+    {
+        $stmt = $this->db->prepare("SELECT 1 FROM academic_year_calendar_days d JOIN calendar_day_types t ON t.id=d.calendar_day_type_id WHERE d.date=? AND t.code='school_day' LIMIT 1");
+        $stmt->execute([$date]);
+        return (bool)$stmt->fetchColumn();
+    }
+
+    private function countSchoolDays(string $start, string $end): int
+    {
+        $stmt = $this->db->prepare("SELECT COUNT(DISTINCT d.date) FROM academic_year_calendar_days d JOIN calendar_day_types t ON t.id=d.calendar_day_type_id WHERE d.date BETWEEN ? AND ? AND t.code='school_day'");
+        $stmt->execute([$start, $end]);
+        return (int)$stmt->fetchColumn();
     }
 
     public function getEntitlement(int $id): array

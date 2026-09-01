@@ -25,11 +25,17 @@
                     </div>
                     <div id="reportContent" style="display: none;">
                         <div class="row mb-3">
-                            <div class="col-md-3">
-                                <label class="form-label">Report Type</label>
-                                <select id="reportType" class="form-select" data-permission="reports_view">
+                            <div class="col-12">
+                                <div class="nav nav-tabs flex-nowrap overflow-auto mb-2" role="tablist" aria-label="Class report views">
+                                    <button class="nav-link active" type="button" data-report-tab-target="reportType" data-report-tab-value="performance">Performance</button>
+                                    <button class="nav-link" type="button" data-report-tab-target="reportType" data-report-tab-value="attendance">Attendance</button>
+                                    <button class="nav-link" type="button" data-report-tab-target="reportType" data-report-tab-value="behavior">Behavior</button>
+                                    <button class="nav-link" type="button" data-report-tab-target="reportType" data-report-tab-value="discipline">Discipline</button>
+                                    <button class="nav-link" type="button" data-report-tab-target="reportType" data-report-tab-value="assessment">Assessment Summary</button>
+                                </div>
+                                <select id="reportType" class="d-none" data-permission="reports_view" aria-hidden="true" tabindex="-1">
                                     <option value="">Select Report Type</option>
-                                    <option value="performance">Performance Report</option>
+                                    <option value="performance" selected>Performance Report</option>
                                     <option value="attendance">Attendance Report</option>
                                     <option value="behavior">Behavior Report</option>
                                     <option value="discipline">Discipline Report</option>
@@ -59,7 +65,7 @@
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
                                 <button id="generateBtn" class="btn btn-primary" data-permission="reports_generate">
-                                    <i class="bi bi-file-earmark-plus me-1"></i>Generate Report
+                                    <i class="bi bi-printer me-1"></i>Print Report
                                 </button>
                                 <button id="refreshBtn" class="btn btn-outline-secondary">
                                     <i class="bi bi-arrow-clockwise me-1"></i>Refresh
@@ -87,7 +93,7 @@
                                 <tbody id="reportsTableBody">
                                     <tr>
                                         <td colspan="7" class="text-center text-muted py-4">
-                                            Select report type and click Generate
+                                            Select a report type and class; use Print Report only when a paper or PDF copy is needed
                                         </td>
                                     </tr>
                                 </tbody>
@@ -100,4 +106,5 @@
     </div>
 </div>
 
+<?php asset_script($appBase, 'js/components/report_tabs.js'); ?>
 <?php asset_script($appBase, 'js/pages/generate_class_report.js'); ?>

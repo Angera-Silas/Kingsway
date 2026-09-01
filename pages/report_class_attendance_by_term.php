@@ -1,0 +1,1 @@
+<?php $governedReportCode='ATT_CLASS_TERM_RATE'; $governedReportTitle='Class Attendance by Term'; $governedReportLayout='trend'; $governedPrimaryVisual='line'; require __DIR__.'/reports/governed_report.php';

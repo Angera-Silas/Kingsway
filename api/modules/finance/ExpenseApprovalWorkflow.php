@@ -139,7 +139,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -213,7 +213,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -300,7 +300,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -378,7 +378,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -422,7 +422,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -466,7 +466,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $this->managerApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -509,7 +509,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, ['message' => 'Expense rejected']);
 
         } catch (Exception $e) {
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -534,7 +534,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $this->recordPayment($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -562,7 +562,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $result ? $result['id'] : null;
 
         } catch (Exception $e) {
-            error_log("Failed to get instance ID: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to get instance ID: " . $e->getMessage());
             return null;
         }
     }
@@ -640,7 +640,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return true;
         } catch (Exception $e) {
-            error_log("Failed to process expense stage {$stage}: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to process expense stage {$stage}: " . $e->getMessage());
             return false;
         }
     }

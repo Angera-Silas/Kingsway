@@ -941,7 +941,7 @@ final class FinanceCrudService
                 : NotificationService::deniedText($label, $actor, (string) ($reason ?? ''));
             $service->push($recipients, 'salary_advance', $title, $message, 'medium');
         } catch (Exception $e) {
-            error_log('[FinanceCrudService] Notification push failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceCrudService] Notification push failed: ' . $e->getMessage());
         }
     }
 

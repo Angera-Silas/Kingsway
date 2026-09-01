@@ -67,6 +67,14 @@ class UserRoleManager
                 }
             }
 
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_role',
+                $userId,
+                'role_assigned',
+                'Role assigned to user',
+                ['details' => ['user_id' => $userId, 'role_id' => $roleId, 'permissions_copied' => count($rolePermissions)]]
+            );
+
             return [
                 'success' => $ok,
                 'data' => [
@@ -77,7 +85,7 @@ class UserRoleManager
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -112,6 +120,14 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 $delPermStmt->execute([$userId, $roleId, $userId]);
             }
 
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_role',
+                $userId,
+                'role_revoked',
+                'Role revoked from user',
+                ['details' => ['user_id' => $userId, 'role_id' => $roleId]]
+            );
+
             return [
                 'success' => $ok,
                 'data' => [
@@ -121,7 +137,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -152,7 +168,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($roles)
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -175,7 +191,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($roles)
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -229,6 +245,14 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 }
             }
 
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_role',
+                $userId,
+                'role_assigned',
+                'Roles assigned to user in bulk',
+                ['details' => ['user_id' => $userId, 'role_ids' => $roleIds, 'assigned' => $count]]
+            );
+
             return [
                 'success' => true,
                 'data' => [
@@ -238,7 +262,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -278,6 +302,14 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 $delPermStmt->execute($params);
             }
 
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_role',
+                $userId,
+                'role_revoked',
+                'Roles revoked from user in bulk',
+                ['details' => ['user_id' => $userId, 'role_ids' => $roleIds, 'revoked' => $count]]
+            );
+
             return [
                 'success' => true,
                 'data' => [
@@ -287,7 +319,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -319,7 +351,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -349,7 +381,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -377,7 +409,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'role' => $roleName
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -400,7 +432,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 'count' => count($users)
             ];
         } catch (Exception $e) {
-            error_log('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UserRoleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }

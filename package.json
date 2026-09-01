@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Lightweight UI smoke tests for Kingsway dashboards",
   "scripts": {
-    "test:ui": "node .github/scripts/public-ui-smoke.js"
+    "test:ui": "node .github/scripts/public-ui-smoke.js",
+    "test:transport-ui": "node .github/scripts/transport-ui-smoke.js"
   },
   "dependencies": {
     "bootstrap": "^5.3.0",

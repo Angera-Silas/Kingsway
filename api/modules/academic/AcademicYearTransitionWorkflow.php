@@ -334,7 +334,6 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     $weekCounts[$index + 1] = (int) $term['weeks'];
                 }
             }
-            require_once __DIR__ . '/AcademicCalendarService.php';
             $calendarService = new AcademicCalendarService($this->db);
             $calendarService->generateYearCalendar($academicYearId, $weekCounts);
 

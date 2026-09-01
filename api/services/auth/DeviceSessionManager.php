@@ -43,7 +43,7 @@ class DeviceSessionManager extends BaseAPI
 
             return null;
         } catch (Exception $e) {
-            error_log("[DeviceSessionManager] Device registration failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("[DeviceSessionManager] Device registration failed: " . $e->getMessage());
             return null;
         }
     }
@@ -72,7 +72,7 @@ class DeviceSessionManager extends BaseAPI
 
             return ['valid' => true, 'device_id' => $session['id']];
         } catch (Exception $e) {
-            error_log("[DeviceSessionManager] Device validation failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("[DeviceSessionManager] Device validation failed: " . $e->getMessage());
             return ['valid' => false, 'reason' => 'Validation error'];
         }
     }
@@ -89,7 +89,7 @@ class DeviceSessionManager extends BaseAPI
             );
             return true;
         } catch (Exception $e) {
-            error_log("[DeviceSessionManager] Device block failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("[DeviceSessionManager] Device block failed: " . $e->getMessage());
             return false;
         }
     }
@@ -106,7 +106,7 @@ class DeviceSessionManager extends BaseAPI
             );
             return true;
         } catch (Exception $e) {
-            error_log("[DeviceSessionManager] Device unblock failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("[DeviceSessionManager] Device unblock failed: " . $e->getMessage());
             return false;
         }
     }
@@ -127,7 +127,7 @@ class DeviceSessionManager extends BaseAPI
 
             return $sessions ?: [];
         } catch (Exception $e) {
-            error_log("[DeviceSessionManager] Get user devices failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("[DeviceSessionManager] Get user devices failed: " . $e->getMessage());
             return [];
         }
     }
@@ -144,7 +144,7 @@ class DeviceSessionManager extends BaseAPI
             );
             return true;
         } catch (Exception $e) {
-            error_log("[DeviceSessionManager] Device revoke failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("[DeviceSessionManager] Device revoke failed: " . $e->getMessage());
             return false;
         }
     }

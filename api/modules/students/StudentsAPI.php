@@ -1576,7 +1576,7 @@ class StudentsAPI extends BaseAPI
                     ]);
                 } catch (Exception $e) {
                     // Log but don't fail - enrollment and fees can be created later.
-                    error_log("Warning: Could not create enrollment/fees for student $studentId: " . $e->getMessage());
+                    \App\API\Services\Logger::legacyError("Warning: Could not create enrollment/fees for student $studentId: " . $e->getMessage());
                 }
             }
 
@@ -1590,7 +1590,7 @@ class StudentsAPI extends BaseAPI
                         'receipt_no' => $data['receipt_no'] ?? null
                     ]);
                 } catch (Exception $e) {
-                    error_log("Warning: Could not record initial payment for student $studentId: " . $e->getMessage());
+                    \App\API\Services\Logger::legacyError("Warning: Could not record initial payment for student $studentId: " . $e->getMessage());
                 }
             }
 
@@ -6840,7 +6840,7 @@ class StudentsAPI extends BaseAPI
             }
             return ['success' => true, 'message' => 'Alumni updated successfully.'];
         } catch (Exception $e) {
-            error_log('[StudentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }

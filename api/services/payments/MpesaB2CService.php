@@ -148,7 +148,7 @@ class MpesaB2CService
                 'response' => $response,
             ];
         } catch (Exception $e) {
-            error_log('[MpesaB2CService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[MpesaB2CService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return [
                 'status' => 'error',
                 'message' => $e->getMessage(),
@@ -181,7 +181,7 @@ class MpesaB2CService
             $response = $this->client->post('/mpesa/accountbalance/v1/query', $payload);
             return ($response['ResponseCode'] ?? '1') === '0';
         } catch (Exception $e) {
-            error_log('[MpesaB2CService] balance check error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaB2CService] balance check error: ' . $e->getMessage());
             return false;
         }
     }
@@ -234,7 +234,7 @@ class MpesaB2CService
                 'webhook' => json_encode($response),
             ]);
         } catch (Exception $e) {
-            error_log('[MpesaB2CService] recordDisbursement error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MpesaB2CService] recordDisbursement error: ' . $e->getMessage());
         }
     }
 

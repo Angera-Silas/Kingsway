@@ -923,7 +923,7 @@ final class SystemAdminAnalyticsService
         try {
             return \App\API\Includes\FileLogger::recent('auth', $limit);
         } catch (\Throwable $e) {
-            error_log('[SystemAdminAnalyticsService] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[SystemAdminAnalyticsService] ' . $e->getMessage());
             return [];
         }
     }
@@ -1027,7 +1027,7 @@ final class SystemAdminAnalyticsService
             }
             return $details;
         } catch (\Throwable $e) {
-            error_log('[SystemAdminAnalyticsService] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[SystemAdminAnalyticsService] ' . $e->getMessage());
             return [];
         }
     }

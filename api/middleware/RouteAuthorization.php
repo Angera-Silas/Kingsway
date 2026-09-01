@@ -20,8 +20,6 @@
 
 namespace App\API\Middleware;
 
-require_once dirname(__DIR__, 2) . '/database/Database.php';
-
 use App\Database\Database;
 
 class RouteAuthorization
@@ -408,7 +406,20 @@ class RouteAuthorization
                 'status' => $authorized ? 'success' : 'failure',
             ]);
         } catch (\Exception $e) {
-            error_log("Authorization log failed - User: {$user_id}, Role: {$role_id}, Route: {$route}, Result: " . ($authorized ? 'ALLOWED' : 'DENIED'));
+            \App\API\Services\Logger::legacyError("Authorization log failed - User: {$user_id}, Role: {$role_id}, Route: {$route}, Result: " . ($authorized ? 'ALLOWED' : 'DENIED'));
+        }
+
+        // Mirror denied route access into the audit journal with the canonical
+        // 'rbac_denied' action so the Audit & Forensics console reports it.
+        if (!$authorized) {
+            \App\API\Includes\SecurityEventNotifier::rbacDenied(
+                "Route '{$route}' is not available for this user",
+                [
+                    'entity' => 'route',
+                    'entity_id' => $route,
+                    'details' => ['role_id' => $role_id, 'type' => 'authorization'],
+                ]
+            );
         }
     }
 }

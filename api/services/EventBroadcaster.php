@@ -128,7 +128,7 @@ class EventBroadcaster
                 'events'    => $events,
             ]);
         } catch (\Throwable $e) {
-            error_log("EventBroadcaster::rebakeBuffer({$scope}) failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("EventBroadcaster::rebakeBuffer({$scope}) failed: " . $e->getMessage());
         }
     }
 
@@ -219,7 +219,7 @@ class EventBroadcaster
             $resolved = (string) \constant('JWT_SECRET');
         } else {
             $resolved = 'kingsway-realtime-default';
-            error_log('EventBroadcaster: REALTIME_BUFFER_SECRET/JWT_SECRET unset; using built-in default.');
+            \App\API\Services\Logger::legacyError('EventBroadcaster: REALTIME_BUFFER_SECRET/JWT_SECRET unset; using built-in default.');
         }
         return $resolved;
     }
@@ -229,7 +229,7 @@ class EventBroadcaster
         $dir = dirname(__DIR__, 2) . '/buffers';
         if (!is_dir($dir)) {
             if (!@mkdir($dir, 0775, true)) {
-                error_log("EventBroadcaster: cannot create buffers dir {$dir}");
+                \App\API\Services\Logger::legacyError("EventBroadcaster: cannot create buffers dir {$dir}");
                 return;
             }
             @chmod($dir, 0775);
@@ -286,7 +286,7 @@ class EventBroadcaster
             ]);
             flock($lock, LOCK_UN);
         } catch (\Throwable $e) {
-            error_log("EventBroadcaster::appendBufferEvent({$scope}) failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("EventBroadcaster::appendBufferEvent({$scope}) failed: " . $e->getMessage());
         } finally {
             fclose($lock);
         }

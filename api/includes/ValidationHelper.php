@@ -60,7 +60,7 @@ class ValidationHelper
 
     /**
      * Validate password strength
-     * Rules: Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
+     * Rules: Min 6 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
      */
     public static function validatePassword(string $password): array
     {
@@ -69,8 +69,8 @@ class ValidationHelper
         }
 
         // Minimum length
-        if (strlen($password) < 8) {
-            return ['valid' => false, 'error' => 'Password must be at least 8 characters long'];
+        if (strlen($password) < 6) {
+            return ['valid' => false, 'error' => 'Password must be at least 6 characters long'];
         }
 
         // Maximum length (prevent DoS)

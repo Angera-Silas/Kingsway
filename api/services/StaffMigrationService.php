@@ -18,7 +18,7 @@ final class StaffMigrationService
         'position','employment_date','contract_type','role_name'
     ];
     private const OPTIONAL = [
-        'staff_no','gender','date_of_birth','marital_status','staff_type','staff_category',
+        'middle_name','staff_no','supervisor_staff_no','gender','date_of_birth','marital_status','staff_type','staff_category',
         'kra_pin','nssf_no','nhif_no','tsc_no','address','bank_name','bank_account',
         'salary','work_start_time','work_end_time','late_threshold_minutes',
         'create_payroll_profile','basic_salary','communication_email','communication_phone',
@@ -36,7 +36,9 @@ final class StaffMigrationService
         'Driver',
         'Headteacher',
         'Intern/Student Teacher',
-        'Inventory Manager',
+        'Uniform Store Manager',
+        'Food Store Manager',
+        'Librarian',
         'Janitor',
         'Kitchen Staff',
         'School Administrator',
@@ -75,11 +77,40 @@ final class StaffMigrationService
         $sheet->fromArray($headers, null, 'A1');
         $sheet->fromArray($this->templateSample(), null, 'A2');
         $sheet->setTitle('Staff Import');
+        $sheet->freezePane('A2');
+        $sheet->setAutoFilter('A1:' . $sheet->getHighestColumn() . '1');
+        $sheet->getStyle('A1:' . $sheet->getHighestColumn() . '1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:I1')->getFill()->setFillType('solid')->getStartColor()->setARGB('FFFFD966');
 
         for ($column = 1, $count = count($headers); $column <= $count; $column++) {
             $sheet->getColumnDimensionByColumn($column)->setAutoSize(true);
         }
 
+        $instructions = $spreadsheet->createSheet();
+        $instructions->setTitle('Instructions');
+        $instructions->fromArray([
+            ['Kingsway existing-staff import'],
+            ['Delete the example row in Staff Import, then enter one staff member per row. Do not rename, remove, or add columns.'],
+            ['Yellow headers are required. Other headers are optional unless made conditionally required below.'],
+            ['Dates', 'YYYY-MM-DD'],
+            ['Times', 'HH:MM or HH:MM:SS; end time must be later than start time'],
+            ['Contract type', 'permanent, contract, or temporary'],
+            ['Payroll', 'Use yes/no. If yes, salary/basic_salary, bank_name, bank_account, kra_pin, nssf_no, and nhif_no are required.'],
+            ['Teaching roles', 'tsc_no is required and must be unique.'],
+            ['Supervisor', 'Use the staff_no of an existing active supervisor.'],
+            ['Staff number', 'Leave blank to generate it automatically.'],
+            ['Username', 'Generated automatically from the login email; do not add a username column.'],
+            ['Import behavior', 'The entire batch must validate and commits atomically.'],
+        ], null, 'A1');
+        $instructions->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $instructions->getColumnDimension('A')->setWidth(24);
+        $instructions->getColumnDimension('B')->setWidth(110);
+        $instructions->getStyle('A1:B20')->getAlignment()->setWrapText(true)->setVertical('top');
+
+        // The data worksheet must be the sheet users see first. Importing also
+        // addresses it by name, so workbook active-sheet state can never turn
+        // the Instructions sheet into staff data.
+        $spreadsheet->setActiveSheetIndexByName('Staff Import');
         (new Xlsx($spreadsheet))->save($path);
 
         return $path;
@@ -88,7 +119,11 @@ final class StaffMigrationService
     public function spreadsheetToCsv(string $path): string
     {
         $spreadsheet = IOFactory::load($path);
-        $rows = $spreadsheet->getActiveSheet()->toArray(null, true, true, false);
+        $sheet = $spreadsheet->getSheetByName('Staff Import');
+        if ($sheet === null) {
+            throw new RuntimeException('The Excel workbook must contain a "Staff Import" worksheet.');
+        }
+        $rows = $sheet->toArray(null, true, true, false);
         $handle = fopen('php://temp', 'r+');
         if ($handle === false) {
             throw new RuntimeException('Unable to prepare spreadsheet data.');
@@ -121,7 +156,8 @@ final class StaffMigrationService
             'staff_categories' => $this->rows("SELECT sc.id,sc.category_name AS name,st.name AS staff_type FROM staff_categories sc JOIN staff_types st ON st.id=sc.staff_type_id WHERE sc.is_active=1 ORDER BY st.name,sc.category_name"),
             'contracts' => ['permanent','contract','temporary'],
             'genders' => ['male','female','other'],
-            'marital_statuses' => ['single','married','divorced','widowed'],
+            'marital_statuses' => ['single','married','divorced','widowed','separated','unknown'],
+            'supervisors' => $this->rows("SELECT s.staff_no, CONCAT_WS(' ',p.first_name,p.middle_name,p.last_name) AS name FROM staff s JOIN persons p ON p.id=s.person_id WHERE s.status='active' ORDER BY p.first_name,p.last_name"),
         ];
     }
 
@@ -189,7 +225,7 @@ final class StaffMigrationService
             try {
                 $this->processEmailQueue(count($created));
             } catch (Throwable $mailError) {
-                error_log('Staff import invitation delivery failed: '.$mailError->getMessage());
+                \App\API\Services\Logger::legacyError('Staff import invitation delivery failed: '.$mailError->getMessage());
             }
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
@@ -262,7 +298,15 @@ final class StaffMigrationService
                 ->execute([(int)$message['id']]);
             try {
                 $payload = json_decode($message['payload_json'], true, 512, JSON_THROW_ON_ERROR);
-                $body = $this->renderStaffInvitationEmail($payload);
+                // Every system email must use the same branded renderer. Sending the
+                // invitation fragment directly left the CID logo unused, so Gmail
+                // exposed it as an attachment and the message lost the formal layout.
+                $body = $service->renderFormalEmail(
+                    $message['subject'] ?: 'Your Kingsway account is ready',
+                    $this->renderStaffInvitationEmail($payload),
+                    '',
+                    ''
+                );
                 $ok = $service->sendEmail([$message['recipient'] => $payload['name'] ?? $message['recipient']], $message['subject'] ?: 'Your Kingsway account is ready', $body);
                 if (!$ok) {
                     throw new RuntimeException('SMTP delivery failed.');
@@ -311,7 +355,7 @@ final class StaffMigrationService
                 sda.department_id, s.supervisor_id,
                 spp.kra_pin, spp.nssf_no, spp.nhif_no,
                 s.bank_name, s.bank_account,
-                s.salary, '' AS tsc_no,
+                s.salary, COALESCE((SELECT identifier_value FROM person_professional_identifiers WHERE person_id=p.id AND identifier_type='tsc' ORDER BY is_primary DESC,id DESC LIMIT 1),'') AS tsc_no,
                 sap.work_start_time, sap.work_end_time, sap.late_threshold_minutes,
                 s.status, s.staff_type_id, s.staff_category_id,
                 NULL AS documents_folder, s.created_at, s.updated_at,
@@ -391,20 +435,20 @@ final class StaffMigrationService
         $dept=$this->lookupId('departments','code',$r['department_code'],"status='active'");
         $role=$this->schoolRoleId($r['role_name']);
         $type=$this->nullableLookup('staff_types','name',$r['staff_type']??null,"is_active=1");
-        $cat=$this->nullableLookup('staff_categories','category_name',$r['staff_category']??null,"is_active=1");
+        $cat=$this->categoryId($r['staff_category']??'',$r['staff_type']??'');
         $roleIds=$this->roleIdsForStaff($role,$r['role_name'],$type);
-        $username=$this->uniqueUsername($r['email'],$r['first_name'],$r['last_name']);
+        $username=UsernameService::generate($this->db,$r['email'],$r['first_name'],$r['last_name']);
         $temporary=$this->generateTemporaryPassword();
         $pid=$this->nextId('persons');
-        $this->db->prepare("INSERT INTO persons(id,first_name,last_name,dob,gender,email,phone) VALUES(?,?,?,?,?,?,?)")
-            ->execute([$pid,$r['first_name'],$r['last_name'],$this->null($r,'date_of_birth'),$this->null($r,'gender'),strtolower($r['email']),$r['phone']]);
+        $this->db->prepare("INSERT INTO persons(id,first_name,middle_name,last_name,dob,gender,email,phone) VALUES(?,?,?,?,?,?,?,?)")
+            ->execute([$pid,$r['first_name'],$this->null($r,'middle_name'),$r['last_name'],$this->null($r,'date_of_birth'),$this->null($r,'gender'),strtolower($r['email']),$r['phone']]);
         $uid=$this->nextId('users');
         $this->db->prepare("INSERT INTO users(id,person_id,username,password_hash,status,force_password_change,created_at,updated_at) VALUES(?,?,?,?,'active',1,NOW(),NOW())")
             ->execute([$uid,$pid,$username,password_hash($temporary,PASSWORD_DEFAULT)]);
         $roleStmt=$this->db->prepare("INSERT INTO user_roles(user_id,role_id,created_at) VALUES(?,?,NOW())");
         foreach($roleIds as $roleId)$roleStmt->execute([$uid,$roleId]);
         // Auto-generate staff_no when blank; validate format when provided.
-        $staffNoSvc = new StaffNumberService($this->db->getConnection());
+        $staffNoSvc = new StaffNumberService($this->db);
         $staffNo = trim((string)($r['staff_no'] ?? ''));
         if ($staffNo === '') {
             $staffNo = $staffNoSvc->generate();
@@ -412,20 +456,38 @@ final class StaffMigrationService
             throw new RuntimeException("Row: staff_no '$staffNo' does not match the configured format");
         }
         $sid=$this->nextId('staff');
-        $this->db->prepare("INSERT INTO staff(id,person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,salary,bank_name,bank_account) VALUES(?,?,?,?,?,?,?,?,'active',?,?,?)")
-            ->execute([$sid,$pid,$type,$cat,$staffNo,$r['position'],strtolower($r['contract_type']),$r['employment_date'],$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
+        $supervisorId=$this->supervisorId($r['supervisor_staff_no']??'');
+        $this->db->prepare("INSERT INTO staff(id,person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,supervisor_id,salary,bank_name,bank_account) VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?)")
+            ->execute([$sid,$pid,$type,$cat,$staffNo,$r['position'],strtolower($r['contract_type']),$r['employment_date'],$supervisorId,$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
         $this->db->prepare("INSERT INTO staff_department_assignments(id,staff_id,department_id,role,effective_from,effective_to,created_at) VALUES(?,?,?,?,?,NULL,NOW())")
             ->execute([$this->nextId('staff_department_assignments'),$sid,$dept,$r['position'],$r['employment_date']]);
         $this->db->prepare("INSERT INTO staff_employment_profiles(staff_id,department_id,position,employment_date,contract_type,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',NOW(),NOW())")
             ->execute([$sid,$dept,$r['position'],$r['employment_date'],strtolower($r['contract_type'])]);
         $this->db->prepare("INSERT INTO staff_attendance_profiles(staff_id,work_start_time,work_end_time,late_threshold_minutes,is_active,created_at,updated_at) VALUES(?,?,?,?,1,NOW(),NOW())")
             ->execute([$sid,$r['work_start_time']?:'08:00:00',$r['work_end_time']?:'17:00:00',(int)($r['late_threshold_minutes']?:15)]);
+        if(!empty($r['address']??'')){
+            $this->db->prepare("INSERT INTO person_addresses(person_id,address_type,address_line,is_primary,valid_from) VALUES(?,'residential',?,1,CURDATE())")
+                ->execute([$pid,trim($r['address'])]);
+        }
+        if(!empty($r['marital_status']??'')){
+            $this->db->prepare("INSERT INTO person_marital_statuses(person_id,marital_status,valid_from) VALUES(?,?,CURDATE())")
+                ->execute([$pid,strtolower(trim($r['marital_status']))]);
+        }
+        if(!empty($r['tsc_no']??'')){
+            $this->db->prepare("INSERT INTO person_professional_identifiers(person_id,identifier_type,identifier_value,issuing_body,is_primary,created_at,updated_at) VALUES(?,'tsc',?,'Teachers Service Commission',1,NOW(),NOW())")
+                ->execute([$pid,strtoupper(trim($r['tsc_no']))]);
+        }
         if($this->yes($r['create_payroll_profile']??'no')){
-            $this->db->prepare("INSERT INTO staff_payroll_profiles(staff_id,basic_salary,bank_name,bank_account,kra_pin,nssf_no,nhif_no,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'draft',NOW(),NOW())")
+            $this->db->prepare("INSERT INTO staff_payroll_profiles(staff_id,basic_salary,bank_name,bank_account,kra_pin,nssf_no,nhif_no,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',NOW(),NOW())")
                 ->execute([$sid,$this->decimal($r,'basic_salary')??$this->decimal($r,'salary')??0,$this->null($r,'bank_name'),$this->null($r,'bank_account'),$this->null($r,'kra_pin'),$this->null($r,'nssf_no'),$this->null($r,'nhif_no')]);
         }
         if(!empty($r['communication_email']??'')){
-            $this->db->prepare("UPDATE persons SET email=? WHERE id=?")->execute([strtolower($r['communication_email']),$pid]);
+            $this->db->prepare("INSERT INTO person_contact_points(person_id,channel,purpose,contact_value,is_primary) VALUES(?,'email','communication',?,1)")
+                ->execute([$pid,strtolower(trim($r['communication_email']))]);
+        }
+        if(!empty($r['communication_phone']??'')){
+            $this->db->prepare("INSERT INTO person_contact_points(person_id,channel,purpose,contact_value,is_primary) VALUES(?,'phone','communication',?,1)")
+                ->execute([$pid,trim($r['communication_phone'])]);
         }
         if(!empty($r['emergency_contact_name']??'')){
             $this->db->prepare("INSERT INTO emergency_contacts(id,person_id,name,phone,created_at) VALUES(?,?,?,?,NOW())")
@@ -444,7 +506,7 @@ final class StaffMigrationService
             'expires_hours'=>72,
         ]);
         $this->db->prepare("UPDATE staff_import_rows SET staff_id=?,user_id=?,status='created',updated_at=NOW() WHERE id=?")->execute([$sid,$uid,$rowId]);
-        return ['staff_id'=>$sid,'user_id'=>$uid,'staff_no'=>$r['staff_no'],'username'=>$username,'email'=>$r['email'],'invitation_queued'=>true];
+        return ['staff_id'=>$sid,'user_id'=>$uid,'staff_no'=>$staffNo,'username'=>$username,'email'=>$r['email'],'invitation_queued'=>true];
     }
 
     private function createInvitation(int $uid,int $sid,string $email,int $actor): string
@@ -467,30 +529,52 @@ final class StaffMigrationService
         $setup=htmlspecialchars((string)($payload['setup_url']??$payload['activation_url']??''),ENT_QUOTES,'UTF-8');
         $login=htmlspecialchars((string)($payload['login_url']??''),ENT_QUOTES,'UTF-8');
         return "<p>Dear {$name},</p>"
-            . "<p>Your Kingsway staff account has been created.</p>"
-            . "<p><strong>Username:</strong> {$username}<br><strong>Default password:</strong> {$password}</p>"
-            . "<p>Open this setup link and create your private password before accessing your dashboard:</p>"
-            . "<p><a href=\"{$setup}\">Create your private password</a></p>"
-            . ($login ? "<p>Login page: <a href=\"{$login}\">{$login}</a></p>" : '')
-            . "<p>This setup link expires in 72 hours. You will be required to update missing staff details during first access.</p>";
+            . "<p>Welcome to Kingsway Preparatory School. Your staff account is ready.</p>"
+            . "<p><strong>Username:</strong> {$username}" . ($password !== '' ? "<br><strong>Temporary password:</strong> {$password}" : '') . "</p>"
+            . "<p><strong>Before you can open your dashboard, please complete these steps:</strong></p>"
+            . "<ol><li>Open the secure setup link below.</li><li>Create a new private password. Do not continue using the temporary password.</li><li>Sign in and complete every required staff-profile field.</li><li>After your profile is complete, the system will take you to your role dashboard.</li></ol>"
+            . "<p><a href=\"{$setup}\" style=\"display:inline-block;padding:12px 20px;background:#075985;color:#fff;text-decoration:none;border-radius:6px\">Set up my Kingsway account</a></p>"
+            . ($login ? "<p>After setup, sign in here: <a href=\"{$login}\">{$login}</a></p>" : '')
+            . "<p>The secure setup link expires in 72 hours. If it expires, contact the School Administrator for a new invitation.</p>"
+            . "<p>If you were not expecting this account, please do not use these credentials and contact the school.</p>";
     }
     private function validateRow(array $r,int $row,array $dupes): array
     {
         $e=[];foreach(self::REQUIRED as $f)if(trim((string)($r[$f]??''))==='')$e[]="$f is required";
         if(($r['email']??'')&&!filter_var($r['email'],FILTER_VALIDATE_EMAIL))$e[]='email is invalid';
+        if(($r['communication_email']??'')&&!filter_var($r['communication_email'],FILTER_VALIDATE_EMAIL))$e[]='communication_email is invalid';
         if(($r['employment_date']??'')&&!$this->validDate($r['employment_date']))$e[]='employment_date must be YYYY-MM-DD';
         if(($r['date_of_birth']??'')&&!$this->validDate($r['date_of_birth']))$e[]='date_of_birth must be YYYY-MM-DD';
         if(!in_array(strtolower((string)($r['contract_type']??'')),['permanent','contract','temporary'],true))$e[]='contract_type is invalid';
         if(($r['gender']??'')&&!in_array(strtolower($r['gender']),['male','female','other'],true))$e[]='gender is invalid';
+        if(($r['marital_status']??'')&&!in_array(strtolower($r['marital_status']),['single','married','divorced','widowed','separated','unknown'],true))$e[]='marital_status is invalid';
         if(($r['staff_no']??'')!==''&&$this->exists('staff','staff_no',$r['staff_no']))$e[]='staff_no already exists';
+        if(($r['staff_no']??'')!==''&&!(new StaffNumberService($this->db))->isValid($r['staff_no']))$e[]='staff_no does not match the configured format';
         if(($r['email']??'')&&$this->exists('persons','email',$r['email']))$e[]='email already belongs to a user';
         if(($r['staff_no']??'')!==''&&in_array(strtolower($r['staff_no']),$dupes['staff_no'],true))$e[]='staff_no is duplicated in this file';
         if(in_array(strtolower($r['email']??''),$dupes['email'],true))$e[]='email is duplicated in this file';
+        if(($r['tsc_no']??'')!==''&&in_array(strtolower($r['tsc_no']),$dupes['tsc_no'],true))$e[]='tsc_no is duplicated in this file';
+        if(($r['tsc_no']??'')!==''&&$this->professionalIdentifierExists('tsc',$r['tsc_no']))$e[]='tsc_no already exists';
         if(($r['department_code']??'')&&!$this->lookupExists('departments','code',$r['department_code'],"status='active'"))$e[]='department_code was not found or inactive';
         if(($r['role_name']??'')&&!$this->schoolRoleExists($r['role_name']))$e[]='role_name was not found, inactive, or not an assignable school role';
         if(($r['staff_type']??'')&&!$this->lookupExists('staff_types','name',$r['staff_type'],"is_active=1"))$e[]='staff_type was not found';
         if(($r['staff_category']??'')&&!$this->lookupExists('staff_categories','category_name',$r['staff_category'],"is_active=1"))$e[]='staff_category was not found';
-        if(($r['salary']??'')!==''&&!is_numeric($r['salary']))$e[]='salary must be numeric';
+        if(($r['staff_category']??'')!==''&&trim((string)($r['staff_type']??''))==='')$e[]='staff_type is required when staff_category is supplied';
+        if(($r['staff_type']??'')!==''&&($r['staff_category']??'')!==''&&!$this->categoryBelongsToType($r['staff_category'],$r['staff_type']))$e[]='staff_category does not belong to staff_type';
+        if(($r['supervisor_staff_no']??'')!==''&&!$this->lookupExists('staff','staff_no',$r['supervisor_staff_no'],"status='active'"))$e[]='supervisor_staff_no was not found or inactive';
+        foreach(['salary','basic_salary'] as $amount){if(($r[$amount]??'')!==''&&(!is_numeric($r[$amount])||(float)$r[$amount]<0))$e[]="$amount must be a non-negative number";}
+        foreach(['work_start_time','work_end_time'] as $time){if(($r[$time]??'')!==''&&!$this->validTime($r[$time]))$e[]="$time must be HH:MM or HH:MM:SS";}
+        if(($r['work_start_time']??'')!==''&&($r['work_end_time']??'')!==''&&strtotime($r['work_start_time'])>=strtotime($r['work_end_time']))$e[]='work_end_time must be later than work_start_time';
+        if(($r['late_threshold_minutes']??'')!==''&&(!ctype_digit((string)$r['late_threshold_minutes'])||(int)$r['late_threshold_minutes']>1440))$e[]='late_threshold_minutes must be a whole number from 0 to 1440';
+        $payrollValue=strtolower(trim((string)($r['create_payroll_profile']??'')));
+        if($payrollValue!==''&&!in_array($payrollValue,['yes','no','y','n','true','false','1','0'],true))$e[]='create_payroll_profile must be yes or no';
+        if($this->yes($payrollValue)){
+            if(($this->decimal($r,'basic_salary')??$this->decimal($r,'salary')??0)<=0)$e[]='basic_salary or salary must be greater than zero when creating payroll';
+            foreach(['bank_name','bank_account','kra_pin','nssf_no','nhif_no'] as $field)if(trim((string)($r[$field]??''))==='')$e[]="$field is required when creating payroll";
+        }
+        if(($this->isTeachingDutyRole((string)($r['role_name']??''))||strtolower(trim((string)($r['staff_type']??'')))==='teaching')&&trim((string)($r['tsc_no']??''))==='')$e[]='tsc_no is required for teaching staff';
+        if(($r['emergency_contact_phone']??'')!==''&&trim((string)($r['emergency_contact_name']??''))==='')$e[]='emergency_contact_name is required when emergency_contact_phone is supplied';
+        if(($r['emergency_contact_name']??'')!==''&&trim((string)($r['emergency_contact_phone']??''))==='')$e[]='emergency_contact_phone is required when emergency_contact_name is supplied';
         return $e;
     }
     private function parseCsv(string $csv): array
@@ -500,7 +584,7 @@ final class StaffMigrationService
         foreach($lines as $line){$v=str_getcsv($line);$v=array_pad($v,count($headers),'');$rows[]=array_combine($headers,array_slice($v,0,count($headers)));}
         return [$headers,$rows];
     }
-    private function duplicatesInFile(array $rows): array{ $out=['staff_no'=>[],'email'=>[]];foreach(array_keys($out)as$f){$vals=array_map(fn($r)=>strtolower(trim($r[$f]??'')),$rows);$counts=array_count_values(array_filter($vals));$out[$f]=array_keys(array_filter($counts,fn($c)=>$c>1));}return$out;}
+    private function duplicatesInFile(array $rows): array{ $out=['staff_no'=>[],'email'=>[],'tsc_no'=>[]];foreach(array_keys($out)as$f){$vals=array_map(fn($r)=>strtolower(trim($r[$f]??'')),$rows);$counts=array_count_values(array_filter($vals));$out[$f]=array_keys(array_filter($counts,fn($c)=>$c>1));}return$out;}
     private function batchRows(int $id,string $status): array{$s=$this->db->prepare("SELECT * FROM staff_import_rows WHERE batch_id=? AND status=? ORDER BY row_number");$s->execute([$id,$status]);return$s->fetchAll(PDO::FETCH_ASSOC);}
     private function lockBatch(int $id): array|false{$s=$this->db->prepare("SELECT * FROM staff_import_batches WHERE id=? FOR UPDATE");$s->execute([$id]);return$s->fetch(PDO::FETCH_ASSOC);}
     private function hasOperationalDependencies(int $sid): bool{foreach(['staff_attendance','payslips','staff_leaves','staff_department_assignments']as$t){try{$s=$this->db->prepare("SELECT 1 FROM `$t` WHERE staff_id=? LIMIT 1");$s->execute([$sid]);if($s->fetchColumn())return true;}catch(Throwable){}}return false;}
@@ -566,7 +650,11 @@ final class StaffMigrationService
     private function lookupId(string$t,string$c,string$v,string$w='1=1'):int{$s=$this->db->prepare("SELECT id FROM `$t` WHERE LOWER(`$c`)=LOWER(?) AND $w LIMIT 1");$s->execute([trim($v)]);$id=$s->fetchColumn();if(!$id)throw new RuntimeException("$t value '$v' was not found");return(int)$id;}
     private function nullableLookup(string$t,string$c,?string$v,string$w='1=1'):?int{return trim((string)$v)===''?null:$this->lookupId($t,$c,$v,$w);}
     private function validDate(string$v):bool{$d=\DateTime::createFromFormat('Y-m-d',$v);return$d&&$d->format('Y-m-d')===$v;}
-    private function uniqueUsername(string$email,string$f,string$l):string{$base=preg_replace('/[^a-z0-9]/','',strtolower(strtok($email,'@')?:$f.'.'.$l))?:'staff';$u=$base;$i=1;while($this->exists('users','username',$u))$u=$base.$i++;return$u;}
+    private function validTime(string $v):bool{return(bool)preg_match('/^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?$/',$v);}
+    private function supervisorId(string $staffNo):?int{return trim($staffNo)===''?null:$this->lookupId('staff','staff_no',$staffNo,"status='active'");}
+    private function professionalIdentifierExists(string $type,string $value):bool{$s=$this->db->prepare('SELECT 1 FROM person_professional_identifiers WHERE identifier_type=? AND LOWER(identifier_value)=LOWER(?) LIMIT 1');$s->execute([$type,trim($value)]);return(bool)$s->fetchColumn();}
+    private function categoryBelongsToType(string $category,string $type):bool{$s=$this->db->prepare('SELECT 1 FROM staff_categories sc JOIN staff_types st ON st.id=sc.staff_type_id WHERE LOWER(sc.category_name)=LOWER(?) AND LOWER(st.name)=LOWER(?) AND sc.is_active=1 AND st.is_active=1 LIMIT 1');$s->execute([trim($category),trim($type)]);return(bool)$s->fetchColumn();}
+    private function categoryId(string $category,string $type):?int{if(trim($category)==='')return null;$s=$this->db->prepare('SELECT sc.id FROM staff_categories sc JOIN staff_types st ON st.id=sc.staff_type_id WHERE LOWER(sc.category_name)=LOWER(?) AND LOWER(st.name)=LOWER(?) AND sc.is_active=1 AND st.is_active=1 LIMIT 1');$s->execute([trim($category),trim($type)]);$id=$s->fetchColumn();if(!$id)throw new RuntimeException("staff_category '$category' does not belong to staff_type '$type'");return(int)$id;}
     private function null(array$r,string$k):mixed{$v=trim((string)($r[$k]??''));return$v===''?null:$v;}
     private function decimal(array$r,string$k):?float{$v=trim((string)($r[$k]??''));return$v===''?null:(float)$v;}
     private function yes(string$v):bool{return in_array(strtolower(trim($v)),['1','yes','true','y'],true);}
@@ -575,12 +663,13 @@ final class StaffMigrationService
     private function templateSample(): array
     {
         return [
-            '', 'Jane', 'Wanjiku', 'jane.wanjiku@example.com', '0712345678',
-            'ACA', 'Class Teacher', '2024-01-08', 'permanent', 'Class Teacher',
-            'female', '1993-02-10', 'single', 'Teaching', 'Teacher',
+            'Jane', 'Wanjiku', 'jane.wanjiku@example.com', '0712345678',
+            'ACAD', 'Class Teacher', '2024-01-08', 'permanent', 'Class Teacher',
+            'Njeri', '', '', 'female', '1993-02-10', 'single', 'Teaching Staff', 'Lower Primary Teacher',
             'A123456789B', 'NSSF001', 'NHIF001', 'TSC001', 'Nairobi',
             'KCB', '1234567890', '45000', '08:00:00', '17:00:00',
             '15', 'yes', '45000', 'jane.wanjiku@example.com', '0712345678',
+            'John Wanjiku', '0799999999',
         ];
     }
     private function csvCell(string $value): string{return '"' . str_replace('"', '""', $value) . '"';}

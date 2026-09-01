@@ -157,21 +157,26 @@ class PublicController extends BaseAPI
         // Single product — includes all images and sizes
         if ($id !== null && is_numeric($id)) {
             $product = $svc->get((int) $id);
-            if (empty($product)) {
+            if (empty($product) || ($product['status'] ?? '') !== 'active' || (int)($product['published'] ?? 0) !== 1) {
                 return $this->errorResponse('Product not found.', 404);
             }
             // Fetch all images for this product
-            $imgSt = $pdo->prepare('SELECT id, url, alt_text, is_primary FROM uniform_catalog_images WHERE product_id = ? ORDER BY is_primary DESC, id');
+            $imgSt = $pdo->prepare('SELECT id, variant_id, url, alt_text, view_type, is_primary, display_order FROM uniform_catalog_images WHERE product_id = ? ORDER BY is_primary DESC, display_order, id');
             $imgSt->execute([(int) $id]);
             $product['images'] = $imgSt->fetchAll(\PDO::FETCH_ASSOC);
+            $uploadService = new \App\API\Services\UploadService();
+            foreach ($product['images'] as &$image) {
+                $image['url'] = $uploadService->publicUrl($image['url'] ?? null);
+            }
+            unset($image);
 
             // Fetch all available sizes for this product
-            $szSt = $pdo->prepare(
-                'SELECT us.id AS size_id, us.size, us.size_label, us.size_type, us.unit_price, us.quantity_available - us.quantity_reserved AS available ' .
-                'FROM uniform_sizes us WHERE us.item_id = ? AND us.quantity_available > us.quantity_reserved ORDER BY us.unit_price, us.size'
-            );
-            $szSt->execute([$product['item_id']]);
+            $variantSt=$pdo->prepare("SELECT id,item_id,code,name,color_name,swatch_hex,is_default,display_order FROM uniform_catalog_variants WHERE product_id=? AND status='active' ORDER BY display_order,id");
+            $variantSt->execute([(int)$id]);$product['variants']=$variantSt->fetchAll(\PDO::FETCH_ASSOC);
+            $szSt = $pdo->prepare('SELECT us.id AS size_id,NULL AS variant_id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved AS available FROM uniform_sizes us WHERE us.item_id=? AND us.quantity_available>us.quantity_reserved UNION ALL SELECT us.id,v.id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved FROM uniform_catalog_variants v JOIN uniform_sizes us ON us.item_id=v.item_id WHERE v.product_id=? AND v.status=\'active\' AND us.quantity_available>us.quantity_reserved ORDER BY variant_id,unit_price,size');
+            $szSt->execute([$product['item_id'],(int)$id]);
             $product['sizes'] = $szSt->fetchAll(\PDO::FETCH_ASSOC);
+            $product['reviews'] = (new \App\API\Services\catalog\CatalogCommerceService($pdo))->reviews((int)$id);
 
             return $this->successResponse(['product' => $product], 'Product details');
         }

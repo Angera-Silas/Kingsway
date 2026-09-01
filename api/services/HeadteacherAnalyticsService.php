@@ -318,7 +318,7 @@ class HeadteacherAnalyticsService
 
             return ['labels' => $labels, 'data' => $data];
         } catch (Exception $e) {
-            error_log("getWeeklyAttendanceTrend error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getWeeklyAttendanceTrend error: " . $e->getMessage());
             return ['labels' => [], 'data' => []];
         }
     }
@@ -361,7 +361,7 @@ class HeadteacherAnalyticsService
 
             return ['labels' => $labels, 'data' => $data];
         } catch (Exception $e) {
-            error_log("getClassPerformanceChart error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getClassPerformanceChart error: " . $e->getMessage());
             return ['labels' => [], 'data' => []];
         }
     }
@@ -396,7 +396,7 @@ class HeadteacherAnalyticsService
                 'total' => count($data)
             ];
         } catch (Exception $e) {
-            error_log("getUpcomingEvents error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getUpcomingEvents error: " . $e->getMessage());
             return ['data' => [], 'total' => 0];
         }
     }

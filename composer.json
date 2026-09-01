@@ -27,7 +27,16 @@
             "App\\API\\Services\\": "api/services/",
             "App\\API\\Controllers\\": "api/controllers/",
             "App\\API\\Router\\": "api/router/"
-}
+},
+        "classmap": [
+            "api/modules/system/SystemConfigAPI.php"
+        ],
+        "files": [
+            "api/includes/helpers.php",
+            "config/asset_helpers.php",
+            "config/public_helpers.php",
+            "config/school_identity.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
@@ -39,6 +48,8 @@
     },
     "scripts": {
         "test": "phpunit",
-        "check:assets": "php scripts/check_asset_versioning.php"
+        "check:assets": "php scripts/check_asset_versioning.php",
+        "check:logging": "php scripts/check_logging_policy.php",
+        "test:logging": "php scripts/test_logging_system.php"
     }
 }

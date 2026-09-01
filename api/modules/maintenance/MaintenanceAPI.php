@@ -215,7 +215,7 @@ class MaintenanceAPI extends BaseAPI
                 ]
             ];
         } catch (Exception $e) {
-            error_log('[MaintenanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[MaintenanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }

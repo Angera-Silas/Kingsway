@@ -11,41 +11,26 @@
 
   var S = PS.escapeHtml;
   var base = String(window.APP_BASE || '').replace(/\/+$/, '');
-  var FALLBACK_IMG = base + '/images/official_school_logo.png';
-
-  var IMAGE_MAP = [
-    [/shirt/i,           base + '/images/uniforms/shirt.jpg'],
-    [/skirt/i,           base + '/images/uniforms/skirt.jpg'],
-    [/sweater/i,         base + '/images/uniforms/sweater.jpg'],
-    [/pullover/i,        base + '/images/uniforms/sweater.jpg'],
-    [/jersey/i,          base + '/images/uniforms/sweater.jpg'],
-    [/trouser/i,         base + '/images/uniforms/trousers.jpg'],
-    [/pant/i,            base + '/images/uniforms/trousers.jpg'],
-    [/track/i,           base + '/images/uniforms/tracksuit.jpg'],
-    [/sock/i,            base + '/images/uniforms/socks.jpg'],
-    [/shoe/i,            base + '/images/uniforms/shoes.jpg'],
-    [/boot/i,            base + '/images/uniforms/shoes.jpg'],
-    [/dress/i,           base + '/images/uniforms/dress.jpg'],
-    [/cardigan/i,        base + '/images/uniforms/cardigan.jpg'],
-    [/hat|cap|beret/i,   base + '/images/uniforms/hat.jpg'],
-    [/tie/i,             base + '/images/uniforms/tie.jpg'],
-    [/belt/i,            base + '/images/uniforms/belt.jpg'],
-    [/bag|backpack/i,    base + '/images/uniforms/bag.jpg'],
-    [/apron/i,           base + '/images/uniforms/apron.jpg'],
-    [/lab.?coat/i,       base + '/images/uniforms/labcoat.jpg'],
-  ];
+  var FALLBACK_IMG = base + '/uploads/school_assets/official_school_logo.png';
 
   function productImage(p) {
     if (p.image_url && p.image_url !== FALLBACK_IMG) return p.image_url;
-    var title = (p.title || '') + ' ' + (p.description || '');
-    for (var i = 0; i < IMAGE_MAP.length; i++) {
-      if (IMAGE_MAP[i][0].test(title)) return IMAGE_MAP[i][1];
-    }
     return FALLBACK_IMG;
   }
 
+  function versionedImage(url, version) {
+    var value = String(url || '');
+    return value + (value.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(version);
+  }
+
   function parentToken() {
-    try { return sessionStorage.getItem('pp_token'); } catch (_) { return null; }
+    try {
+      var stored = sessionStorage.getItem('pp_token');
+      if (!stored) return null;
+      return atob(String(stored)).split('').map(function (c, i) {
+        return String.fromCharCode(c.charCodeAt(0) - ((i % 7) + 1));
+      }).join('');
+    } catch (_) { return null; }
   }
 
   function show(el, html) { if (el) el.innerHTML = html; }
@@ -94,6 +79,7 @@
   var page = {
     product: null,
     selectedSize: null,
+    selectedVariant: null,
     allImages: [],
 
     init: function () {
@@ -134,11 +120,17 @@
       // Images
       var images = [];
       if (p.images && p.images.length) {
-        p.images.forEach(function (img) { images.push(img.url); });
+        p.images.forEach(function (img) { images.push(img); });
       }
-      if (!images.length) images.push(productImage(p));
+      if (!images.length) images.push({url:productImage(p),variant_id:null});
       this.allImages = images;
-      this.renderGallery(images);
+      this.renderVariants(p.variants || []);
+      var initialImages = this.selectedVariant
+        ? images.filter(function(i){ return Number(i.variant_id || 0) === Number(page.selectedVariant.id); })
+        : images.filter(function(i){ return !i.variant_id; });
+      if (!initialImages.length) initialImages = images.filter(function(i){ return !i.variant_id; });
+      if (!initialImages.length) initialImages = images;
+      this.renderGallery(initialImages.map(function(i){return versionedImage(i.url, '20260831-3');}));
 
       // Title + description
       show(document.getElementById('pdTitle'), S(p.title));
@@ -146,11 +138,49 @@
 
       // Sizes
       var sizes = p.sizes || [];
+      this.renderReviews(p.reviews || []);
+      var totalAvailable = sizes.reduce(function(total, size) { return total + Number(size.available || 0); }, 0);
+      var stockEl = document.getElementById('pdStock');
+      var priceEl = document.getElementById('pdPrice');
+      if (totalAvailable <= 0) {
+        if (priceEl) priceEl.textContent = 'Coming Soon';
+        if (stockEl) stockEl.textContent = 'Stock and pricing will be added by the school.';
+        var addBtn = document.getElementById('pdAddToCart');
+        if (addBtn) {
+          addBtn.disabled = true;
+          addBtn.innerHTML = '<i class="bi bi-clock me-2"></i>Coming Soon';
+        }
+        showEl('pdPriceRow', true);
+      }
       if (!sizes.length) {
-        showEl('pdSizesSection', false);
+        var sizesEl = document.getElementById('pdSizes');
+        if (sizesEl) sizesEl.innerHTML = '<span class="text-muted small">Sizes will be published with stock.</span>';
         return;
       }
-      this.renderSizes(sizes);
+      this.renderSizes(this.sizesForVariant(sizes));
+    },
+
+    renderReviews: function (reviews) {
+      var el = document.getElementById('pdReviews');
+      if (!el) return;
+      el.innerHTML = reviews.length ? reviews.map(function (r) {
+        return '<div class="col-md-6 col-lg-4"><article class="card-modern p-3 h-100"><div class="d-flex justify-content-between"><strong>' + S(r.reviewer_name) + '</strong><span class="text-warning">' + '★'.repeat(Number(r.rating)) + '</span></div><h6 class="mt-2">' + S(r.title || 'Product review') + '</h6><p class="small text-muted mb-1">' + S(r.comment || '') + '</p><small>' + (r.verified_purchase ? 'Verified purchase · ' : '') + S(r.created_at) + '</small></article></div>';
+      }).join('') : '<p class="text-muted">No published reviews yet.</p>';
+    },
+
+    sizesForVariant: function(sizes) {
+      if (!this.selectedVariant) return sizes.filter(function(s){ return !s.variant_id; });
+      var specific = sizes.filter(function(s){ return Number(s.variant_id || 0) === Number(page.selectedVariant.id); });
+      return specific.length ? specific : sizes.filter(function(s){ return !s.variant_id; });
+    },
+
+    renderVariants: function(variants) {
+      var section=document.getElementById('pdVariantsSection'),container=document.getElementById('pdVariants');
+      if(!section||!container||!variants.length){showEl('pdVariantsSection',false);return;}
+      showEl('pdVariantsSection',true);var active=variants.find(function(v){return Number(v.is_default)===1;})||variants[0];this.selectedVariant=active;
+      container.innerHTML=variants.map(function(v){return '<button type="button" class="pd-variant-btn'+(Number(v.id)===Number(active.id)?' selected':'')+'" data-vid="'+Number(v.id)+'"><span class="pd-variant-swatch" style="background:'+S(v.swatch_hex||'#ddd')+'"></span>'+S(v.name)+'</button>';}).join('');
+      document.getElementById('pdVariantName').textContent=active.name;
+      container.addEventListener('click',function(e){var btn=e.target.closest('.pd-variant-btn');if(!btn)return;page.selectedVariant=variants.find(function(v){return Number(v.id)===Number(btn.dataset.vid);})||null;container.querySelectorAll('.pd-variant-btn').forEach(function(b){b.classList.remove('selected');});btn.classList.add('selected');document.getElementById('pdVariantName').textContent=page.selectedVariant?.name||'';page.selectedSize=null;var variantImages=page.allImages.filter(function(i){return Number(i.variant_id||0)===Number(page.selectedVariant?.id||0);});if(!variantImages.length)variantImages=page.allImages.filter(function(i){return !i.variant_id;});page.renderGallery(variantImages.map(function(i){return versionedImage(i.url, '20260831-3');}));page.renderSizes(page.sizesForVariant(page.product.sizes||[]));});
     },
 
     renderGallery: function (images) {
@@ -162,6 +192,7 @@
           '" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">';
       }
 
+      if (thumbsEl) thumbsEl.innerHTML='';
       if (thumbsEl && images.length > 1) {
         thumbsEl.innerHTML = images.map(function (url, i) {
           return '<img src="' + S(url) + '" class="pd-thumb' + (i === 0 ? ' active' : '') +
@@ -188,17 +219,19 @@
       container.innerHTML = sizes.map(function (s) {
         var label = s.size_label || s.size || '';
         var price = Number(s.unit_price) || 0;
+        var available = Number(s.available || 0);
         return '<button type="button" class="pd-size-btn" data-sid="' + s.size_id +
-          '" data-price="' + price + '">' +
+          '" data-available="' + available + '"' + (available <= 0 ? ' disabled' : '') +
+          ' data-price="' + price + '">' +
           '<span class="pd-size-label">' + S(label) + '</span>' +
-          '<span class="pd-size-price">KES ' + price.toLocaleString() + '</span>' +
+          '<span class="pd-size-price">' + (available > 0 ? 'KES ' + price.toLocaleString() : 'Coming Soon') + '</span>' +
           '</button>';
       }).join('');
 
       var self = this;
       container.addEventListener('click', function (e) {
         var btn = e.target.closest('.pd-size-btn');
-        if (!btn) return;
+        if (!btn || Number(btn.dataset.available || 0) <= 0) return;
         container.querySelectorAll('.pd-size-btn').forEach(function (b) { b.classList.remove('selected'); });
         btn.classList.add('selected');
         self.selectedSize = { id: parseInt(btn.dataset.sid, 10), price: parseFloat(btn.dataset.price) };
@@ -221,7 +254,7 @@
       if (addBtn) {
         addBtn.addEventListener('click', async function () {
           if (!parentToken()) {
-            window.location.href = base + '/parent_portal.php';
+            window.location.href = base + '/parents/';
             return;
           }
           if (!page.selectedSize) {
@@ -233,6 +266,7 @@
           try {
             await apiPost('/api/parent-portal/uniform-cart', {
               product_id: page.product.id,
+              variant_id: page.selectedVariant ? page.selectedVariant.id : null,
               size_id: page.selectedSize.id,
               quantity: 1,
             });
@@ -252,7 +286,7 @@
       if (wishBtn) {
         wishBtn.addEventListener('click', async function () {
           if (!parentToken()) {
-            window.location.href = base + '/parent_portal.php';
+            window.location.href = base + '/parents/';
             return;
           }
           wishBtn.disabled = true;

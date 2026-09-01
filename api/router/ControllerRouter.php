@@ -3,11 +3,16 @@
 namespace App\API\Router;
 
 use Exception;
+use App\API\Services\Logger;
 
 class ControllerRouter
 {
+    /** @var float Request start time (microtime) for duration capture. */
+    private $start;
+
     public function __construct()
     {
+        $this->start = microtime(true);
         // Debug logging only in DEBUG mode
     }
     public function route()
@@ -132,6 +137,8 @@ class ControllerRouter
             // Call controller method with id and data
             $result = $controller->$methodName($id, $data, $segments);
 
+            $this->trace($method, $controllerName, $resource, $id, $result);
+
             if (is_array($result)) {
                 \App\API\Services\RealtimeMutationPublisher::publish(
                     $method,
@@ -172,16 +179,16 @@ class ControllerRouter
             ];
 
         } catch (\InvalidArgumentException $e) {
-            error_log('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->abort(400, $e->getMessage());
         } catch (\RuntimeException $e) {
-            error_log('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             if ($e->getCode() === 404) {
                 return $this->abort(404, $e->getMessage());
             }
             return $this->abort(400, $e->getMessage());
         } catch (Exception $e) {
-            error_log('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->abort(500, 'An internal error occurred.');
         }
     }
@@ -323,6 +330,13 @@ class ControllerRouter
     private function abort($code, $message)
     {
         http_response_code($code);
+        $this->trace(
+            $_SERVER['REQUEST_METHOD'] ?? 'GET',
+            strtolower(str_replace('Controller', '', basename(str_replace('\\', '/', static::class)))),
+            null,
+            null,
+            ['code' => $code, 'message' => $message]
+        );
         return [
             'success' => false,
             'status' => 'error',
@@ -331,6 +345,68 @@ class ControllerRouter
             'errors' => [],
             'code' => $code
         ];
+    }
+
+    /**
+     * Emit a structured HTTP request/response trace to the central 'http' log
+     * category: method, route, controller, resource, status, duration_ms,
+     * user_id, session_id, ip.
+     */
+    private function trace(?string $method, ?string $controllerName, $resource, $id, $result): void
+    {
+        try {
+            $durationMs = (int) round((microtime(true) - $this->start) * 1000);
+            $code = 200;
+            $success = true;
+            if (is_array($result)) {
+                $code = (int) ($result['code'] ?? (($result['success'] ?? true) ? 200 : 400));
+                $success = ((bool) ($result['success'] ?? false)) || $code < 400;
+            }
+            if (!is_array($result)) {
+                $code = (int) http_response_code();
+                $success = $code < 400;
+            }
+
+            $route = ($resource !== null && $resource !== '')
+                ? $method . ' /' . $controllerName . '/' . $resource
+                : $method . ' /' . $controllerName . (is_numeric($id) ? '/' . $id : '');
+
+            Logger::request(($success ? 'OK ' : 'ERR ') . $code . ' ' . $route, [
+                'method' => $method,
+                'controller' => $controllerName,
+                'resource' => $resource !== null ? (string) $resource : null,
+                'resource_id' => is_numeric($id) ? (int) $id : null,
+                'status' => $code,
+                'success' => $success,
+                'duration_ms' => $durationMs,
+                'route' => $route,
+            ]);
+
+            // Universal audit coverage for state-changing API operations.
+            // Domain services may add richer before/after records, while this
+            // guarantees every attempted mutation remains attributable even
+            // when a legacy module has not yet added a bespoke audit call.
+            $normalizedMethod = strtoupper((string) $method);
+            $excluded = preg_match('#/(?:system/client-log|auth/refresh-token|realtime/)#i', $route);
+            if (in_array($normalizedMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true) && !$excluded) {
+                Logger::audit(
+                    strtolower($normalizedMethod) . '_request',
+                    (string) ($controllerName ?: 'api'),
+                    is_numeric($id) ? (int) $id : null,
+                    ($success ? 'Completed' : 'Failed') . ' state-changing API request',
+                    [
+                        'resource' => $resource !== null ? (string) $resource : null,
+                        'status' => $code,
+                        'success' => $success,
+                        'duration_ms' => $durationMs,
+                        'route' => $route,
+                    ]
+                );
+            }
+        } catch (\Throwable $e) {
+            // Never let tracing break the response flow.
+            \App\API\Services\Logger::legacyError('ControllerRouter trace failed: ' . $e->getMessage());
+        }
     }
 
     /**

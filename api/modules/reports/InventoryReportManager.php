@@ -31,11 +31,23 @@ class InventoryReportManager extends BaseAPI
     public function getInventoryStockLevels($filters = [])
     {
         try {
-            $sql = "SELECT i.id, i.name, i.current_quantity, i.unit, c.name as category
+            $where = ['1=1'];
+            $params = [];
+            if (!empty($filters['category_id'])) { $where[] = 'i.category_id = ?'; $params[] = (int) $filters['category_id']; }
+            if (!empty($filters['store_id'])) { $where[] = 'i.location_id = ?'; $params[] = (int) $filters['store_id']; }
+            if (!empty($filters['status'])) { $where[] = "CASE WHEN i.current_quantity <= 0 THEN 'out_of_stock' WHEN i.current_quantity <= GREATEST(i.minimum_quantity, i.reorder_level) THEN 'low_stock' ELSE 'adequate' END = ?"; $params[] = $filters['status']; }
+            $sql = "SELECT i.id, i.name AS item_name, i.current_quantity AS quantity,
+                           GREATEST(i.minimum_quantity, i.reorder_level) AS reorder_level,
+                           CASE WHEN i.current_quantity <= 0 THEN 'out_of_stock'
+                                WHEN i.current_quantity <= GREATEST(i.minimum_quantity, i.reorder_level) THEN 'low_stock'
+                                ELSE 'adequate' END AS stock_status,
+                           i.unit, c.name AS category
                     FROM inventory_items i
                     LEFT JOIN inventory_categories c ON i.category_id = c.id
+                    WHERE " . implode(' AND ', $where) . "
                     ORDER BY i.name";
-            $stmt = $this->db->query($sql);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
             return [];

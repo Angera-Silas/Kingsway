@@ -11,8 +11,7 @@ class SchedulesManager
     public function __construct($db = null)
     {
         if ($db === null) {
-            $db = require_once __DIR__ . '/../../database/Database.php';
-            $db = $db->getInstance();
+            $db = \App\Database\Database::getInstance()->getConnection();
         }
 
         if (!$db) {

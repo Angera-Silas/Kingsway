@@ -196,16 +196,11 @@
                     <label class="form-label">To Date</label>
                     <input type="date" id="reportDateTo" class="form-control" value="<?= date('Y-m-d') ?>">
                 </div>
-                <div class="col-md-3 d-flex align-items-end">
-                    <button class="btn btn-primary" onclick="UniformSalesController.loadReport()">
-                        <i class="bi bi-bar-chart me-1"></i>Generate Report
-                    </button>
-                </div>
             </div>
             <div id="reportContainer">
                 <div class="text-center py-5 text-muted">
                     <i class="bi bi-pie-chart fs-1 mb-3 d-block"></i>
-                    <p>Select date range and click Generate Report</p>
+                    <p>Loading the current-month sales report…</p>
                 </div>
             </div>
         </div>

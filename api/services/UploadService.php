@@ -318,32 +318,113 @@ final class UploadService
     }
 
     /**
+     * Convert any stored upload reference into the plain path relative to
+     * the configured uploads root.
+     *
+     * Accepted stored forms: a bare relative path, an `uploads/...`
+     * relative path, a root-relative path such as `/uploads/...`, an
+     * absolute URL pointing into the uploads tree, and legacy values that
+     * embed an old base segment such as `/Kingsway/uploads/...`. Stored
+     * values must never contain BASE_URL or a filesystem root, so the same
+     * database keeps working whenever BASE_URL or UPLOAD_PATH change.
+     */
+    public function normaliseStoredReference(string $value): string
+    {
+        $value = trim(str_replace('\\', '/', $value));
+        if ($value === '') {
+            throw new RuntimeException('Invalid stored upload path.');
+        }
+        if (preg_match('#^(?:https?:)?//#i', $value)) {
+            $path = (string) (parse_url($value, PHP_URL_PATH) ?? '');
+            if (!preg_match('#(?:^|/)uploads/(.+)$#i', $path, $match)) {
+                throw new RuntimeException(
+                    'External URLs are not local upload paths.'
+                );
+            }
+            $value = $match[1];
+        } else {
+            // Old deployments could have any application-folder name before
+            // `/uploads/`. Extract by the stable uploads boundary instead of
+            // hard-coding a project name such as `Kingsway`.
+            $value = (string) preg_replace('#^(?:.*/)?uploads/#i', '', $value);
+        }
+        $value = ltrim($value, '/');
+        $value = (string) preg_replace('/[?#].*$/', '', $value);
+        $decoded = rawurldecode($value);
+        if (
+            $value === ''
+            || str_contains($decoded, "\0")
+            || in_array('.', explode('/', $decoded), true)
+            || in_array('..', explode('/', $decoded), true)
+        ) {
+            throw new RuntimeException('Invalid stored upload path.');
+        }
+        return $value;
+    }
+
+    /**
+     * Produce the exact value suitable for persistence in a media column.
+     * Local uploads become an uploads-root-relative path; genuine remote
+     * HTTP(S) resources remain absolute because they are not environment
+     * configuration and must continue to resolve at their owning host.
+     */
+    public function canonicalStoredReference(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            throw new RuntimeException('Invalid stored media reference.');
+        }
+        if (preg_match('#^(?:https?:)?//#i', $value)) {
+            $path = (string) (parse_url($value, PHP_URL_PATH) ?? '');
+            if (!preg_match('#(?:^|/)uploads/(.+)$#i', $path)) {
+                $validNetworkPath = str_starts_with($value, '//')
+                    && (string) (parse_url($value, PHP_URL_HOST) ?? '') !== '';
+                if (!$validNetworkPath && filter_var($value, FILTER_VALIDATE_URL) === false) {
+                    throw new RuntimeException('Invalid external media URL.');
+                }
+                return $value;
+            }
+        }
+        return $this->normaliseStoredReference($value);
+    }
+
+    /**
+     * Resolve a stored upload reference into the public URL it must have in
+     * THIS environment, derived from the configured BASE_URL/UPLOAD_URL.
+     *
+     * External absolute URLs that do not point into the uploads tree (for
+     * example remote images or CDNs) are returned untouched, while local
+     * values are always re-anchored to the current UPLOAD_URL so the same
+     * database row resolves correctly after BASE_URL or UPLOAD_PATH change.
+     */
+    public function publicUrl(?string $stored): ?string
+    {
+        $stored = trim((string) $stored);
+        if ($stored === '') {
+            return null;
+        }
+        if (preg_match('#^(?:https?:)?//#i', $stored)) {
+            $path = (string) (parse_url($stored, PHP_URL_PATH) ?? '');
+            if (!preg_match('#(?:^|/)uploads/.+#i', $path)) {
+                return $stored;
+            }
+        }
+        try {
+            $relative = $this->normaliseStoredReference($stored);
+        } catch (RuntimeException $e) {
+            return null;
+        }
+        return rtrim((string) UPLOAD_URL, '/')
+            . '/'
+            . $relative;
+    }
+
+    /**
      * Convert a canonical uploads-relative path back to an absolute path.
      */
     public function absolutePath(string $storedPath): string
     {
-        $storedPath = trim(str_replace('\\', '/', $storedPath));
-
-        foreach ([
-            rtrim((string) UPLOAD_URL, '/') . '/',
-            rtrim((string) BASE_URL, '/') . '/uploads/',
-            '/uploads/',
-            'uploads/',
-        ] as $prefix) {
-            if (str_starts_with($storedPath, $prefix)) {
-                $storedPath = substr($storedPath, strlen($prefix));
-                break;
-            }
-        }
-
-        $storedPath = ltrim($storedPath, '/');
-        if (
-            $storedPath === ''
-            || str_contains($storedPath, '..')
-            || str_contains($storedPath, "\0")
-        ) {
-            throw new RuntimeException('Invalid stored upload path.');
-        }
+        $storedPath = $this->normaliseStoredReference($storedPath);
 
         $resolved = rtrim((string) UPLOAD_PATH, '/\\')
             . DIRECTORY_SEPARATOR
@@ -618,6 +699,19 @@ final class UploadService
     /** Centralized write primitive for application-managed files. */
     public function writeFile(string $path, mixed $contents, int $flags = 0): int|false
     {
+        $normalized = str_replace('\\', '/', $path);
+        $logRoot = str_replace('\\', '/', dirname(__DIR__, 2) . '/logs');
+        if ($normalized === $logRoot || str_starts_with($normalized, $logRoot . '/')) {
+            // Compatibility interception for old modules that still try to
+            // append flat files under logs/. Keep them in the governed,
+            // rotated JSON journal and never persist an unredacted raw body.
+            $category = preg_replace('/\.log$/i', '', basename($path)) ?: 'legacy';
+            Logger::info($category, 'Legacy application log event', [
+                'legacy_source' => basename($path),
+                'legacy_message' => mb_substr(is_scalar($contents) ? (string) $contents : json_encode($contents), 0, 12000),
+            ]);
+            return is_string($contents) ? strlen($contents) : 1;
+        }
         $directory = dirname($path);
         $this->ensureDirectory($directory);
         return file_put_contents($path, $contents, $flags);

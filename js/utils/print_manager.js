@@ -7,7 +7,7 @@
  * Reports
  * - templates/print/server/report_header.php
  * - templates/print/server/report_footer.php
- * - public/css/print-reports.css
+ * - css/print-reports.css
  *
  * Certificates
  * - templates/certificates/academic_excellence.php
@@ -19,7 +19,7 @@
  * - templates/id-cards/student_id_back.php
  * - templates/id-cards/student_id_both_single_row.php
  * - templates/id-cards/student_id_both_two_pages.php
- * - public/css/student-id-card.css
+ * - css/student-id-card.css
  *
  * The browser utility does not rebuild those designs. It sends normalized
  * data to the backend, where PrintService renders the canonical templates.
@@ -1641,7 +1641,7 @@ const PrintManager = (() => {
 
   function generatePrintCSS() {
     console.warn(
-      "generatePrintCSS() is deprecated. Reports use public/css/print-reports.css and ID cards use public/css/student-id-card.css.",
+      "generatePrintCSS() is deprecated. Reports use css/print-reports.css and ID cards use css/student-id-card.css.",
     );
     return "";
   }

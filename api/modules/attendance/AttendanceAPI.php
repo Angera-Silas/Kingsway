@@ -68,7 +68,7 @@ class AttendanceAPI extends BaseAPI {
             $instance = $this->workflow->getWorkflowInstance($workflowInstanceId);
             return successResponse($instance);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -82,7 +82,7 @@ return errorResponse('An internal error occurred.', 500);
             $workflows = $this->workflow->listWorkflows($context);
             return successResponse($workflows);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -106,7 +106,7 @@ return errorResponse('An internal error occurred.', 500);
                 'staff_present' => $q("SELECT COUNT(*) FROM staff_attendance WHERE date=? AND status='present'", [$date]),
             ]);
         } catch (\Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -118,7 +118,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->studentManager->getStudentAttendanceHistory($studentId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -129,7 +129,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->studentManager->getStudentAttendanceSummary($studentId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -140,7 +140,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->studentManager->getClassAttendance($classId, $termId, $yearId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -151,7 +151,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->studentManager->getAttendancePercentage($studentId, $termId, $yearId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -162,7 +162,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->studentManager->getChronicAbsentees($classId, $termId, $yearId, $threshold);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -174,7 +174,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->staffManager->getStaffAttendanceHistory($staffId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -185,7 +185,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->staffManager->getStaffAttendanceSummary($staffId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -196,7 +196,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->staffManager->getDepartmentAttendance($departmentId, $termId, $yearId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -207,7 +207,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->staffManager->getAttendancePercentage($staffId, $termId, $yearId);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -218,7 +218,7 @@ return errorResponse('An internal error occurred.', 500);
             $data = $this->staffManager->getChronicAbsentees($departmentId, $termId, $yearId, $threshold);
             return successResponse($data);
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -293,7 +293,7 @@ return errorResponse('An internal error occurred.', 500);
                 return successResponse(['id' => $id], 'Staff attendance record created successfully');
             }
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -340,7 +340,7 @@ return errorResponse('An internal error occurred.', 500);
                 return successResponse(null, 'Staff attendance record updated successfully');
             }
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }
@@ -379,7 +379,7 @@ return errorResponse('An internal error occurred.', 500);
                 return successResponse(null, 'Staff attendance record deleted successfully');
             }
         } catch (Exception $e) {
-            error_log('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return errorResponse('An internal error occurred.', 500);
         }
     }

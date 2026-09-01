@@ -5,6 +5,7 @@ namespace App\API\Services\payments;
 use App\Database\Database;
 use PDO;
 use Exception;
+use App\API\Services\Logger;
 
 /**
  * DisbursementManager
@@ -176,7 +177,7 @@ class DisbursementManager
                 'results' => $results,
             ];
         } catch (Exception $e) {
-            error_log('[DisbursementManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[DisbursementManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             throw $e;
         }
     }
@@ -487,12 +488,12 @@ class DisbursementManager
             }
 
             if ($latestBalance === null) {
-                error_log('[DisbursementManager] Balance not yet known (async result). Proceeding with disbursement.');
+                \App\API\Services\Logger::legacyError('[DisbursementManager] Balance not yet known (async result). Proceeding with disbursement.');
                 return true;
             }
             return $latestBalance >= $requiredAmount;
         } catch (Exception $e) {
-            error_log('[DisbursementManager] balance check error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[DisbursementManager] balance check error: ' . $e->getMessage());
             return true;
         }
     }
@@ -571,8 +572,9 @@ class DisbursementManager
 
     private function logError($message)
     {
-        $logFile = __DIR__ . '/../../../logs/disbursement_errors.log';
-        $timestamp = date('Y-m-d H:i:s');
-        error_log("[$timestamp] $message\n", 3, $logFile);
+        Logger::error('payments', 'Disbursement processing failed', [
+            'component' => 'DisbursementManager',
+            'error' => (string) $message,
+        ]);
     }
 }

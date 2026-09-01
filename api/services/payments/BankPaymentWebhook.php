@@ -163,9 +163,9 @@ class BankPaymentWebhook
             ]);
 
         } catch (Exception $e) {
-            error_log("Bank Payment Processing Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Bank Payment Processing Error: " . $e->getMessage());
             $this->logWebhookError('KCB', $e->getMessage(), $paymentData);
-            error_log('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -231,8 +231,8 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log("Bank Payment Error: " . $e->getMessage());
-            error_log('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError("Bank Payment Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -257,7 +257,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             $stmt->execute([$accountNumber]);
             return $stmt->fetch(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("Error fetching student: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Error fetching student: " . $e->getMessage());
             return null;
         }
     }
@@ -340,7 +340,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             try {
                 (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment((int) $application['application_id']);
             } catch (\Throwable $workflowError) {
-                error_log('[BankPaymentWebhook] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                \App\API\Services\Logger::legacyError('[BankPaymentWebhook] payment workflow advancement deferred: ' . $workflowError->getMessage());
             }
         }
 
@@ -444,7 +444,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             $storage->writeFile($logFile, $logEntry, FILE_APPEND);
 
         } catch (Exception $e) {
-            error_log("Failed to log webhook: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to log webhook: " . $e->getMessage());
         }
     }
 
@@ -466,7 +466,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
             return $result ? floatval($result['outstanding']) : 0;
         } catch (Exception $e) {
-            error_log("Error calculating outstanding balance: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Error calculating outstanding balance: " . $e->getMessage());
             return false;
         }
     }
@@ -521,7 +521,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             ]);
 
         } catch (Exception $e) {
-            error_log("Failed to log webhook error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to log webhook error: " . $e->getMessage());
         }
     }
 
@@ -571,7 +571,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             }
 
         } catch (Exception $e) {
-            error_log("Failed to send payment confirmation: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to send payment confirmation: " . $e->getMessage());
         }
     }
 }

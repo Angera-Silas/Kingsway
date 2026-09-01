@@ -94,7 +94,7 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -178,7 +178,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -242,7 +242,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, $budget);
 
         } catch (Exception $e) {
-            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -320,7 +320,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -358,7 +358,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, ['variances' => $variances]);
 
         } catch (Exception $e) {
-            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -397,7 +397,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -441,7 +441,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }

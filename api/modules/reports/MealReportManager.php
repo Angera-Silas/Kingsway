@@ -140,21 +140,23 @@ class MealReportManager extends BaseAPI
         $dateTo = $filters['date_to'] ?? date('Y-m-d');
 
         $stmt = $this->db->prepare(
-            "SELECT fcr.consumption_date,
+            "SELECT fcr.consumption_date AS period,
                     fcr.inventory_item_id,
                     i.name AS item_name,
                     fcr.unit,
-                    COALESCE(SUM(fcr.quantity_used), 0) AS total_consumed,
+                    COALESCE(SUM(fcr.quantity_used), 0) AS quantity_consumed,
                     COALESCE(SUM(fcr.waste_quantity), 0) AS total_waste,
-                    COALESCE(SUM(fcr.quantity_used * fcr.cost_per_unit), 0) AS total_cost
+                    COALESCE(SUM(fcr.quantity_used * fcr.cost_per_unit), 0) AS cost
              FROM food_consumption_records fcr
              INNER JOIN inventory_items i ON i.id = fcr.inventory_item_id
-             WHERE fcr.consumption_date BETWEEN ? AND ?
+             WHERE fcr.consumption_date BETWEEN ? AND ?" . (!empty($filters['item_id']) ? " AND fcr.inventory_item_id = ?" : "") . "
              GROUP BY fcr.consumption_date, fcr.inventory_item_id,
                       i.name, fcr.unit
              ORDER BY fcr.consumption_date, i.name"
         );
-        $stmt->execute([$dateFrom, $dateTo]);
+        $params = [$dateFrom, $dateTo];
+        if (!empty($filters['item_id'])) $params[] = (int) $filters['item_id'];
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

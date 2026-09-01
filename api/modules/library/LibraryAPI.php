@@ -44,7 +44,7 @@ class LibraryAPI extends BaseAPI
                 'pending_fines_kes' => $finesPending,
             ]]);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -67,7 +67,7 @@ return $this->errorResponse('An internal error occurred.');
 
             return $this->response(['status' => 'success', 'data' => $rows]);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -86,7 +86,7 @@ return $this->errorResponse('An internal error occurred.');
 
             return $this->response(['status' => 'success', 'data' => ['id' => $id], 'message' => 'Category created']);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -130,7 +130,7 @@ return $this->errorResponse('An internal error occurred.');
 
             return $this->response(['status' => 'success', 'data' => $books]);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -150,7 +150,7 @@ return $this->errorResponse('An internal error occurred.');
 
             return $this->response(['status' => 'success', 'data' => $book]);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -188,7 +188,7 @@ return $this->errorResponse('An internal error occurred.');
 
             return $this->response(['status' => 'success', 'data' => ['id' => $id], 'message' => 'Book added successfully']);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -221,7 +221,7 @@ return $this->errorResponse('An internal error occurred.');
 
             return $this->response(['status' => 'success', 'message' => 'Book updated']);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -238,7 +238,7 @@ return $this->errorResponse('An internal error occurred.');
             $this->db->prepare("UPDATE library_books SET deleted_at=NOW() WHERE id=:id")->execute([':id' => $id]);
             return $this->response(['status' => 'success', 'message' => 'Book removed from library']);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -290,7 +290,7 @@ return $this->errorResponse('An internal error occurred.');
             $stmt->execute($params);
             return $this->response(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -339,7 +339,7 @@ return $this->errorResponse('An internal error occurred.');
             return $this->response(['status' => 'success', 'data' => ['issue_id' => $issueId], 'message' => 'Book issued successfully']);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -380,7 +380,7 @@ return $this->errorResponse('An internal error occurred.');
             return $this->response(['status' => 'success', 'message' => 'Book returned' . ($daysOverdue > 0 ? " — fine of KES ".number_format($daysOverdue * self::FINE_PER_DAY, 2)." applied" : "")]);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -419,7 +419,7 @@ return $this->errorResponse('An internal error occurred.');
             $stmt->execute($params);
             return $this->response(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -432,7 +432,7 @@ return $this->errorResponse('An internal error occurred.');
             )->execute([':id' => $fineId]);
             return $this->response(['status' => 'success', 'message' => 'Fine marked as paid']);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }
@@ -445,7 +445,7 @@ return $this->errorResponse('An internal error occurred.');
             )->execute([':by' => $data['waived_by'] ?? null, ':reason' => $data['reason'] ?? null, ':id' => $fineId]);
             return $this->response(['status' => 'success', 'message' => 'Fine waived']);
         } catch (Exception $e) {
-            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }

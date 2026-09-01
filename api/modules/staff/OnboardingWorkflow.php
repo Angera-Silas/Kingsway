@@ -272,7 +272,7 @@ class OnboardingWorkflow extends WorkflowHandler
             }
 
             // Validate system access details
-            $required = ['email', 'username', 'role'];
+            $required = ['email', 'role'];
             $missing = [];
 
             foreach ($required as $field) {
@@ -291,7 +291,7 @@ class OnboardingWorkflow extends WorkflowHandler
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $workflowData['system_access'] = [
                 'email' => $data['email'],
-                'username' => $data['username'],
+                'username' => null,
                 'role' => $data['role'],
                 'granted_by' => $userId,
                 'granted_at' => date('Y-m-d H:i:s')
@@ -334,7 +334,6 @@ class OnboardingWorkflow extends WorkflowHandler
             // Build user payload and call UsersAPI->create to centralize user creation and role assignment
             $usersApi = new \App\API\Modules\users\UsersAPI();
             $userPayload = [
-                'username' => $data['username'],
                 'email' => $data['email'],
                 'password' => $defaultPassword,
                 'first_name' => $data['first_name'] ?? null,
@@ -360,6 +359,7 @@ class OnboardingWorkflow extends WorkflowHandler
             }
 
             $workflowData['user_id'] = $userId_new;
+            $workflowData['system_access']['username'] = $userResult['data']['username'] ?? null;
 
             // Advance to completion stage and capture the result
             $advanceResult = $this->advanceStage(
@@ -544,7 +544,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
             case 'system_access':
                 // Ensure system access details are provided
-                $required = ['email', 'username', 'role'];
+                $required = ['email', 'role'];
                 foreach ($required as $field) {
                     if (empty($data[$field])) {
                         return false;
@@ -615,7 +615,7 @@ class OnboardingWorkflow extends WorkflowHandler
             }
         } catch (Exception $e) {
             $this->logError('processStage', $e->getMessage());
-            error_log('[OnboardingWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[OnboardingWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }

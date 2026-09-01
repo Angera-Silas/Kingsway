@@ -1,0 +1,1 @@
+<?php $governedReportCode='ENR_CURRENT_BY_CLASS'; $governedReportTitle='Current Enrollment by Class and Stream'; $governedReportLayout='comparison'; $governedPrimaryVisual='stacked_bar'; require __DIR__.'/reports/governed_report.php';

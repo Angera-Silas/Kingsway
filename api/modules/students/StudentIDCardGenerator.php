@@ -87,7 +87,7 @@ class StudentIDCardGenerator extends BaseAPI
             ], 'Photo uploaded successfully');
         } catch (Exception $exception) {
             $this->logError('uploadStudentPhoto', $exception->getMessage());
-            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -164,7 +164,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         } catch (Exception $e) {
             $this->logError('generateEnhancedQRCode', $e->getMessage());
-            error_log('[StudentIDCardGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentIDCardGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -401,7 +401,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $exception->getMessage()
             );
 
-            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -601,7 +601,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $exception->getMessage()
             );
 
-            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -657,7 +657,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $exception->getMessage()
             );
 
-            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }

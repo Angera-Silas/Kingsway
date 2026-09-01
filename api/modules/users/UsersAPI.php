@@ -6,6 +6,7 @@ use App\API\Includes\ValidationHelper;
 use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
+use App\API\Services\UsernameService;
 use Firebase\JWT\JWT;
 use PDO;
 use Exception;
@@ -20,6 +21,7 @@ class UsersAPI extends BaseAPI
     private $userRoleManager;
     private $userPermissionManager;
     private $auditLogger;
+    private ?bool $hasFailedLoginDateColumn = null;
 
     public function __construct()
     {
@@ -267,6 +269,14 @@ class UsersAPI extends BaseAPI
     }
     public function create($data)
     {
+        // Username formation has one owner. Callers provide identity data only;
+        // this service derives a valid, unique username for every creation route.
+        $data['username'] = UsernameService::generate(
+            $this->db,
+            (string) ($data['email'] ?? ''),
+            (string) ($data['first_name'] ?? ''),
+            (string) ($data['last_name'] ?? '')
+        );
         // Normalize incoming payload: accept flattened staff fields (staff_type_id, department_id, etc.)
         // and move them into `staff_info` expected by business logic/validation.
         $staffFieldKeys = [
@@ -329,9 +339,17 @@ class UsersAPI extends BaseAPI
         if (empty($roleIds)) {
             throw new Exception('Role ID(s) must be provided on user creation');
         }
+        if (in_array(4, array_map('intval', $roleIds), true)
+            && (!isset($data['staff_info']) || !is_array($data['staff_info']))) {
+            throw new Exception('School Administrator accounts must be created through the first-administrator or staff-onboarding workflow.');
+        }
 
-        // Start transaction for atomicity
-        $this->db->beginTransaction();
+        // Join an outer workflow transaction when one exists. This lets staff
+        // onboarding commit Person + User + Staff + payroll as one unit.
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $primaryRoleId = $roleIds[0];
@@ -355,8 +373,8 @@ class UsersAPI extends BaseAPI
 
             // STEP 2: Create user record linked to the person (roles via user_roles)
             $userId = $this->nextId('users');
-            $sql = 'INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            $sql = 'INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())';
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
@@ -374,13 +392,16 @@ class UsersAPI extends BaseAPI
                 throw new Exception('User creation failed');
             }
 
-            error_log("User creation: inserted id=$userId");
+            $this->db->prepare("INSERT INTO user_two_factor_methods (user_id, method, label, is_primary, is_enabled, verified_at) VALUES (?, 'email', 'Account email', 1, 1, NULL) ON DUPLICATE KEY UPDATE is_enabled=1, is_primary=1")
+                ->execute([$userId]);
+
+            \App\API\Services\Logger::legacyError("User creation: inserted id=$userId");
 
             // STEP 3: Assign PRIMARY role and copy its permissions
             // Only the primary role is assigned to user_roles (for consistency)
             $rolesAssigned = 0;
             $roleResult = $this->userRoleManager->assignRole($userId, $primaryRoleId);
-            error_log("User creation: assignRole result=" . json_encode($roleResult));
+            \App\API\Services\Logger::legacyError("User creation: assignRole result=" . json_encode($roleResult));
             if ($roleResult['success']) {
                 $rolesAssigned++;
             } else {
@@ -454,7 +475,9 @@ class UsersAPI extends BaseAPI
             $currentUserId = $this->getCurrentUserId();
             $this->auditLogger->logUserCreate($currentUserId, $userId, $validatedData);
 
-            $this->db->commit();
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
 
             // Return complete user data with roles and permissions
             $userData = $this->get($userId)['data'];
@@ -471,12 +494,14 @@ class UsersAPI extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->db->rollBack();
-            error_log("User creation error: " . $e->getMessage());
-            error_log('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            \App\API\Services\Logger::legacyError("User creation error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
-        error_log($e->getTraceAsString());
+        \App\API\Services\Logger::legacyError($e->getTraceAsString());
 
     }
 
@@ -493,7 +518,7 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Failed to add staff record'];
         } catch (Exception $e) {
             $this->db->rollBack();
-            error_log('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -511,7 +536,7 @@ class UsersAPI extends BaseAPI
 
         try {
             $personStmt = $this->db->prepare('INSERT INTO persons (id, first_name, middle_name, last_name, email) VALUES (?, ?, ?, ?, ?)');
-            $stmt = $this->db->prepare('INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+            $stmt = $this->db->prepare('INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())');
 
             foreach ($data['users'] as $index => $userData) {
                 // Normalize top-level staff fields into staff_info for each user record
@@ -549,14 +574,21 @@ class UsersAPI extends BaseAPI
                     }
                 }
                 // Validate required fields
-                if (empty($userData['username']) || empty($userData['email']) || empty($userData['password'])) {
+                if (empty($userData['email']) || empty($userData['password'])) {
                     $failed[] = [
                         'index' => $index,
                         'data' => $userData,
-                        'error' => 'Missing required fields: username, email, password'
+                        'error' => 'Missing required fields: email, password'
                     ];
                     continue;
                 }
+
+                $userData['username'] = UsernameService::generate(
+                    $this->db,
+                    (string) $userData['email'],
+                    (string) ($userData['first_name'] ?? ''),
+                    (string) ($userData['last_name'] ?? '')
+                );
 
                 // Extract role_ids
                 $roleIds = [];
@@ -599,6 +631,8 @@ class UsersAPI extends BaseAPI
                     if (!$ok) {
                         throw new Exception('User creation failed');
                     }
+                    $this->db->prepare("INSERT INTO user_two_factor_methods (user_id, method, label, is_primary, is_enabled, verified_at) VALUES (?, 'email', 'Account email', 1, 1, NULL) ON DUPLICATE KEY UPDATE is_enabled=1, is_primary=1")
+                        ->execute([$userId]);
 
                     $rolesAssigned = 0;
 
@@ -667,7 +701,7 @@ class UsersAPI extends BaseAPI
             ];
         } catch (Exception $e) {
             $this->db->rollBack();
-            error_log("Bulk user creation error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Bulk user creation error: " . $e->getMessage());
             return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -754,7 +788,7 @@ class UsersAPI extends BaseAPI
 
             return ['success' => true, 'data' => $this->get($id)['data']];
         } catch (Exception $e) {
-            error_log("User update error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("User update error: " . $e->getMessage());
             return ['success' => false, 'error' => 'Database error occurred'];
         }
     }
@@ -787,7 +821,7 @@ class UsersAPI extends BaseAPI
                 return ['success' => false, 'error' => 'User deletion failed'];
             }
         } catch (Exception $e) {
-            error_log("User deletion error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("User deletion error: " . $e->getMessage());
             return ['success' => false, 'error' => 'Database error occurred'];
         }
     }
@@ -809,6 +843,144 @@ class UsersAPI extends BaseAPI
                 'permissions' => $permissions['data'] ?? []
             ]
         ];
+    }
+
+    /**
+     * Self-service update of the authenticated user's own personal/account
+     * details. Only whitelisted person columns are accepted; employment,
+     * payroll, statutory, role, and permission data is never editable here.
+     */
+    public function updateSelfProfile($userId, array $data)
+    {
+        // Whitelisted person columns a user may update on their own shared row.
+        $stringFields = ['first_name', 'middle_name', 'last_name', 'phone'];
+        $emailField = 'email';
+        $enumGender = ['male', 'female', 'other'];
+        $photoField = 'photo_url';
+
+        $personFields = [];
+        $params = [];
+        $errors = [];
+
+        foreach ($stringFields as $field) {
+            if (array_key_exists($field, $data)) {
+                $value = trim((string) $data[$field]);
+                if (in_array($field, ['first_name', 'last_name'], true) && $value === '') {
+                    $errors[] = ucfirst(str_replace('_', ' ', $field)) . ' is required';
+                    continue;
+                }
+                $personFields[] = "{$field} = ?";
+                $params[] = $value;
+            }
+        }
+
+        if (array_key_exists($emailField, $data)) {
+            $email = trim((string) $data[$emailField]);
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $errors[] = 'A valid email is required';
+            } elseif (!ValidationHelper::isEmailUnique($email, $this->db, $userId)) {
+                $errors[] = 'Email already in use by another account';
+            } else {
+                $personFields[] = 'email = ?';
+                $params[] = $email;
+            }
+        }
+
+        if (array_key_exists('gender', $data)) {
+            $gender = strtolower((string) $data['gender']);
+            if ($gender !== '' && !in_array($gender, $enumGender, true)) {
+                $errors[] = 'Invalid gender value';
+            } else {
+                $personFields[] = 'gender = ?';
+                $params[] = $gender !== '' ? $gender : null;
+            }
+        }
+
+        if (array_key_exists('date_of_birth', $data)) {
+            $dob = trim((string) $data['date_of_birth']);
+            if ($dob !== '') {
+                $dt = date_create($dob);
+                if (!$dt) {
+                    $errors[] = 'Invalid date of birth';
+                } else {
+                    $personFields[] = 'dob = ?';
+                    $params[] = $dt->format('Y-m-d');
+                }
+            } else {
+                $personFields[] = 'dob = ?';
+                $params[] = null;
+            }
+        }
+
+        if (array_key_exists($photoField, $data)) {
+            $url = trim((string) $data[$photoField]);
+            if ($url !== '' && !filter_var($url, FILTER_VALIDATE_URL)) {
+                $errors[] = 'Invalid photo URL';
+            } else {
+                $personFields[] = 'photo_url = ?';
+                $params[] = $url !== '' ? $url : null;
+            }
+        }
+
+        if ($errors) {
+            return ['success' => false, 'error' => implode('; ', $errors)];
+        }
+
+        if (empty($personFields)) {
+            return ['success' => false, 'error' => 'No fields to update'];
+        }
+
+        $params[] = $userId;
+        $sql = 'UPDATE persons SET ' . implode(', ', $personFields)
+            . ' WHERE id = (SELECT person_id FROM users WHERE id = ?)';
+        $this->db->prepare($sql)->execute($params);
+
+        return ['success' => true, 'data' => $this->get($userId)['data']];
+    }
+
+    /**
+     * Recent session/login history for one user, from user_sessions.
+     * Device/browser are derived from the stored user-agent string.
+     */
+    public function loginHistory($userId, int $limit = 20)
+    {
+        $stmt = $this->db->prepare(
+            'SELECT login_time AS created_at, ip_address, user_agent,
+                    session_status AS status, last_activity, logout_time
+             FROM user_sessions
+             WHERE user_id = ?
+             ORDER BY login_time DESC
+             LIMIT ?'
+        );
+        $stmt->bindValue(1, (int) $userId, \PDO::PARAM_INT);
+        $stmt->bindValue(2, max(1, $limit), \PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        foreach ($rows as &$row) {
+            $row['browser'] = $this->browserFromAgent($row['user_agent'] ?? '');
+            $row['device'] = $this->deviceFromAgent($row['user_agent'] ?? '');
+            unset($row['user_agent']);
+        }
+
+        return ['success' => true, 'data' => $rows];
+    }
+
+    private function browserFromAgent($agent)
+    {
+        foreach (['Edg/' => 'Edge', 'Chrome/' => 'Chrome', 'Firefox/' => 'Firefox', 'Safari/' => 'Safari'] as $needle => $name) {
+            if (stripos($agent, $needle) !== false) return $name;
+        }
+        return '—';
+    }
+
+    private function deviceFromAgent($agent)
+    {
+        if (stripos($agent, 'Mobile') !== false) return 'Mobile';
+        if (stripos($agent, 'Tablet') !== false) return 'Tablet';
+        if (stripos($agent, 'curl') !== false) return 'API / CLI';
+        if (stripos($agent, 'bot') !== false || stripos($agent, 'spider') !== false) return 'Bot';
+        return 'Desktop';
     }
 
     public function getRoles()
@@ -918,6 +1090,9 @@ class UsersAPI extends BaseAPI
         }
 
         // Lookup user by username or email
+        $failureDayColumn = $this->hasDailyFailureColumn()
+            ? 'u.failed_login_date'
+            : 'DATE(u.updated_at)';
         $stmt = $this->db->prepare(
             'SELECT
                 u.id,
@@ -929,6 +1104,12 @@ class UsersAPI extends BaseAPI
                 (SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1) AS role_id,
                 u.status,
                 u.force_password_change,
+                u.is_test_user,
+                CASE
+                    WHEN ' . $failureDayColumn . ' = CURDATE()
+                    THEN COALESCE(u.failed_login_attempts, 0)
+                    ELSE 0
+                END AS failed_login_attempts,
                 u.account_locked_until,
                 CASE
                     WHEN u.account_locked_until IS NOT NULL
@@ -965,12 +1146,13 @@ class UsersAPI extends BaseAPI
             );
             return [
                 'success' => false,
-                'error' => 'Account is temporarily locked'
+                'error' => 'Account locked for 15 minutes after too many unsuccessful login attempts. Please wait before trying again or contact a system administrator.'
             ];
         }
 
         // Verify password
         if (!password_verify($password, $user['password'])) {
+            $failedAttempts = (int) ($user['failed_login_attempts'] ?? 0) + 1;
             $this->recordAuthenticationAttempt(
                 $username,
                 (int) $user['id'],
@@ -978,6 +1160,15 @@ class UsersAPI extends BaseAPI
                 'invalid_credentials',
                 true
             );
+
+            // The fifth failed attempt creates the lock. Tell the user in this
+            // response instead of making them submit a sixth time to discover it.
+            if ($failedAttempts >= 5) {
+                return [
+                    'success' => false,
+                    'error' => 'Account locked for 15 minutes after too many unsuccessful login attempts. Please wait before trying again or contact a system administrator.'
+                ];
+            }
             return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
@@ -1035,7 +1226,7 @@ class UsersAPI extends BaseAPI
                         date('Y-m-d H:i:s', time() + 3600)
                     );
             } catch (\Throwable $error) {
-                error_log(
+                \App\API\Services\Logger::legacyError(
                     'Legacy user session creation failed: ' .
                     $error->getMessage()
                 );
@@ -1072,6 +1263,7 @@ class UsersAPI extends BaseAPI
                     'role_id' => $user['role_id'],
                     'status' => $user['status'] ?? null,
                     'force_password_change' => (int)($user['force_password_change'] ?? 0),
+                    'is_test_user' => (int)($user['is_test_user'] ?? 0),
                     'roles' => $roles['data'] ?? [],
                     'permissions' => $permissionCodes  // In response body, NOT in token
                 ]
@@ -1102,25 +1294,65 @@ class UsersAPI extends BaseAPI
             }
 
             if ($userId !== null && $incrementFailedAttempts) {
-                $stmt = $this->db->prepare(
-                    'UPDATE users
-                     SET failed_login_attempts =
-                            COALESCE(failed_login_attempts, 0) + 1,
-                         account_locked_until =
+                if ($this->hasDailyFailureColumn()) {
+                    $stmt = $this->db->prepare(
+                        'UPDATE users
+                     SET account_locked_until =
                             CASE
-                                WHEN COALESCE(failed_login_attempts, 0) + 1 >= 5
+                                WHEN (
+                                    CASE
+                                        WHEN failed_login_date = CURDATE()
+                                        THEN COALESCE(failed_login_attempts, 0)
+                                        ELSE 0
+                                    END
+                                ) + 1 >= 5
                                 THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE)
-                                ELSE account_locked_until
+                                ELSE DATE_SUB(NOW(), INTERVAL 1 DAY)
                             END,
+                         failed_login_attempts = (
+                            CASE
+                                WHEN failed_login_date = CURDATE()
+                                THEN COALESCE(failed_login_attempts, 0)
+                                ELSE 0
+                            END
+                         ) + 1,
+                         failed_login_date = CURDATE(),
                          updated_at = NOW()
                      WHERE id = ?'
-                );
+                    );
+                } else {
+                    // Backward-compatible deployment path: updated_at is set by
+                    // every failed attempt and therefore identifies the day to
+                    // which the current counter belongs.
+                    $stmt = $this->db->prepare(
+                        'UPDATE users
+                         SET account_locked_until = CASE
+                                WHEN (
+                                    CASE WHEN DATE(updated_at) = CURDATE()
+                                         THEN COALESCE(failed_login_attempts, 0)
+                                         ELSE 0 END
+                                ) + 1 >= 5
+                                THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+                                ELSE DATE_SUB(NOW(), INTERVAL 1 DAY)
+                             END,
+                             failed_login_attempts = (
+                                CASE WHEN DATE(updated_at) = CURDATE()
+                                     THEN COALESCE(failed_login_attempts, 0)
+                                     ELSE 0 END
+                             ) + 1,
+                             updated_at = NOW()
+                         WHERE id = ?'
+                    );
+                }
                 $stmt->execute([$userId]);
             } elseif ($userId !== null && $markSuccessfulLogin) {
+                $dailyReset = $this->hasDailyFailureColumn()
+                    ? ', failed_login_date = NULL'
+                    : '';
                 $stmt = $this->db->prepare(
                     'UPDATE users
                      SET last_login = NOW(),
-                         failed_login_attempts = 0,
+                         failed_login_attempts = 0' . $dailyReset . ',
                          account_locked_until = DATE_SUB(NOW(), INTERVAL 1 DAY),
                          updated_at = NOW()
                      WHERE id = ?'
@@ -1153,6 +1385,20 @@ class UsersAPI extends BaseAPI
                     : substr($failureReason, 0, 100),
             ]);
 
+            // Mirror failed authentication into the audit journal with the
+            // canonical actions the Audit & Forensics console filters for.
+            if (!in_array($status, ['success', 'info', 'ok'], true)) {
+                \App\API\Includes\SecurityEventNotifier::failedLogin(
+                    (string) $identifier,
+                    (string) ($failureReason ?? 'unknown'),
+                    [
+                        'user_id' => $userId,
+                        'entity_id' => $userId,
+                        'details' => ['ip' => $ipAddress, 'identifier' => substr($identifier, 0, 100)],
+                    ]
+                );
+            }
+
             if ($ownsTransaction) {
                 $this->db->commit();
             }
@@ -1160,11 +1406,33 @@ class UsersAPI extends BaseAPI
             if ($ownsTransaction && $this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log(
+            \App\API\Services\Logger::legacyError(
                 'Authentication telemetry write failed: ' .
                 $error->getMessage()
             );
         }
+    }
+
+    /**
+     * Allow application code and the additive migration to be deployed in
+     * either order without breaking authentication.
+     */
+    private function hasDailyFailureColumn(): bool
+    {
+        if ($this->hasFailedLoginDateColumn !== null) {
+            return $this->hasFailedLoginDateColumn;
+        }
+
+        try {
+            $stmt = $this->db->query(
+                "SHOW COLUMNS FROM users LIKE 'failed_login_date'"
+            );
+            $this->hasFailedLoginDateColumn = (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (\Throwable $error) {
+            $this->hasFailedLoginDateColumn = false;
+        }
+
+        return $this->hasFailedLoginDateColumn;
     }
 
     public function changePassword($userId, $data)
@@ -1302,7 +1570,7 @@ class UsersAPI extends BaseAPI
             18 => 4,  // Boarding Master → Administration (4)
             33 => 4,  // Security Staff → Administration (4)
             34 => 4,  // Janitor → Administration (4)
-            14 => 4,  // Inventory Manager → Administration (4)
+            14 => 4,  // Uniform Store Manager → Administration (4)
             24 => 6,  // Chaplain → Student & Staff Welfare (6)
             21 => 7,  // Talent Development → Talent Development (7)
         ];
@@ -1358,7 +1626,7 @@ class UsersAPI extends BaseAPI
             32 => 13,  // Kitchen Staff → Cook (13)
             33 => 12,  // Security Staff → Security Guard (12)
             34 => 10,  // Janitor → Cleaner (10)
-            14 => 20,  // Inventory Manager → Secretary (20)
+            14 => 20,  // Uniform Store Manager → Secretary (20)
             21 => 7,   // Talent Development → Activities Coordinator (7)
         ];
 
@@ -1455,6 +1723,10 @@ class UsersAPI extends BaseAPI
                 $personSets[] = 'dob = ?';
                 $personParams[] = $staffInfo['date_of_birth'];
             }
+            if (!empty($staffInfo['national_id_no'])) {
+                $personSets[] = 'national_id_no = ?';
+                $personParams[] = $staffInfo['national_id_no'];
+            }
             if (!empty($staffInfo['profile_pic_url'])) {
                 $personSets[] = 'photo_url = ?';
                 $personParams[] = $staffInfo['profile_pic_url'];
@@ -1525,7 +1797,7 @@ class UsersAPI extends BaseAPI
 
             return $staffId;
         } catch (Exception $e) {
-            error_log("Error adding staff record: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Error adding staff record: " . $e->getMessage());
             return false;
         }
     }

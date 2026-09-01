@@ -9,6 +9,7 @@ class CsrfMiddleware
         'auth/register',
         'auth/forgot-password',
         'auth/reset-password',
+        'auth/reset-default-password',
         'auth/complete-reset',
         'auth/verify-reset-token',
         'auth/refresh-token',
@@ -21,6 +22,10 @@ class CsrfMiddleware
         'session/validate-token',
         'users/login',
         'users/register',
+        'twofactor/challenge',
+        'twofactor/verify',
+        'twofactor/passwordless-options',
+        'twofactor/passwordless-verify',
         'payments/index',
         'payments/mpesa-b2c-callback',
         'payments/mpesa-b2c-timeout',
@@ -41,9 +46,6 @@ class CsrfMiddleware
         'parent-portal/login-otp-request',
         'parent-portal/login-otp-verify',
         'staff-appointments/careers-candidate',
-        'telemetry',
-        'telemetry/data',
-        'telemetry/errors',
         'academic/resources/download',
         'download/public',
         'download/print',
@@ -158,6 +160,10 @@ class CsrfMiddleware
 
     private static function deny(int $code, string $message): void
     {
+        \App\API\Includes\SecurityEventNotifier::securityIncident(
+            $message,
+            ['entity' => 'csrf', 'details' => ['status_code' => $code]]
+        );
         http_response_code($code);
         if (!headers_sent()) {
             header('Content-Type: application/json; charset=utf-8');

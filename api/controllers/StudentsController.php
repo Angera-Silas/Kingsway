@@ -2132,7 +2132,7 @@ class StudentsController extends BaseController
         try {
             return $this->success($this->studentInsightsService->listHealthSpecialNeeds(array_merge($_GET, $data)));
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->error('An internal error occurred.');
         }
     }
@@ -2155,7 +2155,7 @@ return $this->error('An internal error occurred.');
         try {
             return $this->success($this->studentInsightsService->getPerformanceMeta());
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2182,7 +2182,7 @@ return $this->badRequest('An internal error occurred.');
                 array_merge($_GET, $data)
             ));
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2219,8 +2219,8 @@ return $this->badRequest('An internal error occurred.');
             }
 
             return $this->success($payload);
-        } catch (RuntimeException $e) { error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2249,7 +2249,7 @@ return $this->badRequest('An internal error occurred.');
         try {
             return $this->success($this->studentInsightsService->getDisciplineMeta());
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2266,7 +2266,7 @@ return $this->badRequest('An internal error occurred.');
         try {
             return $this->success($this->studentInsightsService->listDisciplineCases(array_merge($_GET, $data)));
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2293,7 +2293,7 @@ return $this->badRequest('An internal error occurred.');
 
             return $this->success($payload);
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2315,8 +2315,8 @@ return $this->badRequest('An internal error occurred.');
         try {
             $this->studentInsightsService->updateDisciplineCase($caseId, $data, (int)$this->user['id']);
             return $this->success(['message' => 'Discipline case updated successfully']);
-        } catch (RuntimeException $e) { error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2337,7 +2337,7 @@ return $this->badRequest('An internal error occurred.');
         try {
             return $this->success($this->studentInsightsService->getSpecialNeedsMeta());
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2362,7 +2362,7 @@ return $this->badRequest('An internal error occurred.');
             }
             return $this->success($this->studentInsightsService->listSpecialNeedsIEPs($filters));
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }
@@ -2389,7 +2389,7 @@ return $this->badRequest('An internal error occurred.');
 
             return $this->success($payload);
         } catch (\Exception $e) {
-            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
     }

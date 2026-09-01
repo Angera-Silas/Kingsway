@@ -248,7 +248,7 @@ class CommunicationPlatformService
         );
         $stmt->execute([
             $options['sender_id'] ?? 1,
-            $options['subject'] ?? ($template['subject'] ?? 'Kingsway Academy'),
+            $options['subject'] ?? ($template['subject'] ?? 'Kingsway Preparatory School'),
             $template['body'],
             $channel,
             $status,

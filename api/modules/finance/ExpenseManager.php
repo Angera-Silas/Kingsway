@@ -154,7 +154,7 @@ class ExpenseManager
                         'Expense: ' . $data['description'],
                     ]);
                 } catch (Exception $e) {
-                    error_log("ExpenseManager: could not mirror bank_transaction: " . $e->getMessage());
+                    \App\API\Services\Logger::legacyError("ExpenseManager: could not mirror bank_transaction: " . $e->getMessage());
                 }
             }
 
@@ -169,7 +169,7 @@ class ExpenseManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -268,7 +268,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -307,7 +307,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, $expense);
 
         } catch (Exception $e) {
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -415,7 +415,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -462,7 +462,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -509,7 +509,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -540,7 +540,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $service->push([$requester], 'expense', $title, $message, 'medium');
         } catch (Exception $e) {
-            error_log('[ExpenseManager] Notification push failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] Notification push failed: ' . $e->getMessage());
         }
     }
 
@@ -601,7 +601,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -648,7 +648,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ) {
                 return formatResponse(false, null, 'Expense not found');
             }
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -678,7 +678,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, $row ?: null);
         } catch (Exception $e) {
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -733,7 +733,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['expenses' => $rows, 'stats' => $stats]);
         } catch (Exception $e) {
-            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }

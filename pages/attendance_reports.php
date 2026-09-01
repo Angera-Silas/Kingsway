@@ -19,7 +19,7 @@
       <div class="row g-2 align-items-end">
         <div class="col-md-3">
           <label class="form-label small fw-semibold">Period</label>
-          <select id="arPeriod" class="form-select form-select-sm" onchange="attendanceReportsController.onPeriodChange()">
+          <select id="arPeriod" class="form-select form-select-sm">
             <option value="this_week">This Week</option>
             <option value="this_month" selected>This Month</option>
             <option value="this_term">This Term</option>
@@ -39,11 +39,6 @@
           <select id="arClass" class="form-select form-select-sm">
             <option value="">All Classes</option>
           </select>
-        </div>
-        <div class="col-md-2">
-          <button class="btn btn-primary btn-sm w-100" onclick="attendanceReportsController.load()">
-            <i class="bi bi-search me-1"></i>Generate
-          </button>
         </div>
       </div>
     </div>
@@ -132,7 +127,7 @@
             </tr>
           </thead>
           <tbody id="arChronicTableBody">
-            <tr><td colspan="7" class="text-center py-4 text-muted">Click Generate to load.</td></tr>
+            <tr><td colspan="7" class="text-center py-4 text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Loading chronic-attendance data…</td></tr>
           </tbody>
         </table>
       </div>

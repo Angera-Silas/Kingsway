@@ -182,7 +182,7 @@ class StudentService
                 ]
             ];
         } catch (Exception $e) {
-            error_log("StudentService::getIdCardMeta error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::getIdCardMeta error: " . $e->getMessage());
             return [
                 'success' => false,
                 'data' => [
@@ -348,7 +348,7 @@ class StudentService
                 ]
             ];
         } catch (Exception $e) {
-            error_log("StudentService::getIdCards error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::getIdCards error: " . $e->getMessage());
             return [
                 'success' => false,
                 'data' => [],
@@ -443,7 +443,7 @@ class StudentService
                 'card_history' => $history
             ];
         } catch (Exception $e) {
-            error_log("StudentService::getIdCardDetails error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::getIdCardDetails error: " . $e->getMessage());
             return null;
         }
     }
@@ -536,7 +536,7 @@ class StudentService
             ];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::generateIdCard error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::generateIdCard error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -615,7 +615,7 @@ class StudentService
             ];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::generateCardQrCode error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::generateCardQrCode error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -648,7 +648,7 @@ class StudentService
             return ['success' => true, 'message' => 'Card marked as printed'];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::markCardPrinted error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::markCardPrinted error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -681,7 +681,7 @@ class StudentService
             return ['success' => true, 'message' => 'Card marked as issued'];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::markCardIssued error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::markCardIssued error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -714,7 +714,7 @@ class StudentService
             return ['success' => true, 'message' => 'Card marked as lost'];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::markCardLost error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::markCardLost error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -802,7 +802,7 @@ class StudentService
             ];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::renewCard error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::renewCard error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -891,7 +891,7 @@ class StudentService
             ];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::replaceCard error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::replaceCard error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -924,7 +924,7 @@ class StudentService
             return ['success' => true, 'message' => 'Card revoked successfully'];
         } catch (Exception $e) {
             $db->rollBack();
-            error_log("StudentService::revokeCard error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::revokeCard error: " . $e->getMessage());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -961,7 +961,7 @@ class StudentService
 
             return ['history' => $history];
         } catch (Exception $e) {
-            error_log("StudentService::getCardHistory error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::getCardHistory error: " . $e->getMessage());
             return ['history' => []];
         }
     }
@@ -1021,7 +1021,7 @@ class StudentService
                 'is_expired' => $isExpired
             ];
         } catch (Exception $e) {
-            error_log("StudentService::verifyCard error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("StudentService::verifyCard error: " . $e->getMessage());
             return null;
         }
     }

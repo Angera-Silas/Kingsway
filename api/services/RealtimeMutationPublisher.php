@@ -65,7 +65,7 @@ class RealtimeMutationPublisher
         } catch (\Throwable $e) {
             // Realtime is an acceleration layer. It must never roll back or
             // turn a successful school operation into an HTTP failure.
-            error_log('Realtime mutation publish failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Realtime mutation publish failed: ' . $e->getMessage());
         }
     }
 

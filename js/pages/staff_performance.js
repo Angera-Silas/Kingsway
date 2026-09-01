@@ -28,13 +28,15 @@ const StaffPerformanceController = {
         this.bindEvents();
         await this.loadStaffList();
         await this.loadCurrentAcademicYear();
+        const staffSelect = document.getElementById("staffSelect");
+        if (staffSelect && !staffSelect.value && staffSelect.options.length > 1) staffSelect.selectedIndex = 1;
+        await this.generateReport();
     },
 
     bindEvents() {
-        const generateBtn = document.getElementById("generateBtn");
-        if (generateBtn) {
-            generateBtn.addEventListener("click", () => this.generateReport());
-        }
+        ["staffSelect", "department", "period"].forEach((id) => {
+            document.getElementById(id)?.addEventListener("change", () => this.generateReport());
+        });
 
         const exportBtn = document.getElementById("exportBtn");
         if (exportBtn) {

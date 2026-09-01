@@ -191,7 +191,7 @@ class FamilyGroupsManager
                 'pagination' => ['total' => count($rows), 'limit' => count($rows), 'offset' => 0, 'pages' => $rows ? 1 : 0],
             ];
         } catch (Exception $e) {
-            error_log('[FamilyGroupsManager::getClassParentContacts] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FamilyGroupsManager::getClassParentContacts] ' . $e->getMessage());
             return ['success' => false, 'message' => 'Unable to load class parent contacts'];
         }
     }
@@ -441,7 +441,7 @@ class FamilyGroupsManager
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
-            error_log('FamilyGroupsManager::createParent error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('FamilyGroupsManager::createParent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -523,7 +523,7 @@ class FamilyGroupsManager
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
-            error_log('FamilyGroupsManager::updateParent error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('FamilyGroupsManager::updateParent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -569,7 +569,7 @@ class FamilyGroupsManager
                 'message' => 'Parent linked to student successfully'
             ];
         } catch (Exception $e) {
-            error_log('FamilyGroupsManager::linkParentToStudent error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('FamilyGroupsManager::linkParentToStudent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -606,7 +606,7 @@ class FamilyGroupsManager
                 'message' => 'Parent-student link not found'
             ];
         } catch (Exception $e) {
-            error_log('FamilyGroupsManager::unlinkParentFromStudent error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('FamilyGroupsManager::unlinkParentFromStudent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'

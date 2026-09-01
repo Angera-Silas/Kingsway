@@ -184,7 +184,7 @@ class CommunicationsAPI extends BaseAPI
             }
             $result['recent'] = $recent;
         } catch (\Exception $e) {
-            error_log('[CommunicationsAPI::getSummary] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[CommunicationsAPI::getSummary] ' . $e->getMessage());
             return [
                 'status' => 'error',
                 'message' => 'Failed to build communications summary',
@@ -252,7 +252,7 @@ class CommunicationsAPI extends BaseAPI
                 }
             } catch (\Exception $e) {
                 $failed[] = $phone;
-                error_log("SMS Send Error: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError("SMS Send Error: " . $e->getMessage());
             }
         }
 
@@ -405,8 +405,8 @@ class CommunicationsAPI extends BaseAPI
                 'data' => $result,
             ];
         } catch (\Exception $e) {
-            error_log("Fee Reminder Error: " . $e->getMessage());
-            error_log('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError("Fee Reminder Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['status' => 'error', 'message' => 'Unable to queue fee reminder.', 'data' => null];
         }
     }
@@ -556,7 +556,7 @@ class CommunicationsAPI extends BaseAPI
             ]);
         } catch (\Exception $e) {
             // Log error but don't fail the main operation
-            error_log("Fee Reminder Log Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Fee Reminder Log Error: " . $e->getMessage());
         }
     }
 
@@ -630,7 +630,7 @@ class CommunicationsAPI extends BaseAPI
                 }
             } catch (\Exception $e) {
                 $failed[] = $phone;
-                error_log("SMS Error: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError("SMS Error: " . $e->getMessage());
             }
         }
         return [
@@ -1237,8 +1237,8 @@ class CommunicationsAPI extends BaseAPI
                 ]
             ];
         } catch (\Exception $e) {
-            error_log("WhatsApp Template Error: " . $e->getMessage());
-            error_log('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError("WhatsApp Template Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' => null];
         }
     }
@@ -1320,8 +1320,8 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
                 ];
             }
         } catch (\Exception $e) {
-            error_log("Create WhatsApp Template Error: " . $e->getMessage());
-            error_log('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError("Create WhatsApp Template Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' => null];
         }
     }

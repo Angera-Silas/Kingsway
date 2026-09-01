@@ -43,7 +43,7 @@
       }
     },
 
-    // Announcing ticker is rendered site-wide by public/js/public.js.
+    // Announcing ticker is rendered site-wide by js/public.js.
 
     renderHeroStats(stats, m) {
       const el = document.getElementById('home-hero-stats');
@@ -53,7 +53,7 @@
         [students + '+', m.hero_stat_1_label || 'Students Enrolled', 'bi-people-fill'],
         [m.hero_stat_2_value || '98%', m.hero_stat_2_label || 'KJSEA / KCPE Pass Rate', 'bi-mortarboard-fill'],
         [m.hero_stat_3_value || '30+', m.hero_stat_3_label || 'Regional Awards', 'bi-award-fill'],
-        ['Est. ' + (m.school_founded_year || '2005'), m.hero_stat_4_label || 'Years of Excellence', 'bi-calendar2-check'],
+        ['Est. ' + (m.school_founded_year || '2008'), m.hero_stat_4_label || 'Years of Excellence', 'bi-calendar2-check'],
       ];
       el.innerHTML = rows.map((r) =>
         '<div class="hero-stat">' +

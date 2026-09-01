@@ -20,7 +20,7 @@
                     <p class="text-muted mb-0">Track and report student conduct and behavior</p>
                 </div>
                 <button class="btn btn-primary" id="generateReports">
-                    <i class="bi bi-file-pdf me-1"></i> Generate Reports
+                    <i class="bi bi-file-pdf me-1"></i> Export PDF Reports
                 </button>
             </div>
         </div>

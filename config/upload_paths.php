@@ -7,7 +7,7 @@ namespace App\Config;
 use RuntimeException;
 
 /**
- * Kingsway Academy
+ * Kingsway Preparatory School
  * Canonical upload paths shared by all environments.
  *
  * Requirements:

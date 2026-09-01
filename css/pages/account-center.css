@@ -1,0 +1,245 @@
+.settings-shell {
+    --account-green: #0b5d3b;
+    --account-green-dark: #073f2a;
+    --account-gold: #d6ad2d;
+    --account-cream: #fbf8ee;
+}
+
+#accountSettingsPage {
+    color: #202a26;
+    background: #f5f7f6;
+    min-height: calc(100vh - 72px);
+    padding: 1.75rem !important;
+    font-size: .9375rem;
+}
+
+.settings-shell { max-width: 1260px; }
+
+.settings-hero {
+    border-radius: 1rem !important;
+    background: #fff !important;
+    overflow: visible !important;
+    border: 1px solid #e5e9e7 !important;
+    box-shadow: 0 10px 32px rgba(31, 48, 40, .06) !important;
+    margin-bottom: 1.5rem !important;
+}
+
+.account-cover {
+    height: 142px;
+    position: relative;
+    background:
+        linear-gradient(100deg, rgba(251, 248, 237, .38), rgba(229, 240, 233, .3)),
+        url('../../uploads/school_assets/bg_images/school_hero_section_bg_1.jpg') center 54% / cover no-repeat;
+    border-radius: 1rem 1rem 0 0;
+    overflow: hidden;
+}
+
+.account-cover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(11, 93, 59, .12), transparent 52%, rgba(214, 173, 45, .08));
+}
+
+.account-cover-mark {
+    position: absolute;
+    z-index: 1;
+    right: 2rem;
+    top: 1.4rem;
+    color: rgba(11, 93, 59, .22);
+    font-size: 4rem;
+}
+
+.account-identity-bar {
+    min-height: 102px;
+    padding: 3.35rem 1.75rem 1.15rem;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1rem;
+    position: relative;
+    color: #1f332a;
+}
+
+.account-identity-bar h1 { color: #17231e; font-size: 1.45rem; font-weight: 700; letter-spacing: -.025em; }
+.account-identity-copy p { font-size: .82rem; }
+
+.account-identity-copy { min-width: 0; text-align: center; }
+.account-identity-meta { position: absolute; right: 1.75rem; bottom: 1.25rem; display: flex; align-items: center; gap: .65rem; }
+
+.account-completion .progress { height: 7px; background: #e7eee9; }
+.account-completion-note { max-width: 360px; }
+
+.account-avatar,
+#profileAvatar {
+    width: 88px;
+    height: 88px;
+    border: 5px solid #fff;
+    box-shadow: 0 .65rem 1.8rem rgba(26, 45, 36, .16);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    font-size: 1.25rem;
+    font-weight: 800;
+    background: #fff;
+    color: var(--account-green);
+}
+
+.account-identity-bar .account-avatar {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: -44px;
+}
+
+.account-workspace {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 1.5rem;
+    margin: 0;
+}
+
+.account-workspace > aside,
+.account-workspace > main { width: auto; max-width: none; padding: 0; }
+.account-workspace > aside .card { border: 1px solid #e4e9e6 !important; border-radius: 1rem; box-shadow: 0 8px 28px rgba(31, 48, 40, .045) !important; }
+.settings-nav-title { margin: .8rem .85rem .6rem; color: #929b96; font-size: .66rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.account-back-link { color: var(--account-green) !important; }
+
+#profileAvatar img,
+#settings-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.settings-nav .nav-link {
+    position: relative;
+    border: 0;
+    min-height: 42px;
+    padding: .68rem .85rem;
+    border-radius: .6rem;
+    color: #59645f;
+    font-size: .84rem;
+    font-weight: 500;
+    box-shadow: none;
+}
+
+.settings-nav .nav-link:hover { background: #f1f5f2; color: var(--account-green); }
+.settings-nav .nav-link.active {
+    color: #fff;
+    background: var(--account-green);
+    box-shadow: 0 7px 16px rgba(11, 93, 59, .16);
+}
+
+.settings-nav .nav-link.active::before {
+    content: '';
+    position: absolute;
+    inset-block: .55rem;
+    left: 0;
+    width: 3px;
+    border-radius: 4px;
+    background: var(--account-gold);
+}
+
+.settings-section > .card,
+.settings-section .card,
+.account-stat {
+    border-radius: .9rem;
+    border: 1px solid #e4e9e6 !important;
+    box-shadow: 0 8px 26px rgba(31, 48, 40, .045) !important;
+}
+
+.settings-section h2 { color: #1d2923; font-weight: 700; letter-spacing: -.02em; }
+.settings-section .settings-muted { color: #7a8580; line-height: 1.55; }
+.settings-section .card-body { padding: 1.5rem !important; }
+.account-completion .card-body { padding: 1rem 1.4rem !important; }
+
+.account-stat {
+    min-height: 98px;
+    padding: 1.15rem 1.25rem;
+    background: #fff;
+    border: 1px solid #e4ebe7;
+    box-shadow: 0 .3rem 1rem rgba(22, 59, 43, .05);
+}
+
+.account-stat span {
+    display: block;
+    color: #718078;
+    font-size: .78rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin-bottom: .45rem;
+}
+
+.account-stat strong {
+    color: #19372a;
+    font-size: 1rem;
+}
+
+.account-facts > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .5rem 0;
+    border-bottom: 1px solid #edf1ef;
+}
+
+.account-facts > div:last-child { border-bottom: 0; }
+.account-facts dt { color: #76827c; font-weight: 500; }
+.account-facts dd { color: #203b2f; font-weight: 700; margin: 0; text-align: right; }
+
+#personalInfoFields .form-control,
+#personalInfoFields .form-select,
+#employmentFields .form-control,
+#financialFields .form-control {
+    min-height: 44px;
+    border-color: #d9e0dc;
+    border-radius: .55rem;
+    font-size: .9rem;
+}
+
+#personalInfoFields .form-control[readonly],
+#employmentFields .form-control[readonly],
+#financialFields .form-control[readonly] {
+    background: #fbfcfb;
+    color: #34423b;
+}
+
+#systemProfessionalCard .form-control {
+    min-height: 46px;
+    border-color: #dce5e0;
+    border-radius: .7rem;
+    background: #f7f9f8;
+    color: #42534b;
+}
+
+#loginHistoryTable thead th {
+    background: var(--account-cream);
+    color: #506259;
+    border: 0;
+    font-size: .76rem;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+    padding: 1rem;
+}
+
+#loginHistoryTable td { padding: .9rem 1rem; }
+
+@media (max-width: 991.98px) {
+    .account-cover { height: 105px; }
+    .account-identity-bar { padding: 3.25rem 1rem 1rem; align-items: flex-start; flex-direction: column; }
+    .account-identity-bar .account-avatar { width: 72px; height: 72px; left: 50%; top: -36px; }
+    .account-identity-meta { position: static; margin: .35rem auto 0; flex-wrap: wrap; justify-content: center; }
+    .account-completion-note { max-width: none; }
+    .account-workspace { display: block; }
+    .account-workspace > aside { margin-bottom: 1rem; }
+}
+
+@media (max-width: 575.98px) {
+    #accountSettingsPage { padding: .85rem !important; }
+    .account-cover { height: 112px; }
+    .account-identity-meta { width: 100%; }
+}
