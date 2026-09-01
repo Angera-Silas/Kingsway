@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Config;
 
 /**
- * Kingsway Academy
+ * Kingsway Preparatory School
  * Development environment configuration.
  *
  * Loaded when APP_ENV=development or when running on localhost.
@@ -41,7 +41,6 @@ define(
 );
 
 require_once __DIR__ . '/upload_paths.php';
-require_once __DIR__ . '/school_identity.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -107,11 +106,11 @@ try {
 |--------------------------------------------------------------------------
 */
 
-// WARNING: Default secret is insecure. Must be overridden in .env for any non-development environment.
-define(
-    'JWT_SECRET',
-    $_ENV['JWT_SECRET'] ?? 'CHANGE_ME_IN_ENV_FILE'
-);
+$jwtSecret = trim((string) ($_ENV['JWT_SECRET'] ?? ''));
+if (strlen($jwtSecret) < 64) {
+    throw new \RuntimeException('JWT_SECRET must be configured with at least 64 characters in every environment.');
+}
+define('JWT_SECRET', $jwtSecret);
 
 define(
     'JWT_EXPIRY',
@@ -127,13 +126,19 @@ define(
     'JWT_AUDIENCE',
     $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff'
 );
-define('TFA_ENCRYPTION_KEY', $_ENV['TFA_ENCRYPTION_KEY'] ?? JWT_SECRET);
+$tfaEncryptionKey = trim((string) ($_ENV['TFA_ENCRYPTION_KEY'] ?? ''));
+if (strlen($tfaEncryptionKey) < 64 || !ctype_xdigit($tfaEncryptionKey)) {
+    throw new \RuntimeException('TFA_ENCRYPTION_KEY must be a hexadecimal key of at least 64 characters in every environment.');
+}
+define('TFA_ENCRYPTION_KEY', $tfaEncryptionKey);
 define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'localhost');
 
 // Backs the unguessable slugs that secure role-scoped real-time buffer files.
-// Must differ between environments and never be committed; falls back to
-// JWT_SECRET when unset so the feature works out of the box.
-define('REALTIME_BUFFER_SECRET', $_ENV['REALTIME_BUFFER_SECRET'] ?? JWT_SECRET);
+$realtimeBufferSecret = trim((string) ($_ENV['REALTIME_BUFFER_SECRET'] ?? ''));
+if (strlen($realtimeBufferSecret) < 64) {
+    throw new \RuntimeException('REALTIME_BUFFER_SECRET must contain at least 64 characters in every environment.');
+}
+define('REALTIME_BUFFER_SECRET', $realtimeBufferSecret);
 
 
 $authIdleTimeoutSeconds = max(

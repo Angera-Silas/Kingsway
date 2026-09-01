@@ -770,7 +770,7 @@ class StockAuditWorkflow extends WorkflowHandler
             }
         } catch (Exception $e) {
             $this->logError('processStage', $e->getMessage());
-            error_log('[StockAuditWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StockAuditWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }

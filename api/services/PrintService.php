@@ -19,10 +19,10 @@ use PDO;
  *
  * This service works with:
  *
- * - public/css/print-reports.css
- * - public/css/student-id-card.css
- * - public/css/student-id-card-a4.css
- * - public/css/student-id-card-cr80.css
+ * - css/print-reports.css
+ * - css/student-id-card.css
+ * - css/student-id-card-a4.css
+ * - css/student-id-card-cr80.css
  * - templates/print/server/report_header.php
  * - templates/print/server/report_footer.php
  * - templates/certificates/academic_excellence.php
@@ -113,8 +113,6 @@ final class PrintService
         $this->printCssPath =
             $projectRoot
             . DIRECTORY_SEPARATOR
-            . 'public'
-            . DIRECTORY_SEPARATOR
             . 'css'
             . DIRECTORY_SEPARATOR
             . 'print-reports.css';
@@ -122,16 +120,12 @@ final class PrintService
         $this->portfolioCssPath =
             $projectRoot
             . DIRECTORY_SEPARATOR
-            . 'public'
-            . DIRECTORY_SEPARATOR
             . 'css'
             . DIRECTORY_SEPARATOR
             . 'portfolio-print.css';
 
         $idCardCssDirectory =
             $projectRoot
-            . DIRECTORY_SEPARATOR
-            . 'public'
             . DIRECTORY_SEPARATOR
             . 'css'
             . DIRECTORY_SEPARATOR;
@@ -1306,8 +1300,6 @@ final class PrintService
         $projectRoot = $this->resolveProjectRoot();
         $cssDirectory = $projectRoot
             . DIRECTORY_SEPARATOR
-            . 'public'
-            . DIRECTORY_SEPARATOR
             . 'css'
             . DIRECTORY_SEPARATOR;
 
@@ -1534,8 +1526,6 @@ final class PrintService
                         . DIRECTORY_SEPARATOR
                         . 'Kingsway'
                         . DIRECTORY_SEPARATOR
-                        . 'public'
-                        . DIRECTORY_SEPARATOR
                         . 'css'
                         . DIRECTORY_SEPARATOR
                         . $filename
@@ -1557,7 +1547,7 @@ final class PrintService
 
         throw new RuntimeException(
             'The required print stylesheet could not be loaded. '
-            . 'Expected: public/css/'
+            . 'Expected: css/'
             . $filename
         );
     }
@@ -2126,7 +2116,7 @@ final class PrintService
 
         throw new RuntimeException(
             'The print stylesheet could not be loaded. '
-            . 'Expected: public/css/print-reports.css'
+            . 'Expected: css/print-reports.css'
         );
     }
 

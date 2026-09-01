@@ -921,11 +921,11 @@ const StudentIdCardsController = {
         const cardNumber = student.card_number || "Not generated";
         const issueDate = this.formatDisplayDate(student.issue_date || student.generated_at);
         const expiryYear = student.expiry_year || "—";
-        const schoolName = school.school_name || "Kingsway Preparatory Academy";
+        const schoolName = school.school_name || "Kingsway Preparatory School";
         const schoolAddress = school.school_address || "Londiani, Kenya";
         const schoolPhone = school.school_phone || "";
         const schoolEmail = school.school_email || "";
-        const schoolMotto = school.school_motto || "Education for Excellence";
+        const schoolMotto = school.school_motto || "In God We Soar";
         const headteacher = school.headteacher_name || "Headteacher";
 
         this.dom.cardFrontPreview.innerHTML = `

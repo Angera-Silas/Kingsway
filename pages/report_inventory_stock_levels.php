@@ -1,0 +1,1 @@
+<?php $governedReportCode='INV_STOCK_LEVELS'; $governedReportTitle='Inventory Stock Levels'; $governedReportLayout='inventory'; $governedPrimaryVisual='treemap'; require __DIR__.'/reports/governed_report.php';

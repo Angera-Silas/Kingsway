@@ -59,6 +59,31 @@ class PasskeyService
         return json_decode(json_encode($args), true);
     }
 
+    public function startPasswordlessAuthentication(): array
+    {
+        $server = $this->server();
+        $args = $server->getGetArgs([], 60, true, true, true, true, true);
+        $this->storeChallenge(null, $server->getChallenge()->getBinaryString(), 'authentication');
+        return json_decode(json_encode($args), true);
+    }
+
+    /** @return int|null authenticated user id */
+    public function finishPasswordlessAuthentication(array $response): ?int
+    {
+        $credentialId = $this->b64($this->raw((string)($response['id'] ?? '')));
+        $stmt = $this->db->prepare('SELECT id,user_id,credential_public_key,signature_count FROM user_passkeys WHERE credential_id=? LIMIT 1');
+        $stmt->execute([$credentialId]); $row = $stmt->fetch(PDO::FETCH_ASSOC); if (!$row) return null;
+        $clientData = $this->raw((string)($response['clientDataJSON'] ?? ''));
+        $clientPayload = json_decode($clientData, true);
+        $browserChallenge = is_array($clientPayload) ? (string)($clientPayload['challenge'] ?? '') : '';
+        if ($browserChallenge === '') return null;
+        $challenge = $this->takeAnonymousChallenge('authentication', $browserChallenge); if (!$challenge) return null;
+        $server = $this->server();
+        $server->processGet($clientData, $this->raw((string)($response['authenticatorData'] ?? '')), $this->raw((string)($response['signature'] ?? '')), $row['credential_public_key'], $challenge, (int)$row['signature_count'], true, true);
+        $this->db->prepare('UPDATE user_passkeys SET signature_count=?,last_used_at=NOW() WHERE id=?')->execute([(int)($server->getSignatureCounter() ?? $row['signature_count']),$row['id']]);
+        return (int)$row['user_id'];
+    }
+
     public function finishAuthentication(int $userId, array $response): bool
     {
         $challenge = $this->takeChallenge($userId, 'authentication'); if (!$challenge) return false;
@@ -76,6 +101,13 @@ class PasskeyService
         $stmt = $this->db->prepare("SELECT id, label, last_used_at, created_at FROM user_passkeys WHERE user_id=? ORDER BY id DESC"); $stmt->execute([$userId]); return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function revoke(int $userId, int $passkeyId): bool
+    {
+        $stmt = $this->db->prepare('DELETE FROM user_passkeys WHERE id=? AND user_id=?');
+        $stmt->execute([$passkeyId, $userId]);
+        return $stmt->rowCount() === 1;
+    }
+
     private function storeChallenge(?int $userId, string $challenge, string $purpose): void
     {
         $encoded = base64_encode($challenge);
@@ -87,5 +119,19 @@ class PasskeyService
         $this->db->prepare("DELETE FROM user_passkey_challenges WHERE id=?")->execute([$row['id']]);
         $encoded = $this->crypto->decryptSecret($row['challenge_value']);
         return $encoded ? (base64_decode($encoded, true) ?: null) : null;
+    }
+
+    private function takeAnonymousChallenge(string $purpose, string $browserChallenge): ?string
+    {
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare("SELECT id,challenge_value FROM user_passkey_challenges WHERE user_id IS NULL AND purpose=? AND challenge_hash=? AND expires_at>NOW() ORDER BY id DESC LIMIT 1 FOR UPDATE");
+            $stmt->execute([$purpose, hash('sha256', $browserChallenge)]); $row=$stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) { $this->db->rollBack(); return null; }
+            $this->db->prepare('DELETE FROM user_passkey_challenges WHERE id=?')->execute([$row['id']]);
+            $this->db->commit();
+            $encoded=$this->crypto->decryptSecret($row['challenge_value']);
+            return $encoded ? (base64_decode($encoded,true) ?: null) : null;
+        } catch (\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
     }
 }

@@ -58,6 +58,11 @@ class SystemReportManager extends BaseAPI
             if (!in_array($action, ['create', 'update', 'delete', 'approve', 'reject'], true)) {
                 continue;
             }
+            $timestamp = (string) ($e['timestamp'] ?? '');
+            if (!empty($filters['date_from']) && substr($timestamp, 0, 10) < $filters['date_from']) continue;
+            if (!empty($filters['date_to']) && substr($timestamp, 0, 10) > $filters['date_to']) continue;
+            if (!empty($filters['action']) && $action !== $filters['action']) continue;
+            if (!empty($filters['user_id']) && (int) ($e['user_id'] ?? 0) !== (int) $filters['user_id']) continue;
             $key = ($e['user_id'] ?? '') . '|' . ($e['entity'] ?? '') . '|' . $action;
             if (!isset($agg[$key])) {
                 $agg[$key] = [
@@ -65,16 +70,16 @@ class SystemReportManager extends BaseAPI
                     'username' => null,
                     'action' => $action,
                     'module' => $e['entity'] ?? null,
-                    'action_count' => 0,
-                    'last_action' => $e['timestamp'] ?? null,
+                    'event_count' => 0,
+                    'last_event_at' => $e['timestamp'] ?? null,
                 ];
             }
-            $agg[$key]['action_count']++;
-            if (($e['timestamp'] ?? '') > ($agg[$key]['last_action'] ?? '')) {
-                $agg[$key]['last_action'] = $e['timestamp'];
+            $agg[$key]['event_count']++;
+            if (($e['timestamp'] ?? '') > ($agg[$key]['last_event_at'] ?? '')) {
+                $agg[$key]['last_event_at'] = $e['timestamp'];
             }
         }
-        usort($agg, fn($a, $b) => $b['action_count'] <=> $a['action_count']);
+        usort($agg, fn($a, $b) => $b['event_count'] <=> $a['event_count']);
         return array_slice($agg, 0, 100);
     }
 

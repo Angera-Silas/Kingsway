@@ -91,7 +91,7 @@ class PaymentsAPI extends BaseAPI
                 }
                 if ((int) ($disbursement['source_financial_account_id'] ?? 0) <= 0) {
                     $this->db->rollBack();
-                    error_log('[PaymentsAPI] B2C callback has no source financial account for disbursement ' . (int) $disbursement['id']);
+                    \App\API\Services\Logger::legacyError('[PaymentsAPI] B2C callback has no source financial account for disbursement ' . (int) $disbursement['id']);
                     return [
                         'ResultCode' => 1,
                         'ResultDesc' => 'Disbursement source account is not configured'
@@ -303,7 +303,7 @@ class PaymentsAPI extends BaseAPI
                     }
                     return ['ResultCode'=>0,'ResultDesc'=>$routedSuccessfully ? 'Payment routed successfully' : 'Payment received for reconciliation'];
                 } catch (\Throwable $routingError) {
-                    error_log('[PaymentsAPI] C2B routing error: '.$routingError->getMessage());
+                    \App\API\Services\Logger::legacyError('[PaymentsAPI] C2B routing error: '.$routingError->getMessage());
                     return ['ResultCode'=>0,'ResultDesc'=>'Payment received for manual reconciliation'];
                 }
             }
@@ -373,14 +373,14 @@ class PaymentsAPI extends BaseAPI
                         try {
                             (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
                         } catch (\Throwable $workflowError) {
-                            error_log('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                            \App\API\Services\Logger::legacyError('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
                         }
                         return ['ResultCode' => 0, 'ResultDesc' => 'Payment was already received and has now been allocated to the student account'];
                     }
                     try {
                         (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
                     } catch (\Throwable $workflowError) {
-                        error_log('[PaymentsAPI] duplicate payment workflow advancement deferred: ' . $workflowError->getMessage());
+                        \App\API\Services\Logger::legacyError('[PaymentsAPI] duplicate payment workflow advancement deferred: ' . $workflowError->getMessage());
                     }
                     return ['ResultCode' => 0, 'ResultDesc' => 'Confirmation received successfully (already processed)'];
                 }
@@ -424,7 +424,7 @@ class PaymentsAPI extends BaseAPI
                 try {
                     (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
                 } catch (\Throwable $workflowError) {
-                    error_log('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                    \App\API\Services\Logger::legacyError('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
                 }
 
                 return ['ResultCode' => 0, 'ResultDesc' => 'Application payment received successfully'];
@@ -586,7 +586,7 @@ class PaymentsAPI extends BaseAPI
                 try {
                     (new MpesaPaymentService())->sendPaymentConfirmationSms((int) $mpesaTxId);
                 } catch (\Exception $e) {
-                    error_log('[PaymentsAPI] C2B payment SMS: ' . $e->getMessage());
+                    \App\API\Services\Logger::legacyError('[PaymentsAPI] C2B payment SMS: ' . $e->getMessage());
                 }
 
                 @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - CONFIRMATION SUCCESS: {$mpesaCode}, Student: {$admissionNumber} (ID: {$studentId}), Amount: {$amount}\n", FILE_APPEND);
@@ -614,7 +614,7 @@ class PaymentsAPI extends BaseAPI
             
             // Database connection error or other critical issue
             @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - PDO ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
-            error_log("M-Pesa C2B PDO Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("M-Pesa C2B PDO Error: " . $e->getMessage());
             return [
                 'ResultCode' => 1,
                 'ResultDesc' => 'Database error processing payment'
@@ -622,7 +622,7 @@ class PaymentsAPI extends BaseAPI
         } catch (\Exception $e) {
             // FIX: MEDIUM - Better logging and error messages
             @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
-            error_log("M-Pesa C2B Error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("M-Pesa C2B Error: " . $e->getMessage());
             return [
                 'ResultCode' => 1,
                 'ResultDesc' => 'Internal server error'
@@ -647,7 +647,7 @@ class PaymentsAPI extends BaseAPI
             $service = new MpesaPaymentService();
             return $service->validateC2BPayment($validationData);
         } catch (\Exception $e) {
-            error_log('[PaymentsAPI] C2B validation error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] C2B validation error: ' . $e->getMessage());
             return [
                 'ResultCode' => 'C2B00011',
                 'ResultDesc' => 'System error'
@@ -675,7 +675,7 @@ class PaymentsAPI extends BaseAPI
                 ? ['ResultCode' => 0, 'ResultDesc' => 'Success']
                 : ['ResultCode' => 1, 'ResultDesc' => 'Invalid STK callback payload'];
         } catch (\Exception $e) {
-            error_log('[PaymentsAPI] STK callback error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] STK callback error: ' . $e->getMessage());
             return ['ResultCode' => 1, 'ResultDesc' => 'Internal server error'];
         }
     }
@@ -713,7 +713,7 @@ class PaymentsAPI extends BaseAPI
             }
             return ['status' => 'success', 'data' => ['processed' => false], 'message' => 'Buni callback received for reconciliation'];
         } catch (\Throwable $e) {
-            error_log('[PaymentsAPI] Buni M-Pesa Express callback error: '.$e->getMessage());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] Buni M-Pesa Express callback error: '.$e->getMessage());
             return ['status' => 'error', 'code' => 500, 'message' => 'Callback processing failed'];
         }
     }
@@ -782,7 +782,7 @@ class PaymentsAPI extends BaseAPI
 
             return ['ResultCode' => 0, 'ResultDesc' => 'Result processed successfully'];
         } catch (\Exception $e) {
-            error_log('[PaymentsAPI] mpesa-result error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] mpesa-result error: ' . $e->getMessage());
             return ['ResultCode' => 1, 'ResultDesc' => 'Internal server error'];
         }
     }
@@ -934,7 +934,7 @@ class PaymentsAPI extends BaseAPI
             $rawBody = (string) ($headers['__raw_body'] ?? json_encode($callbackData));
             $verifier = new KcbWebhookVerifier();
             if ($verifier->shouldEnforce() && !$verifier->verify($headers, $rawBody)) {
-                error_log('[PaymentsAPI] Rejected KCB transfer callback with invalid RSA signature.');
+                \App\API\Services\Logger::legacyError('[PaymentsAPI] Rejected KCB transfer callback with invalid RSA signature.');
                 return ['statusCode' => '1', 'statusMessage' => 'Invalid callback signature'];
             }
         }
@@ -1172,7 +1172,7 @@ class PaymentsAPI extends BaseAPI
                 $this->commAPI->sendEmail([$email], $subject, $body);
             }
         } catch (\Exception $e) {
-            error_log("Failed to send transfer notification: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to send transfer notification: " . $e->getMessage());
         }
     }
     /**
@@ -1186,7 +1186,7 @@ class PaymentsAPI extends BaseAPI
         $rawBody = (string) ($headers['__raw_body'] ?? json_encode($notificationData));
         $verifier = new KcbWebhookVerifier();
         if ($verifier->shouldEnforce() && !$verifier->verify($headers, $rawBody)) {
-            error_log('[PaymentsAPI] Rejected KCB notification with invalid RSA signature.');
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] Rejected KCB notification with invalid RSA signature.');
             return [
                 'transactionID' => $notificationData['requestId'] ?? '',
                 'statusCode' => '1',
@@ -1261,7 +1261,7 @@ class PaymentsAPI extends BaseAPI
                     $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('kcb_buni', $notificationData, $transactionReference, $transactionAmount, $notificationData['creditAccountIdentifier'] ?? null, $customerReference);
                     return ['transactionID'=>$requestId,'statusCode'=>'0','statusMessage'=>($routed['status'] ?? '') === 'processed' ? 'Notification received successfully' : 'Received for manual reconciliation'];
                 } catch (\Throwable $routingError) {
-                    error_log('[PaymentsAPI] KCB routing error: '.$routingError->getMessage());
+                    \App\API\Services\Logger::legacyError('[PaymentsAPI] KCB routing error: '.$routingError->getMessage());
                     return ['transactionID'=>$requestId,'statusCode'=>'0','statusMessage'=>'Received for manual reconciliation'];
                 }
             }
@@ -1403,11 +1403,11 @@ class PaymentsAPI extends BaseAPI
         if (strlen($phone) === 10 && substr($phone, 0, 1) === '0') $phone = '254' . substr($phone, 1);
         if (!preg_match('/^254[0-9]{9}$/', $phone)) return;
 
-        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
+        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parents/';
         $message = 'Kingsway received KES ' . number_format((float) $amount, 2)
             . ' for account ' . $reference . '. Receipt: KCB-' . $transactionReference . '.';
         if ($customerName !== '') $message .= ' Payer: ' . $customerName . '.';
-        if ($portalUrl !== '/parent_portal.php') $message .= ' View statement: ' . $portalUrl;
+        if ($portalUrl !== '/parents/') $message .= ' View statement: ' . $portalUrl;
 
         try {
             $manager = new \App\API\Modules\communications\CommunicationsManager($this->db);
@@ -1423,7 +1423,7 @@ class PaymentsAPI extends BaseAPI
                 ]);
             }
         } catch (\Throwable $e) {
-            error_log('[PaymentsAPI] Could not queue KCB payment notifications: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] Could not queue KCB payment notifications: ' . $e->getMessage());
         }
     }
     /**
@@ -1459,7 +1459,7 @@ class PaymentsAPI extends BaseAPI
                 try {
                     $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('generic_bank', $webhookData, (string)($webhookData['transactionReference'] ?? $webhookData['transaction_ref'] ?? $webhookData['reference_number'] ?? ''), (float)($webhookData['transactionAmount'] ?? $webhookData['amount'] ?? 0), $webhookData['accountNumber'] ?? $webhookData['account_number'] ?? null, $routingReference);
                     return ['status'=>($routed['status'] ?? '') === 'processed','message'=>($routed['status'] ?? '') === 'processed' ? 'Payment routed successfully' : 'Payment received for manual reconciliation','data'=>$routed];
-                } catch (\Throwable $routingError) { error_log('[PaymentsAPI] bank routing error: '.$routingError->getMessage()); return ['status'=>true,'message'=>'Payment received for manual reconciliation']; }
+                } catch (\Throwable $routingError) { \App\API\Services\Logger::legacyError('[PaymentsAPI] bank routing error: '.$routingError->getMessage()); return ['status'=>true,'message'=>'Payment received for manual reconciliation']; }
             }
 
             // Use BankPaymentWebhook's flexible extractors to handle various field names
@@ -1586,7 +1586,7 @@ class PaymentsAPI extends BaseAPI
                 'request_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
             ]);
         } catch (\Exception $e) {
-            error_log('[PaymentsAPI] logPaymentWebhook error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] logPaymentWebhook error: ' . $e->getMessage());
         }
     }
 
@@ -1614,7 +1614,7 @@ class PaymentsAPI extends BaseAPI
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
             return $result ? floatval($result['outstanding']) : 0;
         } catch (\Exception $e) {
-            error_log("Error calculating outstanding balance: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Error calculating outstanding balance: " . $e->getMessage());
             return false;
         }
     }
@@ -1624,22 +1624,28 @@ class PaymentsAPI extends BaseAPI
     //   payment_method -> method, amount_paid -> amount, reference_no -> reference,
     //   payment_date -> payment_date (datetime), status -> status.
 
-    public function getRevenueSources()
+    public function getRevenueSources(array $filters = [])
     {
         try {
-            $rows = $this->db->query(
+            $where = ["status = 'confirmed'"];
+            $params = [];
+            if (!empty($filters['date_from'])) { $where[] = 'payment_date >= ?'; $params[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $where[] = 'payment_date <= ?'; $params[] = $filters['date_to']; }
+            $stmt = $this->db->prepare(
                 "SELECT method AS source, SUM(amount) AS total
                  FROM payments
-                 WHERE status = 'confirmed'
+                 WHERE " . implode(' AND ', $where) . "
                  GROUP BY method
                  ORDER BY total DESC"
-            )->fetchAll(\PDO::FETCH_ASSOC);
+            );
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse([
                 'sources' => $rows,
                 'timestamp' => date('Y-m-d H:i:s'),
             ], 'Revenue sources breakdown');
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1688,21 +1694,26 @@ class PaymentsAPI extends BaseAPI
                 'date' => $date,
             ], 'Cash collections retrieved');
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
 
-    public function getFeeStats()
+    public function getFeeStats(array $filters = [])
     {
         try {
-            $monthly = $this->db->query(
-                "SELECT COALESCE(SUM(amount), 0) AS monthly_collected
-                 FROM payments
-                 WHERE status = 'confirmed'
-                   AND YEAR(payment_date) = YEAR(NOW())
-                   AND MONTH(payment_date) = MONTH(NOW())"
-            )->fetch(\PDO::FETCH_ASSOC);
+            $paymentWhere = ["status = 'confirmed'"];
+            $paymentParams = [];
+            if (!empty($filters['date_from'])) { $paymentWhere[] = 'payment_date >= ?'; $paymentParams[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $paymentWhere[] = 'payment_date <= ?'; $paymentParams[] = $filters['date_to']; }
+            if (!$paymentParams) {
+                $paymentWhere[] = 'YEAR(payment_date) = YEAR(NOW()) AND MONTH(payment_date) = MONTH(NOW())';
+            }
+            $monthlyStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) AS monthly_collected FROM payments WHERE " . implode(' AND ', $paymentWhere)
+            );
+            $monthlyStmt->execute($paymentParams);
+            $monthly = $monthlyStmt->fetch(\PDO::FETCH_ASSOC);
             $monthlyCollected = (float) ($monthly['monthly_collected'] ?? 0);
 
             $overdue = $this->db->query(
@@ -1720,11 +1731,16 @@ class PaymentsAPI extends BaseAPI
             )->fetch(\PDO::FETCH_ASSOC);
             $totalExpected = (float) ($expected['total_expected'] ?? 0);
 
-            $collected = $this->db->query(
-                "SELECT COALESCE(SUM(amount), 0) AS amount_collected
-                 FROM payments
-                 WHERE status = 'confirmed' AND payment_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
-            )->fetch(\PDO::FETCH_ASSOC);
+            $collectedWhere = ["status = 'confirmed'"];
+            $collectedParams = [];
+            if (!empty($filters['date_from'])) { $collectedWhere[] = 'payment_date >= ?'; $collectedParams[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $collectedWhere[] = 'payment_date <= ?'; $collectedParams[] = $filters['date_to']; }
+            if (!$collectedParams) $collectedWhere[] = 'payment_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
+            $collectedStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) AS amount_collected FROM payments WHERE " . implode(' AND ', $collectedWhere)
+            );
+            $collectedStmt->execute($collectedParams);
+            $collected = $collectedStmt->fetch(\PDO::FETCH_ASSOC);
             $amountCollected = (float) ($collected['amount_collected'] ?? 0);
 
             $outstanding = $this->db->query(
@@ -1746,25 +1762,31 @@ class PaymentsAPI extends BaseAPI
                 'timestamp' => date('Y-m-d H:i:s'),
             ], 'Fees collection statistics');
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
 
-    public function getCollectionTrends()
+    public function getCollectionTrends(array $filters = [])
     {
         try {
-            $monthly = $this->db->query(
+            $where = ["status = 'confirmed'"];
+            $params = [];
+            if (!empty($filters['date_from'])) { $where[] = 'payment_date >= ?'; $params[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $where[] = 'payment_date <= ?'; $params[] = $filters['date_to']; }
+            if (!$params) $where[] = 'payment_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)';
+            $trendStmt = $this->db->prepare(
                 "SELECT DATE_FORMAT(payment_date, '%Y-%m') AS month,
                         DATE_FORMAT(payment_date, '%b') AS month_label,
                         SUM(amount) AS collected,
                         COUNT(DISTINCT student_id) AS students_paid
                  FROM payments
-                 WHERE status = 'confirmed'
-                   AND payment_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+                 WHERE " . implode(' AND ', $where) . "
                  GROUP BY DATE_FORMAT(payment_date, '%Y-%m')
                  ORDER BY month ASC"
-            )->fetchAll(\PDO::FETCH_ASSOC);
+            );
+            $trendStmt->execute($params);
+            $monthly = $trendStmt->fetchAll(\PDO::FETCH_ASSOC);
 
             $expected = $this->db->query(
                 "SELECT COALESCE(SUM(amount_due), 0) AS total_expected
@@ -1799,7 +1821,7 @@ class PaymentsAPI extends BaseAPI
                 ],
             ], 'Collection trends retrieved');
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1903,7 +1925,7 @@ class PaymentsAPI extends BaseAPI
             )->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['transactions' => $rows]);
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1942,7 +1964,7 @@ class PaymentsAPI extends BaseAPI
             return $this->successResponse(['imported' => $inserted], 'Import completed');
         } catch (Exception $e) {
             $this->db->rollBack();
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -2073,7 +2095,7 @@ class PaymentsAPI extends BaseAPI
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -2101,7 +2123,7 @@ class PaymentsAPI extends BaseAPI
 
             return $this->successResponse(['history' => $rows->fetchAll(\PDO::FETCH_ASSOC)]);
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -2206,7 +2228,7 @@ class PaymentsAPI extends BaseAPI
                 'count' => count($parents),
             ], count($parents) > 0 ? count($parents) . ' parent(s) found' : 'No parent found for this phone number or ID');
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -2260,7 +2282,7 @@ class PaymentsAPI extends BaseAPI
                 'admission_no' => $student['admission_no'],
             ], 'Student linked successfully');
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -2385,7 +2407,7 @@ class PaymentsAPI extends BaseAPI
     {
         $service = new MpesaPaymentService();
         return $service->generateDynamicQR(
-            $data['merchant_name'] ?? (defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Academy'),
+            $data['merchant_name'] ?? (defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School'),
             $data['ref_no'] ?? $data['bill_ref_number'] ?? '',
             (float) ($data['amount'] ?? 0),
             $data['cpi'] ?? (defined('MPESA_SHORTCODE') ? MPESA_SHORTCODE : '174379'),
@@ -2495,7 +2517,7 @@ class PaymentsAPI extends BaseAPI
                 'transactions'    => $transactions,
             ], 'M-Pesa results retrieved');
         } catch (Exception $e) {
-            error_log('[PaymentsAPI] getMpesaResults error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] getMpesaResults error: ' . $e->getMessage());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }

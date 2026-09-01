@@ -1,0 +1,1 @@
+<?php $governedReportCode='SYS_AUDIT_TRAIL_SUMMARY'; $governedReportTitle='System Audit Trail Summary'; $governedReportLayout='audit'; $governedPrimaryVisual='bar'; require __DIR__.'/reports/governed_report.php';

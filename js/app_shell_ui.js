@@ -812,11 +812,6 @@
     }
   }
 
-  function goToProfile() {
-    window.location.href =
-      `${window.APP_BASE || ""}/home.php?route=profile`;
-  }
-
   function goToAccountSettings() {
     window.location.href =
       `${window.APP_BASE || ""}/home.php?route=account_settings`;
@@ -1026,7 +1021,9 @@
   window.showLogoutModal = showLogoutModal;
   window.handleLogout = showLogoutModal;
   window.executeLogout = executeLogout;
-  window.goToProfile = goToProfile;
+  // Compatibility for old inline links/bookmarks. Both names now resolve to
+  // the one unified account centre and are not exposed as separate menu items.
+  window.goToProfile = goToAccountSettings;
   window.goToAccountSettings = goToAccountSettings;
 
   if (document.readyState === "loading") {

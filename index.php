@@ -12,46 +12,56 @@ require_once __DIR__ . '/public/layout/public_data.php';
 
 <!-- ═══ HERO ══════════════════════════════════════════════════════════════════ -->
 <section class="hero">
-  <div class="hero-bg-img"></div>
   <div class="hero-particles">
     <span></span><span></span><span></span><span></span><span></span>
     <span></span><span></span><span></span><span></span><span></span>
   </div>
-  <div class="container hero-content">
-    <div class="row align-items-center g-5">
-      <div class="col-lg-7">
-        <div class="hero-badge"><i class="bi bi-patch-check-fill"></i>CBC-Aligned Curriculum</div>
-        <h1 class="hero-title">
-          Where Every Child<br>
-          <span class="highlight">Soars to Excellence</span>
-        </h1>
-        <p class="hero-subtitle">
-          Kingsway Preparatory School provides world-class education combining the Kenya
-          Competency-Based Curriculum with holistic character development, sports, and
-          co-curricular excellence — in the heart of Londiani, Kenya.
-        </p>
-        <div class="hero-actions">
-          <a href="<?= $appBase ?>/admissions.php" class="btn-kw-gold">
-            <i class="bi bi-pencil-square"></i>Apply for Admission
-          </a>
-          <a href="<?= $appBase ?>/about.php" class="btn-kw-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">
-            <i class="bi bi-play-circle"></i>Discover Our School
-          </a>
+  <div id="schoolHeroCarousel" class="carousel slide carousel-fade hero-carousel" data-bs-ride="carousel" data-bs-interval="7500" data-bs-pause="hover" aria-label="Kingsway school highlights">
+    <div class="carousel-indicators hero-indicators">
+      <button type="button" data-bs-target="#schoolHeroCarousel" data-bs-slide-to="0" class="active" aria-current="true" aria-label="Our founding story"></button>
+      <button type="button" data-bs-target="#schoolHeroCarousel" data-bs-slide-to="1" aria-label="Faith and learning"></button>
+      <button type="button" data-bs-target="#schoolHeroCarousel" data-bs-slide-to="2" aria-label="Practical education"></button>
+    </div>
+    <div class="carousel-inner">
+      <div class="carousel-item active hero-slide hero-slide--founding" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.png')">
+        <div class="container hero-content">
+          <div class="row align-items-center g-5">
+            <div class="col-lg-7">
+              <div class="hero-copy-panel">
+                <div class="hero-badge"><i class="bi bi-stars"></i>Serving Simotwet Since 2008</div>
+                <h1 class="hero-title">From Humble Beginnings<br><span class="highlight">A Legacy of Faith</span></h1>
+                <p class="hero-subtitle">Daniel Bett and his wife, Sabina, started Kingsway in 2008 from their shared desire to provide Christian education for children in the Simotwet community.</p>
+                <div class="hero-actions"><a href="<?= $appBase ?>/about.php" class="btn-kw-gold"><i class="bi bi-book"></i>Read Our Story</a><a href="<?= $appBase ?>/admissions.php" class="btn-kw-outline"><i class="bi bi-pencil-square"></i>Apply for Admission</a></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="col-lg-5 d-none d-lg-block">
-        <div class="hero-card">
-          <div class="hero-card-title">School at a Glance</div>
-          <div id="home-hero-stats"></div>
-        </div>
+      <div class="carousel-item hero-slide hero-slide--school" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_2.png')">
+        <div class="container hero-content"><div class="row align-items-center"><div class="col-lg-7"><div class="hero-copy-panel">
+          <div class="hero-badge"><i class="bi bi-heart-fill"></i>In God We Soar</div>
+          <h2 class="hero-title">Growing Minds.<br><span class="highlight">Grounded in Christ.</span></h2>
+          <p class="hero-subtitle">CBC learning and spiritual formation belong together here. Bible study, music, preaching, Pathfinder activities and Sabbath School help children grow in knowledge, character and service.</p>
+          <div class="hero-actions"><a href="<?= $appBase ?>/about.php#programs" class="btn-kw-gold"><i class="bi bi-mortarboard"></i>Explore Learning</a><a href="<?= $appBase ?>/about.php" class="btn-kw-outline"><i class="bi bi-compass"></i>Discover Kingsway</a></div>
+        </div></div></div></div>
+      </div>
+      <div class="carousel-item hero-slide hero-slide--community" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.png')">
+        <div class="container hero-content"><div class="row align-items-center"><div class="col-lg-7"><div class="hero-copy-panel">
+          <div class="hero-badge"><i class="bi bi-tree-fill"></i>Learning, Work & Service</div>
+          <h2 class="hero-title">Learning Beyond<br><span class="highlight">The Classroom</span></h2>
+          <p class="hero-subtitle">Our farm, greenhouses, vegetable garden, bakery and sewing programmes support the school while building practical skills, enterprise and opportunity in the surrounding community.</p>
+          <div class="hero-actions"><a href="<?= $appBase ?>/about.php#programs" class="btn-kw-gold"><i class="bi bi-grid"></i>Explore Our Programmes</a><a href="<?= $appBase ?>/contact.php" class="btn-kw-outline"><i class="bi bi-geo-alt"></i>Visit the School</a></div>
+        </div></div></div></div>
       </div>
     </div>
+    <button class="carousel-control-prev hero-control" type="button" data-bs-target="#schoolHeroCarousel" data-bs-slide="prev"><span class="carousel-control-prev-icon" aria-hidden="true"></span><span class="visually-hidden">Previous slide</span></button>
+    <button class="carousel-control-next hero-control" type="button" data-bs-target="#schoolHeroCarousel" data-bs-slide="next"><span class="carousel-control-next-icon" aria-hidden="true"></span><span class="visually-hidden">Next slide</span></button>
   </div>
   <div class="scroll-indicator"><span></span>Scroll down</div>
 </section>
 
 <!-- ═══ STATS ═════════════════════════════════════════════════════════════════ -->
-<section class="section-sm bg-white">
+<section class="section-sm bg-white home-stats-section">
   <div class="container">
     <div class="row g-4" id="home-stats">
       <div class="col-lg-2 col-md-4 col-6">
@@ -118,9 +128,9 @@ require_once __DIR__ . '/public/layout/public_data.php';
     <div class="row align-items-center g-5">
       <div class="col-lg-6 reveal reveal-left">
         <div class="position-relative">
-          <img src="<?= $appBase ?>/images/school-building.jpg"
-               onerror="this.src='https://placehold.co/600x420/198754/ffffff?text=Kingsway+School'"
-               alt="Kingsway School" class="img-fluid rounded-4 shadow-lg">
+          <img src="<?= $appBase ?>/uploads/school_assets/bg_images/kingsway-about-campus-v1.png"
+               alt="Kingsway Preparatory School pupils walking toward the school campus"
+               class="img-fluid rounded-4 shadow-lg about-school-image">
           <div class="position-absolute bottom-0 start-0 m-3 bg-white rounded-3 p-3 shadow-sm d-flex align-items-center gap-2">
             <div class="bg-success rounded-2 p-2 text-white"><i class="bi bi-shield-check fs-5"></i></div>
             <div><div class="fw-bold small text-dark">TSC Accredited</div><div class="text-muted" style="font-size:.75rem">Ministry of Education Kenya</div></div>
@@ -131,9 +141,10 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <div class="section-label"><span>About Kingsway</span></div>
         <h2 class="section-title">Building <span>Tomorrow's Leaders</span> Today</h2>
         <p class="section-subtitle mb-4">
-          Founded with a vision to provide holistic education, Kingsway Preparatory School
-          has grown into one of the leading schools in the Rift Valley region.
-          We nurture academic excellence, strong values, and practical life skills.
+          Founded in 2008 by local lay-ministry couple Daniel and Sabina Bett in the Simotwet community of Londiani,
+          Kingsway Preparatory School began with only a few children.
+          Today we nurture academic excellence, spiritual growth, strong values, and
+          practical life skills for learners from Pre-Primary through Junior Secondary.
         </p>
         <div class="row g-3 mb-4">
           <?php
@@ -271,7 +282,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <p class="section-subtitle mb-4">Browse official Kingsway uniforms by size, save favourites, and let the school store prepare your child’s order. Uniform purchases are optional and handled separately from school fees.</p>
         <div class="d-flex flex-wrap gap-3">
           <a href="<?= $appBase ?>/uniform_catalog.php" class="btn-kw-primary"><i class="bi bi-bag-heart"></i>Shop Uniforms</a>
-          <a href="<?= $appBase ?>/parent_portal.php" class="btn-kw-outline"><i class="bi bi-person"></i>Parent Portal</a>
+          <a href="<?= $appBase ?>/parents/" class="btn-kw-outline"><i class="bi bi-person"></i>Parent Portal</a>
         </div>
       </div>
       <div class="col-lg-5 reveal reveal-right">

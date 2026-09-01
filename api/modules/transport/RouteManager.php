@@ -15,15 +15,11 @@ class RouteManager
     public function createRoute($data)
     {
         $name = trim((string)($data['name'] ?? $data['route_name'] ?? ''));
+        if ($name === '') throw new \InvalidArgumentException('Route name is required');
         $code = strtoupper(trim((string)($data['code'] ?? $data['route_code'] ?? '')));
-        $start = trim((string)($data['start_point'] ?? $data['start'] ?? ''));
-        $end = trim((string)($data['end_point'] ?? $data['end'] ?? ''));
-        if ($name === '' || $code === '' || $start === '' || $end === '') {
-            throw new \InvalidArgumentException('name, code, start_point and end_point are required');
-        }
-        $fee = (float)($data['fee'] ?? 0);
-        $capacity = (int)($data['max_capacity'] ?? $data['capacity'] ?? 0);
-        if ($fee < 0 || $capacity < 1) throw new \InvalidArgumentException('fee must be zero or greater and capacity must be at least 1');
+        if ($code === '') $code = $this->generateRouteCode($name);
+        $start = trim((string)($data['start_point'] ?? $data['start'] ?? 'School')) ?: 'School';
+        $end = trim((string)($data['end_point'] ?? $data['end'] ?? 'Route stops')) ?: 'Route stops';
         $exists = $this->db->prepare('SELECT id FROM transport_routes WHERE code=? LIMIT 1'); $exists->execute([$code]);
         if ($exists->fetchColumn()) throw new \InvalidArgumentException('A route with this code already exists');
         $sql = "INSERT INTO transport_routes (name, code, description, start_point, end_point, fee, morning_departure, afternoon_departure, estimated_duration, max_capacity, current_capacity, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)";
@@ -34,24 +30,24 @@ class RouteManager
             $data['description'] ?? null,
             $start,
             $end,
-            $fee,
+            0,
             $data['morning_departure'] ?? $data['am_pickup'] ?? '06:30:00',
             $data['afternoon_departure'] ?? $data['pm_dropoff'] ?? '16:30:00',
             (int)($data['estimated_duration'] ?? 60),
-            $capacity,
+            0,
             $data['status'] ?? 'active'
         ]);
         return $this->db->lastInsertId();
     }
     public function updateRoute($id, $data)
     {
+        $current = $this->getRoute($id);
+        if (!$current) throw new \InvalidArgumentException('Route not found');
         $name = trim((string)($data['name'] ?? $data['route_name'] ?? ''));
-        $code = strtoupper(trim((string)($data['code'] ?? $data['route_code'] ?? '')));
-        $start = trim((string)($data['start_point'] ?? $data['start'] ?? ''));
-        $end = trim((string)($data['end_point'] ?? $data['end'] ?? ''));
-        if ($name === '' || $code === '' || $start === '' || $end === '') throw new \InvalidArgumentException('name, code, start_point and end_point are required');
-        $fee = (float)($data['fee'] ?? 0); $capacity = (int)($data['max_capacity'] ?? $data['capacity'] ?? 0);
-        if ($fee < 0 || $capacity < 1) throw new \InvalidArgumentException('fee must be zero or greater and capacity must be at least 1');
+        if ($name === '') throw new \InvalidArgumentException('Route name is required');
+        $code = strtoupper(trim((string)($data['code'] ?? $data['route_code'] ?? $current['code'])));
+        $start = trim((string)($data['start_point'] ?? $data['start'] ?? $current['start_point']));
+        $end = trim((string)($data['end_point'] ?? $data['end'] ?? $current['end_point']));
         $exists = $this->db->prepare('SELECT id FROM transport_routes WHERE code=? AND id<>? LIMIT 1'); $exists->execute([$code, $id]);
         if ($exists->fetchColumn()) throw new \InvalidArgumentException('A route with this code already exists');
         $sql = "UPDATE transport_routes SET name=?, code=?, description=?, start_point=?, end_point=?, fee=?, morning_departure=?, afternoon_departure=?, estimated_duration=?, max_capacity=?, status=? WHERE id=?";
@@ -59,14 +55,30 @@ class RouteManager
         $stmt->execute([
             $name, $code,
             $data['description'] ?? null,
-            $start, $end, $fee,
+            $start, $end, (float)$current['fee'],
             $data['morning_departure'] ?? $data['am_pickup'] ?? '06:30:00',
             $data['afternoon_departure'] ?? $data['pm_dropoff'] ?? '16:30:00',
-            (int)($data['estimated_duration'] ?? 60), $capacity,
+            (int)($data['estimated_duration'] ?? $current['estimated_duration'] ?? 60), (int)$current['max_capacity'],
             $data['status'] ?? 'active',
             $id
         ]);
         return $stmt->rowCount() > 0;
+    }
+
+    private function generateRouteCode(string $name): string
+    {
+        $base = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $name));
+        $base = substr($base !== '' ? $base : 'ROUTE', 0, 12);
+        $candidate = $base;
+        $suffix = 1;
+        $check = $this->db->prepare('SELECT 1 FROM transport_routes WHERE code=? LIMIT 1');
+        do {
+            $check->execute([$candidate]);
+            if (!$check->fetchColumn()) return $candidate;
+            $suffix++;
+            $candidate = substr($base, 0, max(1, 12 - strlen((string)$suffix) - 1)) . '-' . $suffix;
+        } while ($suffix < 10000);
+        throw new \RuntimeException('Unable to generate a unique route code');
     }
     public function deactivateRoute($id)
     {

@@ -84,16 +84,16 @@ const financeReportsController = (() => {
     }
   }
 
-  async function fetchStats() {
-    return window.API.apiCall("/payments/stats", "GET", null, {}, { checkPermission: false });
+  async function fetchStats(params = {}) {
+    return window.API.apiCall("/payments/stats", "GET", null, params, { checkPermission: false });
   }
 
-  async function fetchTrends() {
-    return window.API.apiCall("/payments/collection-trends", "GET", null, {}, { checkPermission: false });
+  async function fetchTrends(params = {}) {
+    return window.API.apiCall("/payments/collection-trends", "GET", null, params, { checkPermission: false });
   }
 
-  async function fetchRevenueSources() {
-    return window.API.apiCall("/payments/revenue-sources", "GET", null, {}, { checkPermission: false });
+  async function fetchRevenueSources(params = {}) {
+    return window.API.apiCall("/payments/revenue-sources", "GET", null, params, { checkPermission: false });
   }
 
   async function fetchPaymentStatus(params = {}) {
@@ -179,89 +179,96 @@ const financeReportsController = (() => {
     state.footer = footerCells.map((c) => String(c).replace(/<[^>]+>/g, "").trim());
   }
 
-  function renderChart(filters, trendsData, revenueData, expenseRows) {
-    const canvas = getEl("financeChart");
-    if (!canvas || typeof Chart === "undefined") return;
-    if (state.chart) {
-      state.chart.destroy();
-      state.chart = null;
+  const monthOf = (value) => String(value || "").slice(0, 7) || "Unknown";
+  const group = (rows, keyFn, valueFn) => rows.reduce((out, row) => {
+    const key = keyFn(row) || "Unknown";
+    out[key] = (out[key] || 0) + toNumber(valueFn(row));
+    return out;
+  }, {});
+  const classSummary = (items) => Object.values(items.reduce((out, item) => {
+    const name = item.class_name || item.level_name || "Unassigned";
+    out[name] ||= { class_name: name, due: 0, paid: 0, balance: 0, accounts: 0 };
+    out[name].due += toNumber(item.total_due);
+    out[name].paid += toNumber(item.total_paid);
+    out[name].balance += toNumber(item.current_balance);
+    out[name].accounts += 1;
+    return out;
+  }, {}));
+
+  function headings(primary, pivot, composition, detail, pivotEyebrow = "Cross-tabulation", compositionEyebrow = "Composition") {
+    setText("financePrimaryTitle", primary); setText("financePivotTitle", pivot);
+    setText("financeCompositionTitle", composition); setText("financeDetailTitle", detail);
+    setText("financePivotEyebrow", pivotEyebrow); setText("financeCompositionEyebrow", compositionEyebrow);
+  }
+
+  function renderReportView(type, data) {
+    const RC = window.ReportComponents;
+    if (!RC) return;
+    const { payments, expenses, students, summary, trends, sources, stats } = data;
+    const income = payments.reduce((sum, row) => sum + toNumber(row.amount), 0)
+      || toNumber(summary.total_paid) || toNumber(stats?.amount);
+    const expenseTotal = expenses.reduce((sum, row) => sum + toNumber(row.amount), 0);
+    const due = toNumber(summary.total_due), paid = toNumber(summary.total_paid) || income;
+    const balance = toNumber(summary.total_balance), rate = toNumber(summary.collection_rate);
+    const classes = classSummary(students);
+    const expenseGroups = group(expenses, r => r.expense_category || "Uncategorized", r => r.amount);
+    const transactionRows = payments.map(r => ({ month: monthOf(r.transaction_date), type: "Income", amount: toNumber(r.amount) }))
+      .concat(expenses.map(r => ({ month: monthOf(r.expense_date), type: "Expense", amount: toNumber(r.amount) })));
+    const chart = getEl("financeChart");
+
+    if (type === "income_statement") {
+      const margin = income ? ((income - expenseTotal) / income) * 100 : 0;
+      headings("Income statement waterfall", "Income and expenses by month", "Revenue sources", "Income statement movements");
+      RC.kpis("#financeKpis", [{label:"Revenue",value:income,format:"currency"},{label:"Expenses",value:expenseTotal,format:"currency",color:"#b94356"},{label:"Surplus / deficit",value:income-expenseTotal,format:"currency",color:"#3677b5"},{label:"Operating margin",value:margin,format:"percent",color:"#e0a52b"}]);
+      RC.chart(chart, "waterfall", {labels:["Revenue","Expenses"], changes:[income,-expenseTotal], label:"Operating result"});
+      RC.pivot("#financePivot", transactionRows, {row:"type",column:"month",value:"amount",aggregate:"sum",format:"currency",rowLabel:"Statement line"});
+      RC.treemap("#financeComposition", (sources.length ? sources.map(r=>({label:r.source||"Other",value:toNumber(r.total),format:"currency"})) : [{label:"Fees collected",value:income,format:"currency"}]));
+      const model = buildIncomeCashFlowReport(payments, expenses); renderTable(model.columns, model.rows, ["<strong>Operating result</strong>","","","",`<strong>${formatCurrency(income-expenseTotal)}</strong>`,""]); return;
     }
-
-    const trendRows = Array.isArray(trendsData?.chart_data) ? trendsData.chart_data : [];
-    const revenueRows = Array.isArray(revenueData?.sources) ? revenueData.sources : [];
-
-    if (filters.reportType === "expense_summary") {
-      const grouped = {};
-      expenseRows.forEach((row) => {
-        const key = row.expense_category || "Uncategorized";
-        grouped[key] = (grouped[key] || 0) + toNumber(row.amount);
-      });
-      const labels = Object.keys(grouped);
-      const values = labels.map((k) => grouped[k]);
-
-      if (!labels.length) return;
-      state.chart = new Chart(canvas, {
-        type: "bar",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Expenses (KES)",
-              data: values,
-              backgroundColor: "#dc3545",
-            },
-          ],
-        },
-        options: { responsive: true, maintainAspectRatio: false },
-      });
-      return;
+    if (type === "balance_sheet") {
+      headings("Receivables position", "Class financial position", "Collected versus receivable", "Statement of fee position", "Financial position", "Composition");
+      RC.kpis("#financeKpis", [{label:"Fees billed",value:due,format:"currency"},{label:"Cash collected",value:paid,format:"currency"},{label:"Receivables",value:balance,format:"currency",color:"#b94356"},{label:"Collection ratio",value:rate,format:"percent",color:"#e0a52b"}]);
+      RC.chart(chart,"doughnut",{labels:["Collected","Receivable"],datasets:[{label:"Position",data:[paid,balance]}]});
+      const positionRows=classes.flatMap(r=>[{class:r.class_name,line:"Collected",amount:r.paid},{class:r.class_name,line:"Receivable",amount:r.balance}]);
+      RC.pivot("#financePivot",positionRows,{row:"class",column:"line",value:"amount",aggregate:"sum",format:"currency",rowLabel:"Class"});
+      RC.heatmapTable("#financeComposition",[{key:"class_name",label:"Class"},{key:"balance",label:"Receivable",format:"currency"}],classes,["balance"]);
+      const model=buildBalanceSheet(summary); renderTable(model.columns,model.rows); return;
     }
-
-    if (trendRows.length) {
-      const labels = trendRows.map((r) => r.month);
-      const collected = trendRows.map((r) => toNumber(r.collected));
-      const targets = trendRows.map((r) => toNumber(r.target));
-      state.chart = new Chart(canvas, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Collected",
-              data: collected,
-              borderColor: "#198754",
-              backgroundColor: "rgba(25,135,84,0.15)",
-              tension: 0.3,
-              fill: true,
-            },
-            {
-              label: "Target",
-              data: targets,
-              borderColor: "#0d6efd",
-              borderDash: [6, 4],
-              tension: 0.2,
-            },
-          ],
-        },
-        options: { responsive: true, maintainAspectRatio: false },
-      });
-      return;
+    if (type === "cash_flow") {
+      headings("Cash movement over time", "Monthly cash-flow pivot", "Cash movement sources", "Cash-flow transactions", "Trend", "Source concentration");
+      RC.kpis("#financeKpis",[{label:"Cash inflow",value:income,format:"currency"},{label:"Cash outflow",value:expenseTotal,format:"currency",color:"#b94356"},{label:"Net cash movement",value:income-expenseTotal,format:"currency",color:"#3677b5"},{label:"Transactions",value:payments.length+expenses.length,format:"integer",color:"#8b5fbf"}]);
+      const months=[...new Set(transactionRows.map(r=>r.month))].sort();
+      RC.chart(chart,"area",{labels:months,datasets:[{label:"Inflow",data:months.map(m=>transactionRows.filter(r=>r.month===m&&r.type==="Income").reduce((s,r)=>s+r.amount,0))},{label:"Outflow",data:months.map(m=>transactionRows.filter(r=>r.month===m&&r.type==="Expense").reduce((s,r)=>s+r.amount,0))}]});
+      RC.pivot("#financePivot",transactionRows,{row:"month",column:"type",value:"amount",aggregate:"sum",format:"currency",rowLabel:"Month"});
+      RC.treemap("#financeComposition",[{label:"Fee inflows",value:income,format:"currency"},...Object.entries(expenseGroups).map(([label,value])=>({label:`${label} outflow`,value,format:"currency"}))]);
+      const model=buildIncomeCashFlowReport(payments,expenses); renderTable(model.columns,model.rows,["<strong>Net movement</strong>","","","",`<strong>${formatCurrency(income-expenseTotal)}</strong>`,""]); return;
     }
-
-    if (revenueRows.length) {
-      state.chart = new Chart(canvas, {
-        type: "doughnut",
-        data: {
-          labels: revenueRows.map((r) => r.source || "Unknown"),
-          datasets: [
-            {
-              data: revenueRows.map((r) => toNumber(r.total)),
-            },
-          ],
-        },
-        options: { responsive: true, maintainAspectRatio: false },
-      });
+    if (type === "fee_collection") {
+      headings("Collection performance by class", "Class fee collection pivot", "Class arrears heatmap", "Fee collection by class", "Target comparison", "Risk concentration");
+      RC.kpis("#financeKpis",[{label:"Fees due",value:due,format:"currency"},{label:"Fees collected",value:paid,format:"currency"},{label:"Outstanding",value:balance,format:"currency",color:"#b94356"},{label:"Collection rate",value:rate,format:"percent",color:"#e0a52b"}]);
+      RC.chart(chart,"bullet",{labels:classes.map(r=>r.class_name),current:classes.map(r=>r.paid),target:classes.map(r=>r.due)});
+      const rows=classes.flatMap(r=>[{class:r.class_name,measure:"Due",amount:r.due},{class:r.class_name,measure:"Paid",amount:r.paid},{class:r.class_name,measure:"Outstanding",amount:r.balance}]);
+      RC.pivot("#financePivot",rows,{row:"class",column:"measure",value:"amount",aggregate:"sum",format:"currency",rowLabel:"Class"});
+      RC.heatmapTable("#financeComposition",[{key:"class_name",label:"Class"},{key:"balance",label:"Outstanding",format:"currency"}],classes,["balance"]);
+      renderTable(["Class","Accounts","Due","Paid","Outstanding","Rate"],classes.map(r=>[esc(r.class_name),r.accounts,formatCurrency(r.due),formatCurrency(r.paid),formatCurrency(r.balance),`${r.due?(r.paid/r.due*100).toFixed(1):"0.0"}%`]),["<strong>Totals</strong>",students.length,`<strong>${formatCurrency(due)}</strong>`,`<strong>${formatCurrency(paid)}</strong>`,`<strong>${formatCurrency(balance)}</strong>`,`<strong>${rate.toFixed(1)}%</strong>`]); return;
     }
+    if (type === "expense_summary") {
+      headings("Expense categories", "Expenses by category and month", "Expense category share", "Expense register", "Distribution", "Composition");
+      const approved=expenses.filter(r=>["approved","paid","confirmed"].includes(String(r.status).toLowerCase())).reduce((s,r)=>s+toNumber(r.amount),0);
+      RC.kpis("#financeKpis",[{label:"Total expenses",value:expenseTotal,format:"currency",color:"#b94356"},{label:"Categories",value:Object.keys(expenseGroups).length,format:"integer"},{label:"Approved / paid",value:approved,format:"currency"},{label:"Pending",value:expenseTotal-approved,format:"currency",color:"#e0a52b"}]);
+      RC.chart(chart,"pie",{labels:Object.keys(expenseGroups),datasets:[{label:"Expenses",data:Object.values(expenseGroups)}]});
+      const rows=expenses.map(r=>({category:r.expense_category||"Uncategorized",month:monthOf(r.expense_date),amount:toNumber(r.amount)}));
+      RC.pivot("#financePivot",rows,{row:"category",column:"month",value:"amount",aggregate:"sum",format:"currency",rowLabel:"Category"});
+      RC.treemap("#financeComposition",Object.entries(expenseGroups).map(([label,value])=>({label,value,format:"currency"})));
+      const model=buildExpenseReport(expenses); renderTable(model.columns,model.rows,["<strong>Total</strong>","","","",`<strong>${formatCurrency(expenseTotal)}</strong>`,""]); return;
+    }
+    headings("Student balance distribution", "Accounts by class and status", "Arrears concentration by class", "Individual student accounts", "Distribution", "Risk concentration");
+    const clear=students.filter(r=>toNumber(r.current_balance)<=0).length;
+    RC.kpis("#financeKpis",[{label:"Student accounts",value:students.length,format:"integer"},{label:"Clear accounts",value:clear,format:"integer"},{label:"Accounts in arrears",value:students.length-clear,format:"integer",color:"#b94356"},{label:"Total arrears",value:balance,format:"currency",color:"#e0a52b"}]);
+    RC.chart(chart,"histogram",{values:students.map(r=>toNumber(r.current_balance)),bins:8,label:"Student accounts"});
+    RC.pivot("#financePivot",students.map(r=>({class:r.class_name||"Unassigned",status:r.payment_status||"Unknown",balance:toNumber(r.current_balance)})),{row:"class",column:"status",value:"balance",aggregate:"sum",format:"currency",rowLabel:"Class"});
+    RC.heatmapTable("#financeComposition",[{key:"class_name",label:"Class"},{key:"balance",label:"Arrears",format:"currency"}],classes,["balance"]);
+    const model=buildStudentAccountsReport(students); renderTable(model.columns,model.rows,["<strong>Totals</strong>","","","",`<strong>${formatCurrency(due)}</strong>`,`<strong>${formatCurrency(paid)}</strong>`,`<strong>${formatCurrency(balance)}</strong>`,`<strong>${rate.toFixed(1)}%</strong>`]);
   }
 
   function buildStudentAccountsReport(items) {
@@ -338,14 +345,6 @@ const financeReportsController = (() => {
     return { columns, rows };
   }
 
-  function applySummaryCards(income, expenses, outstanding) {
-    const net = income - expenses;
-    setText("totalIncome", formatCurrency(income));
-    setText("totalExpenses", formatCurrency(expenses));
-    setText("netProfit", formatCurrency(net));
-    setText("outstandingFees", formatCurrency(outstanding));
-  }
-
   async function generateReport() {
     showError(null);
     const filters = getFilters();
@@ -355,12 +354,16 @@ const financeReportsController = (() => {
     const apiDateFilters = {};
     if (filters.startDate) apiDateFilters.date_from = `${filters.startDate} 00:00:00`;
     if (filters.endDate) apiDateFilters.date_to = `${filters.endDate} 23:59:59`;
+    const statusFilters = { page: 1, limit: 200 };
+    if (filters.startDate && filters.endDate && filters.startDate.slice(0, 4) === filters.endDate.slice(0, 4)) {
+      statusFilters.academic_year = filters.startDate.slice(0, 4);
+    }
 
     const [statsRes, trendsRes, sourcesRes, statusRes, paymentsRes, expensesRes] = await Promise.all([
-      safeCall(() => fetchStats()),
-      safeCall(() => fetchTrends()),
-      safeCall(() => fetchRevenueSources()),
-      safeCall(() => fetchPaymentStatus({ page: 1, limit: 200 })),
+      safeCall(() => fetchStats(apiDateFilters)),
+      safeCall(() => fetchTrends(apiDateFilters)),
+      safeCall(() => fetchRevenueSources(apiDateFilters)),
+      safeCall(() => fetchPaymentStatus(statusFilters)),
       safeCall(() => fetchPayments({ page: 1, limit: 200, ...apiDateFilters })),
       safeCall(() => fetchExpenses({ page: 1, limit: 200, ...apiDateFilters })),
     ]);
@@ -377,13 +380,6 @@ const financeReportsController = (() => {
     const expenses = Array.isArray(expensesData.expenses) ? expensesData.expenses : [];
 
     const summary = statusData.summary || {};
-    const totalIncome = toNumber(summary.total_paid || stats.amount || paymentsData.summary?.confirmed_amount);
-    const totalOutstanding = toNumber(summary.total_balance || stats.outstanding);
-    const totalExpenses = expenses.reduce((sum, row) => sum + toNumber(row.amount), 0);
-
-    applySummaryCards(totalIncome, totalExpenses, totalOutstanding);
-    renderChart(filters, trendsData, revenueData, expenses);
-
     if (
       !statusRes.ok &&
       !paymentsRes.ok &&
@@ -396,49 +392,11 @@ const financeReportsController = (() => {
       return;
     }
 
-    let model = { columns: [], rows: [] };
-    if (filters.reportType === "student_accounts" || filters.reportType === "fee_collection") {
-      model = buildStudentAccountsReport(studentItems);
-      const footer = [
-        "<strong>Totals</strong>",
-        "",
-        "",
-        "",
-        `<strong>${formatCurrency(summary.total_due)}</strong>`,
-        `<strong>${formatCurrency(summary.total_paid)}</strong>`,
-        `<strong>${formatCurrency(summary.total_balance)}</strong>`,
-        `<strong>${toNumber(summary.collection_rate).toFixed(2)}%</strong>`,
-      ];
-      renderTable(model.columns, model.rows, footer);
-      return;
-    }
-
-    if (filters.reportType === "expense_summary") {
-      model = buildExpenseReport(expenses);
-      const footer = ["<strong>Total</strong>", "", "", "", `<strong>${formatCurrency(totalExpenses)}</strong>`, ""];
-      renderTable(model.columns, model.rows, footer);
-      return;
-    }
-
-    if (filters.reportType === "balance_sheet") {
-      model = buildBalanceSheet(summary);
-      renderTable(model.columns, model.rows, []);
-      return;
-    }
-
-    model = buildIncomeCashFlowReport(payments, expenses);
-    const totalNet = model.rows.reduce((sum, row) => {
-      const amountRaw = row[4].replace(/[^\d.-]/g, "");
-      return sum + toNumber(amountRaw);
-    }, 0);
-    renderTable(model.columns, model.rows, [
-      "<strong>Net Movement</strong>",
-      "",
-      "",
-      "",
-      `<strong>${formatCurrency(totalNet)}</strong>`,
-      "",
-    ]);
+    renderReportView(filters.reportType, {
+      payments, expenses, students: studentItems, summary,
+      stats, trends: Array.isArray(trendsData.chart_data) ? trendsData.chart_data : [],
+      sources: Array.isArray(revenueData.sources) ? revenueData.sources : [],
+    });
   }
 
   function getPrintableModel() {
@@ -543,10 +501,30 @@ const financeReportsController = (() => {
   }
 
   function bindEvents() {
-    getEl("generateReportBtn")?.addEventListener("click", generateReport);
     getEl("exportReportBtn")?.addEventListener("click", exportReport);
     getEl("printReportBtn")?.addEventListener("click", printReport);
-    getEl("reportType")?.addEventListener("change", generateReport);
+    let refreshTimer;
+    const scheduleRefresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(generateReport, 250);
+    };
+    getEl("periodType")?.addEventListener("change", async () => {
+      await applyPeriodPreset();
+      scheduleRefresh();
+    });
+    ["startDate", "endDate"].forEach((id) => getEl(id)?.addEventListener("change", scheduleRefresh));
+    document.getElementById("financeReportTabs")?.addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-finance-report]");
+      if (!tab) return;
+      const reportType = getEl("reportType");
+      if (reportType) reportType.value = tab.dataset.financeReport;
+      document.querySelectorAll("[data-finance-report]").forEach((button) => {
+        const active = button === tab;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      scheduleRefresh();
+    });
   }
 
   function setDefaultDates() {
@@ -566,6 +544,26 @@ const financeReportsController = (() => {
     }
   }
 
+  async function applyPeriodPreset() {
+    const period = getEl("periodType")?.value || "custom";
+    const start = getEl("startDate");
+    const end = getEl("endDate");
+    if (!start || !end || period === "custom") return;
+    const today = new Date();
+    if (period === "month") {
+      start.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+      end.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      return;
+    }
+    const result = await safeCall(() => window.API.apiCall("/academic/terms-list", "GET", null, {}, { checkPermission: false }));
+    const terms = result.ok && Array.isArray(result.data) ? result.data : [];
+    const current = terms.find(term => term.status === "current" || term.is_current);
+    if (current?.start_date && current?.end_date) {
+      start.value = String(current.start_date).slice(0, 10);
+      end.value = String(current.end_date).slice(0, 10);
+    }
+  }
+
   async function init() {
     await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated?.()) {
@@ -574,6 +572,7 @@ const financeReportsController = (() => {
     }
     bindEvents();
     setDefaultDates();
+    await applyPeriodPreset();
     await generateReport();
   }
 

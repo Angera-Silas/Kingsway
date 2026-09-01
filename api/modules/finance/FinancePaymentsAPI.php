@@ -45,7 +45,7 @@ class FinancePaymentsAPI extends BaseAPI
             ]);
             return $this->response(['message' => 'Bank transaction recorded']);
         } catch (Exception $e) {
-            error_log('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
@@ -82,7 +82,7 @@ return $this->response(['status' => 'error', 'message' => 'An internal error occ
             ]);
             return $this->response(['message' => 'Mpesa transaction recorded']);
         } catch (Exception $e) {
-            error_log('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
@@ -112,7 +112,7 @@ return $this->response(['status' => 'error', 'message' => 'An internal error occ
             ]);
             return $this->response(['message' => 'Cash payment recorded']);
         } catch (Exception $e) {
-            error_log('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
@@ -137,7 +137,7 @@ return $this->response(['status' => 'error', 'message' => 'An internal error occ
             $transactions = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             return $this->response(['transactions' => $transactions]);
         } catch (Exception $e) {
-            error_log('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FinancePaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }

@@ -15,6 +15,8 @@ use App\API\Services\DirectorAnalyticsService;
 use App\API\Services\StaffDomainAccessService;
 use App\API\Services\StaffTeachingAssignmentService;
 use App\API\Services\ReportCardReleaseService;
+use App\API\Services\AcademicContextService;
+use App\API\Modules\academic\AcademicCohortProjectionService;
 use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
@@ -140,12 +142,10 @@ class AcademicController extends BaseController
         $this->teachingAssignments = new StaffTeachingAssignmentService();
 
         // Initialize Academic Context Service
-        require_once __DIR__ . '/../services/AcademicContextService.php';
-        $this->contextService = new \App\API\Services\AcademicContextService();
+        $this->contextService = new AcademicContextService();
 
         // Initialize Cohort Projection Service (Admission Stage 5)
-        require_once __DIR__ . '/../modules/academic/AcademicCohortProjectionService.php';
-        $this->cohortProjectionService = new \App\API\Modules\academic\AcademicCohortProjectionService();
+        $this->cohortProjectionService = new AcademicCohortProjectionService();
         $this->examService = new AcademicExamService($this->api);
         $this->reportService = new AcademicReportService($this->api);
         $this->curriculumService = new AcademicCurriculumService($this->api);
@@ -179,7 +179,7 @@ class AcademicController extends BaseController
             $context = $this->contextService->getCurrentContext();
             return $this->success($context);
         } catch (Exception $e) {
-            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->error('An internal error occurred.');
         }
     }
@@ -253,7 +253,7 @@ return $this->error('An internal error occurred.');
             ], 'Academic KPIs retrieved');
 
         } catch (Exception $e) {
-            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }
@@ -277,7 +277,7 @@ return $this->serverError('An internal error occurred.');
             ], 'Performance matrix retrieved');
 
         } catch (Exception $e) {
-            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }
@@ -303,7 +303,7 @@ return $this->serverError('An internal error occurred.');
             ? (int) $data['applied_academic_year'] : null;
 
         if (!$targetYearId || !$targetClassId) {
-            error_log('[AcademicController] getCohortProjection: target year/class required');
+            \App\API\Services\Logger::legacyError('[AcademicController] getCohortProjection: target year/class required');
             return $this->error('Target academic year and class are required.');
         }
 
@@ -324,7 +324,7 @@ return $this->serverError('An internal error occurred.');
         $applicationId = isset($data['application_id'])
             ? (int) $data['application_id'] : null;
         if (!$applicationId) {
-            error_log('[AcademicController] getCohortProjection: application_id required');
+            \App\API\Services\Logger::legacyError('[AcademicController] getCohortProjection: application_id required');
             return $this->error('application_id is required.');
         }
         $result = $this->cohortProjectionService->projectCapacityForApplication($applicationId);
@@ -1260,7 +1260,7 @@ return $this->serverError('An internal error occurred.');
             $service = new ReportCardReleaseService($this->db->getConnection());
             return $this->success($service->list($filters));
         } catch (\Throwable $e) {
-            error_log('[AcademicController] report card releases: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AcademicController] report card releases: ' . $e->getMessage());
             return $this->serverError('Unable to load report card releases');
         }
     }
@@ -3185,7 +3185,7 @@ return $this->serverError('An internal error occurred.');
                 : ['system administrator','school administrator','headteacher','deputy head - academic'];
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     /** GET /api/academic/class-teachers or /{id} */
@@ -3198,7 +3198,7 @@ return $this->serverError('An internal error occurred.');
                 return $row ? $this->success($row) : $this->notFound('Class teacher assignment not found');
             }
             return $this->success($this->teachingAssignments->listClassTeachers(array_merge($_GET, $data)));
-        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
             return $this->serverError('Failed to load class teacher assignments', 'An internal error occurred.');
         }
     }
@@ -3211,7 +3211,7 @@ return $this->serverError('An internal error occurred.');
             $newId = $this->teachingAssignments->saveClassTeacher($data, null, $this->staffAccess->userId());
             $this->staffAccess->audit('create_class_teacher_assignment', 'staff_class_assignment', $newId, null, $data);
             return $this->created(['id'=>$newId], 'Class teacher assigned');
-        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
             return $this->serverError('Failed to assign class teacher', 'An internal error occurred.');
         }
     }
@@ -3226,7 +3226,7 @@ return $this->serverError('An internal error occurred.');
             $this->teachingAssignments->saveClassTeacher($data, (int)$id, $this->staffAccess->userId());
             $this->staffAccess->audit('update_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, $data);
             return $this->success(['id'=>(int)$id], 'Class teacher assignment updated');
-        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** DELETE /api/academic/class-teachers/{id} */
@@ -3263,7 +3263,7 @@ return $this->serverError('An internal error occurred.');
             $newId=$this->teachingAssignments->saveSubjectAssignment($data,null,$this->staffAccess->userId());
             $this->staffAccess->audit('create_subject_assignment','staff_class_assignment',$newId,null,$data);
             return $this->created(['id'=>$newId],'Subject assignment created');
-        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** PUT /api/academic/subject-assignments/{id} */
@@ -3272,7 +3272,7 @@ return $this->serverError('An internal error occurred.');
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         if(!$id)return $this->badRequest('Assignment ID is required');
         try{$before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->saveSubjectAssignment($data,(int)$id,$this->staffAccess->userId());$this->staffAccess->audit('update_subject_assignment','staff_class_assignment',(int)$id,$before,$data);return $this->success(['id'=>(int)$id],'Subject assignment updated');}
-        catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** DELETE /api/academic/subject-assignments/{id} */
@@ -3311,7 +3311,7 @@ return $this->serverError('An internal error occurred.');
             }
             return $this->success($contacts, 'Teachers retrieved');
         } catch (\Throwable $e) {
-            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('Failed to load teachers', 'An internal error occurred.');
         }
     }
@@ -3339,7 +3339,7 @@ return $this->serverError('An internal error occurred.');
             }
             return $this->success($contacts, 'Class teachers retrieved');
         } catch (\Throwable $e) {
-            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('Failed to load class teachers', 'An internal error occurred.');
         }
     }
@@ -3665,7 +3665,7 @@ return $this->serverError('An internal error occurred.');
                 'reason' => $data['reason'] ?? $data['remarks'] ?? '',
             ]));
         } catch (\Exception $e) {
-            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -3687,7 +3687,7 @@ return $this->serverError('An internal error occurred.');
                 'reason' => $reason,
             ]));
         } catch (\Exception $e) {
-            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
         }
     }

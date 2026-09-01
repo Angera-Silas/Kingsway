@@ -80,7 +80,7 @@ class PayrollChildFeeTransferService
                 $failed++;
                 $this->db->prepare("UPDATE payroll_child_fee_transfers SET status='failed', failure_reason=?, updated_at=NOW() WHERE id=? AND status='pending'")
                     ->execute([substr($e->getMessage(), 0, 500), (int) $transfer['id']]);
-                error_log('[PayrollChildFeeTransferService] ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('[PayrollChildFeeTransferService] ' . $e->getMessage());
             }
         }
 

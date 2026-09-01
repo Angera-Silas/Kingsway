@@ -6,7 +6,7 @@ error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 
-require_once __DIR__ . '/../config/DashboardRouter.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 use App\Config\DashboardRouter;
 
@@ -108,7 +108,7 @@ $sidebar_items = [];
                             else if (window.KingswayBootstrap?.initialize) await window.KingswayBootstrap.initialize();
                         } catch(e) {}
                         var di = window.AuthContext?.getDashboardInfo?.();
-                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=profile';
+                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=account_settings';
                         setTimeout(function() { window.location.replace((window.APP_BASE || '') + dest); }, 1500);
                     })();
                     </script>
@@ -123,7 +123,7 @@ $sidebar_items = [];
                             else if (window.KingswayBootstrap?.initialize) await window.KingswayBootstrap.initialize();
                         } catch(e) {}
                         var di = window.AuthContext?.getDashboardInfo?.();
-                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=profile';
+                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=account_settings';
                         window.location.replace((window.APP_BASE || '') + dest);
                     })();
                     </script>

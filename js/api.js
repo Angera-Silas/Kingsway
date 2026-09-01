@@ -588,14 +588,10 @@ const AuthContext = (() => {
       if (uid) localStorage.setItem(ACTIVE_USER_ID_KEY, String(uid));
     } catch (_) {}
 
-    console.log("setUser called with:", { userData, fullResponse });
-
     // Extract and deduplicate permissions
     // Permissions can be in fullResponse.permissions OR userData.permissions
     const permissionsArray =
       fullResponse?.permissions || userData?.permissions || [];
-
-    console.log("Permissions array:", permissionsArray);
 
     // Use StorageManager for user preferences if available
     if (
@@ -625,8 +621,6 @@ const AuthContext = (() => {
       );
       permissions = uniquePermissions;
 
-      console.log("Unique permissions extracted:", permissions.size);
-
       // Store in current auth storage
       setItem("user_permissions", JSON.stringify(Array.from(permissions)));
     } else {
@@ -638,7 +632,6 @@ const AuthContext = (() => {
     if (Array.isArray(rolesArray) && rolesArray.length > 0) {
       roles = rolesArray.map((r) => r.name || r);
       setItem("user_roles", JSON.stringify(roles));
-      console.log("Roles extracted:", roles);
 
       // Also extract role IDs for dashboard routing
       const roleIds = [];
@@ -651,7 +644,6 @@ const AuthContext = (() => {
       // Add role_ids to userData for dashboard router
       if (roleIds.length > 0) {
         userData.role_ids = roleIds;
-        console.log("Role IDs extracted:", roleIds);
       }
     } else {
       console.warn("No roles found in response");
@@ -663,7 +655,6 @@ const AuthContext = (() => {
       Array.isArray(fullResponse.sidebar_items)
     ) {
       setItem("sidebar_items", JSON.stringify(fullResponse.sidebar_items));
-      console.log("Sidebar items stored:", fullResponse.sidebar_items.length);
       // Trigger sidebar refresh
       if (typeof window.refreshSidebar === "function") {
         window.refreshSidebar(fullResponse.sidebar_items);
@@ -691,7 +682,6 @@ const AuthContext = (() => {
 
     // Store user data (now includes role_ids)
     setItem("user_data", JSON.stringify(userData));
-    console.log("User data stored", userData);
 
     // Store CSRF token if provided
     if (fullResponse?.csrf_token) {
@@ -1633,10 +1623,16 @@ const ENDPOINT_PERMISSIONS = {
   "/family/grading-scale": null,
   "/inventory/uniform-payment-intents": { GET: "inventory_view", POST: "inventory_manage" },
   "/inventory/uniform-payment-intent-confirm": { POST: "inventory_manage" },
-  "/inventory/uniform-catalog": "inventory_view",
-  "/inventory/uniform-catalog-products": { POST: "inventory_manage" },
-  "/inventory/uniform-catalog-images": { POST: "inventory_manage" },
-  "/inventory/uniform-catalog-purchases": { POST: "inventory_manage" },
+  // Read-only product browsing is available to every authenticated staff
+  // account. The controller independently protects every write/sale action.
+  "/inventory/uniform-catalog": null,
+  // Catalogue ownership is enforced server-side by the exact School
+  // Administrator / Uniform Store Manager role gate.
+  "/inventory/uniform-catalog-products": null,
+  "/inventory/uniform-catalog-images": null,
+  "/inventory/uniform-catalog-variants": null,
+  "/inventory/uniform-catalog-sizes": null,
+  "/inventory/uniform-catalog-purchases": null,
 
   // Staff
   // Staff-domain controllers enforce their canonical StaffAccess permissions
@@ -1773,6 +1769,39 @@ const ENDPOINT_PERMISSIONS = {
     POST: "transport_create",
     PUT: "transport_update",
   },
+  "/transport/all-routes": "transport_view",
+  "/transport/all-stops": "transport_view",
+  "/transport/all-vehicles": "transport_view",
+  "/transport/all-drivers": "transport_view",
+  "/transport/transport-route": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/transport-stop": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/transport-vehicle": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/transport-driver": {
+    GET: "transport_view",
+    POST: "transport_create",
+    PUT: "transport_update",
+    DELETE: "transport_delete",
+  },
+  "/transport/bills": "transport_view",
+  "/transport/bills-summary": "transport_view",
+  "/transport/route-stops": { GET: "transport_view", PUT: "transport_update" },
+  "/transport/driver-routes": { GET: "transport_view", PUT: "transport_update" },
+  "/transport/vehicle-routes": { GET: "transport_view", PUT: "transport_update" },
 
   // Schedules
   "/schedules/index": "schedules_view",
@@ -1874,6 +1903,8 @@ const ENDPOINT_PERMISSIONS = {
   ],
   "/system/authentication-logs": "system.security.view",
   "/system/failed-login-attempts": "system.security.view",
+  "/system/log-viewer": "system.security.view",
+  "/system/log-categories": "system.security.view",
   "/system/active-sessions": "system.security.view",
   "/system/active-sessions-revoke": "system.security.manage",
   "/system/tokens": "system.security.view",
@@ -2066,6 +2097,74 @@ let _csrfToken = null;
  */
 function setCsrfToken(token) {
   _csrfToken = token;
+}
+
+// ---------------------------------------------------------------------------
+// Request-ID correlation contract
+// ---------------------------------------------------------------------------
+// Every outgoing request carries an X-Request-ID so a single user action can
+// be traced from the browser across every backend log line. The browser
+// generates the ID, the server validates/echoes it (responds with the same
+// value), and the ID is attached to all server logs (including async work).
+// This mirrors the browser backend-correlated logging pattern used by modern
+// observability stacks.
+let _currentRequestId = null;
+let _browserSessionId = null;
+
+function _hexSegment(length) {
+  const bytes = new Uint8Array(length);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  let out = "";
+  for (let i = 0; i < length; i += 1) {
+    out += Math.floor(Math.random() * 256)
+      .toString(16)
+      .padStart(2, "0");
+  }
+  return out;
+}
+
+function generateRequestId() {
+  // 16 hex bytes = 128 bits of entropy; restricted to [A-Za-z0-9._-] so the
+  // server can safely validate it for echo and file-safe correlation.
+  return _hexSegment(16);
+}
+
+/**
+ * Stable identifier for the current browser session/tab used to correlate a
+ * page-load journey with the backend beyond a single request.
+ */
+function getBrowserSessionId() {
+  if (_browserSessionId) return _browserSessionId;
+  let stored = null;
+  try {
+    stored = sessionStorage.getItem("kingsway_browser_session_id");
+  } catch (_) {
+    /* storage unavailable */
+  }
+  if (!stored) {
+    stored = generateRequestId();
+    try {
+      sessionStorage.setItem("kingsway_browser_session_id", stored);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  _browserSessionId = stored;
+  return stored;
+}
+
+/** ID used by the frontend logger for the most recent/current API request. */
+function getCurrentRequestId() {
+  return _currentRequestId || "";
+}
+
+function setCurrentRequestId(id) {
+  if (typeof id === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(id)) {
+    _currentRequestId = id;
+  }
 }
 
 function handleSessionExpired(reason = "refresh_rejected") {
@@ -2524,10 +2623,15 @@ async function apiCallDirect(
       // 2FA endpoints called during login (no JWT yet)
       "/twofactor/challenge",
       "/twofactor/verify",
+      "/twofactor/passwordless-options",
+      "/twofactor/passwordless-verify",
       // Parent portal public endpoints (backend AuthMiddleware/CsrfMiddleware skips these)
       "/parent-portal/login",
       "/parent-portal/login-otp-request",
       "/parent-portal/login-otp-verify",
+      // Public admissions form; multipart submission is handled by the same
+      // API client without requiring an internal-user JWT.
+      "/public/applications",
     ]);
     isProtectedRequest =
       !authFreeEndpoints.has(normalizedEndpoint) &&
@@ -2576,7 +2680,9 @@ async function apiCallDirect(
       }
     }
 
-    const token = isProtectedRequest ? AuthContext.getToken() : null;
+    // This must remain mutable: a request can begin while the boot-time cookie
+    // refresh is still restoring the in-memory access token.
+    let token = isProtectedRequest ? AuthContext.getToken() : null;
     if (!token && isProtectedRequest) {
       // If a boot refresh is in-flight, wait for it instead of immediately
       // treating a null in-memory token as session expiry. The token may
@@ -2595,15 +2701,23 @@ async function apiCallDirect(
           "Your session is no longer authenticated. Please sign in again.",
         );
       }
+      // Use the token obtained during boot for this original request. Without
+      // this assignment the request was sent without Authorization and caused
+      // an avoidable 401 -> refresh -> retry cycle on every fresh page load.
+      token = retryToken;
     }
 
     // Request options
+    const requestId = options.requestId || generateRequestId();
+    setCurrentRequestId(requestId);
     const fetchOptions = {
       method: method,
       credentials:
         options.credentials ||
         (window.location.hostname === "localhost" ? "same-origin" : "include"),
       headers: {
+        "X-Request-ID": requestId,
+        "X-Browser-Session-Id": getBrowserSessionId(),
         ...(options.isFile ? {} : { "Content-Type": "application/json" }),
         Accept: "application/json",
         ...(token && {
@@ -2629,8 +2743,19 @@ async function apiCallDirect(
 
     let response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
 
+    // Capture the server-echoed request ID so browser-side errors line up with
+    // backend logs for the same action.
+    const echoedId = response.headers?.get?.("X-Request-ID");
+    if (echoedId) {
+      setCurrentRequestId(echoedId);
+    }
+
     // Handle 401 Unauthorized - token may have expired, try to refresh
-    if (response.status === 401 && !options.isRefreshAttempt) {
+    if (
+      response.status === 401 &&
+      !options.isRefreshAttempt &&
+      !options.skipAuthRefresh
+    ) {
       // [DIAG] capture auth storage state at first 401 of this session
       if (!sessionStorage.getItem("_diag_401_dumped")) {
         sessionStorage.setItem("_diag_401_dumped", "1");
@@ -2997,6 +3122,10 @@ window.API = {
   appState: AppState,
   permissions: PermissionContract,
 
+  // Request-ID correlation helpers shared with the frontend logger.
+  getRequestId: () => getCurrentRequestId(),
+  getBrowserSessionId: () => getBrowserSessionId(),
+
   // Auth endpoints
   auth: {
     index: async () => apiCall("/auth/index", "GET"),
@@ -3017,8 +3146,6 @@ window.API = {
       }
       // ── end 2FA gate ──────────────────────────────────────────────────
 
-      console.log("Full login response:", response);
-
       if (response && response.token) {
         AuthContext.setTokens(response.token);
 
@@ -3026,19 +3153,8 @@ window.API = {
         // The backend returns the user object in response.user
         const userData = response.user || {};
 
-        console.log("User data:", userData);
-        console.log("Sidebar items:", response.sidebar_items);
-        console.log("Dashboard info:", response.dashboard);
-
         AuthContext.setUser(userData, response, rememberMe);
         recordSessionActivity("login");
-
-        console.log("After setUser - AuthContext state:");
-        console.log("- User:", AuthContext.getUser());
-        console.log("- Permissions:", AuthContext.getPermissionCount());
-        console.log("- Roles:", AuthContext.getRoles());
-        console.log("- Sidebar items:", AuthContext.getSidebarItems());
-        console.log("- Dashboard info:", AuthContext.getDashboardInfo());
 
         // Hide login modal
         const modal = document.getElementById("loginModal");
@@ -3048,12 +3164,12 @@ window.API = {
           bsModal.hide();
         }
 
-        // Log permission count for debugging
-        console.log(
-          `User logged in: ${
-            userData.username
-          } with ${AuthContext.getPermissionCount()} permissions`,
-          `Roles: ${AuthContext.getRoles().join(", ")}`,
+        window.AppLogger?.audit?.(
+          "login_completed",
+          "auth_session",
+          null,
+          "User authentication completed",
+          { permission_count: AuthContext.getPermissionCount() },
         );
 
         // Navigate to user's default dashboard
@@ -3127,8 +3243,10 @@ window.API = {
         try { DataStore?.clearAll?.(); } catch (_) {}
         try { KingswayDB?.clearUserData?.(userId); } catch (_) {}
 
-        // Redirect to login
-        window.location.href = (window.APP_BASE || "") + "/index.php";
+        // Navigation is deliberately owned by the caller (AppShell or
+        // SessionManager). Redirecting here as well caused two simultaneous
+        // index.php navigations and Firefox reported the cancelled first one
+        // as NS_BINDING_ABORTED.
       }
     },
     forgotPassword: async (email) =>
@@ -3182,6 +3300,8 @@ window.API = {
       id
         ? apiCall(`/users/profile-get/${id}`, "GET")
         : apiCall("/users/profile-get", "GET"),
+    updateSelfProfile: async (data) =>
+      apiCall("/users/profile-update", "PUT", data),
 
     // Password
     changePassword: async (data) =>
@@ -4941,6 +5061,29 @@ window.API = {
   },
 
   // Inventory endpoints
+  commerce: {
+    product: async (id) => apiCall(`/commerce/product/${id}`, "GET"),
+    cart: async () => apiCall("/commerce/cart", "GET"),
+    paymentOptions: async () => apiCall("/commerce/payment-options", "GET"),
+    addCart: async (data) => apiCall("/commerce/cart", "POST", data),
+    updateCart: async (lineId, quantity) => apiCall(`/commerce/cart/${lineId}`, "PUT", { quantity }),
+    removeCart: async (lineId) => apiCall(`/commerce/cart/${lineId}`, "DELETE"),
+    wishlist: async () => apiCall("/commerce/wishlist", "GET"),
+    addWishlist: async (productId) => apiCall("/commerce/wishlist", "POST", { product_id: productId }),
+    removeWishlist: async (productId) => apiCall(`/commerce/wishlist/${productId}`, "DELETE"),
+    moveWishlist: async (data) => apiCall("/commerce/wishlist-move", "POST", data),
+    checkout: async (data) => apiCall("/commerce/checkout", "POST", data),
+    orders: async () => apiCall("/commerce/orders", "GET"),
+    cancelOrder: async (id) => apiCall(`/commerce/orders/${id}`, "DELETE"),
+    retryPayment: async (id, data) => apiCall(`/commerce/order-payment-retry/${id}`, "POST", data),
+    review: async (data) => apiCall("/commerce/reviews", "POST", data),
+    management: async (params = {}) => apiCall("/commerce/management", "GET", null, params),
+    updateOrderStatus: async (id, data) => apiCall(`/commerce/orders-status/${id}`, "PUT", data),
+    moderateReview: async (id, status) => apiCall(`/commerce/reviews-moderate/${id}`, "PUT", { status }),
+    pointOfSaleOptions: async () => apiCall("/commerce/point-of-sale-options", "GET"),
+    pointOfSale: async (data) => apiCall("/commerce/point-of-sale", "POST", data),
+  },
+
   inventory: {
     index: async () => apiCall("/inventory/index", "GET"),
     get: async (id = null) =>
@@ -5190,6 +5333,37 @@ window.API = {
     deleteUniformSale: async (saleId) =>
       apiCall(`/inventory/uniform-sales/${saleId}`, "DELETE"),
 
+    // ====================================
+    // Products Catalog (internal)
+    // ====================================
+
+    // List catalogue products (staff view: excludes archived; status/q filters)
+    getUniformCatalog: async (params = {}) =>
+      apiCall("/inventory/uniform-catalog", "GET", null, params),
+
+    // Create / update a catalogue product (item_id + title required)
+    saveUniformCatalogProduct: async (data) =>
+      apiCall("/inventory/uniform-catalog-products", "POST", data),
+
+    // Upload a product image (multipart FormData: file, product_id, alt_text, is_primary)
+    uploadUniformCatalogImage: async (formData) =>
+      apiCall("/inventory/uniform-catalog-images", "POST", formData, null, {
+        isFile: true,
+      }),
+
+    saveUniformCatalogVariant: async (data) =>
+      apiCall("/inventory/uniform-catalog-variants", "POST", data),
+
+    saveUniformCatalogSize: async (data) =>
+      apiCall("/inventory/uniform-catalog-sizes", "POST", data),
+
+    deleteUniformCatalogImage: async (imageId) =>
+      apiCall(`/inventory/uniform-catalog-images/${imageId}`, "DELETE"),
+
+    // Register an internal (staff) catalogue purchase against a learner
+    createUniformCatalogPurchase: async (data) =>
+      apiCall("/inventory/uniform-catalog-purchases", "POST", data),
+
     // Legacy support
     list: async (params = {}) =>
       apiCall("/inventory/items-list", "GET", null, params),
@@ -5205,6 +5379,10 @@ window.API = {
 
   // Staff endpoints
   staff: {
+    getSchoolAdministratorBootstrap: async () =>
+      apiCall("/staff/school-administrator-bootstrap", "GET"),
+    bootstrapSchoolAdministrator: async (data) =>
+      apiCall("/staff/school-administrator-bootstrap", "POST", data),
     getTeacherScope: async (params = {}) =>
       apiCall("/staff/teacher-scope", "GET", null, params),
     index: async (params = {}) => {
@@ -5547,6 +5725,8 @@ window.API = {
       apiCall(`/transport/transport-stop/${id}`, "PUT", data),
     deleteStop: async (id) =>
       apiCall(`/transport/transport-stop/${id}`, "DELETE"),
+    syncRouteStops: async (routeId, stops) =>
+      apiCall(`/transport/route-stops/${routeId}`, "PUT", { stops }),
 
     // Vehicles
     getVehicle: async (id = null) =>
@@ -5557,6 +5737,8 @@ window.API = {
     createVehicle: async (data) => apiCall("/transport/transport-vehicle", "POST", data),
     updateVehicle: async (id, data) => apiCall(`/transport/transport-vehicle/${id}`, "PUT", data),
     deleteVehicle: async (id) => apiCall(`/transport/transport-vehicle/${id}`, "DELETE"),
+    syncVehicleRoutes: async (vehicleId, routeIds) =>
+      apiCall(`/transport/vehicle-routes/${vehicleId}`, "PUT", { route_ids: routeIds }),
 
     // Drivers
     getDriver: async (id = null) =>
@@ -5571,8 +5753,16 @@ window.API = {
       apiCall(`/transport/transport-driver/${id}`, "PUT", data),
     deleteDriver: async (id) =>
       apiCall(`/transport/transport-driver/${id}`, "DELETE"),
+    syncDriverRoutes: async (driverId, routeIds) =>
+      apiCall(`/transport/driver-routes/${driverId}`, "PUT", { route_ids: routeIds }),
     assignDriver: async (data) =>
       apiCall("/transport/driver-assign", "POST", data),
+
+    // Monthly collections
+    getBills: async (params = {}) =>
+      apiCall("/transport/bills", "GET", null, params),
+    getBillsSummary: async (params = {}) =>
+      apiCall("/transport/bills-summary", "GET", null, params),
 
     // Student assignments
     assignStudent: async (data) =>
@@ -6246,6 +6436,21 @@ window.API = {
     getLogs: async (params) => apiCall("/system/logs", "GET", null, params),
     clearLogs: async (data) => apiCall("/system/logs-clear", "POST", data),
     archiveLogs: async (data) => apiCall("/system/logs-archive", "POST", data),
+
+    // Log viewer (central JSON-lines file logging)
+    getLogCategories: async (params) =>
+      apiCall("/system/log-categories", "GET", null, params),
+    getLogViewer: async (params) =>
+      apiCall("/system/log-viewer", "GET", null, params),
+    downloadLogFile: async (file) =>
+      apiCall("/system/log-file", "GET", null, { file }),
+    archiveLogCategory: async (category) =>
+      apiCall("/system/log-archive-category", "POST", { category }),
+    exportLogs: async (params) =>
+      apiCall("/system/log-export", "GET", null, params),
+    // Frontend browser telemetry ingest (any authenticated user)
+    logFromClient: async (data) =>
+      apiCall("/system/client-log", "POST", data, {}, { showSuccess: false }),
 
     // School config
     getSchoolConfig: async (params) =>

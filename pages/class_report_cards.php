@@ -14,7 +14,7 @@
                     <h5 class="card-title mb-0">
                         <i class="bi bi-file-earmark-text me-2"></i>Class Report Cards
                     </h5>
-                    <small class="text-muted">Generate report cards for your assigned classes</small>
+                    <small class="text-muted">View and prepare report cards for your assigned classes</small>
                 </div>
                 <div class="card-body">
                     <div id="reportCardsLoading" class="text-center py-4">
@@ -57,7 +57,7 @@
                                     <i class="bi bi-search me-1"></i>Load Students
                                 </button>
                                 <button id="generateSingleBtn" class="btn btn-success" data-permission="report_cards_generate">
-                                    <i class="bi bi-file-earmark-plus me-1"></i>Generate Report Card
+                                    <i class="bi bi-file-earmark-plus me-1"></i>Create Report Card
                                 </button>
                                 <button id="generateBatchBtn" class="btn btn-outline-success" data-permission="report_cards_generate">
                                     <i class="bi bi-files me-1"></i>Generate All

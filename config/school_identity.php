@@ -37,7 +37,7 @@ function loadSchoolIdentity(?\PDO $db): void
                 $principalTitle = trim((string) ($leader['principal_title'] ?? ''));
             }
         } catch (\Throwable $e) {
-            error_log('[SchoolIdentity] Database identity lookup failed.');
+            \App\API\Services\Logger::legacyError('[SchoolIdentity] Database identity lookup failed.');
         }
     }
 

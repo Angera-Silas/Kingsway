@@ -88,6 +88,42 @@ class WebsiteManager extends BaseAPI
         return trim($text, '-');
     }
 
+    /** Keep visual-editor markup while removing executable/untrusted HTML. */
+    private function sanitizeArticleContent(string $html): string
+    {
+        $document = new \DOMDocument('1.0', 'UTF-8');
+        libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8" ?><div id="kw-story-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        $allowed = ['div','p','br','h2','h3','h4','strong','b','em','i','u','ul','ol','li','blockquote','a','figure','figcaption','img','video','source'];
+        $nodes = iterator_to_array($document->getElementsByTagName('*'));
+        foreach ($nodes as $node) {
+            if ($node->getAttribute('id') === 'kw-story-root') continue;
+            if (!in_array(strtolower($node->nodeName), $allowed, true)) {
+                $node->parentNode?->removeChild($node);
+                continue;
+            }
+            foreach (iterator_to_array($node->attributes ?? []) as $attribute) {
+                $name = strtolower($attribute->name);
+                if (!in_array($name, ['href','src','alt','title','controls','preload','class','data-story-slider'], true)) {
+                    $node->removeAttribute($attribute->name);
+                }
+            }
+            foreach (['href','src'] as $urlAttribute) {
+                if (!$node->hasAttribute($urlAttribute)) continue;
+                $url = trim($node->getAttribute($urlAttribute));
+                if (!preg_match('#^(https?://|/|uploads/)#i', $url)) $node->removeAttribute($urlAttribute);
+            }
+            if ($node->hasAttribute('class') && $node->getAttribute('class') !== 'story-slider') {
+                $node->removeAttribute('class');
+            }
+        }
+        $root = $document->getElementById('kw-story-root');
+        $clean = '';
+        if ($root) foreach ($root->childNodes as $child) $clean .= $document->saveHTML($child);
+        return trim($clean);
+    }
+
     private function tableInfo(string $resource): ?array
     {
         return $this->allowedTables[$resource] ?? null;
@@ -131,7 +167,7 @@ class WebsiteManager extends BaseAPI
             ];
             return $this->successResponse($stats, 'Website stats retrieved');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -164,7 +200,7 @@ class WebsiteManager extends BaseAPI
             )->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)], 'Open terms retrieved');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -196,7 +232,7 @@ class WebsiteManager extends BaseAPI
             $grades = $found !== [] ? $found : $order;
             return $this->successResponse(['items' => $grades, 'total' => count($grades)], 'Active grades retrieved');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->successResponse(['items' => $order, 'total' => count($order)], 'Active grades retrieved');
         }
     }
@@ -249,7 +285,7 @@ class WebsiteManager extends BaseAPI
 
             return $this->successResponse(['items' => $rows, 'total' => $total]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -269,14 +305,14 @@ class WebsiteManager extends BaseAPI
                  VALUES (?,?,?,?,?,?,?,?)"
             );
             $stmt->execute([
-                $data['title'], $slug, $data['excerpt'] ?? '', $data['content'],
+                $data['title'], $slug, $data['excerpt'] ?? '', $this->sanitizeArticleContent((string)$data['content']),
                 $data['category'] ?? 'Announcement', $data['image_url'] ?? null,
                 $author, $data['status'] ?? 'published',
             ]);
             $newId = $this->db->lastInsertId();
             return $this->successResponse(['id' => $newId, 'slug' => $slug], 'Article published successfully', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -289,7 +325,9 @@ class WebsiteManager extends BaseAPI
             foreach (['title','excerpt','content','category','image_url','author','status'] as $f) {
                 if (isset($data[$f])) {
                     $fields[] = "$f=?";
-                    $params[] = $data[$f];
+                    $params[] = $f === 'content'
+                        ? $this->sanitizeArticleContent((string)$data[$f])
+                        : $data[$f];
                 }
             }
             if (empty($fields)) {
@@ -300,7 +338,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['id' => (int) $id], 'Article updated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -312,7 +350,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$id]);
             return $this->successResponse(null, 'Article deleted');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -368,7 +406,7 @@ class WebsiteManager extends BaseAPI
             $rows = $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -392,7 +430,7 @@ class WebsiteManager extends BaseAPI
             ]);
             return $this->successResponse(['id' => $this->db->lastInsertId()], 'Event created', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -432,7 +470,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['id' => (int) $id], 'Event updated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -444,7 +482,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$id]);
             return $this->successResponse(null, 'Event deleted');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -461,7 +499,7 @@ class WebsiteManager extends BaseAPI
             $rows = $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -478,7 +516,7 @@ class WebsiteManager extends BaseAPI
             ]);
             return $this->successResponse(['id' => $this->db->lastInsertId()], 'Image added to gallery', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -502,7 +540,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['id' => (int) $id], 'Gallery item updated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -514,7 +552,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$id]);
             return $this->successResponse(null, 'Image removed from gallery');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -534,7 +572,7 @@ class WebsiteManager extends BaseAPI
             );
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -584,7 +622,7 @@ class WebsiteManager extends BaseAPI
                 'download_url' => $this->downloads()->publicDownloadUrl($token),
             ], 'Download entry added.', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -670,7 +708,7 @@ class WebsiteManager extends BaseAPI
                     : 'Download metadata updated.'
             );
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -686,7 +724,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([(int) ($userId ?? 0) ?: null, (int) $id]);
             return $this->successResponse(null, 'Download removed and public access revoked.');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -724,7 +762,7 @@ class WebsiteManager extends BaseAPI
             $rows = $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -747,7 +785,7 @@ class WebsiteManager extends BaseAPI
             ]);
             return $this->successResponse(['id' => $this->db->lastInsertId()], 'Job vacancy created', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -781,7 +819,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['id' => (int) $id], 'Job updated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -793,7 +831,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$id]);
             return $this->successResponse(null, 'Job vacancy closed');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -867,7 +905,7 @@ class WebsiteManager extends BaseAPI
             }
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -881,7 +919,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$key, $value]);
             return $this->successResponse(null, 'Setting saved');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -952,7 +990,7 @@ class WebsiteManager extends BaseAPI
             $extra['departments'] = $this->departmentSections();
             return $this->successResponse(['blocks' => $rows, 'sections' => $extra]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -966,7 +1004,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$key, $value]);
             return $this->successResponse(null, 'Content updated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1016,7 +1054,7 @@ class WebsiteManager extends BaseAPI
             }
             return $this->successResponse(array_values($grouped));
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1027,7 +1065,7 @@ class WebsiteManager extends BaseAPI
             $rows = $this->allOrdered('leadership_levels', 'is_active=1');
             return $this->successResponse($rows);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1042,7 +1080,7 @@ class WebsiteManager extends BaseAPI
             $rows = $this->allOrdered('leadership_positions', $where);
             return $this->successResponse($rows);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1103,7 +1141,7 @@ class WebsiteManager extends BaseAPI
             ]);
             return $this->successResponse(['id' => (int) $this->db->lastInsertId()], 'Leadership entry created.', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1135,7 +1173,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['id' => $id], 'Leadership entry updated.');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1150,7 +1188,7 @@ class WebsiteManager extends BaseAPI
             }
             return $this->successResponse(null, 'Leadership entry deleted.');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1177,7 +1215,7 @@ class WebsiteManager extends BaseAPI
 
             return $this->successResponse(['items' => $rows, 'total' => $total]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1189,7 +1227,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$status, $id]);
             return $this->successResponse(null, 'Application status updated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1212,7 +1250,7 @@ class WebsiteManager extends BaseAPI
             )->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1226,6 +1264,21 @@ class WebsiteManager extends BaseAPI
             $q = $this->db->prepare('SELECT status FROM job_applications WHERE id=? FOR UPDATE');
             $q->execute([$id]); $old = $q->fetchColumn();
             if ($old === false) { $this->db->rollBack(); return $this->errorResponse('Application not found.', 404); }
+            $transitions = [
+                'received' => ['shortlisted', 'rejected'],
+                'shortlisted' => ['interview_scheduled', 'rejected'],
+                'interview_scheduled' => ['rejected'],
+                'interviewed' => ['hired', 'rejected'],
+                'hired' => [],
+                'rejected' => [],
+            ];
+            if ($old !== $status && !in_array($status, $transitions[$old] ?? [], true)) {
+                $this->db->rollBack();
+                return $this->errorResponse(
+                    "Application cannot move from {$old} to {$status}.",
+                    422
+                );
+            }
             if ($old !== $status) {
                 $this->db->prepare('UPDATE job_applications SET status=?, updated_at=NOW() WHERE id=?')->execute([$status, $id]);
                 $this->db->prepare('INSERT INTO job_application_status_history (application_id,from_status,to_status,changed_by,notes) VALUES (?,?,?,?,?)')
@@ -1235,7 +1288,7 @@ class WebsiteManager extends BaseAPI
             return $this->successResponse(['id'=>$id,'from_status'=>$old,'status'=>$status], 'Application status updated.');
         } catch (\Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
-            error_log('[WebsiteManager] '.$e->getMessage());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] '.$e->getMessage());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1254,7 +1307,7 @@ class WebsiteManager extends BaseAPI
             $this->db->prepare('UPDATE job_applications SET status=\'interview_scheduled\',updated_at=NOW() WHERE id=?')->execute([$applicationId]);
             $this->db->prepare('INSERT INTO job_application_status_history (application_id,from_status,to_status,changed_by,notes) VALUES (?,?,?,?,?)')->execute([$applicationId,$oldStatus,'interview_scheduled',$actorId?:null,'Interview scheduled']);
             $this->db->commit(); return $this->successResponse(['id'=>$id,'application_id'=>$applicationId],'Interview scheduled.',201);
-        } catch (\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); error_log('[WebsiteManager] '.$e->getMessage()); return $this->errorResponse('An internal error occurred.',500); }
+        } catch (\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); \App\API\Services\Logger::legacyError('[WebsiteManager] '.$e->getMessage()); return $this->errorResponse('An internal error occurred.',500); }
     }
 
     public function completeJobInterview(int $interviewId, array $data, int $actorId)
@@ -1270,7 +1323,7 @@ class WebsiteManager extends BaseAPI
             $this->db->prepare("INSERT INTO job_application_status_history (application_id,from_status,to_status,changed_by,notes) VALUES (?, 'interview_scheduled','interviewed',?,?)")
                 ->execute([$applicationId,$actorId?:null,$data['notes']??null]);
             $this->db->commit(); return $this->successResponse(['id'=>$interviewId,'application_id'=>(int)$applicationId],'Interview recorded.');
-        } catch (\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); error_log('[WebsiteManager] '.$e->getMessage()); return $this->errorResponse('An internal error occurred.',500); }
+        } catch (\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); \App\API\Services\Logger::legacyError('[WebsiteManager] '.$e->getMessage()); return $this->errorResponse('An internal error occurred.',500); }
     }
 
     public function getInquiries()
@@ -1282,7 +1335,7 @@ class WebsiteManager extends BaseAPI
             )->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1294,7 +1347,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$status, $id]);
             return $this->successResponse(null, 'Inquiry status updated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1366,7 +1419,7 @@ class WebsiteManager extends BaseAPI
             $rows = $this->db->query("SELECT * FROM news_categories ORDER BY display_order")->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1382,7 +1435,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$name, $slug, $color, $max + 10]);
             return $this->successResponse(['id' => $this->db->lastInsertId()], 'Category added', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1394,7 +1447,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$id]);
             return $this->successResponse(null, 'Category deactivated');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1420,7 +1473,7 @@ class WebsiteManager extends BaseAPI
             $rows = $this->db->query("SELECT * FROM `$table` ORDER BY display_order ASC, id ASC LIMIT 200")->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1457,7 +1510,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['id' => $this->db->lastInsertId()], ucfirst($resource) . ' record created.', 201);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1494,7 +1547,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute($params);
             return $this->successResponse(['id' => (int) $id], ucfirst($resource) . ' record updated.');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1519,7 +1572,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$id]);
             return $this->successResponse(null, ucfirst($resource) . ' record deleted.');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1538,7 +1591,7 @@ class WebsiteManager extends BaseAPI
             $items = $this->departmentSections();
             return $this->successResponse(['items' => $items, 'total' => count($items)]);
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1575,7 +1628,7 @@ class WebsiteManager extends BaseAPI
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1623,7 +1676,7 @@ class WebsiteManager extends BaseAPI
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1638,7 +1691,7 @@ class WebsiteManager extends BaseAPI
             $stmt->execute([$id]);
             return $this->successResponse(null, 'Department deactivated.');
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1727,7 +1780,7 @@ class WebsiteManager extends BaseAPI
                 201
             );
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1757,7 +1810,7 @@ class WebsiteManager extends BaseAPI
                 201
             );
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1790,7 +1843,7 @@ class WebsiteManager extends BaseAPI
                 201
             );
         } catch (Exception $e) {
-            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }

@@ -1684,7 +1684,14 @@ class StudentProfileManager extends BaseAPI
             $transportStmt = $this->db->prepare(
                 "SELECT sta.*, tr.name AS route_name,
                         tv.registration_number AS vehicle_name,
-                        ts.name AS pickup_point, ts_drop.name AS dropoff_point
+                        ts.name AS pickup_point, ts_drop.name AS dropoff_point,
+                        (SELECT e.allocated_school_days FROM student_transport_entitlements e
+                          JOIN transport_entitlement_periods ep ON ep.id=e.period_id
+                         WHERE e.student_id=sta.student_id AND e.route_id=sta.route_id AND e.entitlement_status='active'
+                         ORDER BY ep.period_end DESC, e.id DESC LIMIT 1) AS paid_school_days,
+                        (SELECT COUNT(*) FROM student_transport_day_usage u
+                          JOIN student_transport_entitlements e ON e.id=u.entitlement_id
+                         WHERE e.student_id=sta.student_id AND e.route_id=sta.route_id AND e.entitlement_status='active') AS used_school_days
                  FROM student_transport_assignments sta
                  INNER JOIN transport_routes tr ON tr.id = sta.route_id
                  LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
@@ -1697,6 +1704,9 @@ class StudentProfileManager extends BaseAPI
             );
             $transportStmt->execute([$studentId]);
             $transport = $this->fetch($transportStmt);
+            if ($transport) {
+                $transport['remaining_school_days'] = max(0, (int)($transport['paid_school_days'] ?? 0) - (int)($transport['used_school_days'] ?? 0));
+            }
 
             $classInfoStmt = $this->db->prepare(
                 "SELECT cls.name AS class_name, st.name AS stream_name

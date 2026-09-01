@@ -1,0 +1,1 @@
+<?php $governedReportCode='CBC_RUBRIC_DISTRIBUTION'; $governedReportTitle='CBC Rubric Distribution'; $governedReportLayout='distribution'; $governedPrimaryVisual='doughnut'; require __DIR__.'/reports/governed_report.php';

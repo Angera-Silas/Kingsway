@@ -96,7 +96,7 @@ class AcademicContextService
                 ];
             }, $this->cacheTTL);
         } catch (PDOException $e) {
-            error_log('Error getting academic context: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error getting academic context: ' . $e->getMessage());
             return [
                 'current_year' => null,
                 'academic_year_id' => null,
@@ -139,7 +139,7 @@ class AcademicContextService
 
             return $this->memo['year'];
         } catch (PDOException $e) {
-            error_log('Error getting current academic year: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error getting current academic year: ' . $e->getMessage());
             return null;
         }
     }
@@ -198,7 +198,7 @@ class AcademicContextService
 
             return $this->memo['term'];
         } catch (PDOException $e) {
-            error_log('Error getting current term: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error getting current term: ' . $e->getMessage());
             return null;
         }
     }
@@ -349,7 +349,7 @@ class AcademicContextService
             $stmt->execute();
             return $stmt->fetchAll();
         } catch (PDOException $e) {
-            error_log('Error getting academic years: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error getting academic years: ' . $e->getMessage());
             return [];
         }
     }
@@ -373,7 +373,7 @@ class AcademicContextService
             $stmt->execute(['year_id' => $academicYearId]);
             return $stmt->fetchAll();
         } catch (PDOException $e) {
-            error_log('Error getting terms: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error getting terms: ' . $e->getMessage());
             return [];
         }
     }
@@ -408,7 +408,7 @@ class AcademicContextService
             return true;
         } catch (PDOException $e) {
             $this->db->rollBack();
-            error_log('Error setting current academic year: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error setting current academic year: ' . $e->getMessage());
             return false;
         }
     }
@@ -447,7 +447,7 @@ class AcademicContextService
             return true;
         } catch (PDOException $e) {
             $this->db->rollBack();
-            error_log('Error setting current term: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Error setting current term: ' . $e->getMessage());
             return false;
         }
     }

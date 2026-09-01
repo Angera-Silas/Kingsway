@@ -127,7 +127,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -194,7 +194,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -261,7 +261,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -341,7 +341,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -385,7 +385,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -429,7 +429,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $this->departmentalReview($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -454,7 +454,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $this->financeReview($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -479,7 +479,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $this->directorApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -522,7 +522,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, ['message' => 'Budget rejected']);
 
         } catch (Exception $e) {
-            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -550,7 +550,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $result ? $result['id'] : null;
 
         } catch (Exception $e) {
-            error_log("Failed to get instance ID: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to get instance ID: " . $e->getMessage());
             return null;
         }
     }
@@ -628,7 +628,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return true;
         } catch (Exception $e) {
-            error_log("Failed to process budget stage {$stage}: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to process budget stage {$stage}: " . $e->getMessage());
             return false;
         }
     }

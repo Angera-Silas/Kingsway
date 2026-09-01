@@ -645,13 +645,23 @@ const KingswayDB = (function() {
 
       for (const storeName of storesToClear) {
         const store = getStore(storeName, "readwrite");
-        const index = store.index("user_id");
-        const request = index.openCursor(IDBKeyRange.only(userId));
+
+        // Some stores are anonymous (not user-scoped) and carry no user_id
+        // index — clearing them wholesale is the correct logout behaviour.
+        // Guarding with indexNames.contains avoids a NotFoundError on logout.
+        let request;
+        if (store.indexNames.contains("user_id")) {
+          request = store
+            .index("user_id")
+            .openCursor(IDBKeyRange.only(userId));
+        } else {
+          request = store.clear();
+        }
 
         await new Promise((resolve, reject) => {
           request.onsuccess = (event) => {
             const cursor = event.target.result;
-            if (cursor) {
+            if (cursor && cursor.remove) {
               cursor.remove();
               cursor.continue();
             } else {

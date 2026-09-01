@@ -194,7 +194,7 @@ const generateClassReportCtrl = (() => {
         } finally {
             const generateBtn = document.getElementById('generateBtn');
             generateBtn.disabled = false;
-            generateBtn.textContent = 'Generate Report';
+            generateBtn.textContent = 'Print Report';
         }
     }
 

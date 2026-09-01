@@ -20,34 +20,33 @@ const parentPortalController = {
         selectedStudentId: null,
         activeDetailTab: 'fees',
         children: [],
+        parent: {},
+        initialRouteApplied: false,
     },
 
     async init() {
-        if (window.AuthContext?.ready) await window.AuthContext.ready();
-        GradingScale.preload(function () {
-            var familyBase = window.FAMILY_STAFF_MODE ? '/family' : '/parent-portal';
-            return apiCall(familyBase + '/grading-scale', 'GET', null, null, { noRedirect: true, headers: window.FAMILY_STAFF_MODE && window.AuthContext?.getToken ? { Authorization: 'Bearer ' + window.AuthContext.getToken() } : undefined }).then(function (res) {
-                var data = res && res.data !== undefined ? res.data : res;
-                return { scale: data && data.scale ? data.scale : null, rules: data && data.rules ? data.rules : [] };
-            });
-        });
+        // Only the explicit staff-family mode uses the internal AuthContext.
+        // Normal parents authenticate exclusively with the parent portal token.
+        if (window.FAMILY_STAFF_MODE && window.AuthContext?.ready) await window.AuthContext.ready();
+        this.bindEvents();
+        const forceParentLogin = new URLSearchParams(window.location.search).get('login') === '1';
+        if (forceParentLogin && !window.FAMILY_STAFF_MODE) this.clearAuth();
         var stored = window.FAMILY_STAFF_MODE
             ? (window.AuthContext?.getToken?.() || null)
-            : deobfuscate(sessionStorage.getItem('pp_token'));
+            : (forceParentLogin ? null : deobfuscate(sessionStorage.getItem('pp_token')));
         var expires = sessionStorage.getItem('pp_expires');
         if (window.FAMILY_STAFF_MODE && stored && window.AuthContext?.isAuthenticated?.()) {
             this.state.token = stored;
-            this.showView('dashboard');
-            this.loadDashboard();
+            await this.loadDashboard(true);
         } else if (stored && expires && new Date(expires) > new Date()) {
             this.state.token = stored;
-            this.showView('dashboard');
-            this.loadDashboard();
+            // A timestamp in sessionStorage is not proof of authentication.
+            // Keep the login view visible until the backend validates the token.
+            await this.loadDashboard(true);
         } else {
             this.clearAuth();
             this.showView('auth');
         }
-        this.bindEvents();
     },
 
     showView(name) {
@@ -57,8 +56,21 @@ const parentPortalController = {
         document.body.classList.toggle('portal-authenticated', name === 'dashboard' || name === 'student');
     },
 
+    preloadGradingScale() {
+        var self = this;
+        if (!window.GradingScale?.preload) return;
+        GradingScale.preload(function () {
+            return self.apiFetch('/grading-scale', 'GET').then(function (res) {
+                var data = res && res.data !== undefined ? res.data : res;
+                return { scale: data && data.scale ? data.scale : null, rules: data && data.rules ? data.rules : [] };
+            });
+        });
+    },
+
     apiFetch(path, method, body) {
-        var opts = { noRedirect: true };
+        // Parent tokens are independent from internal staff JWT/refresh cookies.
+        // A parent 401 must return to the parent login, never trigger staff refresh.
+        var opts = { noRedirect: true, skipAuthRefresh: !window.FAMILY_STAFF_MODE };
         if (this.state.token) opts.headers = { Authorization: 'Bearer ' + this.state.token };
         var base = window.FAMILY_STAFF_MODE ? '/family' : '/parent-portal';
         return Promise.resolve(apiCall(base + path, method || 'GET', body, null, opts))
@@ -85,14 +97,25 @@ const parentPortalController = {
         this.on('loginPassword', 'keydown', function (e) { if (e.key === 'Enter') self.submitEmailLogin(); });
         this.on('btnRequestOtp', 'click', function () { self.requestOTP(); });
         this.on('btnVerifyOtp', 'click', function () { self.verifyOTP(); });
-        this.on('btnResendOtp', 'click', function () { self.setView('otp-step-2', false); self.setView('otp-step-1', true); });
+        this.on('btnResendOtp', 'click', function () {
+            self.state.otpSessionId = null;
+            document.getElementById('loginPassword').value = '';
+            self.setView('tab-otp', false);
+            self.setView('tab-email', true);
+            document.getElementById('loginPassword')?.focus();
+        });
         this.on('btnLogout', 'click', function () { self.logout(); });
-        this.on('btnBackToDashboard', 'click', function () { self.showView('dashboard'); });
+        var backToDashboard = document.getElementById('btnBackToDashboard');
+        if (backToDashboard && !backToDashboard.getAttribute('href')) {
+            backToDashboard.addEventListener('click', function () { self.showView('dashboard'); });
+        }
         this.on('btnApplyAdmission', 'click', function () { self.openApplyAdmissionModal(); });
         this.on('portalMenuToggle', 'click', function () { document.getElementById('portalSidebar')?.classList.toggle('open'); });
-        this.on('childSwitcher', 'change', function () { var child = self.state.children.find(function (c) { return String(c.id) === String(document.getElementById('childSwitcher').value); }); if (child) self.openStudent(child.id, child.first_name + ' ' + child.last_name, child.class_name || ''); });
+        this.on('childSwitcher', 'change', function () { var child = self.state.children.find(function (c) { return String(c.id) === String(document.getElementById('childSwitcher').value); }); if (child) self.openStudent(child.id, child.first_name + ' ' + child.last_name, child.class_name || '', self.state.activeDetailTab); });
         document.querySelectorAll('[data-portal-section]').forEach(function (link) {
-            link.addEventListener('click', function () { self.navigateSection(link.dataset.portalSection); });
+            if (!link.getAttribute('href')) {
+                link.addEventListener('click', function () { self.navigateSection(link.dataset.portalSection); });
+            }
         });
         document.querySelectorAll('#view-student [data-tab]').forEach(function (link) {
             link.addEventListener('click', function () { self.activateStudentTab(link.dataset.tab); });
@@ -148,23 +171,36 @@ const parentPortalController = {
         this.apiFetch('/login', 'POST', { email: email, password: password })
             .then(function (resp) {
                 var d = resp.data || resp;
+                if (d.requires_otp) {
+                    self.state.otpSessionId = d.otp_session_id;
+                    var otpEmail = document.getElementById('otpEmail');
+                    if (otpEmail) otpEmail.value = email;
+                    document.querySelectorAll('#loginTabs .nav-link').forEach(function (button) {
+                        button.classList.toggle('active', button.dataset.tab === 'otp');
+                    });
+                    self.setView('tab-email', false);
+                    self.setView('tab-otp', true);
+                    self.setView('otp-step-1', false);
+                    self.setView('otp-step-2', true);
+                    return;
+                }
                 self.storeAuth(d.token, d.expires_at, d.parent);
-                self.showView('dashboard');
-                self.loadDashboard();
+                return self.loadDashboard(true);
             })
             .catch(function (err) { self.showErr(errEl, err.message || 'Login failed'); })
             .finally(function () { spinner.classList.add('d-none'); });
     },
 
     requestOTP() {
-        var phone = this.val('otpPhone');
+        var email = this.val('otpEmail');
         var errEl = document.getElementById('otpRequestError');
         var self = this;
         errEl.classList.add('d-none');
-        if (!phone) { this.showErr(errEl, 'Phone number required'); return; }
-        this.apiFetch('/login-otp-request', 'POST', { phone: phone })
+        if (!email) { this.showErr(errEl, 'Email address required'); return; }
+        this.apiFetch('/login-otp-request', 'POST', { email: email })
             .then(function (resp) {
                 var d = resp.data || resp;
+                if (!d.otp_session_id) throw new Error('If the account exists, check its email for a verification code.');
                 self.state.otpSessionId = d.otp_session_id;
                 self.setView('otp-step-1', false);
                 self.setView('otp-step-2', true);
@@ -182,8 +218,7 @@ const parentPortalController = {
             .then(function (resp) {
                 var d = resp.data || resp;
                 self.storeAuth(d.token, d.expires_at, d.parent);
-                self.showView('dashboard');
-                self.loadDashboard();
+                return self.loadDashboard(true);
             })
             .catch(function (err) { self.showErr(errEl, err.message || 'Invalid OTP'); });
     },
@@ -194,13 +229,16 @@ const parentPortalController = {
         this.showView('auth');
     },
 
-    loadDashboard() {
+    loadDashboard(validateBeforeReveal = false) {
         var self = this;
         this.setLoading(true);
-        this.apiFetch('/dashboard', 'GET')
+        return this.apiFetch('/dashboard', 'GET')
             .then(function (resp) {
                 var d = resp.data || resp;
                 var parent = d.parent || {};
+                if (validateBeforeReveal) self.showView('dashboard');
+                self.preloadGradingScale();
+                self.state.parent = parent;
                 var titleEl = document.getElementById('portalPageTitle');
                 if (titleEl) titleEl.textContent = 'Family dashboard';
                 var nameEl = document.getElementById('parentName');
@@ -209,8 +247,14 @@ const parentPortalController = {
                 self.renderChildren(self.state.children);
                 self.renderKpis(self.state.children);
                 self.stashGuardianForAdmission(parent);
+                self.applyInitialRoute();
             })
             .catch(function (err) {
+                if (validateBeforeReveal) {
+                    self.clearAuth();
+                    self.showView('auth');
+                    return;
+                }
                 document.getElementById('childrenCards').innerHTML =
                     '<div class="col-12"><div class="alert alert-danger">Failed to load dashboard: ' + self.esc(err.message) + '</div></div>';
             })
@@ -230,25 +274,54 @@ const parentPortalController = {
         ].map(function (k) { return '<div class="col-6 col-xl-3"><div class="card portal-kpi"><div class="card-body d-flex align-items-center gap-3"><div class="kpi-icon bg-' + k[3] + '-subtle text-' + k[3] + '"><i class="bi ' + k[0] + '"></i></div><div><div class="small text-muted">' + k[1] + '</div><div class="fw-bold">' + k[2] + '</div></div></div></div></div>'; }).join('');
     },
 
+    applyInitialRoute() {
+        if (this.state.initialRouteApplied) return;
+        this.state.initialRouteApplied = true;
+        var section = window.PARENT_INITIAL_SECTION || 'overview';
+        document.querySelectorAll('[data-portal-section]').forEach(function (link) {
+            link.classList.toggle('active', link.dataset.portalSection === section);
+        });
+        if (section !== 'overview') this.navigateSection(section);
+    },
+
     navigateSection(section) {
         var self = this;
+        var pageTitles = {
+            overview: 'Family dashboard',
+            children: 'My children',
+            fees: 'Fees & payments',
+            attendance: 'Attendance',
+            academics: 'Results & academics',
+            messages: 'Messages',
+            transport: 'School transport',
+            documents: 'Documents & reports',
+        };
+        var pageTitle = document.getElementById('portalPageTitle');
+        if (pageTitle && pageTitles[section]) pageTitle.textContent = pageTitles[section];
         document.querySelectorAll('[data-portal-section]').forEach(function (link) { link.classList.toggle('active', link.dataset.portalSection === section); });
         document.getElementById('portalSidebar')?.classList.remove('open');
         if (section === 'uniforms') { window.open((this.BASE || '') + '/uniform_catalog.php', '_blank'); return; }
-        if (section === 'settings') { window.location.href = (this.BASE || '') + '/home.php?route=account_settings'; return; }
+        if (section === 'settings') { this.showAccountSettings(); return; }
         if (section === 'pta') { this.showCommunity(); return; }
         if (section === 'overview' || section === 'children') { this.showView('dashboard'); document.getElementById('childrenHeading').textContent = section === 'children' ? 'All my children' : 'My children'; return; }
         var first = this.state.children[0];
         if (!first) { this.showView('dashboard'); return; }
-        var tab = section === 'fees' ? 'fees' : section === 'attendance' ? 'attendance' : section === 'academics' ? 'performance' : section === 'messages' ? 'messages' : section === 'documents' ? 'portfolio' : 'fees';
-        this.openStudent(first.id, first.first_name + ' ' + first.last_name, first.class_name || '');
-        this.activateStudentTab(tab);
+        var tab = section === 'fees' ? 'fees' : section === 'attendance' ? 'attendance' : section === 'academics' ? 'performance' : section === 'messages' ? 'messages' : section === 'documents' ? 'portfolio' : section === 'transport' ? 'transport' : 'fees';
+        this.openStudent(first.id, first.first_name + ' ' + first.last_name, first.class_name || '', tab);
     },
 
     activateStudentTab(tab) {
         this.state.activeDetailTab = tab;
         document.querySelectorAll('#studentDetailTabs [data-tab], #view-student [data-tab]').forEach(function (button) { button.classList.toggle('active', button.dataset.tab === tab); });
         this.loadStudentTab(tab);
+    },
+
+    showAccountSettings() {
+        var parent = this.state.parent || {};
+        this.showView('dashboard');
+        document.getElementById('portalPageTitle').textContent = 'Parent account';
+        document.getElementById('childrenHeading').textContent = 'Profile and account security';
+        document.getElementById('childrenCards').innerHTML = '<div class="col-lg-7"><div class="card portal-kpi"><div class="card-body p-4"><h5 class="fw-bold mb-3">Contact details</h5><dl class="row mb-0"><dt class="col-sm-4">Name</dt><dd class="col-sm-8">' + this.esc([parent.first_name,parent.last_name].filter(Boolean).join(' ')) + '</dd><dt class="col-sm-4">Email</dt><dd class="col-sm-8">' + this.esc(parent.email || 'Not provided') + '</dd><dt class="col-sm-4">Phone</dt><dd class="col-sm-8">' + this.esc(parent.phone_1 || parent.phone || 'Not provided') + '</dd></dl><div class="alert alert-light border mt-3 mb-0 small">For safeguarding, identity and contact changes are verified by the school office.</div></div></div></div><div class="col-lg-5 mt-3 mt-lg-0"><div class="card portal-kpi"><div class="card-body p-4"><h5 class="fw-bold">Security</h5><p class="text-muted small">This portal uses a time-limited family session. Sign out on shared devices.</p><button class="btn btn-outline-danger" onclick="parentPortalController.logout()"><i class="bi bi-box-arrow-right me-1"></i>Sign out securely</button></div></div></div>';
     },
 
     showCommunity() {
@@ -290,7 +363,7 @@ const parentPortalController = {
         }).join('');
     },
 
-    openStudent(studentId, studentName, className) {
+    openStudent(studentId, studentName, className, initialTab) {
         this.state.selectedStudentId = studentId;
         this.state.currentStudentId = studentId;
         this.setText('studentDetailName', studentName);
@@ -301,10 +374,14 @@ const parentPortalController = {
         this.showView('student');
         this.loadBalanceSummary(studentId);
         document.querySelectorAll('#studentDetailTabs .nav-link').forEach(function (b) { b.classList.remove('active'); });
-        var first = document.querySelector('#studentDetailTabs .nav-link');
-        if (first) first.classList.add('active');
-        this.state.activeDetailTab = 'fees';
-        this.loadStudentTab('fees');
+        var selectedTab = initialTab || 'fees';
+        document.querySelectorAll('#view-student [data-tab]').forEach(function (button) {
+            button.classList.toggle('active', button.dataset.tab === selectedTab);
+        });
+        var selectedButton = document.querySelector('#studentDetailTabs .nav-link[data-tab="' + selectedTab + '"]');
+        if (selectedButton) selectedButton.classList.add('active');
+        this.state.activeDetailTab = selectedTab;
+        this.loadStudentTab(selectedTab);
     },
 
     loadBalanceSummary(studentId) {
@@ -355,6 +432,10 @@ const parentPortalController = {
             this.apiFetch('/student-performance/' + id, 'GET')
                 .then(function (resp) { self.renderPerformance(resp.data || resp); })
                 .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load performance: ' + self.esc(e.message) + '</div>'; });
+        } else if (tab === 'transport') {
+            this.apiFetch('/student-transport/' + id, 'GET')
+                .then(function (resp) { self.renderTransport(resp.data || resp); })
+                .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load transport: ' + self.esc(e.message) + '</div>'; });
         } else if (tab === 'report-card') {
             this.apiFetch('/student-report-card/' + id, 'GET')
                 .then(function (resp) { self.renderReportCard(resp.data || resp); })
@@ -372,6 +453,12 @@ const parentPortalController = {
                 .then(function (resp) { self.renderLearningPlan(resp.data || resp); })
                 .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load learning plan: ' + self.esc(e.message) + '</div>'; });
         }
+    },
+
+    renderTransport(data) {
+        var content = document.getElementById('studentDetailContent');
+        if (!data || !data.route_name) { content.innerHTML = '<div class="alert alert-info">This learner has no active transport assignment.</div>'; return; }
+        content.innerHTML = '<div class="row g-3"><div class="col-md-7"><div class="card border-0 bg-success-subtle h-100"><div class="card-body"><span class="badge bg-success mb-2">' + this.esc(data.status || 'active') + '</span><h4 class="fw-bold">' + this.esc(data.route_name) + '</h4><div class="row g-3 mt-1"><div class="col-6"><small class="text-muted d-block">Pickup point</small><strong>' + this.esc(data.pickup_stop || 'Not set') + '</strong><div class="small">' + this.esc(data.pickup_time || '—') + '</div></div><div class="col-6"><small class="text-muted d-block">Drop-off point</small><strong>' + this.esc(data.dropoff_stop || 'Not set') + '</strong><div class="small">' + this.esc(data.dropoff_time || '—') + '</div></div></div></div></div></div><div class="col-md-5"><div class="card border h-100"><div class="card-body"><h6 class="fw-bold">Vehicle and driver</h6><p class="mb-2"><i class="bi bi-bus-front me-2 text-success"></i>' + this.esc(data.registration_number || 'Vehicle pending') + '</p><p class="mb-0"><i class="bi bi-person-badge me-2 text-success"></i>' + this.esc(data.driver_name || 'Driver pending') + '</p></div></div></div></div>';
     },
 
     renderLearningPlan(data) {
@@ -1012,9 +1099,13 @@ const parentPortalController = {
 
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
-        fetch(self.BASE + '/api/public/applications', { method: 'POST', body: fd })
-            .then(function (res) { return res.json(); })
+        apiCall('/public/applications', 'POST', fd, null, {
+            isFile: true,
+            noRedirect: true,
+            checkPermission: false,
+        })
             .then(function (json) {
+                json = json && json.data !== undefined ? json.data : json;
                 if (json && json.success) {
                     msg.textContent = 'Application submitted successfully. Reference: ' + (json.ref || json.application_no || '');
                     msg.className = 'alert alert-success mt-2 mb-0';
@@ -1041,6 +1132,7 @@ const parentPortalController = {
 
     clearAuth() {
         this.state.token = null;
+        this.state.initialRouteApplied = false;
         sessionStorage.removeItem('pp_token');
         sessionStorage.removeItem('pp_expires');
         sessionStorage.removeItem('kw_admissions_guardian');

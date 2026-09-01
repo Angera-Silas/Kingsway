@@ -1,8 +1,10 @@
 <?php
-require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/vendor/autoload.php';
 use App\Config\Config;
+use App\Database\Database;
 Config::init();
-require_once __DIR__ . '/config/db_connection.php';
+
+$db = Database::getInstance()->getConnection();
 
 try {
     // Run maintenance procedures

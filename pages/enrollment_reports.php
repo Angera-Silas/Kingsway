@@ -171,9 +171,15 @@ if ($appBase === '.')
                     <option value="3">Term 3</option>
                 </select>
             </div>
-            <div class="col-md-3">
-                <label class="form-label small fw-semibold">Report Type</label>
-                <select id="filterReportType" class="form-select">
+            <div class="col-12">
+                <div class="nav nav-tabs flex-nowrap overflow-auto" role="tablist" aria-label="Enrollment report views">
+                    <button class="nav-link active text-nowrap" type="button" data-report-tab-target="filterReportType" data-report-tab-value="overview">Overview</button>
+                    <button class="nav-link text-nowrap" type="button" data-report-tab-target="filterReportType" data-report-tab-value="by_class">By Class</button>
+                    <button class="nav-link text-nowrap" type="button" data-report-tab-target="filterReportType" data-report-tab-value="by_gender">By Gender</button>
+                    <button class="nav-link text-nowrap" type="button" data-report-tab-target="filterReportType" data-report-tab-value="by_month">Monthly Trend</button>
+                    <button class="nav-link text-nowrap" type="button" data-report-tab-target="filterReportType" data-report-tab-value="conversion">Conversion Rate</button>
+                </div>
+                <select id="filterReportType" class="d-none" aria-hidden="true" tabindex="-1">
                     <option value="overview">Overview</option>
                     <option value="by_class">By Class</option>
                     <option value="by_gender">By Gender</option>
@@ -277,6 +283,7 @@ if ($appBase === '.')
         </div>
     </div>
 </div>
+<?php asset_script($appBase, 'js/components/report_tabs.js'); ?>
 
 <script>
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;

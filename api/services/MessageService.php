@@ -232,6 +232,12 @@ class MessageService
     // Send email (single or mass)
     public function sendEmail($recipients, $subject, $htmlBody, $attachments = [])
     {
+        // Enforce one visual identity at the transport boundary. Callers may
+        // provide a body fragment or an already-rendered Kingsway message; no
+        // module can accidentally send an unbranded email.
+        if (stripos((string) $htmlBody, 'kingsway-branded-email') === false) {
+            $htmlBody = $this->renderFormalEmail($subject, $htmlBody, '', '');
+        }
         // Assumes config.php is loaded at application entry point and constants are available
         $mail = new PHPMailer(true);
         try {
@@ -275,7 +281,7 @@ class MessageService
             return true;
         } catch (Exception $e) {
             // Log error
-            error_log("Email send error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Email send error: " . $e->getMessage());
             return false;
         }
     }
@@ -291,10 +297,10 @@ class MessageService
     private function emailProfile($subject)
     {
         $text = strtolower((string) $subject);
-        if (strpos($text, 'invoice') !== false || strpos($text, 'payment') !== false || strpos($text, 'fee') !== false) return ['label' => 'Account notice', 'accent' => '#087f5b', 'soft' => '#e5f7ef'];
-        if (strpos($text, 'reminder') !== false || strpos($text, 'due') !== false) return ['label' => 'Reminder', 'accent' => '#a15c00', 'soft' => '#fff4db'];
-        if (strpos($text, 'reply') !== false || strpos($text, 'response') !== false) return ['label' => 'Reply', 'accent' => '#6f42c1', 'soft' => '#f1eafd'];
-        if (strpos($text, 'notification') !== false || strpos($text, 'interview') !== false || strpos($text, 'schedule') !== false) return ['label' => 'Notification', 'accent' => '#0067a5', 'soft' => '#e5f2fa'];
-        return ['label' => 'Information', 'accent' => '#0067a5', 'soft' => '#e5f2fa'];
+        if (strpos($text, 'invoice') !== false || strpos($text, 'payment') !== false || strpos($text, 'fee') !== false) return ['label' => 'Account notice', 'accent' => '#075b35', 'soft' => '#e8f3e8'];
+        if (strpos($text, 'reminder') !== false || strpos($text, 'due') !== false) return ['label' => 'Reminder', 'accent' => '#8a6500', 'soft' => '#fbf0c9'];
+        if (strpos($text, 'reply') !== false || strpos($text, 'response') !== false) return ['label' => 'Reply', 'accent' => '#416a3a', 'soft' => '#edf4e8'];
+        if (strpos($text, 'notification') !== false || strpos($text, 'interview') !== false || strpos($text, 'schedule') !== false) return ['label' => 'Notification', 'accent' => '#075b35', 'soft' => '#e8f3e8'];
+        return ['label' => 'Information', 'accent' => '#075b35', 'soft' => '#e8f3e8'];
     }
 }

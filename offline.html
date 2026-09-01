@@ -735,6 +735,61 @@
                 transition-duration: 0.01ms !important;
             }
         }
+
+        /* Compact recovery view: one clear task, without a dashboard-sized wall of content. */
+        .offline-shell {
+            width: min(100%, 760px);
+        }
+
+        .offline-layout {
+            display: block;
+            min-height: 0;
+        }
+
+        .offline-brand-panel {
+            padding: 26px 34px;
+        }
+
+        .school-brand {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            column-gap: 16px;
+            align-items: center;
+        }
+
+        .school-mark {
+            grid-row: 1 / span 2;
+            margin: 0;
+        }
+
+        .school-name,
+        .school-motto {
+            margin: 0;
+        }
+
+        .school-description,
+        .school-contact {
+            display: none;
+        }
+
+        .offline-content {
+            padding: 34px;
+        }
+
+        .feature-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        @media (max-width: 620px) {
+            .offline-content,
+            .offline-brand-panel {
+                padding: 24px;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 
@@ -858,12 +913,23 @@
                     </div>
 
                     <p class="offline-message">
-                        Kingsway Preparatory School Management System
-                        cannot connect to the server. You may continue
-                        using information already saved on this device,
-                        but live operations will remain unavailable until
-                        the connection is restored.
+                        Your place in Kingsway has been saved. We will verify
+                        the school server and return you to the same page as
+                        soon as the connection is restored.
                     </p>
+
+                    <div class="pending-changes visible" aria-live="polite">
+                        <div class="pending-copy">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M5 12h14"></path><path d="m13 6 6 6-6 6"></path>
+                            </svg>
+                            <div>
+                                <p class="pending-title">Returning to</p>
+                                <p class="pending-text" id="returnDestination">Your previous page</p>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="connection-status offline" id="connectionStatus" role="status" aria-live="polite">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -916,7 +982,7 @@
                                     <path d="m8 12 2.5 2.5L16 9"></path>
                                 </svg>
 
-                                Available offline
+                                Saved on this device
                             </h2>
 
                             <ul class="feature-list">
@@ -926,7 +992,7 @@
                                         <path d="m5 12 4 4L19 6"></path>
                                     </svg>
 
-                                    Previously cached dashboard information
+                                    Drafts explicitly saved for offline use
                                 </li>
 
                                 <li>
@@ -935,16 +1001,7 @@
                                         <path d="m5 12 4 4L19 6"></path>
                                     </svg>
 
-                                    Cached class and student lists
-                                </li>
-
-                                <li>
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="m5 12 4 4L19 6"></path>
-                                    </svg>
-
-                                    Attendance and form drafts already saved
+                                    Previously cached reference information
                                 </li>
 
                                 <li>
@@ -954,6 +1011,15 @@
                                     </svg>
 
                                     Queued changes awaiting synchronisation
+                                </li>
+
+                                <li>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="m5 12 4 4L19 6"></path>
+                                    </svg>
+
+                                    Your exact page and filter selections
                                 </li>
                             </ul>
                         </section>
@@ -1044,9 +1110,53 @@
         (() => {
             'use strict';
 
-            const HOME_URL = './home.php';
+            const RECOVERY_URL_KEY = 'kingsway_offline_recovery_url';
             const CHECK_TIMEOUT_MS = 8000;
             const AUTO_CHECK_INTERVAL_MS = 15000;
+
+            function applicationBasePath() {
+                const marker = '/home.php';
+                const index = window.location.pathname.lastIndexOf(marker);
+                if (index >= 0) return window.location.pathname.slice(0, index);
+                return window.location.pathname.replace(/\/offline\.html$/, '');
+            }
+
+            const APP_BASE = applicationBasePath();
+            const HOME_URL = `${APP_BASE}/home.php`;
+            const LOGIN_URL = `${APP_BASE}/index.php`;
+            const REFRESH_URL = `${APP_BASE}/api/auth/refresh-token`;
+
+            function safeApplicationUrl(value) {
+                try {
+                    const url = new URL(value, window.location.origin);
+                    const expectedPath = `${APP_BASE}/home.php`.replace(/\/+/g, '/');
+                    if (url.origin !== window.location.origin || url.pathname !== expectedPath) return null;
+
+                    for (const [name, parameter] of url.searchParams) {
+                        if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) return null;
+                        if (parameter.length > 500 || /[\u0000-\u001f\u007f]/.test(parameter)) return null;
+                    }
+                    return url;
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            function recoveryUrl() {
+                const current = safeApplicationUrl(window.location.href);
+                if (current) {
+                    try { sessionStorage.setItem(RECOVERY_URL_KEY, current.href); } catch (_) {}
+                    return current;
+                }
+                try {
+                    return safeApplicationUrl(sessionStorage.getItem(RECOVERY_URL_KEY));
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            const SAVED_URL = recoveryUrl();
+            const RECOVERY_TARGET = SAVED_URL?.href || HOME_URL;
 
             const retryButton = document.getElementById(
                 'retryButton'
@@ -1079,6 +1189,14 @@
             const pendingCount = document.getElementById(
                 'pendingCount'
             );
+
+            const returnDestination = document.getElementById('returnDestination');
+            if (returnDestination) {
+                const route = SAVED_URL?.searchParams.get('route');
+                returnDestination.textContent = route
+                    ? route.replace(/_/g, ' ').replace(/\b\w/g, character => character.toUpperCase())
+                    : 'Your role dashboard';
+            }
 
             let connectionCheckPromise = null;
             let redirectScheduled = false;
@@ -1242,35 +1360,64 @@
                          * or browser cache from falsely reporting that the
                          * live server is available.
                          */
-                        const url = new URL(
-                            HOME_URL,
-                            window.location.href
-                        );
+                        const url = new URL(RECOVERY_TARGET, window.location.origin);
 
                         url.searchParams.set(
                             '_connection_check',
                             String(Date.now())
                         );
 
-                        const response = await fetch(
-                            url.toString(),
+                        const sessionResponse = await fetch(
+                            REFRESH_URL,
                             {
-                                method: 'GET',
+                                method: 'POST',
                                 cache: 'no-store',
-                                credentials: 'same-origin',
+                                credentials: 'include',
                                 redirect: 'follow',
                                 signal: timeout.signal,
                                 headers: {
+                                    'Accept': 'application/json',
+                                    'Content-Type': 'application/json',
                                     'X-Kingsway-Connection-Check':
                                         '1'
                                 }
                             }
                         );
 
-                        if (!response.ok) {
+                        if (sessionResponse.status === 401 || sessionResponse.status === 403) {
+                            setStatus('online', 'Connection restored. Please sign in again.');
+                            window.setTimeout(() => window.location.replace(LOGIN_URL), 500);
+                            return true;
+                        }
+
+                        if (!sessionResponse.ok) {
                             throw new Error(
-                                `Server returned ${response.status}`
+                                `Server returned ${sessionResponse.status}`
                             );
+                        }
+
+                        url.searchParams.set('_offline_recovery', String(Date.now()));
+                        const pageResponse = await fetch(url.toString(), {
+                            method: 'GET',
+                            cache: 'no-store',
+                            credentials: 'same-origin',
+                            redirect: 'follow',
+                            signal: timeout.signal,
+                            headers: { 'X-Kingsway-Offline-Recovery': '1' }
+                        });
+
+                        const redirectedToLogin = new URL(pageResponse.url).pathname === LOGIN_URL;
+                        if (redirectedToLogin || pageResponse.status === 401) {
+                            window.location.replace(LOGIN_URL);
+                            return true;
+                        }
+
+                        const destination = (pageResponse.status === 403 || pageResponse.status === 404)
+                            ? HOME_URL
+                            : RECOVERY_TARGET;
+
+                        if (!pageResponse.ok && destination === RECOVERY_TARGET) {
+                            throw new Error(`Page returned ${pageResponse.status}`);
                         }
 
                         setStatus(
@@ -1286,9 +1433,8 @@
 
                             window.setTimeout(
                                 () => {
-                                    window.location.replace(
-                                        HOME_URL
-                                    );
+                                    try { sessionStorage.removeItem(RECOVERY_URL_KEY); } catch (_) {}
+                                    window.location.replace(destination);
                                 },
                                 900
                             );

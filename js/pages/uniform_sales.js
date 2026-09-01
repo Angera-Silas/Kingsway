@@ -86,6 +86,11 @@ const UniformSalesController = {
             this.loadLowStock();
         });
 
+        document.getElementById('reports-tab')?.addEventListener('shown.bs.tab', () => this.loadReport());
+        ['reportDateFrom', 'reportDateTo'].forEach((id) => {
+            document.getElementById(id)?.addEventListener('change', () => this.loadReport());
+        });
+
         // Search sales debounce
         let searchTimeout;
         document.getElementById('searchSales').addEventListener('input', () => {

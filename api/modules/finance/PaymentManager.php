@@ -147,7 +147,7 @@ class PaymentManager
 
         } catch (Exception $e) {
             // No need to rollback - the stored procedure handles its own rollback on error
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -320,7 +320,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -399,7 +399,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, $payment);
 
         } catch (Exception $e) {
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -541,7 +541,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -605,7 +605,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -673,7 +673,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -739,7 +739,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -789,7 +789,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -856,7 +856,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -997,7 +997,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 ]
             ]);
         } catch (Exception $e) {
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1019,7 +1019,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, $status);
 
         } catch (Exception $e) {
-            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }

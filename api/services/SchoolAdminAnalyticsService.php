@@ -67,7 +67,7 @@ class SchoolAdminAnalyticsService
                 'female' => (int) ($result['female'] ?? 0)
             ];
         } catch (Exception $e) {
-            error_log("getActiveStudentsStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getActiveStudentsStats error: " . $e->getMessage());
             return ['total_students' => 0, 'active_classes' => 0, 'male' => 0, 'female' => 0];
         }
     }
@@ -437,7 +437,7 @@ class SchoolAdminAnalyticsService
                 'distribution' => $classes
             ];
         } catch (Exception $e) {
-            error_log("getClassDistributionStats error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getClassDistributionStats error: " . $e->getMessage());
             return ['total_classes' => 0, 'average' => 0, 'max' => 0, 'min' => 0, 'distribution' => []];
         }
     }
@@ -520,7 +520,7 @@ class SchoolAdminAnalyticsService
                 'weeks' => $weeks
             ];
         } catch (Exception $e) {
-            error_log("getWeeklyAttendanceTrend error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getWeeklyAttendanceTrend error: " . $e->getMessage());
             return ['labels' => [], 'data' => [], 'weeks' => $weeks];
         }
     }
@@ -561,7 +561,7 @@ class SchoolAdminAnalyticsService
                 'filter' => $filter
             ];
         } catch (Exception $e) {
-            error_log("getClassDistributionChart error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getClassDistributionChart error: " . $e->getMessage());
             return ['labels' => [], 'data' => [], 'filter' => $filter];
         }
     }
@@ -698,7 +698,7 @@ class SchoolAdminAnalyticsService
             }
 
         } catch (Exception $e) {
-            error_log("getTodaySchedule error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getTodaySchedule error: " . $e->getMessage());
             // Return empty on error
         }
 
@@ -766,7 +766,7 @@ class SchoolAdminAnalyticsService
             $stmt = $this->db->query($query, $params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (Exception $e) {
-            error_log("getStaffDirectory error: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("getStaffDirectory error: " . $e->getMessage());
             return [];
         }
     }

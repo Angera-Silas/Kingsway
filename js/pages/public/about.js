@@ -43,7 +43,7 @@
       set('about-mission', blocks.mission || 'To provide a nurturing, inclusive, and academically rigorous environment that develops confident, virtuous, and globally-competitive learners through the Kenya Competency-Based Curriculum.');
       set('about-vision', blocks.vision || 'To be the most preferred school of excellence in the East African region, producing well-rounded, morally upright, and intellectually superior graduates.');
       set('about-motto', m.school_motto || 'In God We Soar');
-      set('about-founded', m.school_founded_year || '2005');
+      set('about-founded', m.school_founded_year || '2008');
     },
 
     renderValues(data) {

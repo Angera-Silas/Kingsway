@@ -26,7 +26,7 @@ class AttendancePermissionService
             $types = $result->fetchAll(\PDO::FETCH_ASSOC);
             return $controller->success($types, 'Permission types retrieved');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -61,7 +61,7 @@ class AttendancePermissionService
             $permissions = $controller->getDb()->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
             return $controller->success($permissions, 'Permissions retrieved');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -97,7 +97,7 @@ class AttendancePermissionService
             $permissionId = $controller->getDb()->getConnection()->lastInsertId();
             return $controller->success(['id' => $permissionId], 'Permission request created');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -143,7 +143,7 @@ class AttendancePermissionService
             $controller->getDb()->query($sql, $params);
             return $controller->success(['id' => $id, 'status' => $status], 'Permission updated');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }

@@ -219,7 +219,7 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-light btn-sm" id="generateReports" onclick="termReportsCtrl.generateReports()">
-            <i class="bi bi-magic me-1"></i>Generate Reports
+            <i class="bi bi-file-earmark-check me-1"></i>Prepare Report Documents
         </button>
         <button class="btn btn-light btn-sm" id="bulkPrint" onclick="termReportsCtrl.bulkPrint()">
             <i class="bi bi-printer me-1"></i>Bulk Print

@@ -46,7 +46,7 @@ class RBACMiddleware
             return self::expandPermissionAliases($codes);
 
         } catch (\Exception $e) {
-            error_log("RBAC permission resolution failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("RBAC permission resolution failed: " . $e->getMessage());
             return [];
         }
     }
@@ -69,7 +69,7 @@ class RBACMiddleware
                 $rows
             ))));
         } catch (\Exception $e) {
-            error_log("RBAC procedure fallback triggered: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("RBAC procedure fallback triggered: " . $e->getMessage());
             return null;
         }
     }

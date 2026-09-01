@@ -1,5 +1,5 @@
 /** Kingsway service worker: safe static caching only. */
-const CACHE_VERSION = 'v10.2-public-assets';
+const CACHE_VERSION = 'v10.4-catalog-image-recovery';
 const STATIC_CACHE = `kingsway-static-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
 const PRECACHE = [
@@ -174,7 +174,7 @@ async function pollRealTimeBuffers() {
 
 self.addEventListener('push', (event) => {
   const data = (() => { try { return event.data?.json() || {}; } catch { return { body: event.data?.text() }; } })();
-  event.waitUntil(self.registration.showNotification(data.title || 'Kingsway Academy', {
+  event.waitUntil(self.registration.showNotification(data.title || 'Kingsway Preparatory School', {
     body: data.body || 'New notification',
     icon: './images/favicon/favicon-96x96.png',
     badge: './images/favicon/favicon-96x96.png',

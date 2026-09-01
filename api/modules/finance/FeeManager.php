@@ -2077,7 +2077,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[FeeManager] createFeeStructureBundle: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FeeManager] createFeeStructureBundle: ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -2202,7 +2202,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            error_log('[FeeManager] getFeeStructureBundleGrid: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FeeManager] getFeeStructureBundleGrid: ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -2354,7 +2354,7 @@ class FeeManager
                 : 'all_staff';
             $service->push($recipients, 'fee_structure', $title, $message, 'high', ['dedup_minutes' => 60]);
         } catch (Exception $e) {
-            error_log('[FeeManager] Notification push failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FeeManager] Notification push failed: ' . $e->getMessage());
         }
     }
 
@@ -3012,7 +3012,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            error_log('[FeeManager] submitFeeStructureBundleBatch: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FeeManager] submitFeeStructureBundleBatch: ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }

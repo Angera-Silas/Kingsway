@@ -33,7 +33,7 @@ class AuditController extends BaseController
             }
             return $this->error('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('[AuditController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AuditController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->error('An internal error occurred.');
         }
     }
@@ -63,7 +63,7 @@ class AuditController extends BaseController
             }
             return $this->error('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('[AuditController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AuditController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->error('An internal error occurred.');
         }
     }

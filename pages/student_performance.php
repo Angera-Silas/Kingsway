@@ -23,7 +23,7 @@ if (!isset($appBase)) {
 
     <!-- Print Header (only visible when printing) -->
     <div class="print-header">
-        <h1>KINGSWAY PREPARATORY ACADEMY</h1>
+        <h1>KINGSWAY PREPARATORY SCHOOL</h1>
         <h2>Student Performance Report</h2>
         <div class="date">Printed on: <span id="printDate"></span></div>
     </div>

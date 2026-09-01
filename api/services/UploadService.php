@@ -618,6 +618,19 @@ final class UploadService
     /** Centralized write primitive for application-managed files. */
     public function writeFile(string $path, mixed $contents, int $flags = 0): int|false
     {
+        $normalized = str_replace('\\', '/', $path);
+        $logRoot = str_replace('\\', '/', dirname(__DIR__, 2) . '/logs');
+        if ($normalized === $logRoot || str_starts_with($normalized, $logRoot . '/')) {
+            // Compatibility interception for old modules that still try to
+            // append flat files under logs/. Keep them in the governed,
+            // rotated JSON journal and never persist an unredacted raw body.
+            $category = preg_replace('/\.log$/i', '', basename($path)) ?: 'legacy';
+            Logger::info($category, 'Legacy application log event', [
+                'legacy_source' => basename($path),
+                'legacy_message' => mb_substr(is_scalar($contents) ? (string) $contents : json_encode($contents), 0, 12000),
+            ]);
+            return is_string($contents) ? strlen($contents) : 1;
+        }
         $directory = dirname($path);
         $this->ensureDirectory($directory);
         return file_put_contents($path, $contents, $flags);

@@ -2477,7 +2477,7 @@ class FinanceAPI extends BaseAPI
                                     }
                                 } catch (\Exception $genEx) {
                                     // Invoice generation failed, proceed without invoice
-                                    error_log("Invoice generation failed for student {$studentId}: " . $genEx->getMessage());
+                                    \App\API\Services\Logger::legacyError("Invoice generation failed for student {$studentId}: " . $genEx->getMessage());
                                 }
                             }
 

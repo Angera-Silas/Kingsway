@@ -103,7 +103,7 @@ final class StaffIDCardGenerator extends BaseAPI
         } catch (Throwable $exception) {
             $this->logError('uploadStaffPhoto', 'An internal error occurred.');
 
-            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -157,7 +157,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         } catch (Throwable $exception) {
             $this->logError('generateIDCard', 'An internal error occurred.');
 
-            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -196,7 +196,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'An internal error occurred.'
             );
 
-            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -280,7 +280,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'An internal error occurred.'
             );
 
-            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+            \App\API\Services\Logger::legacyError('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }

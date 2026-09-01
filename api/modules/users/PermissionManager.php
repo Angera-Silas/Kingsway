@@ -102,7 +102,7 @@ class PermissionManager
 
             return ['success' => true, 'data' => ['user_id' => $userId, 'permissions_assigned' => count($permissions)]];
         } catch (Exception $e) {
-            error_log('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
@@ -134,7 +134,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
 
             return ['success' => true, 'data' => ['user_id' => $userId, 'permissions_revoked' => count($permissions)]];
         } catch (Exception $e) {
-            error_log('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }

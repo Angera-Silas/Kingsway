@@ -110,7 +110,7 @@ class PrintController extends BaseController
             ], 'PDF generated successfully');
             
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             if ((int) $e->getCode() === 401) return $this->unauthorized($e->getMessage());
             if ((int) $e->getCode() === 403) return $this->forbidden($e->getMessage());
             if ((int) $e->getCode() === 409) return $this->conflict($e->getMessage());
@@ -177,7 +177,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ], 'PDF generated successfully');
             
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -237,7 +237,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ], 'Certificate generated successfully');
             
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -291,7 +291,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ], 'Portfolio PDF generated successfully');
 
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -349,7 +349,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ], 'Report card PDF generated successfully');
 
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -371,7 +371,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Academic calendar PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -396,7 +396,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Fee structure PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -418,7 +418,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Simple fee structure PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] postFeeStructureSimple: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] postFeeStructureSimple: ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -517,7 +517,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'P9 form PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -539,7 +539,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Payslip PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -571,7 +571,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Fee statement PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -593,7 +593,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Receipt PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -615,7 +615,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Invoice PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -640,7 +640,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
             ], 'Timetable PDF generated');
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -695,7 +695,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ], 'PDF generated successfully');
 
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -760,7 +760,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ], 'CSV exported successfully');
             
         } catch (\Exception $e) {
-            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             if ((int) $e->getCode() === 401) return $this->unauthorized($e->getMessage());
             if ((int) $e->getCode() === 403) return $this->forbidden($e->getMessage());
             if ((int) $e->getCode() === 409) return $this->conflict($e->getMessage());

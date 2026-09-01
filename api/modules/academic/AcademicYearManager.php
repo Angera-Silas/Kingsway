@@ -180,7 +180,6 @@ class AcademicYearManager
      */
     private function regenerateCalendarForYear(int $yearId): void
     {
-        require_once __DIR__ . '/AcademicCalendarService.php';
         $calendarService = new AcademicCalendarService($this->db);
         $calendarService->generateYearCalendar($yearId);
     }
@@ -190,7 +189,6 @@ class AcademicYearManager
      */
     public function generateCalendar(int $yearId, array $weekCounts = []): array
     {
-        require_once __DIR__ . '/AcademicCalendarService.php';
         $calendarService = new AcademicCalendarService($this->db);
         return $calendarService->generateYearCalendar((int) $yearId, $weekCounts);
     }
@@ -200,7 +198,6 @@ class AcademicYearManager
      */
     public function getCalendar(int $yearId): array
     {
-        require_once __DIR__ . '/AcademicCalendarService.php';
         $calendarService = new AcademicCalendarService($this->db);
         return $calendarService->getCalendar((int) $yearId);
     }

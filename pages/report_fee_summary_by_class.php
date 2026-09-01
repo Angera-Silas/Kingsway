@@ -1,0 +1,1 @@
+<?php $governedReportCode='FIN_FEE_SUMMARY_CLASS'; $governedReportTitle='Fee Summary by Class'; $governedReportLayout='finance'; $governedPrimaryVisual='stacked_bar'; require __DIR__.'/reports/governed_report.php';

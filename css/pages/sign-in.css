@@ -1,0 +1,123 @@
+:root { --auth-green:#0b5d3b; --auth-dark:#073c28; --auth-gold:#d6ad2d; --auth-cream:#fbf8ee; }
+* { box-sizing:border-box; }
+body.auth-page { margin:0; color:#1f332a; background:#f7faf8; font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif; }
+.auth-layout { min-height:100vh; display:grid; grid-template-columns:minmax(360px, .9fr) minmax(520px, 1.1fr); }
+.auth-story { position:relative; display:flex; flex-direction:column; padding:2.2rem 3rem; color:#fff; overflow:hidden; background:linear-gradient(145deg,rgba(5,53,33,.9),rgba(11,93,59,.78)),url('../../uploads/school_assets/bg_images/school_hero_section_bg_1.jpg') center/cover; }
+.auth-story::after { content:''; position:absolute; width:420px; height:420px; border:1px solid rgba(255,255,255,.12); border-radius:50%; right:-180px; bottom:-160px; box-shadow:0 0 0 70px rgba(255,255,255,.025),0 0 0 140px rgba(214,173,45,.035); }
+.auth-brand { display:inline-flex; align-items:center; gap:.85rem; color:#fff; text-decoration:none; position:relative; z-index:1; }
+.auth-brand img { width:54px; height:54px; object-fit:contain; padding:.25rem; border-radius:.75rem; background:#fff; }
+.auth-brand span { display:grid; }.auth-brand strong { font-size:1rem; }.auth-brand small { color:rgba(255,255,255,.68); }
+.auth-story-copy { margin:auto 0; max-width:560px; position:relative; z-index:1; }.auth-kicker,.auth-step-label { color:var(--auth-gold); text-transform:uppercase; letter-spacing:.12em; font-size:.73rem; font-weight:800; }
+.auth-story h1 { font-size:clamp(2.4rem,4vw,4.6rem); line-height:1.03; margin:1rem 0 1.2rem; }.auth-story-copy>p { font-size:1.08rem; color:rgba(255,255,255,.78); max-width:500px; }
+.auth-story ul { list-style:none; padding:0; margin:2rem 0 0; display:grid; gap:.8rem; }.auth-story li { display:flex; gap:.7rem; align-items:center; }.auth-story li i { color:var(--auth-gold); }.auth-story-foot { position:relative; z-index:1; color:rgba(255,255,255,.65); font-size:.84rem; }
+.auth-workspace { padding:2rem clamp(1.4rem,6vw,6rem); display:flex; flex-direction:column; justify-content:center; position:relative; }.auth-back { position:absolute; top:2rem; left:clamp(1.4rem,6vw,6rem); text-decoration:none; color:#52635b; font-size:.9rem; }
+.auth-card { width:100%; max-width:520px; margin:auto; background:#fff; border:1px solid #e3ebe7; border-radius:1.25rem; padding:clamp(1.6rem,4vw,3rem); box-shadow:0 1.2rem 3.4rem rgba(18,63,43,.09); }.auth-card h2 { margin:.45rem 0 .5rem; font-weight:750; }.auth-card .form-control,.auth-card .input-group-text,.auth-card .btn { min-height:48px; }.auth-card .form-control { border-color:#dce5e0; }.auth-card .input-group-text { background:#f6f9f7; color:var(--auth-green); border-color:#dce5e0; }.auth-submit { font-weight:700; }.auth-divider { display:flex; align-items:center; gap:1rem; margin:1.3rem 0; color:#87928c; font-size:.8rem; }.auth-divider::before,.auth-divider::after { content:''; height:1px; background:#e2e8e5; flex:1; }.auth-code { letter-spacing:.32em; font-weight:800; }.auth-change-account { min-height:auto!important; }.auth-help { text-align:center; color:#718078; font-size:.82rem; margin:1.2rem auto 0; }
+@media(max-width:900px){.auth-layout{display:block}.auth-story{min-height:250px;padding:1.5rem}.auth-story-copy{margin:3rem 0 1rem}.auth-story h1{font-size:2.3rem}.auth-story ul,.auth-story-foot{display:none}.auth-workspace{padding:5rem 1rem 2rem}.auth-back{top:1.5rem;left:1rem}.auth-card{padding:1.5rem}}
+
+/* Immersive authentication shell shared by password, OTP and passkey states. */
+body.auth-page { color:#fff; background:#031c13; }
+.auth-layout {
+  position:relative;
+  display:block;
+  min-height:100svh;
+  isolation:isolate;
+  background:
+    linear-gradient(90deg,rgba(2,21,14,.82) 0%,rgba(3,33,22,.67) 36%,rgba(3,34,22,.13) 62%,rgba(2,15,10,.16) 100%),
+    url('../../uploads/school_assets/bg_images/kingsway-auth-dashboard-v1.png') center/cover no-repeat;
+}
+.auth-layout::after { content:''; position:absolute; z-index:-1; inset:0; background:linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.28)); pointer-events:none; }
+.auth-story { position:absolute; z-index:2; inset:0; min-height:0; padding:2rem clamp(2rem,5vw,5rem); background:none; pointer-events:none; }
+.auth-story::after { display:none; }
+.auth-brand { width:max-content; pointer-events:auto; }
+.auth-brand img { width:48px; height:48px; }
+.auth-story-foot { margin-top:auto; margin-bottom:0; }
+.auth-workspace { z-index:1; width:min(50%,720px); min-height:100svh; padding:7.5rem clamp(2rem,7vw,7rem) 4rem; justify-content:center; }
+.auth-back { display:none; }
+.auth-card { width:100%; max-width:500px; margin:auto 0; padding:0; color:#fff; background:transparent; border:0; border-radius:0; box-shadow:none; }
+.auth-card h2 { margin:.55rem 0 .55rem; color:#fff; font-size:clamp(2rem,3.2vw,3rem); font-weight:700; letter-spacing:-.035em; }
+.auth-card .auth-intro,.auth-card .text-muted { color:rgba(255,255,255,.72)!important; }
+.auth-step-label { color:var(--auth-gold); }
+.auth-card .form-label { color:rgba(255,255,255,.84); font-size:.88rem; }
+.auth-card a,.auth-card .btn-link { color:#f5d873; text-decoration:none; }
+.auth-card a:hover,.auth-card .btn-link:hover { color:#fff0ad; }
+.auth-card .input-group { border:1px solid rgba(255,255,255,.58); border-radius:.55rem; overflow:hidden; background:rgba(0,0,0,.13); }
+.auth-card .input-group:focus-within { border-color:var(--auth-gold); box-shadow:0 0 0 .2rem rgba(214,173,45,.14); }
+.auth-card .input-group-text,.auth-card .input-group .form-control,.auth-password-toggle { color:#fff; background:transparent!important; border:0!important; box-shadow:none!important; }
+.auth-card .form-control::placeholder { color:rgba(255,255,255,.52); }
+.auth-card .form-check-label { color:rgba(255,255,255,.7); }
+.auth-card .form-check-input { background-color:transparent; border-color:rgba(255,255,255,.55); }
+.auth-card .form-check-input:checked { background-color:var(--auth-gold); border-color:var(--auth-gold); }
+.auth-submit { color:#123c29!important; background:var(--auth-gold)!important; border-color:var(--auth-gold)!important; }
+.auth-submit:hover { background:#e6bf43!important; border-color:#e6bf43!important; }
+.auth-divider { color:rgba(255,255,255,.55); }
+.auth-divider::before,.auth-divider::after { background:rgba(255,255,255,.2); }
+#authPasswordless,#authVerifyPasskey { color:#fff; border-color:rgba(255,255,255,.62); background:rgba(0,0,0,.12); }
+#authPasswordless:hover,#authVerifyPasskey:hover { color:#183c2a; border-color:#fff; background:#fff; }
+.auth-help { display:none; }
+.auth-otp-grid { display:grid; grid-template-columns:repeat(6,minmax(46px,1fr)); gap:clamp(.55rem,1.4vw,1rem); margin:2rem 0 1rem; }
+.auth-otp-cell { width:100%; min-width:0; aspect-ratio:1/1; color:#fff; text-align:center; font-size:1.65rem; font-weight:700; caret-color:var(--auth-gold); background:rgba(0,0,0,.16); border:1px solid rgba(255,255,255,.75); border-radius:.65rem; outline:0; }
+.auth-otp-cell:focus { border-color:var(--auth-gold); box-shadow:0 0 0 .2rem rgba(214,173,45,.16); }
+.auth-otp-cell.is-complete { border-color:rgba(214,173,45,.9); background:rgba(214,173,45,.1); }
+.auth-auto-status { min-height:1.3rem; margin:.6rem 0 0; color:rgba(255,255,255,.6); font-size:.8rem; }
+.auth-auto-status i { color:var(--auth-gold); }
+.auth-card .alert { border:0; }
+
+@media(max-width:900px){
+  .auth-layout { background-position:62% center; }
+  .auth-layout::before { content:''; position:absolute; inset:0; background:rgba(2,24,16,.76); }
+  .auth-story { min-height:0; padding:1.25rem; }
+  .auth-story-foot { display:none; }
+  .auth-workspace { width:100%; min-height:100svh; padding:6.5rem 1.25rem 2rem; }
+  .auth-card { max-width:520px; margin:auto; padding:1.35rem; border:1px solid rgba(255,255,255,.16); border-radius:1rem; background:rgba(1,22,14,.72); backdrop-filter:blur(12px); }
+}
+@media(max-width:480px){ .auth-otp-grid{gap:.38rem}.auth-otp-cell{font-size:1.25rem;border-radius:.5rem}.auth-card h2{font-size:1.8rem} }
+
+/* Password recovery and invitation screens share the immersive sign-in shell. */
+.auth-recovery-page .site-nav,.auth-recovery-page .site-footer,.auth-recovery-page .news-ticker,.auth-recovery-page .ticker-bar{display:none!important}
+.auth-recovery-page{min-height:100svh;background:#031c13!important;color:#fff}
+.auth-recovery-page .reset-hero,.auth-recovery-page .setup-page{
+  min-height:100svh!important;padding:7.5rem clamp(2rem,7vw,7rem) 4rem!important;display:flex;align-items:center;position:relative;overflow:hidden;
+  background:linear-gradient(90deg,rgba(2,25,17,.97) 0%,rgba(3,35,23,.88) 38%,rgba(3,35,23,.2) 61%,rgba(2,24,16,.08) 100%),url('../../uploads/school_assets/bg_images/kingsway-auth-dashboard-v1.png') center/cover no-repeat!important
+}
+.auth-recovery-page .reset-hero::before,.auth-recovery-page .reset-hero::after,.auth-recovery-page .setup-page::before,.auth-recovery-page .setup-page::after{display:none!important}
+.auth-recovery-brand{position:absolute!important;z-index:5;left:clamp(2rem,5vw,5rem);top:2rem}
+.auth-recovery-page .reset-shell{width:min(50%,720px);max-width:none;margin:0;position:relative;z-index:2;padding:0}
+.auth-recovery-page .reset-shell>.row{display:block;margin:0}
+.auth-recovery-page .reset-shell>.row>.col-lg-6{display:none}
+.auth-recovery-page .reset-shell>.row>.col-lg-5{width:100%;max-width:500px;margin:0;padding:0}
+.auth-recovery-page .reset-card{color:#fff;background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}
+.auth-recovery-page .reset-card-header,.auth-recovery-page .reset-form{padding:0;background:none;border:0}
+.auth-recovery-page .reset-card-header{margin-bottom:1.6rem}
+.auth-recovery-page .reset-card-icon{width:auto;height:auto;margin:0 0 .8rem;border:0;border-radius:0;background:none;box-shadow:none;color:var(--auth-gold);font-size:1.35rem}
+.auth-recovery-page .reset-card h2{color:#fff;font-size:clamp(2rem,3.2vw,3rem);letter-spacing:-.035em;margin:.2rem 0 .55rem}
+.auth-recovery-page .reset-card p,.auth-recovery-page .strength-copy{color:rgba(255,255,255,.68)}
+.auth-recovery-page .reset-form .form-label{color:rgba(255,255,255,.84);text-transform:none;letter-spacing:0;font-size:.88rem}
+.auth-recovery-page .reset-input-wrap{border:1px solid rgba(255,255,255,.58);border-radius:.55rem;background:rgba(0,0,0,.16);overflow:hidden}
+.auth-recovery-page .reset-input-wrap:focus-within{border-color:var(--auth-gold);box-shadow:0 0 0 .2rem rgba(214,173,45,.14)}
+.auth-recovery-page .reset-input-wrap>i{color:var(--auth-gold)}
+.auth-recovery-page .reset-input-wrap .form-control{color:#fff;background:transparent;border:0;border-radius:0;box-shadow:none!important}
+.auth-recovery-page .reset-input-wrap .form-control::placeholder{color:rgba(255,255,255,.5)}
+.auth-recovery-page .password-toggle{color:rgba(255,255,255,.8)}
+.auth-recovery-page .password-toggle:hover{color:#fff;background:rgba(255,255,255,.1)}
+.auth-recovery-page .btn-kw-primary,.auth-recovery-page .btn-school{display:flex;align-items:center;background:var(--auth-gold)!important;border:0!important;color:#123c29!important;border-radius:.3rem;font-weight:800;min-height:50px}
+.auth-recovery-page .reset-secondary-link{color:#f5d873}.auth-recovery-page .reset-secondary-link:hover{color:#fff0ad}
+.auth-recovery-page .strength-meter{background:rgba(255,255,255,.16)}
+/* First-time/default-password setup keeps its steps, but uses the same left auth panel. */
+.auth-recovery-page .setup-page>.container{width:min(50%,720px);max-width:none;margin:0;padding:0;position:relative;z-index:2}
+.auth-recovery-page .setup-shell{display:block;max-width:500px;margin:0;background:transparent;border:0;border-radius:0;box-shadow:none}
+.auth-recovery-page .setup-aside{display:none}
+.auth-recovery-page .setup-form{width:100%;padding:0;color:#fff}
+.auth-recovery-page .setup-form h3{color:#fff!important;font-size:clamp(2rem,3.2vw,3rem);letter-spacing:-.035em}
+.auth-recovery-page .setup-form .text-muted,.auth-recovery-page .password-rule{color:rgba(255,255,255,.68)!important}
+.auth-recovery-page .setup-form .form-label{color:rgba(255,255,255,.84)}
+.auth-recovery-page .setup-form .form-control,.auth-recovery-page .setup-form .input-group .btn{color:#fff;background:rgba(0,0,0,.16);border-color:rgba(255,255,255,.58)}
+.auth-recovery-page .setup-form .form-control:focus{border-color:var(--auth-gold);box-shadow:0 0 0 .2rem rgba(214,173,45,.14)}
+.auth-recovery-page .setup-form .alert-light{color:rgba(255,255,255,.78);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16)!important}
+.auth-recovery-page .password-rule.ok{color:#f5d873!important}
+@media(max-width:900px){
+  .auth-recovery-page .reset-hero,.auth-recovery-page .setup-page{padding:6.5rem 1.25rem 2rem!important;background-position:62% center!important}
+  .auth-recovery-page .reset-hero::before,.auth-recovery-page .setup-page::before{display:block!important;content:'';position:absolute;inset:0;background:rgba(2,24,16,.76)!important}
+  .auth-recovery-page .reset-shell,.auth-recovery-page .setup-page>.container{width:100%}
+  .auth-recovery-page .reset-card,.auth-recovery-page .setup-shell{max-width:520px;margin:auto;padding:1.35rem;border:1px solid rgba(255,255,255,.16);border-radius:1rem;background:rgba(1,22,14,.72);backdrop-filter:blur(12px)}
+  .auth-recovery-brand{left:1.25rem;top:1.25rem}
+}

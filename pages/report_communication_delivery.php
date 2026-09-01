@@ -1,0 +1,1 @@
+<?php $governedReportCode='COMMS_DELIVERY_SUMMARY'; $governedReportTitle='Communication Delivery Summary'; $governedReportLayout='composition'; $governedPrimaryVisual='doughnut'; require __DIR__.'/reports/governed_report.php';
