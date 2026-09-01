@@ -44,6 +44,10 @@ class AdmissionsReportManager extends BaseAPI
         // Conversion rate from applicants to admitted students — admission_applications
         // carries enrolled_student_id once the applicant is onboarded.
         try {
+            $where = ["a.status <> 'cancelled'"];
+            $params = [];
+            if (!empty($filters['academic_year'])) { $where[] = 'a.academic_year = ?'; $params[] = $filters['academic_year']; }
+            if (!empty($filters['grade'])) { $where[] = 'a.grade_applying_for = ?'; $params[] = $filters['grade']; }
             $sql = "SELECT
                         COUNT(DISTINCT a.id) AS total_applicants,
                         COUNT(DISTINCT a.enrolled_student_id) AS total_admitted,
@@ -52,8 +56,9 @@ class AdmissionsReportManager extends BaseAPI
                             2
                         ) AS conversion_rate
                     FROM admission_applications a
-                    WHERE a.status <> 'cancelled'";
-            $stmt = $this->db->query($sql);
+                    WHERE " . implode(' AND ', $where);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             return $stmt->fetch(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
             return ['total_applicants' => 0, 'total_admitted' => 0, 'conversion_rate' => 0];

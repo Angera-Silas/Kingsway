@@ -41,7 +41,7 @@ class EventsController extends BaseController
             $result = $this->api->listSchoolEvents(null, $upcoming, $limit);
             return $this->success($result['data'] ?? []);
         } catch (Exception $e) {
-            error_log('[EventsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EventsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->success([]);
         }
     }

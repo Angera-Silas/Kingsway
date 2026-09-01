@@ -30,7 +30,9 @@ define('ROLE_CATEGORIES', [
         'HOD - Food & Nutrition',
         'Talent Development',
         'Accountant',
-        'Inventory Manager',
+        'Uniform Store Manager',
+        'Food Store Manager',
+        'Librarian',
         'Boarding Master',
     ],
     

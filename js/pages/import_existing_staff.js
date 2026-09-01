@@ -93,6 +93,7 @@ const ImportExistingStaffController = {
     const roles = Array.isArray(data.roles) ? data.roles : [];
     const staffTypes = Array.isArray(data.staff_types) ? data.staff_types : [];
     const categories = Array.isArray(data.staff_categories) ? data.staff_categories : [];
+    const supervisors = Array.isArray(data.supervisors) ? data.supervisors : [];
 
     const reference = this.byId("smReference");
     if (!reference) return;
@@ -110,9 +111,13 @@ const ImportExistingStaffController = {
         <div class="fw-semibold mb-1">Staff types</div>
         <div class="small text-muted">${staffTypes.length ? staffTypes.map((item) => this.badge(item.name || "Type")).join(" ") : "No staff types found."}</div>
       </div>
-      <div>
+      <div class="mb-3">
         <div class="fw-semibold mb-1">Staff categories</div>
         <div class="small text-muted">${categories.length ? categories.map((item) => this.badge(`${item.staff_type || ""} - ${item.name || ""}`)).join(" ") : "No staff categories found."}</div>
+      </div>
+      <div>
+        <div class="fw-semibold mb-1">Active supervisors (use staff number)</div>
+        <div class="small text-muted">${supervisors.length ? supervisors.map((item) => this.badge(`${item.staff_no || ""} - ${item.name || ""}`)).join(" ") : "No active supervisors found."}</div>
       </div>
     `;
   },

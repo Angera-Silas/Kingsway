@@ -71,7 +71,7 @@ class MeetingsController extends BaseController
             $meetings = $this->manager->listMeetings($filters, $this->currentStaffId());
             return $this->success($meetings);
         } catch (Exception $e) {
-            error_log('[MeetingsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->error('Failed to load meetings', null, 500);
         }
     }
@@ -82,7 +82,7 @@ class MeetingsController extends BaseController
         try {
             return $this->success($this->manager->listStaffForPicker());
         } catch (Exception $e) {
-            error_log('[MeetingsController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to load staff', null, 500);
         }
     }
@@ -101,7 +101,7 @@ class MeetingsController extends BaseController
             }
             return $this->success($result, 'Meeting scheduled');
         } catch (Exception $e) {
-            error_log('[MeetingsController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to schedule meeting', null, 500);
         }
     }
@@ -119,7 +119,7 @@ class MeetingsController extends BaseController
             }
             return $this->success($result, 'Meeting updated');
         } catch (Exception $e) {
-            error_log('[MeetingsController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to update meeting', null, 500);
         }
     }
@@ -137,7 +137,7 @@ class MeetingsController extends BaseController
             }
             return $this->success(null, 'Meeting deleted');
         } catch (Exception $e) {
-            error_log('[MeetingsController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to delete meeting', null, 500);
         }
     }
@@ -160,7 +160,7 @@ class MeetingsController extends BaseController
             }
             return $this->success(null, 'Response saved');
         } catch (Exception $e) {
-            error_log('[MeetingsController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to save response', null, 500);
         }
     }
@@ -178,7 +178,7 @@ class MeetingsController extends BaseController
             }
             return $this->success(null, $result['message']);
         } catch (Exception $e) {
-            error_log('[MeetingsController] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to send reminder', null, 500);
         }
     }

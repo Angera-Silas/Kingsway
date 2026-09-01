@@ -50,15 +50,15 @@ const FormValidation = {
 
     /**
      * Validate password strength
-     * Rules: Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
+     * Rules: Min 6 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
      */
     validatePassword(password) {
         if (!password || password === '') {
             return { valid: false, error: 'Password is required' };
         }
 
-        if (password.length < 8) {
-            return { valid: false, error: 'Password must be at least 8 characters long' };
+        if (password.length < 6) {
+            return { valid: false, error: 'Password must be at least 6 characters long' };
         }
 
         if (password.length > 128) {

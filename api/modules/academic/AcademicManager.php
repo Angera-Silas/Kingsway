@@ -1553,7 +1553,7 @@ class AcademicManager extends BaseAPI
                 $this->db->rollback();
             }
             $this->logError($e, 'AcademicManager::postFormativeAssessments');
-            error_log('[AcademicManager] formative assessment create failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AcademicManager] formative assessment create failed: ' . $e->getMessage());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -3582,7 +3582,7 @@ class AcademicManager extends BaseAPI
                 $call->closeCursor();
                 (new ExtraChargeService($this->db))->generateEnrollmentObligations($enrollmentId);
             } catch (Throwable $e) {
-                error_log('[YearRollover] Fee onboarding deferred for student ' . (int) $row['student_id'] . ': ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('[YearRollover] Fee onboarding deferred for student ' . (int) $row['student_id'] . ': ' . $e->getMessage());
             }
             $created++;
         }

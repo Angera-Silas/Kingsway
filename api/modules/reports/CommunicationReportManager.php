@@ -6,13 +6,21 @@ class CommunicationReportManager extends BaseAPI
 {
     public function getCommunicationsStats($filters = [])
     {
-        // Count communications by type and status
         try {
-            $sql = "SELECT type, status, COUNT(*) as total
+            $where = ['1=1'];
+            $params = [];
+            if (!empty($filters['date_from'])) { $where[] = 'created_at >= ?'; $params[] = $filters['date_from'] . ' 00:00:00'; }
+            if (!empty($filters['date_to'])) { $where[] = 'created_at <= ?'; $params[] = $filters['date_to'] . ' 23:59:59'; }
+            if (!empty($filters['channel'])) { $where[] = 'type = ?'; $params[] = $filters['channel']; }
+            if (!empty($filters['status'])) { $where[] = 'status = ?'; $params[] = $filters['status']; }
+            $sql = "SELECT type AS channel, status, COUNT(*) AS message_count,
+                           ROUND(SUM(CASE WHEN status IN ('sent','delivered') THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) AS delivery_rate
                     FROM communications
+                    WHERE " . implode(' AND ', $where) . "
                     GROUP BY type, status
-                    ORDER BY total DESC";
-            $stmt = $this->db->query($sql);
+                    ORDER BY message_count DESC";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
             return [];

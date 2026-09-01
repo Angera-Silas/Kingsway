@@ -43,6 +43,7 @@
                     ENT_QUOTES,
                     'UTF-8'
                 );
+                $itemTooltip = htmlspecialchars((string)($item['tooltip'] ?? $item['label'] ?? ''), ENT_QUOTES, 'UTF-8');
                 $submenuId =
                     'submenu-' . md5((string)($item['label'] ?? 'menu'));
             ?>
@@ -54,7 +55,7 @@
                     data-submenu-target="#<?= $submenuId ?>"
                     aria-expanded="false"
                     aria-controls="<?= $submenuId ?>"
-                    title="<?= $itemLabel ?>"
+                    title="<?= $itemTooltip ?>"
                 >
                     <span class="app-sidebar-icon">
                         <i class="<?= $itemIcon ?>"></i>
@@ -81,12 +82,13 @@
                                 ENT_QUOTES,
                                 'UTF-8'
                             );
+                            $subTooltip = htmlspecialchars((string)($sub['tooltip'] ?? $sub['label'] ?? ''), ENT_QUOTES, 'UTF-8');
                         ?>
                         <a
                             href="#"
                             data-route="<?= $subUrl ?>"
                             class="app-sidebar-subitem sidebar-link"
-                            title="<?= $subLabel ?>"
+                            title="<?= $subTooltip ?>"
                         >
                             <span class="app-sidebar-subicon">
                                 <i class="<?= $subIcon ?>"></i>
@@ -100,7 +102,7 @@
                     href="#"
                     data-route="<?= $itemUrl ?>"
                     class="app-sidebar-item sidebar-link"
-                    title="<?= $itemLabel ?>"
+                    title="<?= $itemTooltip ?>"
                 >
                     <span class="app-sidebar-icon">
                         <i class="<?= $itemIcon ?>"></i>

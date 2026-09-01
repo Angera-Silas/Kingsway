@@ -265,7 +265,7 @@ class ReportingManager extends FileLifecycleBase
             } catch (\Exception $e) {
                 // Budgets table may be missing in light-weight or test DBs. Use safe defaults and continue.
                 $budgetData = ['total_budget' => 0, 'total_spent' => 0];
-                error_log('ReportingManager: budgets query failed - continuing with defaults: ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('ReportingManager: budgets query failed - continuing with defaults: ' . $e->getMessage());
             }
 
             // Calculate key metrics - use allocated amount for collection rate
@@ -353,7 +353,7 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -396,7 +396,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, ['trends' => $trends]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -418,7 +418,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['recent_transactions' => $rows]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -459,7 +459,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, ['aging_report' => $aging]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -516,7 +516,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -563,7 +563,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return formatResponse(true, ['expense_breakdown' => $breakdown]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -624,7 +624,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -652,7 +652,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'download_url' => $this->generatedDownloadUrl($path),
             ]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -688,7 +688,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -716,7 +716,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             ]);
 
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -765,7 +765,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['pivot_by_class' => $data]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -809,7 +809,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['pivot_by_method' => $data]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -853,7 +853,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['pivot_by_type' => $data]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -883,7 +883,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['pivot_daily' => $data]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -922,7 +922,7 @@ $sql = "SELECT
 
             return formatResponse(true, ['pivot_by_fee_type' => $data]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -995,7 +995,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             return formatResponse(true, ['top_defaulters' => $data]);
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -1015,7 +1015,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             );
             $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             $summary = [];
         }
 
@@ -1036,7 +1036,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
             return $result['year_code'] ?? date('Y');
         } catch (Exception $e) {
-            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return date('Y');
         }
     }

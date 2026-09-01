@@ -1,0 +1,1 @@
+<?php $governedReportCode='CBC_CLASS_ASSESSMENT_SUMMARY'; $governedReportTitle='CBC Class Assessment Summary'; $governedReportLayout='performance'; $governedPrimaryVisual='radar'; require __DIR__.'/reports/governed_report.php';

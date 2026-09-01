@@ -13,6 +13,7 @@ class RateLimitMiddleware
     const AUTHENTICATED_REQUESTS_LIMIT = 600;
     const REFRESH_REQUESTS_LIMIT = 60;
     const LOGIN_REQUESTS_LIMIT = 60;
+    const TELEMETRY_REQUESTS_LIMIT = 60;
     const TIME_WINDOW = 60; // seconds
 
     // Login endpoints that get a stricter rate limit.
@@ -71,7 +72,7 @@ class RateLimitMiddleware
 
         } catch (\Exception $e) {
             // Log but don't block on database error
-            error_log("Rate limit check failed: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Rate limit check failed: " . $e->getMessage());
         }
     }
 
@@ -98,6 +99,9 @@ class RateLimitMiddleware
 
     private static function resolveLimit($rateKey)
     {
+        if (self::isTelemetryEndpoint()) {
+            return self::TELEMETRY_REQUESTS_LIMIT;
+        }
         if (self::isRefreshEndpoint()) {
             return self::REFRESH_REQUESTS_LIMIT;
         }
@@ -109,6 +113,14 @@ class RateLimitMiddleware
         return strpos($rateKey, 'user:') === 0
             ? self::AUTHENTICATED_REQUESTS_LIMIT
             : self::ANONYMOUS_REQUESTS_LIMIT;
+    }
+
+    private static function isTelemetryEndpoint(): bool
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        return strpos($path, '/system/client-log') !== false
+            || strpos($path, '/telemetry/data') !== false
+            || strpos($path, '/telemetry/errors') !== false;
     }
 
     private static function isLoginEndpoint()

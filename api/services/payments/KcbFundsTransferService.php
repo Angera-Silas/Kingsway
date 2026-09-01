@@ -170,7 +170,7 @@ class KcbFundsTransferService
 
             throw new Exception((string) ($header['statusDescription'] ?? $header['statusMessage'] ?? 'KCB transfer was rejected.'));
         } catch (Exception $e) {
-            error_log('[KcbFundsTransferService] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[KcbFundsTransferService] ' . $e->getMessage());
             $this->logError($e->getMessage());
             return ['status' => 'error', 'message' => 'KCB transfer could not be initiated.'];
         }
@@ -405,7 +405,7 @@ class KcbFundsTransferService
 
     private function logTransaction(string $account, float $amount, array $response): void
     {
-        error_log(
+        \App\API\Services\Logger::legacyError(
             '[' . date('Y-m-d H:i:s') . '] KCB Transfer - Account: ' . $account .
             ', Amount: ' . $amount . ', Response: ' . json_encode($response) . "\n",
             3,
@@ -415,7 +415,7 @@ class KcbFundsTransferService
 
     private function logError(string $message): void
     {
-        error_log(
+        \App\API\Services\Logger::legacyError(
             '[' . date('Y-m-d H:i:s') . '] ' . $message . "\n",
             3,
             __DIR__ . '/../../../logs/kcb_transfer_errors.log'

@@ -210,7 +210,7 @@ class AfricasTalkingProvider implements SMSProvider
 
             return false;
         } catch (\Exception $e) {
-            error_log('[SMSGateway] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SMSGateway] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return false;
         }
     }

@@ -1099,7 +1099,7 @@ class ActivitiesController extends BaseController
             return $this->user['id'];
         }
         // Fallback for tests or missing user context
-        error_log('[ActivitiesController] No user context found, using default user ID 1');
+        \App\API\Services\Logger::legacyError('[ActivitiesController] No user context found, using default user ID 1');
         return 1;
     }
 }

@@ -307,7 +307,7 @@ class AcademicCalendarService
                 ['dedup_minutes' => 60]
             );
         } catch (Exception $e) {
-            error_log('[AcademicCalendarService] Notification push failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AcademicCalendarService] Notification push failed: ' . $e->getMessage());
         }
     }
 

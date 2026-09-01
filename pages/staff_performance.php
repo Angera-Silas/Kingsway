@@ -49,10 +49,6 @@
                     <option value="current_year">Current Year</option>
                 </select>
             </div>
-            <div class="col-md-2">
-                <label class="form-label">&nbsp;</label>
-                <button class="btn btn-primary w-100" id="generateBtn">Generate</button>
-            </div>
         </div>
 
         <!-- Performance Summary -->

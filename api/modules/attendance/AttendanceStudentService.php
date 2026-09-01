@@ -51,7 +51,7 @@ class AttendanceStudentService
             $percentage = $total > 0 ? round(100 * $present / $total, 2) : 0;
             return $controller->success(['student_id' => $studentId, 'total_days' => $total, 'present_days' => $present, 'percentage' => $percentage, 'term_id' => $termId], 'Attendance percentage calculated');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -79,7 +79,7 @@ class AttendanceStudentService
             $students = $result->fetchAll(\PDO::FETCH_ASSOC);
             return $controller->success($students, 'Students retrieved successfully');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -120,7 +120,7 @@ class AttendanceStudentService
             }
             return $controller->success(['created' => $created, 'updated' => $updated, 'total' => $created + $updated, 'date' => $date, 'stream_id' => $streamId], 'Attendance marked successfully');
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }
@@ -159,7 +159,7 @@ class AttendanceStudentService
             foreach ($grouped as &$y) { ksort($y['terms']); $y['terms'] = array_values($y['terms']); }
             return $controller->success(['student_id' => $studentId, 'by_year' => array_values($grouped), 'total_rows' => count($rows)]);
         } catch (\Exception $e) {
-            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $controller->error('An internal error occurred.');
         }
     }

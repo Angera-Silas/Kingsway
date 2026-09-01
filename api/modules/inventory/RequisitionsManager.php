@@ -332,7 +332,7 @@ class RequisitionsManager extends BaseAPI
 
             $service->push([$requester], 'requisition', $title, $message, 'medium');
         } catch (Exception $e) {
-            error_log('[RequisitionsManager] Notification push failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[RequisitionsManager] Notification push failed: ' . $e->getMessage());
         }
     }
 

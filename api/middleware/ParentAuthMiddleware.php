@@ -68,7 +68,7 @@ class ParentAuthMiddleware
                 'session_token' => $token,
             ];
         } catch (\Exception $e) {
-            error_log('[ParentAuthMiddleware] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[ParentAuthMiddleware] ' . $e->getMessage());
             self::unauthorized('Authentication service unavailable');
         }
     }

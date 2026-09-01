@@ -95,7 +95,7 @@ class SessionController extends BaseAPI
             ];
 
         } catch (\Exception $e) {
-            error_log('Session check error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Session check error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'Failed to check session'
@@ -177,7 +177,7 @@ class SessionController extends BaseAPI
             ];
 
         } catch (\Exception $e) {
-            error_log('Session refresh error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Session refresh error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'Failed to refresh session'
@@ -279,7 +279,7 @@ class SessionController extends BaseAPI
             }
 
         } catch (\Exception $e) {
-            error_log('Token validation error: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('Token validation error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'Failed to validate token'

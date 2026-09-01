@@ -888,7 +888,7 @@ class ExaminationWorkflow extends WorkflowHandler {
                 );
                 $this->queueParentResultNotifications((int) $instance_id, $data);
             } catch (Exception $e) {
-                error_log('[ExaminationWorkflow] Notification push failed: ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('[ExaminationWorkflow] Notification push failed: ' . $e->getMessage());
             }
 
             return formatResponse(true, [
@@ -961,7 +961,7 @@ class ExaminationWorkflow extends WorkflowHandler {
                         'subject' => 'Exam results: ' . $student['student_name'],
                     ]);
                 } catch (Exception $e) {
-                    error_log('[ExaminationWorkflow] Parent result queue failed: ' . $e->getMessage());
+                    \App\API\Services\Logger::legacyError('[ExaminationWorkflow] Parent result queue failed: ' . $e->getMessage());
                 }
             }
         }

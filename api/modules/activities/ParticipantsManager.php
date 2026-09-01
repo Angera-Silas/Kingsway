@@ -618,7 +618,7 @@ class ParticipantsManager extends BaseAPI
                 } catch (Exception $e) {
                     $errorMsg = 'An internal error occurred.';
 
-                    error_log('[ParticipantsManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+                    \App\API\Services\Logger::legacyError('[ParticipantsManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
                     
                     $failed[] = [

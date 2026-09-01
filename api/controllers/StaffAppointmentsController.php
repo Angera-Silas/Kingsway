@@ -18,6 +18,7 @@ class StaffAppointmentsController extends BaseController
 
     public function get($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
         if ($id !== null) {
             return $this->notFound('Use /api/staff-appointments/internal or /api/staff-appointments/new');
         }
@@ -26,11 +27,13 @@ class StaffAppointmentsController extends BaseController
 
     public function getInternal($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
         return $this->runSafely(fn() => $this->success($this->service->listInternal($_GET ?? [])));
     }
 
     public function postInternal($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
         return $this->runSafely(function () use ($data) {
             $appointmentId = $this->service->submitInternal($data, $this->actorId());
             return $this->created(['id' => $appointmentId], 'Internal appointment submitted for Director approval');
@@ -49,6 +52,7 @@ class StaffAppointmentsController extends BaseController
 
     public function putInternalRevert($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireDirectorAccess()) return $denied;
         return $this->runSafely(function () use ($id, $data) {
             $this->service->revertInternal((int)($id ?? $data['id'] ?? 0), $this->actorId(), $data);
             return $this->success(null, 'Acting appointment reverted');
@@ -57,11 +61,13 @@ class StaffAppointmentsController extends BaseController
 
     public function getNew($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
         return $this->runSafely(fn() => $this->success($this->service->listNew($_GET ?? [])));
     }
 
     public function postNew($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
         return $this->runSafely(function () use ($data) {
             $appointmentId = $this->service->submitNew($data, $this->actorId());
             return $this->created(['id' => $appointmentId], 'New staff appointment submitted for Director approval');
@@ -80,6 +86,7 @@ class StaffAppointmentsController extends BaseController
 
     public function putNewOnboard($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireSchoolAdminAccess()) return $denied;
         return $this->runSafely(function () use ($id, $data) {
             $result = $this->service->onboardNew(
                 (int)($id ?? $data['id'] ?? 0),
@@ -101,6 +108,7 @@ class StaffAppointmentsController extends BaseController
 
     public function getHistory($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
         return $this->runSafely(function () use ($data) {
             $appointmentType = $_GET['appointment_type'] ?? $data['appointment_type'] ?? null;
             $appointmentId = (int)($_GET['appointment_id'] ?? $data['appointment_id'] ?? 0);
@@ -110,6 +118,7 @@ class StaffAppointmentsController extends BaseController
 
     private function reviewInternal($id, array $data, string $action)
     {
+        if ($denied = $this->requireDirectorAccess()) return $denied;
         return $this->runSafely(function () use ($id, $data, $action) {
             $this->service->reviewInternal((int)($id ?? $data['id'] ?? 0), $action, $this->actorId(), $data);
             return $this->success(null, 'Internal appointment ' . ($action === 'approve' ? 'approved' : 'rejected'));
@@ -118,6 +127,7 @@ class StaffAppointmentsController extends BaseController
 
     private function reviewNew($id, array $data, string $action)
     {
+        if ($denied = $this->requireDirectorAccess()) return $denied;
         return $this->runSafely(function () use ($id, $data, $action) {
             $this->service->reviewNew((int)($id ?? $data['id'] ?? 0), $action, $this->actorId(), $data);
             return $this->success(null, 'New staff appointment ' . ($action === 'approve' ? 'approved' : 'rejected'));
@@ -133,19 +143,42 @@ class StaffAppointmentsController extends BaseController
         return $actorId;
     }
 
+    private function requireLeadershipAccess()
+    {
+        return $this->userHasAny([], [], [
+            'system administrator', 'school administrator', 'director',
+            'headteacher', 'deputy head - academic', 'deputy head – academic',
+            'deputy head - discipline', 'deputy head – discipline',
+        ]) ? null : $this->forbidden('School leadership access required.');
+    }
+
+    private function requireDirectorAccess()
+    {
+        return $this->userHasAny([], [], ['system administrator', 'director'])
+            ? null
+            : $this->forbidden('Director approval is required.');
+    }
+
+    private function requireSchoolAdminAccess()
+    {
+        return $this->userHasAny([], [], ['system administrator', 'school administrator'])
+            ? null
+            : $this->forbidden('School Administrator onboarding access required.');
+    }
+
     private function runSafely(callable $callback)
     {
         try {
             return $callback();
         } catch (InvalidArgumentException $e) {
             if ($e->getMessage() === 'Staff user context is required') {
-                error_log('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+                \App\API\Services\Logger::legacyError('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->unauthorized('An internal error occurred.');
             }
-            error_log('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         } catch (Throwable $e) {
-            error_log('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }

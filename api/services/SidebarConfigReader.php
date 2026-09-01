@@ -25,6 +25,15 @@ class SidebarConfigReader
         $roleIds = array_values(array_unique(array_map('intval', $roleIds)));
         if (!$roleIds) return [];
 
+        // SYSTEM and SCHOOL are separate trust domains. A System Administrator
+        // may have stale or accidental secondary role assignments, but those
+        // roles must never expand the infrastructure account into school data.
+        if (in_array(2, $roleIds, true)) {
+            // Preserve the explicitly curated system groups. The school-domain
+            // module organizer would otherwise reclassify them as school work.
+            return self::attachModuleReports(self::forRole(2), [2]);
+        }
+
         // The first assigned role supplies the primary navigation. Additional
         // roles contribute capabilities, not a second copy of their entire
         // menu. This is what makes Headteacher + Subject Teacher, Deputy +
@@ -119,7 +128,115 @@ class SidebarConfigReader
             }
         }
 
-        return self::organizeIntoModules($merged);
+        // The accountant menu is already deliberately arranged around finance
+        // workflows (Fee Structure, Student Billing, Payroll, Expenditure,
+        // Accounts & Balances, and so on). Reclassifying its individual routes
+        // by generic prefixes destroys those workflow groups and sends unknown
+        // finance routes to the Operations fallback.
+        if ($roleIds[0] === 10) {
+            return self::attachModuleReports($merged, $roleIds);
+        }
+
+        return self::attachModuleReports(self::organizeIntoModules($merged), $roleIds);
+    }
+
+    private static function attachModuleReports(array $menu, array $roleIds): array
+    {
+        // One reporting destination. The previous implementation converted a
+        // single Reports menu into many top-level "... Reports" groups, which
+        // scattered related analysis throughout the sidebar and made labels
+        // overflow. Legacy report links and governed registry reports are now
+        // merged into one deduplicated Reports & Analytics section.
+        $reportChildren = [];
+        $cleanMenu = [];
+        foreach ($menu as $parent) {
+            $label = strtolower(trim((string)($parent['label'] ?? '')));
+            $isReportParent = $label === 'reports'
+                || $label === 'reports & analytics'
+                || str_ends_with($label, ' reports');
+            if ($isReportParent) {
+                $reportChildren = array_merge($reportChildren, $parent['subitems'] ?? []);
+                continue;
+            }
+            $children = [];
+            foreach (($parent['subitems'] ?? []) as $child) {
+                if (($child['url'] ?? null) === 'analytics_catalogue') {
+                    $reportChildren[] = $child;
+                    continue;
+                }
+                $children[] = $child;
+            }
+            $parent['subitems'] = $children;
+            if (($parent['url'] ?? null) === 'analytics_catalogue') {
+                $reportChildren[] = $parent;
+                continue;
+            }
+            if ($children || !empty($parent['url'])) $cleanMenu[] = $parent;
+        }
+
+        $parentId = (count($roleIds) === 1 && (int)$roleIds[0] === 2) ? 29800 : 960000;
+        foreach (ReportRegistry::forRoles($roleIds) as $report) {
+            $reportChildren[] = ['label'=>$report['title'],'url'=>$report['route']];
+        }
+        $children = [];$seen = [];
+        foreach ($reportChildren as $child) {
+            $route = strtolower(trim((string)($child['url'] ?? '')));
+            if ($route === '' || isset($seen[$route])) continue;
+            $seen[$route] = true;
+            $fullLabel = (string)($child['label'] ?? 'Report');
+            $child['label'] = self::compactLabel($fullLabel, true);
+            $child['tooltip'] = $fullLabel;
+            $child['id'] = $parentId + count($children) + 1;
+            $child['parent_id'] = $parentId;
+            $children[] = self::item($child['id'], $parentId, $child, count($children));
+        }
+        if ($children) {
+            $cleanMenu[] = self::item($parentId, null, [
+                'label'=>'Reports & Analytics','url'=>null,'icon'=>'fas fa-chart-column'
+            ], count($cleanMenu), $children);
+        }
+        return self::compactMenuLabels($cleanMenu);
+    }
+
+    private static function compactMenuLabels(array $menu): array
+    {
+        foreach ($menu as &$parent) {
+            $parent['tooltip'] = $parent['tooltip'] ?? $parent['label'];
+            $parent['label'] = self::compactLabel((string)$parent['label']);
+            foreach (($parent['subitems'] ?? []) as &$child) {
+                $child['tooltip'] = $child['tooltip'] ?? $child['label'];
+                $child['label'] = self::compactLabel((string)$child['label']);
+            }
+            unset($child);
+        }
+        unset($parent);
+        return $menu;
+    }
+
+    private static function compactLabel(string $label, bool $report=false): string
+    {
+        $map = [
+            'KCB Disbursement Reconciliation'=>'KCB Reconciliation',
+            'Payment Integration Accounts'=>'Payment Accounts',
+            'First School Administrator'=>'First School Admin',
+            'Academic Planning Oversight'=>'Academic Oversight',
+            'School-wide Grading Status'=>'Grading Status',
+            'Boarding Student Profiles'=>'Boarding Profiles',
+            'Assign Students to Routes'=>'Route Assignments',
+            'All Applications & Stages'=>'Applications',
+            'Subjects / Learning Areas'=>'Learning Areas',
+            'Daily Attendance Overview'=>'Daily Attendance',
+            'Subject Students by Class'=>'Subject Learners',
+            'Current Enrollment by Class & Stream'=>'Class Enrollment',
+            'Communication Delivery Summary'=>'Message Delivery',
+            'Enrolled Admissions by Cohort'=>'Admissions by Cohort',
+            'CBC Class Assessment Summary'=>'CBC Assessment',
+            'System Audit Trail Summary'=>'System Audit Trail',
+            'Discipline Incident Trend'=>'Discipline Trends',
+        ];
+        $label = $map[$label] ?? $label;
+        if ($report) $label = preg_replace('/\s+Reports?$/i', '', $label) ?: $label;
+        return $label;
     }
 
     /**
@@ -157,15 +274,24 @@ class SidebarConfigReader
         }
 
         // Every authenticated school-domain staff member may browse the
-        // internal merchandise catalogue. The family workspace is resolved
-        // from the staff JWT and linked parents record; non-parent staff see
-        // a clear access message instead of receiving another login flow.
-        if ($roleId > 2) {
+        // internal merchandise catalogue (view-only). Sell + management
+        // actions are gated by inventory write permissions in the controller
+        // and the page controller. The family workspace is resolved from the
+        // staff JWT and linked parents record; non-parent staff see a clear
+        // access message instead of receiving another login flow.
+        if ($roleId >= 2) {
             $catalogParent = $roleId * 10000 + 9800;
             $items[] = self::item($catalogParent, null, [
-                'label' => 'Products Catalog', 'url' => 'uniform_catalog',
+                'label' => 'Products Catalog', 'url' => 'internal_products_catalog',
                 'icon' => 'fas fa-store', 'subitems' => []
             ], $groupIndex++);
+            if (in_array($roleId, [4, 14], true)) {
+                $managementParent = $roleId * 10000 + 9850;
+                $items[] = self::item($managementParent, null, [
+                    'label' => 'Manage Products', 'url' => 'products_catalog_management',
+                    'icon' => 'fas fa-box-open', 'subitems' => []
+                ], $groupIndex++);
+            }
             $familyParent = $roleId * 10000 + 9900;
             $items[] = self::item($familyParent, null, [
                 'label' => 'My Family', 'url' => 'my_family',
@@ -187,6 +313,8 @@ class SidebarConfigReader
         array $subitems = []
     ): array {
         $url = $node['url'] ?? null;
+        // Generated IDs reserve 20000-29999 for role 2 and all its children.
+        $domain = ($id >= 20000 && $id < 30000) ? 'SYSTEM' : 'SCHOOL';
         return [
             'id'                    => $id,
             'parent_id'             => $parentId,
@@ -194,7 +322,7 @@ class SidebarConfigReader
             'icon'                  => $node['icon'] ?? null,
             'url'                   => $url,
             'route_url'             => $url,
-            'domain'                => 'SCHOOL',
+            'domain'                => $domain,
             'display_order'         => $displayOrder,
             'subitems'              => $subitems,
             'show_badge'            => false,
@@ -204,7 +332,7 @@ class SidebarConfigReader
             'requires_confirmation' => false,
             'confirmation_message'  => null,
             'css_class'             => null,
-            'tooltip'               => null,
+            'tooltip'               => $node['tooltip'] ?? null,
         ];
     }
 
@@ -397,13 +525,52 @@ class SidebarConfigReader
     private static function moduleForRoute(string $url, string $parentLabel): string
     {
         $route = strtolower(trim($url));
+        if ($parentLabel === 'reports'
+            || $parentLabel === 'reports & analytics'
+            || str_ends_with($parentLabel, ' reports')
+            || $route === 'analytics_catalogue'
+            || str_contains($route, 'report')
+            || str_ends_with($route, '_trends')
+            || ReportRegistry::route($route) !== null) {
+            return 'Reports & Analytics';
+        }
         $routeModules = [
+            'academic_reports' => 'Academic & CBC Reports',
+            'performance_reports' => 'Academic & CBC Reports',
+            'performance_analysis' => 'Academic & CBC Reports',
+            'term_reports' => 'Academic & CBC Reports',
+            'comparative_reports' => 'Academic & CBC Reports',
+            'student_progress_reports' => 'Academic & CBC Reports',
+            'generate_class_report' => 'Academic & CBC Reports',
+            'generate_subject_report' => 'Academic & CBC Reports',
+            'report_cards' => 'Academic & CBC Reports',
+            'class_report_cards' => 'Academic & CBC Reports',
+            'enrollment_reports' => 'Enrollment & Admissions Reports',
+            'enrollment_trends' => 'Enrollment & Admissions Reports',
+            'attendance_reports' => 'Attendance Reports',
+            'attendance_trends' => 'Attendance Reports',
+            'finance_reports' => 'Finance Reports',
+            'payment_reports' => 'Finance Reports',
+            'inventory_reports' => 'Inventory & Procurement Reports',
+            'purchase_reports' => 'Inventory & Procurement Reports',
+            'stock_reports' => 'Inventory & Procurement Reports',
+            'food_consumption' => 'Catering & Nutrition Reports',
+            'meal_statistics' => 'Catering & Nutrition Reports',
+            'discipline_reports' => 'Discipline & Safeguarding Reports',
+            'conduct_reports' => 'Discipline & Safeguarding Reports',
+            'monthly_discipline_report' => 'Discipline & Safeguarding Reports',
+            'weekly_discipline_report' => 'Discipline & Safeguarding Reports',
+            'health_reports' => 'Health & Welfare Reports',
+            'counseling_reports' => 'Health & Welfare Reports',
+            'boarding_reports' => 'Boarding Reports',
+            'exeat_reports' => 'Boarding Reports',
+            'communications_reports' => 'Communication Reports',
             'admissions_' => 'Admissions',
             'admission_' => 'Admissions',
-            'enrollment_reports' => 'Reports & Analytics',
+            'enrollment_reports' => 'Enrollment & Admissions Reports',
             'manage_subjects' => 'Academic',
-            'academic_reports' => 'Reports & Analytics',
-            'finance_reports' => 'Reports & Analytics',
+            'academic_reports' => 'Academic & CBC Reports',
+            'finance_reports' => 'Finance Reports',
             'academic_' => 'Academic',
             'my_schemes_of_work' => 'Academic',
             'schemes_of_work' => 'Academic',
@@ -494,6 +661,7 @@ class SidebarConfigReader
             'manage_library' => 'Library',
             'library_' => 'Library',
             'uniform_catalog' => 'Inventory & Store',
+            'internal_products_catalog' => 'Inventory & Store',
             'manage_inventory' => 'Inventory & Store',
             'manage_classes' => 'Learners',
             'class_streams' => 'Learners',
@@ -504,7 +672,7 @@ class SidebarConfigReader
             'special_needs' => 'Learners',
             'alumni_' => 'Learners',
             'view_attendance' => 'Attendance',
-            'attendance_reports' => 'Reports & Analytics',
+            'attendance_reports' => 'Attendance Reports',
             'attendance_' => 'Attendance',
             'class_mark_attendance' => 'Attendance',
             'manage_staff' => 'Staff',

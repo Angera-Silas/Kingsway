@@ -42,7 +42,7 @@ class ChapelController extends BaseController
             $result = $this->api->listChapelServices($limit, $upcoming);
             return $this->success($result['data'] ?? []);
         } catch (Exception $e) {
-            error_log('[ChapelController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[ChapelController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->success([]);
         }
     }

@@ -791,8 +791,8 @@ class StaffOnboardingManager extends BaseAPI
             return $id;
         }
         $this->db->prepare("
-            INSERT INTO workflow_definitions (code, name, description, category, is_active, created_at, updated_at)
-            VALUES ('staff_onboarding', 'Staff Onboarding', 'New staff onboarding task checklist', 'staff_affairs', 1, NOW(), NOW())
+            INSERT INTO workflow_definitions (code, name, description, category, handler_class, is_active, created_at, updated_at)
+            VALUES ('staff_onboarding', 'Staff Onboarding', 'New staff onboarding task checklist', 'staff_affairs', 'App\\\\API\\\\Modules\\\\staff\\\\OnboardingWorkflow', 1, NOW(), NOW())
         ")->execute();
         return (int)$this->db->lastInsertId();
     }
@@ -812,7 +812,7 @@ class StaffOnboardingManager extends BaseAPI
               AND (
                     applies_to_type_ids IS NULL
                  OR applies_to_type_ids = ''
-                 OR JSON_CONTAINS(applies_to_type_ids, CAST(? AS JSON))
+                 OR JSON_CONTAINS(applies_to_type_ids, JSON_ARRAY(?))
               )
             ORDER BY display_order, id
         ");

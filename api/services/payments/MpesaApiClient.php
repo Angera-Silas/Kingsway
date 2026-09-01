@@ -164,7 +164,7 @@ class MpesaApiClient
         $data = $response['data'];
 
         if ($httpCode !== 200 || empty($data['access_token'])) {
-            error_log(
+            \App\API\Services\Logger::legacyError(
                 '[MpesaApiClient] Access token failed (HTTP ' . $httpCode . '): ' .
                 json_encode($data)
             );
@@ -216,7 +216,7 @@ class MpesaApiClient
         }
 
         if ($response['http_code'] >= 500) {
-            error_log(
+            \App\API\Services\Logger::legacyError(
                 '[MpesaApiClient] ' . $path . ' server error (HTTP ' .
                 $response['http_code'] . '): ' . json_encode($data)
             );

@@ -31,7 +31,7 @@ class AlertsController extends BaseController
             }
             return $this->error('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('[AlertsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AlertsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->error('An internal error occurred.');
         }
     }

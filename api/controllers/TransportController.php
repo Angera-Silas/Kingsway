@@ -103,11 +103,13 @@ class TransportController extends BaseController
     // ROUTE ENDPOINTS
     public function getTransportRoute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getRoute($id);
         return $this->handleResponse($result);
     }
     public function getAllRoutes($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getAllRoutes();
         return $this->handleResponse($result);
     }
@@ -133,11 +135,13 @@ class TransportController extends BaseController
     // STOP ENDPOINTS
     public function getTransportStop($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getStop($id);
         return $this->handleResponse($result);
     }
     public function getAllStops($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getAllStops();
         return $this->handleResponse($result);
     }
@@ -159,9 +163,16 @@ class TransportController extends BaseController
         $result = $this->api->deleteStop($id);
         return $this->handleResponse($result);
     }
+    public function putRouteStops($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        if (!$id || !isset($data['stops']) || !is_array($data['stops'])) return $this->badRequest('route_id and stops are required');
+        return $this->success($this->api->syncRouteStops((int)$id, $data['stops']), 'Route pickup/drop-off points saved');
+    }
 
     public function getAllVehicles($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         return $this->handleResponse($this->api->getAllVehicles());
     }
     public function postTransportVehicle($id = null, $data = [], $segments = [])
@@ -179,10 +190,17 @@ class TransportController extends BaseController
         if ($guard = $this->guardTransportManage()) return $guard;
         return $this->handleResponse($this->api->deleteVehicle($id));
     }
+    public function putVehicleRoutes($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        if (!$id || !isset($data['route_ids']) || !is_array($data['route_ids'])) return $this->badRequest('vehicle_id and route_ids are required');
+        return $this->success($this->api->syncVehicleRoutes((int)$id, $data['route_ids']), 'Vehicle route allocation saved');
+    }
 
     // VEHICLE ENDPOINTS
     public function getTransportVehicle($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getVehicle($id);
         return $this->handleResponse($result);
     }
@@ -190,11 +208,13 @@ class TransportController extends BaseController
     // DRIVER ENDPOINTS
     public function getTransportDriver($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getDriver($id);
         return $this->handleResponse($result);
     }
     public function getAllDrivers($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->getAllDrivers();
         return $this->handleResponse($result);
     }
@@ -215,6 +235,12 @@ class TransportController extends BaseController
         if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->deleteDriver($id);
         return $this->handleResponse($result);
+    }
+    public function putDriverRoutes($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        if (!$id || !isset($data['route_ids']) || !is_array($data['route_ids'])) return $this->badRequest('driver_id and route_ids are required');
+        return $this->success($this->api->syncDriverRoutes((int)$id, $data['route_ids']), 'Driver route schedule saved');
     }
     public function postDriverAssign($id = null, $data = [], $segments = [])
     {
@@ -353,7 +379,7 @@ class TransportController extends BaseController
         } catch (\InvalidArgumentException $e) {
             return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
-            error_log('[TransportController] driver manifest failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[TransportController] driver manifest failed: ' . $e->getMessage());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -576,7 +602,7 @@ class TransportController extends BaseController
                 'Driver route context retrieved'
             );
         } catch (\Throwable $error) {
-            error_log('[TransportController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            \App\API\Services\Logger::legacyError('[TransportController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }
@@ -598,7 +624,7 @@ return $this->serverError('An internal error occurred.');
                 'Driver vehicle retrieved'
             );
         } catch (\Throwable $error) {
-            error_log('[TransportController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            \App\API\Services\Logger::legacyError('[TransportController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }
@@ -650,7 +676,7 @@ return $this->serverError('An internal error occurred.');
         } catch (\RuntimeException $e) {
             return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
-            error_log('[TransportController] entitlement create failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[TransportController] entitlement create failed: ' . $e->getMessage());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -665,7 +691,7 @@ return $this->serverError('An internal error occurred.');
         } catch (\RuntimeException $e) {
             return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
-            error_log('[TransportController] transport enrollment failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[TransportController] transport enrollment failed: ' . $e->getMessage());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -684,7 +710,7 @@ return $this->serverError('An internal error occurred.');
         } catch (\RuntimeException $e) {
             return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
-            error_log('[TransportController] entitlement payment failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[TransportController] entitlement payment failed: ' . $e->getMessage());
             return $this->serverError('An internal error occurred.');
         }
     }
@@ -697,7 +723,7 @@ return $this->serverError('An internal error occurred.');
             $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
             return $this->created($this->transportPayments->initiate($data, $userId), 'Transport payment request submitted');
         } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
-        catch (\Throwable $e) { error_log('[TransportController] payment intent failed: '.$e->getMessage()); return $this->serverError('An internal error occurred.'); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[TransportController] payment intent failed: '.$e->getMessage()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** POST /api/transport/payment-intents/{id}/confirm */
@@ -709,7 +735,7 @@ return $this->serverError('An internal error occurred.');
             $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
             return $this->success($this->transportPayments->confirmManual((int)$id, $userId), 'Transport payment confirmed');
         } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
-        catch (\Throwable $e) { error_log('[TransportController] payment confirmation failed: '.$e->getMessage()); return $this->serverError('An internal error occurred.'); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[TransportController] payment confirmation failed: '.$e->getMessage()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** GET /api/transport/payment-intents/{id} */
@@ -740,10 +766,10 @@ return $this->serverError('An internal error occurred.');
             $result = $this->billing->subscribe($data);
             return $this->success($result, 'Student subscribed to transport');
         } catch (\InvalidArgumentException $e) {
-            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }
@@ -780,7 +806,7 @@ return $this->serverError('An internal error occurred.');
             $result = $this->billing->generateMonthlyBills($billingMonth, $userId);
             return $this->success($result, 'Monthly bills generated');
         } catch (Exception $e) {
-            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }
@@ -788,6 +814,7 @@ return $this->serverError('An internal error occurred.');
     /** GET /api/transport/bills?billing_month=&student_id=&route_id=&status= */
     public function getBills($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $filters = [
             'billing_month'  => $_GET['billing_month']  ?? $data['billing_month']  ?? null,
             'student_id'     => $_GET['student_id']     ?? $data['student_id']     ?? null,
@@ -802,6 +829,7 @@ return $this->serverError('An internal error occurred.');
     /** GET /api/transport/bills-summary?billing_month=YYYY-MM-01 */
     public function getBillsSummary($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $billingMonth = $_GET['billing_month'] ?? $data['billing_month'] ?? date('Y-m-01');
         return $this->success($this->billing->getMonthlyBillingSummary($billingMonth));
     }
@@ -816,10 +844,10 @@ return $this->serverError('An internal error occurred.');
             $result = $this->billing->recordTransportPayment((int)$id, $data);
             return $this->success($result, 'Payment recorded');
         } catch (\InvalidArgumentException $e) {
-            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
     }

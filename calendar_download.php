@@ -43,7 +43,7 @@ try {
     // streamAbsolutePath() calls exit, so nothing below executes
 
 } catch (\Throwable $e) {
-    error_log('[calendar_download] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    \App\API\Services\Logger::legacyError('[calendar_download] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     while (ob_get_level()) ob_end_clean();
     http_response_code(500);
     header('Content-Type: text/html; charset=utf-8');

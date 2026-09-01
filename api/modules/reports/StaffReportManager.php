@@ -38,22 +38,32 @@ class StaffReportManager extends BaseAPI
 
     public function getStaffAttendanceRates($filters = [])
     {
-        // Calculate attendance rates by month
         try {
+            $where = ['1=1'];
+            $params = [];
+            if (!empty($filters['date_from'])) { $where[] = 'sa.date >= ?'; $params[] = $filters['date_from']; }
+            if (!empty($filters['date_to'])) { $where[] = 'sa.date <= ?'; $params[] = $filters['date_to']; }
+            if (!empty($filters['department_id'])) { $where[] = 'sda.department_id = ?'; $params[] = (int) $filters['department_id']; }
             $sql = "SELECT
-                        staff_id,
-                        YEAR(date) as year,
-                        MONTH(date) as month,
-                        SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_days,
-                        COUNT(*) AS total_days,
+                        COALESCE(d.name, 'Unassigned') AS department,
+                        SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present,
+                        SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS absent,
+                        SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS late,
                         ROUND(
-                            SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100,
+                            SUM(CASE WHEN sa.status IN ('present','late') THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100,
                             2
                         ) AS attendance_rate
-                    FROM staff_attendance
-                    GROUP BY staff_id, year, month
-                    ORDER BY year DESC, month DESC";
-            $stmt = $this->db->query($sql);
+                    FROM staff_attendance sa
+                    JOIN staff s ON s.id = sa.staff_id
+                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id
+                      AND sda.effective_from <= sa.date
+                      AND (sda.effective_to IS NULL OR sda.effective_to >= sa.date)
+                    LEFT JOIN departments d ON d.id = sda.department_id
+                    WHERE " . implode(' AND ', $where) . "
+                    GROUP BY d.id, d.name
+                    ORDER BY department";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
             return [];

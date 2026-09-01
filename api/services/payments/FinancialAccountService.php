@@ -26,6 +26,7 @@ final class FinancialAccountService
         if ($accountId <= 0 && !$disbursement) {
             $default = $this->db->prepare("SELECT a.id FROM school_financial_accounts a
                 JOIN financial_account_purposes fp ON fp.code=?
+                JOIN school_financial_account_purposes sap ON sap.financial_account_id=a.id AND sap.purpose_id=fp.id
                 JOIN school_financial_account_channels ac ON ac.financial_account_id=a.id
                 JOIN financial_channels fc ON fc.id=ac.channel_id
                     AND (fc.code=? OR (?='buni_transfer' AND fc.code='bank_transfer'))
@@ -51,6 +52,7 @@ final class FinancialAccountService
                 LEFT JOIN payment_providers p ON p.id=a.provider_id
                 LEFT JOIN chart_of_accounts c ON c.id=a.ledger_account_id
                 JOIN financial_account_purposes fp ON fp.code=?
+                JOIN school_financial_account_purposes sap ON sap.financial_account_id=a.id AND sap.purpose_id=fp.id
                 JOIN school_financial_account_channels ac ON ac.financial_account_id=a.id
                 JOIN financial_channels fc ON fc.id=ac.channel_id
                     AND (fc.code=? OR (?='buni_transfer' AND fc.code='bank_transfer'))
@@ -74,6 +76,7 @@ final class FinancialAccountService
         $s = $this->db->prepare("SELECT DISTINCT a.id,a.account_name,a.account_identifier,a.bank_name,a.currency,a.ledger_account_id,p.code provider_code
             FROM school_financial_accounts a
             JOIN financial_account_purposes fp ON fp.code=?
+            JOIN school_financial_account_purposes sap ON sap.financial_account_id=a.id AND sap.purpose_id=fp.id
             JOIN school_financial_account_channels ac ON ac.financial_account_id=a.id
             JOIN financial_channels fc ON fc.id=ac.channel_id
                 AND (fc.code=? OR (?='buni_transfer' AND fc.code='bank_transfer'))

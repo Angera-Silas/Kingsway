@@ -196,7 +196,9 @@ if (Config::isDebug()) {
 - `KCB_RECONCILIATION_WORKER_SECRET` - Dedicated secret for the cron/Apache worker bridge
 
 Run `scripts/process_kcb_disbursement_reconciliation.php` every two minutes from
-cron/systemd. It checks only due pending transfers; callback-completed transfers
+cron/systemd without redirecting output to an ad-hoc file. The worker writes its
+bounded cycle summary to the central environment journal through `Logger`. It
+checks only due pending transfers; callback-completed transfers
 are skipped and unfamiliar provider responses are escalated instead of retried.
 
 ### File Uploads

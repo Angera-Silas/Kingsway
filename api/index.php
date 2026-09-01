@@ -6,6 +6,18 @@
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
+date_default_timezone_set((string) (getenv('APP_TIMEZONE') ?: 'Africa/Nairobi'));
+
+// Keep legacy error_log() calls inside the governed environment log area.
+// A daily filename prevents the unbounded root-level PHP error file that older
+// installations produced; the System Administrator viewer parses these lines.
+$nativeLogEnv = strtolower((string) (getenv('APP_ENV') ?: ($_ENV['APP_ENV'] ?? 'development')));
+$nativeLogEnv = in_array($nativeLogEnv, ['production', 'staging'], true) ? $nativeLogEnv : 'development';
+$nativeLogDir = dirname(__DIR__) . '/logs/' . $nativeLogEnv;
+if (!is_dir($nativeLogDir)) {
+    @mkdir($nativeLogDir, 0770, true);
+}
+ini_set('error_log', $nativeLogDir . '/php-errors-' . date('Y-m-d') . '.log');
 
 ob_start();
 
@@ -21,7 +33,14 @@ $emitError = function (array $payload): void {
 };
 
 set_exception_handler(function (\Throwable $e) use ($emitError) {
-    error_log('Unhandled exception: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    if (class_exists(\App\API\Services\Logger::class)) {
+        \App\API\Services\Logger::critical('errors', 'Unhandled exception', [
+            'exception' => get_class($e), 'error' => $e->getMessage(),
+            'file' => $e->getFile(), 'line' => $e->getLine(),
+        ]);
+    } else {
+        error_log('Unhandled exception: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    }
     $emitError([
         'status'  => 'error',
         'message' => 'An internal error occurred',
@@ -39,7 +58,11 @@ set_error_handler(function (int $severity, string $message, string $file, int $l
 register_shutdown_function(function () use ($emitError) {
     $e = error_get_last();
     if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
-        error_log('Fatal error: ' . $e['message'] . ' in ' . $e['file'] . ':' . $e['line']);
+        if (class_exists(\App\API\Services\Logger::class)) {
+            \App\API\Services\Logger::critical('errors', 'Fatal PHP error', $e);
+        } else {
+            error_log('Fatal error: ' . $e['message'] . ' in ' . $e['file'] . ':' . $e['line']);
+        }
         $emitError([
             'status'  => 'error',
             'message' => 'An internal error occurred',
@@ -53,9 +76,39 @@ use App\API\Router\Router;
 use App\Config\Config;
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/includes/helpers.php';
 
 Config::init();
+
+// ============================================================
+// REQUEST-ID CORRELATION BOOTSTRAP
+// The browser sends X-Request-ID and X-Browser-Session-Id. We validate the
+// client value (safe charset + bounded length) or generate one, bind it to
+// this execution for every Logger entry, and echo the accepted value back so
+// a support engineer can copy it from the browser Network tab and search the
+// log files. Async/queued work reuses this value via Logger context.
+// ============================================================
+try {
+    $incoming = (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? '');
+    $requestId = '';
+    if ($incoming !== '' && preg_match('/^[A-Za-z0-9._-]{1,128}$/', $incoming)) {
+        $requestId = $incoming;
+    } else {
+        $requestId = 'req_' . bin2hex(random_bytes(8));
+    }
+    $_SERVER['REQUEST_ID'] = $requestId;
+
+    $browserSession = (string) ($_SERVER['HTTP_X_BROWSER_SESSION_ID'] ?? '');
+    if ($browserSession !== '' && preg_match('/^[A-Za-z0-9._-]{1,128}$/', $browserSession)) {
+        $_SERVER['browser_session_id'] = $browserSession;
+    }
+
+    if (!headers_sent()) {
+        header('X-Request-ID: ' . $requestId);
+    }
+} catch (\Throwable $e) {
+    $_SERVER['REQUEST_ID'] = 'req_init_failed';
+}
+// ============================================================
 
 if (!headers_sent()) {
     header('Content-Type: application/json; charset=utf-8');

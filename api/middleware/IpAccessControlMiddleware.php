@@ -15,7 +15,7 @@ final class IpAccessControlMiddleware
     {
         $clientIp = IpAccessControlService::resolveClientIp();
         if ($clientIp === '') {
-            error_log(
+            \App\API\Services\Logger::legacyError(
                 '[IpAccessControlMiddleware] Client IP could not be resolved'
             );
             self::abortRequest(
@@ -30,7 +30,7 @@ final class IpAccessControlMiddleware
             );
             $decision = $service->evaluate($clientIp);
         } catch (Throwable $error) {
-            error_log(
+            \App\API\Services\Logger::legacyError(
                 '[IpAccessControlMiddleware] Policy evaluation failed: ' .
                 $error->getMessage()
             );

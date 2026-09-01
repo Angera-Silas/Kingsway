@@ -272,7 +272,7 @@ class AdmissionController extends BaseController
             ]);
             return $this->handleApiResponse($result);
         } catch (\Throwable $e) {
-            error_log('[AdmissionController] admission payment prompt failed: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[AdmissionController] admission payment prompt failed: ' . $e->getMessage());
             return $this->respond(null, 'Unable to send the admission payment prompt', 500, false);
         }
     }

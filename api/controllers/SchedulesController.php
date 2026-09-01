@@ -302,7 +302,7 @@ class SchedulesController extends BaseController
             $data['_scope_stream_ids'] = $this->timetableScope(['academic_year_id' => $data['academic_year_id']])['_scope_stream_ids'] ?? [];
             return $this->handleResponse($this->api->saveTimetableDraft($data));
         } catch (\Throwable $e) {
-            error_log('[SchedulesController] timetable draft endpoint failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SchedulesController] timetable draft endpoint failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('Timetable draft could not be saved');
         }
     }
@@ -870,7 +870,7 @@ class SchedulesController extends BaseController
             $result = $this->api->getWeeklyLessonStats();
             return $this->handleResponse($result);
         } catch (Exception $e) {
-            error_log('[SchedulesController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[SchedulesController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->error('An internal error occurred.');
         }
     }

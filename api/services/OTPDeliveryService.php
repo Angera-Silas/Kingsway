@@ -23,14 +23,14 @@ class OTPDeliveryService
                 $db = \App\Database\Database::getInstance()->getConnection();
                 $this->messageService = new \App\API\Services\MessageService($db);
             } catch (\Throwable $e) {
-                error_log("[OTPDelivery] MessageService not available: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError("[OTPDelivery] MessageService not available: " . $e->getMessage());
             }
         }
         if (class_exists(\App\API\Services\sms\SMSGateway::class)) {
             $this->smsGateway = new \App\API\Services\sms\SMSGateway();
         }
         if (class_exists(\App\API\Services\whatsapp\WhatsAppGateway::class)) {
-            try { $this->whatsappGateway = new \App\API\Services\whatsapp\WhatsAppGateway(); } catch (\Throwable $e) { error_log('[OTPDelivery] WhatsApp not available: ' . $e->getMessage()); }
+            try { $this->whatsappGateway = new \App\API\Services\whatsapp\WhatsAppGateway(); } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[OTPDelivery] WhatsApp not available: ' . $e->getMessage()); }
         }
     }
 
@@ -46,14 +46,15 @@ class OTPDeliveryService
             try {
                 return $this->messageService->sendEmail($email, $subject, $body);
             } catch (\Throwable $e) {
-                error_log("[OTPDelivery] Email failed: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError("[OTPDelivery] Email failed: " . $e->getMessage());
                 return false;
             }
         }
 
-        // Fallback: log the code (dev mode only)
-        error_log("[OTPDelivery] Email to {$email}: {$code} (context: {$context})");
-        return true;
+        // Never log authentication secrets or claim delivery when the mail
+        // transport is unavailable. The controller invalidates this OTP.
+        \App\API\Services\Logger::legacyError('[OTPDelivery] Email transport is unavailable.');
+        return false;
     }
 
     /**
@@ -68,14 +69,13 @@ class OTPDeliveryService
                 $result = $this->smsGateway->send($phone, $message);
                 return is_bool($result) ? $result : ($result['success'] ?? false);
             } catch (\Throwable $e) {
-                error_log("[OTPDelivery] SMS failed: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError("[OTPDelivery] SMS failed: " . $e->getMessage());
                 return false;
             }
         }
 
-        // Fallback: log the code (dev mode only)
-        error_log("[OTPDelivery] SMS to {$phone}: {$code} (context: {$context})");
-        return true;
+        \App\API\Services\Logger::legacyError('[OTPDelivery] SMS transport is unavailable.');
+        return false;
     }
 
     public function sendWhatsAppOTP(string $phone, string $code, string $context = 'login'): bool
@@ -87,7 +87,7 @@ class OTPDeliveryService
                 ? $this->whatsappGateway->sendTemplate($phone, $templateId, ['bodyValues' => [$code]])
                 : $this->whatsappGateway->sendMessage($phone, $this->buildSMSMessage($code, $context));
             return is_array($result) && in_array(strtolower((string) ($result['status'] ?? '')), ['success','sent','queued','accepted'], true);
-        } catch (\Throwable $e) { error_log('[OTPDelivery] WhatsApp failed: ' . $e->getMessage()); return false; }
+        } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[OTPDelivery] WhatsApp failed: ' . $e->getMessage()); return false; }
     }
 
     /**
@@ -96,7 +96,7 @@ class OTPDeliveryService
     public function sendBackupCodesEmail(string $email, array $codes): bool
     {
         $codeList = implode("\n", array_map(fn($c) => "  • {$c}", $codes));
-        $subject = "Kingsway Academy — Your 2FA Backup Codes";
+        $subject = "Kingsway Preparatory School — Your 2FA Backup Codes";
         $body = <<<HTML
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #1e3a5f;">Your 2FA Backup Codes</h2>
@@ -113,7 +113,7 @@ class OTPDeliveryService
             try {
                 return $this->messageService->sendEmail($email, $subject, $body);
             } catch (\Throwable $e) {
-                error_log("[OTPDelivery] Backup codes email failed: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError("[OTPDelivery] Backup codes email failed: " . $e->getMessage());
                 return false;
             }
         }
@@ -123,9 +123,9 @@ class OTPDeliveryService
     private function getSubject(string $context): string
     {
         return match($context) {
-            'setup' => 'Kingsway Academy — Verify Your 2FA Setup',
-            'disable' => 'Kingsway Academy — Confirm 2FA Disable',
-            default => 'Kingsway Academy — Your Login Verification Code',
+            'setup' => 'Kingsway Preparatory School — Verify Your 2FA Setup',
+            'disable' => 'Kingsway Preparatory School — Confirm 2FA Disable',
+            default => 'Kingsway Preparatory School — Your Login Verification Code',
         };
     }
 
@@ -152,9 +152,9 @@ class OTPDeliveryService
     private function buildSMSMessage(string $code, string $context): string
     {
         return match($context) {
-            'setup' => "Kingsway Academy: Your 2FA setup code is {$code}. It expires in 10 minutes.",
-            'disable' => "Kingsway Academy: Your code to disable 2FA is {$code}.",
-            default => "Kingsway Academy: Your login code is {$code}. It expires in 10 minutes.",
+            'setup' => "Kingsway Preparatory School: Your 2FA setup code is {$code}. It expires in 10 minutes.",
+            'disable' => "Kingsway Preparatory School: Your code to disable 2FA is {$code}.",
+            default => "Kingsway Preparatory School: Your login code is {$code}. It expires in 10 minutes.",
         };
     }
 }

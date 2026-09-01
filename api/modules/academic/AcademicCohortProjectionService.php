@@ -149,7 +149,7 @@ class AcademicCohortProjectionService extends BaseAPI
 
             return $this->successResponse($payload, 'Capacity projected.');
         } catch (Exception $e) {
-            error_log('[AcademicCohortProjectionService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AcademicCohortProjectionService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->errorResponse('An internal error occurred.');
         }
     }

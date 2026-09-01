@@ -203,7 +203,7 @@ class CommunicationsController extends BaseController
             return $this->badRequest('Invalid provider callback signature');
         }
         // Log the incoming data
-        error_log('SMS Delivery Report: ' . json_encode($data));
+        \App\API\Services\Logger::legacyError('SMS Delivery Report: ' . json_encode($data));
         // Update delivery status in DB if message_id/status present
         $providerMessageId = $data['message_id'] ?? $data['messageId'] ?? $data['id'] ?? null;
         $providerStatus = $data['status'] ?? $data['delivery_status'] ?? $data['statusCode'] ?? null;
@@ -229,7 +229,7 @@ class CommunicationsController extends BaseController
                 $data['error_message'] ?? $data['failureReason'] ?? null
             );
         }
-        error_log('WhatsApp Delivery Report: ' . json_encode($data));
+        \App\API\Services\Logger::legacyError('WhatsApp Delivery Report: ' . json_encode($data));
         return $this->success(null, 'WhatsApp delivery report received');
     }
 
@@ -243,7 +243,7 @@ class CommunicationsController extends BaseController
             return $this->badRequest('Invalid provider callback signature');
         }
         // Log the incoming data
-        error_log('SMS Opt-Out Callback: ' . json_encode($data));
+        \App\API\Services\Logger::legacyError('SMS Opt-Out Callback: ' . json_encode($data));
         // Update opt-out list in DB if phone/channel present
         $phone = $data['phone'] ?? $data['phoneNumber'] ?? $data['from'] ?? null;
         if ($phone) {
@@ -262,7 +262,7 @@ class CommunicationsController extends BaseController
             return $this->badRequest('Invalid provider callback signature');
         }
         // Log the incoming data
-        error_log('SMS Subscription Callback: ' . json_encode($data));
+        \App\API\Services\Logger::legacyError('SMS Subscription Callback: ' . json_encode($data));
         // Store incoming message in DB if phone/message present
         $phone = $data['phone'] ?? $data['phoneNumber'] ?? $data['from'] ?? null;
         $message = $data['message'] ?? $data['text'] ?? $data['body'] ?? null;
@@ -286,7 +286,7 @@ class CommunicationsController extends BaseController
         try {
             return $this->success($this->api->storeIncomingWhatsappMessage($data), 'WhatsApp message received');
         } catch (\Throwable $e) {
-            error_log('[WhatsApp inbound] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[WhatsApp inbound] ' . $e->getMessage());
             return $this->badRequest('Unable to process WhatsApp message');
         }
     }

@@ -382,7 +382,7 @@ class ReportsController extends BaseController
     private function analyticsError(\Throwable $e): array
     {
         $code = (int) $e->getCode();
-        error_log('[ReportsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        \App\API\Services\Logger::legacyError('[ReportsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         if ($code === 401) return $this->unauthorized($e->getMessage());
         if ($code === 403) return $this->forbidden($e->getMessage());
         if ($code === 404) return $this->notFound($e->getMessage());

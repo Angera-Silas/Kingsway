@@ -42,7 +42,7 @@ class PaymentsController extends BaseController
      */
     public function getRevenueSources($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->api->getRevenueSources());
+        return $this->handleResponse($this->api->getRevenueSources(array_merge($_GET ?? [], $data ?? [])));
     }
 
     /**
@@ -50,7 +50,7 @@ class PaymentsController extends BaseController
      */
     public function getStats($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->api->getFeeStats());
+        return $this->handleResponse($this->api->getFeeStats(array_merge($_GET ?? [], $data ?? [])));
     }
 
     /**
@@ -59,7 +59,7 @@ class PaymentsController extends BaseController
      */
     public function getCollectionTrends($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->api->getCollectionTrends());
+        return $this->handleResponse($this->api->getCollectionTrends(array_merge($_GET ?? [], $data ?? [])));
     }
 
     /**

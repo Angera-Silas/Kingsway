@@ -1119,25 +1119,13 @@ class StaffAPI extends BaseAPI {
             }
             $roleIds = $this->ensureSubjectTeacherRoleForTeachingStaff($roleIds, $staffInfo);
 
-            // Determine username: prefer provided username, else use email prefix sanitized
-            $username = $data['username'] ?? null;
-            if (empty($username) && !empty($data['email'])) {
-                # take local-part of email and remove invalid chars
-                $local = explode('@', $data['email'])[0] ?? $data['email'];
-                $username = preg_replace('/[^a-zA-Z0-9_-]/', '_', $local);
-                # ensure starts with letter; prefix with 'user' if necessary
-                if (!preg_match('/^[a-zA-Z]/', $username)) {
-                    $username = 'u' . $username;
-                }
-            }
-
             $temporaryPassword = $data['password'] ?? $this->generateTemporaryPassword();
 
             $userPayload = [
-                'username' => $username,
                 'email' => $data['email'],
                 'password' => $temporaryPassword,
                 'first_name' => $data['first_name'],
+                'middle_name' => $data['middle_name'] ?? null,
                 'last_name' => $data['last_name'],
                 'role_ids' => $roleIds,
                 'status' => 'active',
@@ -1145,19 +1133,21 @@ class StaffAPI extends BaseAPI {
                 'staff_info' => $staffInfo
             ];
 
-            // If a user with this email or username already exists, add staff for that user instead of creating a duplicate user.
+            // Only email identifies an existing person. A username collision belongs
+            // to another account and is resolved by the central username service.
             // Email now lives on persons (4NF), so match through the persons join.
             $existingUserStmt = $this->db->prepare('
-                SELECT u.id
+                SELECT u.id, u.username
                 FROM users u
                 JOIN persons p ON p.id = u.person_id
-                WHERE p.email = ? OR u.username = ?
+                WHERE p.email = ?
                 LIMIT 1
             ');
-            $existingUserStmt->execute([$data['email'], $username]);
+            $existingUserStmt->execute([$data['email']]);
             $existingUser = $existingUserStmt->fetch(PDO::FETCH_ASSOC);
             if ($existingUser) {
                 $userId = $existingUser['id'];
+                $username = $existingUser['username'];
                 $addResult = $usersApi->addStaffForUser($userId, $staffInfo, $roleIds);
                 if (!isset($addResult['success']) || !$addResult['success']) {
                     throw new Exception('Failed to create staff for existing user: ' . ($addResult['error'] ?? json_encode($addResult)));
@@ -1177,6 +1167,7 @@ class StaffAPI extends BaseAPI {
                 if (!isset($userResult['success']) || !$userResult['success']) {
                     throw new Exception('Failed to create user: ' . ($userResult['error'] ?? json_encode($userResult)));
                 }
+                $username = $userResult['data']['username'] ?? '';
 
                 // Determine created user ID (returned in data or fetch by email as fallback)
                 $userId = $userResult['data']['id'] ?? null;
@@ -1237,10 +1228,12 @@ class StaffAPI extends BaseAPI {
                 $temporaryPassword,
                 $invitationToken
             );
-            try {
-                (new StaffMigrationService($this->db))->processEmailQueue(1);
-            } catch (Exception $mailError) {
-                error_log('Manual staff invitation delivery failed: ' . $mailError->getMessage());
+            if (empty($data['defer_invitation_delivery'])) {
+                try {
+                    (new StaffMigrationService($this->db))->processEmailQueue(1);
+                } catch (Exception $mailError) {
+                    \App\API\Services\Logger::legacyError('Manual staff invitation delivery failed: ' . $mailError->getMessage());
+                }
             }
 
             // Ensure a placeholder profile picture. In the normalized schema the photo is a
@@ -1481,6 +1474,62 @@ class StaffAPI extends BaseAPI {
                         "INSERT INTO staff_payroll_profiles (staff_id, " . implode(', ', $cols) . ", status, created_at, updated_at)
                          VALUES (?, $ph, 'active', NOW(), NOW())"
                     )->execute(array_merge([$id], array_values($payrollCols)));
+                }
+            }
+
+            // Personal facts are normalized temporal/contact records, not staff columns.
+            if ($personId && array_key_exists('address', $data) && trim((string)$data['address']) !== '') {
+                $this->db->prepare(
+                    "UPDATE person_addresses SET valid_to = CURDATE(), updated_at = NOW()
+                     WHERE person_id = ? AND address_type = 'residential'
+                       AND valid_to IS NULL AND valid_from <> CURDATE()"
+                )->execute([$personId]);
+                $this->db->prepare(
+                    "INSERT INTO person_addresses
+                        (person_id, address_type, address_line, is_primary, valid_from, created_at, updated_at)
+                     VALUES (?, 'residential', ?, 1, CURDATE(), NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE
+                        address_line = VALUES(address_line), is_primary = 1,
+                        valid_to = NULL, updated_at = NOW()"
+                )->execute([$personId, trim((string)$data['address'])]);
+            }
+
+            if ($personId && array_key_exists('marital_status', $data)) {
+                $maritalStatus = strtolower(trim((string)$data['marital_status']));
+                $allowedMaritalStatuses = ['single', 'married', 'divorced', 'widowed', 'separated', 'unknown'];
+                if (!in_array($maritalStatus, $allowedMaritalStatuses, true)) {
+                    throw new Exception('Invalid marital_status');
+                }
+                $this->db->prepare(
+                    'UPDATE person_marital_statuses SET valid_to = CURDATE()
+                     WHERE person_id = ? AND valid_to IS NULL AND valid_from <> CURDATE()'
+                )->execute([$personId]);
+                $this->db->prepare(
+                    'INSERT INTO person_marital_statuses
+                        (person_id, marital_status, valid_from, created_at)
+                     VALUES (?, ?, CURDATE(), NOW())
+                     ON DUPLICATE KEY UPDATE marital_status = VALUES(marital_status), valid_to = NULL'
+                )->execute([$personId, $maritalStatus]);
+            }
+
+            if ($personId && (!empty($data['emergency_contact_name']) || !empty($data['emergency_contact_phone']))) {
+                $contactName = trim((string)($data['emergency_contact_name'] ?? 'Emergency Contact'));
+                $contactName = $contactName !== '' ? $contactName : 'Emergency Contact';
+                $exists = $this->db->prepare(
+                    'SELECT id FROM emergency_contacts WHERE person_id = ? AND name = ? LIMIT 1'
+                );
+                $exists->execute([$personId, $contactName]);
+                if (!$exists->fetchColumn()) {
+                    $this->db->prepare(
+                        'INSERT INTO emergency_contacts (id, person_id, name, phone, relationship, created_at)
+                         VALUES (?, ?, ?, ?, ?, NOW())'
+                    )->execute([
+                        (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM emergency_contacts')->fetchColumn(),
+                        $personId,
+                        $contactName,
+                        $data['emergency_contact_phone'] ?? null,
+                        $data['emergency_contact_relationship'] ?? null,
+                    ]);
                 }
             }
 
@@ -1806,8 +1855,16 @@ class StaffAPI extends BaseAPI {
                 SELECT
                     s.*,
                     p.email,
+                    p.middle_name,
+                    p.phone,
+                    p.gender,
+                    p.dob AS date_of_birth,
+                    p.photo_url,
                     sc.category_name,
                     d.name AS department_name,
+                    spp.kra_pin,
+                    spp.nssf_no,
+                    spp.nhif_no,
                     CONCAT_WS(' ', sp.first_name, sp.last_name) AS supervisor_name,
                     (
                         SELECT COUNT(DISTINCT ayc.class_id)
@@ -1836,6 +1893,7 @@ class StaffAPI extends BaseAPI {
                 LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
                 LEFT JOIN persons sp ON sp.id = supervisor.person_id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id
                 LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE s.id = ?
@@ -2391,7 +2449,44 @@ class StaffAPI extends BaseAPI {
             $this->seedOnboardingTasks($onboardingId, $staffTypeId, $employmentDate, $staffInfo['department_id'] ?? null);
         }
 
-        // 3. Emergency contact — only when a real third-party contact is supplied.
+        // 3. Normalized personal profile facts supplied during onboarding.
+        // These values do not belong on staff or persons directly; persist their
+        // current temporal rows so a fully supplied staff form is genuinely complete.
+        $address = trim((string)($data['address'] ?? $staffInfo['address'] ?? ''));
+        if ($personId && $address !== '') {
+            $stmt = $this->db->prepare(
+                "SELECT 1 FROM person_addresses
+                 WHERE person_id = ? AND address_type = 'residential'
+                   AND valid_to IS NULL LIMIT 1"
+            );
+            $stmt->execute([$personId]);
+            if (!$stmt->fetchColumn()) {
+                $this->db->prepare(
+                    "INSERT INTO person_addresses
+                        (person_id, address_type, address_line, is_primary, valid_from, created_at, updated_at)
+                     VALUES (?, 'residential', ?, 1, ?, NOW(), NOW())"
+                )->execute([$personId, $address, $employmentDate]);
+            }
+        }
+
+        $maritalStatus = strtolower(trim((string)($data['marital_status'] ?? $staffInfo['marital_status'] ?? '')));
+        $allowedMaritalStatuses = ['single', 'married', 'divorced', 'widowed', 'separated', 'unknown'];
+        if ($personId && in_array($maritalStatus, $allowedMaritalStatuses, true)) {
+            $stmt = $this->db->prepare(
+                'SELECT 1 FROM person_marital_statuses
+                 WHERE person_id = ? AND valid_to IS NULL LIMIT 1'
+            );
+            $stmt->execute([$personId]);
+            if (!$stmt->fetchColumn()) {
+                $this->db->prepare(
+                    'INSERT INTO person_marital_statuses
+                        (person_id, marital_status, valid_from, created_at)
+                     VALUES (?, ?, ?, NOW())'
+                )->execute([$personId, $maritalStatus, $employmentDate]);
+            }
+        }
+
+        // 4. Emergency contact — only when a real third-party contact is supplied.
         $ecName  = $data['emergency_contact_name'] ?? null;
         $ecPhone = $data['emergency_contact_phone'] ?? null;
         if ($personId && ($ecName || $ecPhone)) {
@@ -2401,15 +2496,31 @@ class StaffAPI extends BaseAPI {
             $exists->execute([$personId, (string)$ecName]);
             if (!$exists->fetchColumn()) {
                 $this->db->prepare("
-                    INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
-                    VALUES (?, ?, ?, ?, NOW())
+                    INSERT INTO emergency_contacts (id, person_id, name, phone, relationship, created_at)
+                    VALUES (?, ?, ?, ?, ?, NOW())
                 ")->execute([
+                    (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM emergency_contacts')->fetchColumn(),
                     $personId,
                     $ecName ?: 'Emergency Contact',
                     $ecPhone,
                     $data['emergency_contact_relationship'] ?? null,
                 ]);
             }
+        }
+
+        // 5. Individual attendance/work schedule supplied during onboarding.
+        if (!empty($data['work_start_time']) && !empty($data['work_end_time'])) {
+            $lateThreshold = max(0, (int)($data['late_threshold_minutes'] ?? 15));
+            $this->db->prepare(
+                'INSERT INTO staff_attendance_profiles
+                    (staff_id, work_start_time, work_end_time, late_threshold_minutes, is_active)
+                 VALUES (?, ?, ?, ?, 1)
+                 ON DUPLICATE KEY UPDATE
+                    work_start_time = VALUES(work_start_time),
+                    work_end_time = VALUES(work_end_time),
+                    late_threshold_minutes = VALUES(late_threshold_minutes),
+                    is_active = 1'
+            )->execute([$staffId, $data['work_start_time'], $data['work_end_time'], $lateThreshold]);
         }
     }
 
@@ -2427,8 +2538,8 @@ class StaffAPI extends BaseAPI {
             return $id;
         }
         $this->db->prepare("
-            INSERT INTO workflow_definitions (code, name, description, category, is_active, created_at, updated_at)
-            VALUES ('staff_onboarding', 'Staff Onboarding', 'New staff onboarding task checklist', 'staff_affairs', 1, NOW(), NOW())
+            INSERT INTO workflow_definitions (code, name, description, category, handler_class, is_active, created_at, updated_at)
+            VALUES ('staff_onboarding', 'Staff Onboarding', 'New staff onboarding task checklist', 'staff_affairs', 'App\\\\API\\\\Modules\\\\staff\\\\OnboardingWorkflow', 1, NOW(), NOW())
         ")->execute();
         return (int)$this->db->lastInsertId();
     }
@@ -2448,7 +2559,7 @@ class StaffAPI extends BaseAPI {
               AND (
                     applies_to_type_ids IS NULL
                  OR applies_to_type_ids = ''
-                 OR JSON_CONTAINS(applies_to_type_ids, CAST(? AS JSON))
+                 OR JSON_CONTAINS(applies_to_type_ids, JSON_ARRAY(?))
               )
             ORDER BY display_order, id
         ");

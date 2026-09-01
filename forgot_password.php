@@ -5,9 +5,11 @@ if ($appBase === '.') {
 }
 $pageTitle = 'Forgot Password';
 $activePage = 'login';
+$bodyClass = 'auth-page auth-recovery-page';
 require_once __DIR__ . '/public/layout/public_data.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
+<link rel="stylesheet" href="<?= $appBase ?>/css/pages/sign-in.css?v=<?= asset_version('css/pages/sign-in.css') ?>">
 
 <style>
   .reset-hero {
@@ -20,7 +22,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
     background:
       radial-gradient(circle at 18% 18%, rgba(249,200,14,.32), transparent 30%),
       linear-gradient(135deg, rgba(13,79,42,.97), rgba(25,135,84,.86)),
-      url('<?= $appBase ?>/images/school-hero.jpg') center/cover no-repeat;
+      url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_bg_1.jpg') center/cover no-repeat;
   }
   .reset-hero::before {
     content: '';
@@ -180,6 +182,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 </style>
 
 <section class="reset-hero">
+  <a class="auth-brand auth-recovery-brand" href="<?= htmlspecialchars($appBase) ?>/index.php"><img src="<?= htmlspecialchars($appBase) ?>/uploads/school_assets/official_school_logo.png" alt=""><span><strong>Kingsway Preparatory School</strong><small>In God We Soar</small></span></a>
   <div class="container reset-shell">
     <div class="row align-items-center g-5">
       <div class="col-lg-6">
@@ -196,7 +199,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
       </div>
 
       <div class="col-lg-5 offset-lg-1">
-        <div class="reset-card reveal">
+        <div class="reset-card">
           <div class="reset-card-header">
             <div class="reset-card-icon"><i class="bi bi-key-fill"></i></div>
             <h2>Request reset link</h2>
@@ -216,7 +219,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
             </button>
             <div id="forgotMessage" class="reset-state" role="status" aria-live="polite"></div>
             <div class="text-center mt-4">
-              <a href="<?= $appBase ?>/index.php" class="reset-secondary-link"><i class="bi bi-arrow-left me-1"></i>Back to login</a>
+              <a href="<?= $appBase ?>/login.php" class="reset-secondary-link"><i class="bi bi-arrow-left me-1"></i>Back to login</a>
             </div>
           </form>
         </div>

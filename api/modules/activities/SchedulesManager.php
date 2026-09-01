@@ -615,7 +615,7 @@ class SchedulesManager extends BaseAPI
                 } catch (Exception $e) {
                     $errorMsg = 'An internal error occurred.';
 
-                    error_log('[SchedulesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+                    \App\API\Services\Logger::legacyError('[SchedulesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
                     
                     $failed[] = [

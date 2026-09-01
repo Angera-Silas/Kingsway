@@ -161,7 +161,7 @@ class TransferWorkflow extends WorkflowHandler
                 $this->db->rollBack();
             }
             $this->logError('initiateTransfer', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -226,7 +226,7 @@ class TransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             $this->logError('getClearanceStatus', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -347,7 +347,7 @@ class TransferWorkflow extends WorkflowHandler
                 $this->db->rollBack();
             }
             $this->logError('processClearance', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -394,7 +394,7 @@ class TransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             $this->logError('verifyFeeSettlement', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -455,7 +455,7 @@ class TransferWorkflow extends WorkflowHandler
                 $this->db->rollBack();
             }
             $this->logError('approveTransfer', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -496,7 +496,7 @@ class TransferWorkflow extends WorkflowHandler
                 $this->db->rollBack();
             }
             $this->logError('markDocumentsReady', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -549,7 +549,7 @@ class TransferWorkflow extends WorkflowHandler
                 $this->db->rollBack();
             }
             $this->logError('completeTransfer', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -616,7 +616,7 @@ class TransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             $this->logError('getTransferDetails', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -661,7 +661,7 @@ class TransferWorkflow extends WorkflowHandler
                 $this->db->rollBack();
             }
             $this->logError('cancelTransfer', $e->getMessage());
-            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }

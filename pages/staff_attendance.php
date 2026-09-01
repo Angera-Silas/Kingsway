@@ -177,7 +177,7 @@
 ========================================================= -->
 <div class="sa-card">
     <div class="card-body">
-        <h6 class="fw-semibold mb-3"><i class="bi bi-funnel me-1"></i>Generate Report</h6>
+        <h6 class="fw-semibold mb-3"><i class="bi bi-funnel me-1"></i>Report filters</h6>
         <div class="row g-3 align-items-end">
             <div class="col-md-2">
                 <label class="form-label small fw-semibold">Date From</label>
@@ -208,12 +208,6 @@
                     <option value="late">Late</option>
                     <option value="on_leave">On Leave</option>
                 </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small fw-semibold">&nbsp;</label>
-                <button class="btn btn-sa w-100" id="generateBtn">
-                    <i class="bi bi-search me-1"></i>Generate
-                </button>
             </div>
         </div>
     </div>
@@ -308,7 +302,7 @@
                 <tbody id="attendanceTableBody">
                     <tr>
                         <td colspan="10" class="text-center text-muted py-4">
-                            <i class="bi bi-info-circle me-1"></i>Set date range and click <strong>Generate</strong> to view the report.
+                            <span class="spinner-border spinner-border-sm me-1"></span>Loading the default attendance report…
                         </td>
                     </tr>
                 </tbody>

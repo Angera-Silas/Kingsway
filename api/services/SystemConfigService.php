@@ -1173,7 +1173,7 @@ class SystemConfigService
                 'status' => $status === 'success' ? 'success' : 'failure',
             ]);
         } catch (Exception $e) {
-            error_log("Failed to log config sync: " . $e->getMessage());
+            \App\API\Services\Logger::legacyError("Failed to log config sync: " . $e->getMessage());
         }
     }
 

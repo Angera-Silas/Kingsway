@@ -16,8 +16,11 @@
  *   e.g. transport, sports, medical, security, academic or financial
  */
 
+// Register the Composer autoloader (Config, Database and all services resolve
+// through it rather than manual require_once of class files).
+require_once __DIR__ . '/vendor/autoload.php';
+
 // Load Config for BASE_URL
-require_once __DIR__ . '/config/Config.php';
 \App\Config\Config::init();
 
 // Dual-auth pattern: session for initial page load, JWT via AuthMiddleware for API-backed requests.
@@ -45,7 +48,6 @@ if (!$studentId) {
 }
 
 // Get database connection
-require_once __DIR__ . '/database/Database.php';
 $db = \App\Database\Database::getInstance()->getConnection();
 
 // Get student details (identity from persons; current class via enrollment chain)

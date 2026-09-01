@@ -48,12 +48,16 @@ class StudentReportManager extends BaseAPI
     public function getEnrollmentTrends($filters = [])
     {
         // Enrollment trends by month/year (students.admission_date still live)
+        $where = ["status = 'active'"];
+        $params = [];
+        if (!empty($filters['year'])) { $where[] = 'YEAR(admission_date) = ?'; $params[] = (int) $filters['year']; }
         $sql = "SELECT YEAR(admission_date) as year, MONTH(admission_date) as month, COUNT(*) as total
                 FROM students
-                WHERE status = 'active'
+                WHERE " . implode(' AND ', $where) . "
                 GROUP BY year, month
                 ORDER BY year DESC, month DESC";
-        $stmt = $this->db->query($sql);
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
     public function getAttendanceRates($filters = [])
@@ -85,7 +89,7 @@ class StudentReportManager extends BaseAPI
                       AND sae.academic_year_id = atsa.academic_year_id
                       AND ayc.class_id = atsa.class_id
                       AND aycs.stream_id = ?
-                      AND sae.status IN ('active','completed','transferred','graduated')
+                      AND sae.enrollment_status IN ('active','completed','transferred','graduated')
                 )";
                 $params[] = (int) $filters['stream_id'];
             }
@@ -109,8 +113,8 @@ class StudentReportManager extends BaseAPI
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            error_log('[StudentReportManager::getAttendanceRates] ' . $e->getMessage());
-            return [];
+            \App\API\Services\Logger::legacyError('[StudentReportManager::getAttendanceRates] ' . $e->getMessage());
+            throw new \RuntimeException('Attendance report data could not be queried.', 0, $e);
         }
     }
     public function getPromotionRates($filters = [])
@@ -197,7 +201,7 @@ class StudentReportManager extends BaseAPI
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            error_log('[StudentReportManager::getScoreDistributions] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[StudentReportManager::getScoreDistributions] ' . $e->getMessage());
             return [];
         }
     }
@@ -263,7 +267,7 @@ class StudentReportManager extends BaseAPI
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            error_log('[StudentReportManager::getExamReports] ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[StudentReportManager::getExamReports] ' . $e->getMessage());
             return [];
         }
     }

@@ -1,7 +1,6 @@
 <?php
 namespace App\API\Modules\activities\workflows;
 
-require_once __DIR__ . '/../../../includes/WorkflowHandler.php';
 use App\API\Includes\WorkflowHandler;
 use PDO;
 use Exception;
@@ -20,7 +19,7 @@ class PerformanceEvaluationWorkflow extends WorkflowHandler
      */
     public function verifyAssessment($workflowId, $data, $userId)
     {
-        error_log("[PerformanceEvaluationWorkflow] verifyAssessment called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[PerformanceEvaluationWorkflow] verifyAssessment called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $this->db->beginTransaction();
 
@@ -52,7 +51,7 @@ class PerformanceEvaluationWorkflow extends WorkflowHandler
 
     public function initiateEvaluation($data, $userId)
     {
-        error_log("[PerformanceEvaluationWorkflow] initiateEvaluation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
+        \App\API\Services\Logger::legacyError("[PerformanceEvaluationWorkflow] initiateEvaluation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
         try {
             $required = ['activity_id', 'participant_id', 'evaluation_period'];
             foreach ($required as $field) {
@@ -81,7 +80,7 @@ class PerformanceEvaluationWorkflow extends WorkflowHandler
 
     public function submitAssessment($workflowId, $data, $userId)
     {
-        error_log("[PerformanceEvaluationWorkflow] submitAssessment called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[PerformanceEvaluationWorkflow] submitAssessment called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $this->db->beginTransaction();
 
@@ -124,7 +123,7 @@ class PerformanceEvaluationWorkflow extends WorkflowHandler
 
     public function approveEvaluation($workflowId, $userId)
     {
-        error_log("[PerformanceEvaluationWorkflow] approveEvaluation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[PerformanceEvaluationWorkflow] approveEvaluation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
         try {
             $this->db->beginTransaction();
 
@@ -149,7 +148,7 @@ class PerformanceEvaluationWorkflow extends WorkflowHandler
 
     public function publishResults($workflowId, $userId)
     {
-        error_log("[PerformanceEvaluationWorkflow] publishResults called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[PerformanceEvaluationWorkflow] publishResults called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
             $metadata = null;

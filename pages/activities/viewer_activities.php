@@ -20,7 +20,7 @@
     <header class="viewer-header">
         <div class="logo-title">
             <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
-            <span>Kingsway Academy</span>
+            <span>Kingsway Preparatory School</span>
         </div>
         <h1 class="page-title">Activities</h1>
         <div class="viewer-user-info">
@@ -73,7 +73,7 @@
 
     <!-- Footer -->
     <footer class="viewer-footer">
-        Kingsway Academy &copy; <?php echo date('Y'); ?>
+        Kingsway Preparatory School &copy; <?php echo date('Y'); ?>
     </footer>
 </div>
 

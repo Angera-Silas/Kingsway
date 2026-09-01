@@ -25,6 +25,7 @@ class AuthMiddleware
             'auth/register',
             'auth/forgot-password',
             'auth/reset-password',
+            'auth/reset-default-password',
             'auth/complete-reset',
             'auth/verify-reset-token',
             'auth/refresh-token',
@@ -64,14 +65,10 @@ class AuthMiddleware
             // 2FA challenge/verify — called during login before JWT is issued
             'twofactor/challenge',
             'twofactor/verify',
+            'twofactor/passwordless-options',
+            'twofactor/passwordless-verify',
             // Public careers intake for candidates who passed recruitment screening
             'staff-appointments/careers-candidate',
-            // Client telemetry/error ingestion (reporter sends a periodic fire-and-forget
-            // batch that may fire while the access token is mid-refresh; keep it public
-            // so it never gets stuck in a 401/retry loop).
-            'telemetry',
-            'telemetry/data',
-            'telemetry/errors',
             // Resource file downloads (teaching materials / past papers). The list
             // (GET /api/academic/resources) and upload (POST) stay authenticated; only
             // the file-serving GET is public because the frontend opens it via
@@ -143,6 +140,15 @@ class AuthMiddleware
         // Check if current request is to a public endpoint
         foreach ($publicEndpoints as $endpoint) {
             if (strpos($path, $endpoint) !== false) {
+                // Public website content is anonymous only when it is being
+                // read. Mutations must continue through JWT + RBAC even though
+                // they share the same controller/resource URL.
+                if (
+                    str_starts_with($endpoint, 'website/') &&
+                    strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'
+                ) {
+                    continue;
+                }
                 // 'payments/mpesa-result' (the public C2B result webhook) is a
                 // string prefix of 'payments/mpesa-results' (the authenticated
                 // results reader). The plural reader must NOT be exempted.
@@ -229,12 +235,12 @@ class AuthMiddleware
         }
 
         if (!$authHeader) {
-            error_log('AuthMiddleware: No Authorization header found');
+            \App\API\Services\Logger::legacyError('AuthMiddleware: No Authorization header found');
             self::deny(401, 'Missing Authorization header. Please ensure you are logged in and the token is being sent.');
         }
 
         // Never log any part of an access token.
-        error_log('AuthMiddleware: Authorization header found');
+        \App\API\Services\Logger::legacyError('AuthMiddleware: Authorization header found');
         $token = str_replace('Bearer ', '', $authHeader);
         try {
             $decoded = JWT::decode(
@@ -258,7 +264,7 @@ class AuthMiddleware
                 $session = (new AuthSessionService())
                     ->validateAccessToken($token, $userId);
             } catch (\Throwable $error) {
-                error_log(
+                \App\API\Services\Logger::legacyError(
                     'AuthMiddleware: Session validation failed: ' .
                     $error->getMessage()
                 );

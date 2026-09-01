@@ -5,10 +5,12 @@ if ($appBase === '.') {
 }
 $pageTitle = 'Reset Password';
 $activePage = 'login';
+$bodyClass = 'auth-page auth-recovery-page';
 $token = trim($_GET['token'] ?? '');
 require_once __DIR__ . '/public/layout/public_data.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
+<link rel="stylesheet" href="<?= $appBase ?>/css/pages/sign-in.css?v=<?= asset_version('css/pages/sign-in.css') ?>">
 
 <style>
   .reset-hero {
@@ -21,7 +23,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
     background:
       radial-gradient(circle at 78% 18%, rgba(249,200,14,.3), transparent 31%),
       linear-gradient(135deg, rgba(13,79,42,.98), rgba(18,107,63,.88)),
-      url('<?= $appBase ?>/images/school-hero.jpg') center/cover no-repeat;
+      url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_bg_1.jpg') center/cover no-repeat;
   }
   .reset-hero::before {
     content: '';
@@ -216,6 +218,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 </style>
 
 <section class="reset-hero">
+  <a class="auth-brand auth-recovery-brand" href="<?= htmlspecialchars($appBase) ?>/index.php"><img src="<?= htmlspecialchars($appBase) ?>/uploads/school_assets/official_school_logo.png" alt=""><span><strong>Kingsway Preparatory School</strong><small>In God We Soar</small></span></a>
   <div class="container reset-shell">
     <div class="row align-items-center g-5">
       <div class="col-lg-6">
@@ -232,7 +235,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
       </div>
 
       <div class="col-lg-5 offset-lg-1">
-        <div class="reset-card reveal">
+        <div class="reset-card">
           <div class="reset-card-header">
             <div class="reset-card-icon"><i class="bi bi-lock-fill"></i></div>
             <h2>Set new password</h2>
@@ -251,7 +254,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
               <div class="reset-input-wrap">
                 <i class="bi bi-key-fill"></i>
                 <input type="password" class="form-control" id="newPassword" name="new_password" placeholder="Enter new password" autocomplete="new-password" required disabled>
-                <button class="password-toggle" type="button" data-target="newPassword" aria-label="Show new password"><i class="bi bi-eye"></i></button>
+                <button class="password-toggle" type="button" data-password-target="newPassword" aria-label="Show new password"><i class="bi bi-eye"></i></button>
               </div>
               <div class="strength-meter" aria-hidden="true"><span id="strengthBar"></span></div>
               <div class="strength-copy" id="strengthCopy">Password strength will appear here.</div>
@@ -262,7 +265,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
               <div class="reset-input-wrap">
                 <i class="bi bi-shield-lock-fill"></i>
                 <input type="password" class="form-control" id="confirmPassword" name="confirm_password" placeholder="Repeat new password" autocomplete="new-password" required disabled>
-                <button class="password-toggle" type="button" data-target="confirmPassword" aria-label="Show confirmation password"><i class="bi bi-eye"></i></button>
+                <button class="password-toggle" type="button" data-password-target="confirmPassword" aria-label="Show confirmation password"><i class="bi bi-eye"></i></button>
               </div>
             </div>
 
@@ -344,7 +347,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 
     document.querySelectorAll('.password-toggle').forEach(function (toggle) {
       toggle.addEventListener('click', function () {
-        const field = document.getElementById(toggle.dataset.target);
+        const field = document.getElementById(toggle.dataset.passwordTarget);
         const icon = toggle.querySelector('i');
         const isPassword = field.type === 'password';
         field.type = isPassword ? 'text' : 'password';
@@ -398,7 +401,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         confirmPassword.disabled = true;
         button.disabled = true;
         setTimeout(function () {
-          window.location.href = (window.APP_BASE || '') + '/index.php';
+          window.location.href = (window.APP_BASE || '') + '/login.php';
         }, 2500);
       } catch (error) {
         showMessage('error', error.message || 'Password reset failed. Please try again.');

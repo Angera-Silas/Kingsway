@@ -86,7 +86,52 @@ class TwoFactorController extends BaseController
             }
             return $ok ? $this->success(null, 'Passkey registered.') : $this->badRequest('Passkey registration failed.');
         }
-        catch (\Throwable $e) { error_log('Passkey registration failed: ' . $e->getMessage()); return $this->badRequest('Passkey registration failed.'); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('Passkey registration failed: ' . $e->getMessage()); return $this->badRequest('Passkey registration failed.'); }
+    }
+
+    public function deletePasskey($id = null, $data = [])
+    {
+        $userId = $this->getUserId(); if (!$userId) return $this->unauthorized('Not authenticated');
+        if (!$id) return $this->badRequest('Passkey ID is required.');
+        if ($error = $this->requireReauthentication($userId, $data)) return $error;
+        return $this->passkeys->revoke($userId, (int)$id)
+            ? $this->success(null, 'Passkey revoked.')
+            : $this->notFound('Passkey not found.');
+    }
+
+    public function postPrimaryMethod($id = null, $data = [])
+    {
+        $userId = $this->getUserId(); if (!$userId) return $this->unauthorized('Not authenticated');
+        if ($error = $this->requireReauthentication($userId, $data)) return $error;
+        $method = strtolower(trim((string)($data['method'] ?? '')));
+        return $this->tfa->setPrimaryMethod($userId, $method)
+            ? $this->success(['method'=>$method], 'Primary verification method updated.')
+            : $this->badRequest('That verification method is not enrolled.');
+    }
+
+    public function postAdminReset($id = null, $data = [])
+    {
+        if (!$this->userHasRole('System Administrator')) return $this->forbidden('System Administrator access required.');
+        $target = (int)($data['user_id'] ?? 0); if (!$target) return $this->badRequest('User ID is required.');
+        $this->tfa->administrativeReset($target, $this->getUserId());
+        return $this->success(['user_id'=>$target], 'MFA was reset to the account email and all device factors were revoked.');
+    }
+
+    public function postPasswordlessOptions($id = null, $data = [])
+    {
+        try { return $this->success($this->passkeys->startPasswordlessAuthentication()); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('Passwordless options failed: '.$e->getMessage()); return $this->serverError('Passwordless sign-in is unavailable.'); }
+    }
+
+    public function postPasswordlessVerify($id = null, $data = [])
+    {
+        try {
+            $userId = $this->passkeys->finishPasswordlessAuthentication((array)($data['credential'] ?? []));
+            if (!$userId) return $this->forbidden('Passkey verification failed.');
+            $challenge = $this->tfa->createLoginChallenge($userId, 'passkey');
+            if (!$this->tfa->markChallengeVerified($challenge, $userId)) return $this->serverError('Passkey session could not be established.');
+            return $this->success(['verified'=>true,'user_id'=>$userId,'challenge_token'=>$challenge], 'Passkey verified.');
+        } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('Passwordless verify failed: '.$e->getMessage()); return $this->forbidden('Passkey verification failed.'); }
     }
 
     /**
@@ -103,12 +148,15 @@ class TwoFactorController extends BaseController
         $user = $this->currentUser();
         $email = $user['email'] ?? '';
         $uri = $this->tfa->getTOTPUri($secret, $email);
+        $qrDataUri = \Endroid\QrCode\Builder\Builder::create()
+            ->data($uri)->size(260)->margin(10)->build()->getDataUri();
 
         $this->tfa->storePendingSecret($userId, $secret, 'totp');
 
         return $this->success([
             'secret' => $secret,
-            'qr_code_url' => $uri,
+            'qr_code_url' => $qrDataUri,
+            'otpauth_uri' => $uri,
             'manual_entry_key' => $secret,
             'digits' => 6,
             'period' => 30,
@@ -129,11 +177,12 @@ class TwoFactorController extends BaseController
         $email = $user['email'] ?? '';
         if (!$email) return $this->badRequest('No email address on file');
 
-        $code = $this->tfa->generateOTP($userId, 'email', 'setup');
+        try { $code = $this->tfa->generateOTP($userId, 'email', 'setup'); }
+        catch (\RuntimeException $e) { return $this->respond(null, $e->getMessage(), $e->getCode() === 429 ? 429 : 400, false); }
         if (!$code) return $this->serverError('Failed to generate OTP');
 
         $sent = $this->otpDelivery->sendEmailOTP($email, $code, 'setup');
-        if (!$sent) return $this->serverError('Failed to send verification email');
+        if (!$sent) { $this->tfa->invalidateLatestOTP($userId, 'setup', 'email'); return $this->serverError('Failed to send verification email'); }
 
         return $this->success(['method' => 'email', 'expires_in' => 600],
             'A verification code has been sent to your email.');
@@ -153,11 +202,12 @@ class TwoFactorController extends BaseController
         $phone = $user['phone'] ?? $user['phone_1'] ?? '';
         if (!$phone) return $this->badRequest('No phone number on file');
 
-        $code = $this->tfa->generateOTP($userId, 'sms', 'setup');
+        try { $code = $this->tfa->generateOTP($userId, 'sms', 'setup'); }
+        catch (\RuntimeException $e) { return $this->respond(null, $e->getMessage(), $e->getCode() === 429 ? 429 : 400, false); }
         if (!$code) return $this->serverError('Failed to generate OTP');
 
         $sent = $this->otpDelivery->sendSMSOTP($phone, $code, 'setup');
-        if (!$sent) return $this->serverError('Failed to send SMS');
+        if (!$sent) { $this->tfa->invalidateLatestOTP($userId, 'setup', 'sms'); return $this->serverError('Failed to send SMS'); }
 
         return $this->success(['method' => 'sms', 'expires_in' => 600],
             'A verification code has been sent to your phone.');
@@ -171,8 +221,9 @@ class TwoFactorController extends BaseController
         $user = $this->currentUser();
         $phone = $user['phone'] ?? $user['phone_1'] ?? '';
         if (!$phone) return $this->badRequest('No phone number on file');
-        $code = $this->tfa->generateOTP($userId, 'whatsapp', 'setup');
-        if (!$code || !$this->otpDelivery->sendWhatsAppOTP($phone, $code, 'setup')) return $this->serverError('Failed to send WhatsApp verification code');
+        try { $code = $this->tfa->generateOTP($userId, 'whatsapp', 'setup'); }
+        catch (\RuntimeException $e) { return $this->respond(null, $e->getMessage(), $e->getCode() === 429 ? 429 : 400, false); }
+        if (!$code || !$this->otpDelivery->sendWhatsAppOTP($phone, $code, 'setup')) { $this->tfa->invalidateLatestOTP($userId, 'setup', 'whatsapp'); return $this->serverError('Failed to send WhatsApp verification code'); }
         return $this->success(['method' => 'whatsapp', 'expires_in' => 600], 'A verification code has been sent to your WhatsApp.');
     }
 
@@ -188,7 +239,7 @@ class TwoFactorController extends BaseController
         if ($error = $this->requireReauthentication($userId, $data)) return $error;
 
         $code = trim($data['code'] ?? '');
-        if (!$code && $method !== 'passkey') return $this->badRequest('Verification code is required');
+        if (!$code) return $this->badRequest('Verification code is required');
 
         $pending = $this->tfa->getPendingSecret($userId);
         if (!$pending) return $this->badRequest('No pending 2FA setup. Start setup again.');
@@ -232,39 +283,8 @@ class TwoFactorController extends BaseController
      */
     public function postDisable($id = null, $data = [])
     {
-        $userId = $this->getUserId();
-        if (!$userId) return $this->unauthorized('Not authenticated');
-
-        $password = $data['password'] ?? '';
-        $code = trim($data['code'] ?? '');
-
-        if (!$password) return $this->badRequest('Password is required');
-        if (!$code) return $this->badRequest('Verification code is required');
-
-        if (!$this->tfa->verifyUserPassword($userId, $password)) {
-            return $this->badRequest('Incorrect password');
-        }
-
-        $method = $this->tfa->getRequiredMethod($userId);
-        $verified = false;
-
-        if ($method === 'totp') {
-            $secret = $this->tfa->getSecret($userId);
-            $verified = $secret && $this->tfa->verifyTOTP($secret, $code);
-        } elseif (in_array($method, ['email', 'sms', 'whatsapp'])) {
-            $verified = $this->tfa->verifyOTP($userId, $code, 'disable');
-        }
-        if ($method === 'passkey') {
-            return $this->success(['method' => 'passkey', 'challenge_sent' => false, 'public_key' => $this->passkeys->startAuthentication($targetUserId)], 'Use your passkey to continue.');
-        }
-
-        if (!$verified) {
-            return $this->badRequest('Invalid verification code');
-        }
-
-        $this->tfa->disable2FA($userId);
-
-        return $this->success(null, 'Two-factor authentication has been disabled.');
+        if (!$this->getUserId()) return $this->unauthorized('Not authenticated');
+        return $this->forbidden('Email MFA is required for every Kingsway account and cannot be disabled. You may change your primary method or ask a System Administrator to reset device factors.');
     }
 
     /**
@@ -321,7 +341,11 @@ class TwoFactorController extends BaseController
         $contact = $this->tfa->getUserContact($targetUserId);
 
         if ((int) $challenge['attempts'] >= 5) return $this->forbidden('Too many 2FA attempts');
-        $code = $this->tfa->generateOTP($targetUserId, $method, 'login');
+        try {
+            $code = $this->tfa->generateOTP($targetUserId, $method, 'login');
+        } catch (\RuntimeException $e) {
+            return $this->respond(null, $e->getMessage(), $e->getCode() === 429 ? 429 : 400, false);
+        }
         if (!$code) return $this->serverError('Failed to generate OTP');
 
         $sent = false;
@@ -333,7 +357,10 @@ class TwoFactorController extends BaseController
             $sent = $this->otpDelivery->sendWhatsAppOTP($contact['phone_1'], $code, 'login');
         }
 
-        if (!$sent) return $this->serverError("Failed to send {$method} verification code");
+        if (!$sent) {
+            $this->tfa->invalidateLatestOTP($targetUserId, 'login', $method);
+            return $this->serverError("Failed to send {$method} verification code");
+        }
 
         return $this->success([
             'method' => $method,
@@ -389,7 +416,9 @@ class TwoFactorController extends BaseController
             return $this->forbidden('Invalid verification code');
         }
 
-        $this->tfa->markChallengeVerified($challengeToken, $targetUserId);
+        if (!$this->tfa->markChallengeVerified($challengeToken, $targetUserId)) {
+            return $this->conflict('This verification challenge was already used.');
+        }
 
         return $this->success([
             'verified' => true,

@@ -91,7 +91,12 @@ class DriverManager
                     p.first_name, p.last_name, p.phone,
                     (SELECT q.description FROM staff_qualifications q
                       WHERE q.staff_id = s.id AND q.title = 'Driving License'
-                      ORDER BY q.id DESC LIMIT 1) AS license_number
+                      ORDER BY q.id DESC LIMIT 1) AS license_number,
+                    (SELECT GROUP_CONCAT(DISTINCT sch.route_id ORDER BY sch.route_id)
+                       FROM transport_schedules sch WHERE sch.driver_id=s.id AND sch.date IS NULL AND sch.status='active') AS route_ids,
+                    (SELECT GROUP_CONCAT(DISTINCT tr.name ORDER BY tr.name SEPARATOR ', ')
+                       FROM transport_schedules sch JOIN transport_routes tr ON tr.id=sch.route_id
+                      WHERE sch.driver_id=s.id AND sch.date IS NULL AND sch.status='active') AS route_names
              FROM staff s
              JOIN persons p ON p.id = s.person_id
              WHERE s.id = ? AND s.position = 'Driver'"
@@ -114,6 +119,22 @@ class DriverManager
         );
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function syncDriverRoutes(int $driverId, array $routeIds): array
+    {
+        $routeIds = array_values(array_unique(array_filter(array_map('intval', $routeIds), fn($id) => $id > 0)));
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare("DELETE FROM transport_schedules WHERE driver_id=? AND date IS NULL")->execute([$driverId]);
+            $insert = $this->db->prepare("INSERT INTO transport_schedules (driver_id,route_id,date,status) VALUES (?,?,NULL,'active')");
+            foreach ($routeIds as $routeId) $insert->execute([$driverId, $routeId]);
+            $this->db->commit();
+            return ['driver_id' => $driverId, 'route_ids' => $routeIds];
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
     }
     // Assign driver to the vehicle(s) serving a route
     public function assignDriverToRoute($driverId, $routeId)

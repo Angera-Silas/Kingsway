@@ -1,7 +1,6 @@
 <?php
 namespace App\API\Modules\activities\workflows;
 
-require_once __DIR__ . '/../../../includes/WorkflowHandler.php';
 use App\API\Includes\WorkflowHandler;
 use PDO;
 use Exception;
@@ -31,7 +30,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function proposeActivity($data, $userId)
     {
-        error_log("[ActivityPlanningWorkflow] proposeActivity called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
+        \App\API\Services\Logger::legacyError("[ActivityPlanningWorkflow] proposeActivity called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
         $transactionStarted = false;
         try {
             // Validate required fields
@@ -118,7 +117,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function approveBudget($workflowId, $data, $userId)
     {
-        error_log("[ActivityPlanningWorkflow] approveBudget called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityPlanningWorkflow] approveBudget called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -162,7 +161,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function scheduleActivity($workflowId, $schedules, $userId)
     {
-        error_log("[ActivityPlanningWorkflow] scheduleActivity called. userId=" . var_export($userId, true) . ", schedules=" . json_encode($schedules) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityPlanningWorkflow] scheduleActivity called. userId=" . var_export($userId, true) . ", schedules=" . json_encode($schedules) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
             $metadata = null;
@@ -222,7 +221,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function prepareResources($workflowId, $resources, $userId)
     {
-        error_log("[ActivityPlanningWorkflow] prepareResources called. userId=" . var_export($userId, true) . ", resources=" . json_encode($resources) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityPlanningWorkflow] prepareResources called. userId=" . var_export($userId, true) . ", resources=" . json_encode($resources) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -274,7 +273,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function executeActivity($workflowId, $userId)
     {
-        error_log("[ActivityPlanningWorkflow] executeActivity called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityPlanningWorkflow] executeActivity called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
         $transactionStarted = false;
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
@@ -321,7 +320,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function reviewActivity($workflowId, $data, $userId)
     {
-        error_log("[ActivityPlanningWorkflow] reviewActivity called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        \App\API\Services\Logger::legacyError("[ActivityPlanningWorkflow] reviewActivity called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         $transactionStarted = false;
         try {
             $workflow = $this->getWorkflowInstance($workflowId);

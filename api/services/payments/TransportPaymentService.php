@@ -50,7 +50,7 @@ class TransportPaymentService
             $routingReference='TRN-' . $intentId;
             $this->db->prepare("INSERT INTO payment_routing_references (reference,normalized_reference,purpose,student_id,transport_intent_id,expires_at) VALUES (?,?,?,?,?,DATE_ADD(NOW(), INTERVAL 30 DAY))")
                 ->execute([$routingReference, (new ReferenceNormalizer())->reference($routingReference), 'transport', (int)$e['student_id'], $intentId]);
-        } catch (\Throwable $routingError) { error_log('[TransportPaymentService] routing reference registration failed: '.$routingError->getMessage()); }
+        } catch (\Throwable $routingError) { \App\API\Services\Logger::legacyError('[TransportPaymentService] routing reference registration failed: '.$routingError->getMessage()); }
 
         if ($channel === 'daraja_mpesa') {
             $result = (new MpesaPaymentService())->initiateSTKPush('TRN-' . $intentId, $phone, $amount, 'Transport payment', (int)$account['id']);
@@ -180,7 +180,7 @@ class TransportPaymentService
             $body='Kingsway transport payment received: KES '.number_format($amount,2).' (Ref '.$reference.'). View your parent portal for the transport receipt.';
             $m=new CommunicationsManager($this->db);
             foreach (['sms'=>'phone','whatsapp'=>'phone','email'=>'email'] as $type=>$field) if (!empty($p[$field])) $m->createCommunication(['sender_id'=>1,'subject'=>'Transport payment received','body'=>$body,'type'=>$type,'status'=>'queued','priority'=>'normal','recipients'=>[$p[$field]]]);
-        } catch (\Throwable $e) { error_log('[TransportPaymentService] notification failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[TransportPaymentService] notification failed: '.$e->getMessage()); }
     }
 
     private function flatten(array $value): array

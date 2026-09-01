@@ -1853,7 +1853,7 @@ class AttendanceManager extends BaseAPI
 
             return $this->successResponse($stmt->fetchAll(PDO::FETCH_ASSOC), 'Permissions retrieved');
         } catch (Exception $e) {
-            error_log('[AttendanceManager][getPermissions] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[AttendanceManager][getPermissions] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             $this->logError($e, 'getPermissions');
             return $this->errorResponse('An internal error occurred.', 500);
         }

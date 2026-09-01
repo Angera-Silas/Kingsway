@@ -56,7 +56,7 @@ class FinanceController extends BaseController
             $stmt = $this->db->query('SELECT * FROM vw_accounting_trial_balance ORDER BY account_code');
             return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
         } catch (\Throwable $e) {
-            error_log('[FinanceController] trial balance: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] trial balance: ' . $e->getMessage());
             return $this->badRequest('Accounting trial balance is not available.');
         }
     }
@@ -70,7 +70,7 @@ class FinanceController extends BaseController
             $stmt = $this->db->query('SELECT * FROM vw_financial_source_trace ORDER BY created_at DESC LIMIT ' . $limit);
             return $this->success(['transactions' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
         } catch (\Throwable $e) {
-            error_log('[FinanceController] source trace: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] source trace: ' . $e->getMessage());
             return $this->badRequest('Accounting source trace is not available.');
         }
     }
@@ -96,7 +96,7 @@ class FinanceController extends BaseController
                 GROUP BY a.id ORDER BY a.account_name");
             return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
         } catch (\Throwable $e) {
-            error_log('[FinanceController] financial accounts: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] financial accounts: ' . $e->getMessage());
             return $this->badRequest('Financial accounts are not available.');
         }
     }
@@ -166,7 +166,7 @@ class FinanceController extends BaseController
         if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.view', 'finance_view'], [10])) return $this->forbidden('Insufficient permissions');
         try {
             return $this->success(['lines' => (new FinancialReconciliationService($this->db))->unresolved((int)($data['limit'] ?? 200))]);
-        } catch (\Throwable $e) { error_log('[FinanceController] statement lines: '.$e->getMessage()); return $this->badRequest('Statement reconciliation is not available.'); }
+        } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] statement lines: '.$e->getMessage()); return $this->badRequest('Statement reconciliation is not available.'); }
     }
 
     /** POST /api/finance/reconciliation/statement-imports */
@@ -176,7 +176,7 @@ class FinanceController extends BaseController
         try {
             $result = (new FinancialReconciliationService($this->db))->import((string)($data['provider'] ?? ''), (int)($data['financial_account_id'] ?? 0), (array)($data['rows'] ?? []), (int)$this->getUserId());
             return $this->success($result, 'Statement imported and matching attempted.');
-        } catch (\Throwable $e) { error_log('[FinanceController] statement import: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+        } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] statement import: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
     /** POST /api/finance/reconciliation/statement-lines/{id}/resolve */
@@ -186,7 +186,7 @@ class FinanceController extends BaseController
         try {
             $result = (new FinancialReconciliationService($this->db))->resolve((int)$id, (string)($data['matching_status'] ?? ''), (int)$this->getUserId(), (string)($data['reason'] ?? ''), $data['matched_reference'] ?? null);
             return $this->success($result, 'Statement line resolution recorded.');
-        } catch (\Throwable $e) { error_log('[FinanceController] statement resolve: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+        } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] statement resolve: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
     /** GET /api/finance/kcb-disbursements — callback/status reconciliation queue. */
@@ -203,7 +203,7 @@ class FinanceController extends BaseController
             ]);
             return $this->success(['disbursements' => (new KcbTransferReconciliationService($this->db->getConnection()))->list($filters)]);
         } catch (\Throwable $e) {
-            error_log('[FinanceController] KCB reconciliation list: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] KCB reconciliation list: ' . $e->getMessage());
             return $this->badRequest('KCB reconciliation queue is not available. Apply the latest database migrations.');
         }
     }
@@ -220,7 +220,7 @@ class FinanceController extends BaseController
                 'KCB transfer status checked and reconciled.'
             );
         } catch (\Throwable $e) {
-            error_log('[FinanceController] KCB status inquiry: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] KCB status inquiry: ' . $e->getMessage());
             return $this->badRequest($e->getMessage());
         }
     }
@@ -237,7 +237,7 @@ class FinanceController extends BaseController
                 'Due KCB transfers checked.'
             );
         } catch (\Throwable $e) {
-            error_log('[FinanceController] KCB status poll: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] KCB status poll: ' . $e->getMessage());
             return $this->badRequest('KCB status polling failed.');
         }
     }
@@ -256,7 +256,7 @@ class FinanceController extends BaseController
                 'KCB reconciliation worker completed.'
             );
         } catch (\Throwable $e) {
-            error_log('[FinanceController] KCB reconciliation worker: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] KCB reconciliation worker: ' . $e->getMessage());
             return $this->serverError('KCB reconciliation worker failed.');
         }
     }
@@ -273,7 +273,7 @@ class FinanceController extends BaseController
                 'A linked, idempotent KCB retry was submitted.'
             );
         } catch (\Throwable $e) {
-            error_log('[FinanceController] KCB safe retry: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] KCB safe retry: ' . $e->getMessage());
             return $this->badRequest($e->getMessage());
         }
     }
@@ -292,7 +292,7 @@ class FinanceController extends BaseController
                 (int) $this->getUserId()
             ), 'Manual reconciliation recorded with evidence.');
         } catch (\Throwable $e) {
-            error_log('[FinanceController] KCB manual reconciliation: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] KCB manual reconciliation: ' . $e->getMessage());
             return $this->badRequest($e->getMessage());
         }
     }
@@ -311,7 +311,7 @@ class FinanceController extends BaseController
             ]);
             return $this->success($result, 'The current KCB access token was revoked.');
         } catch (\Throwable $e) {
-            error_log('[FinanceController] KCB token revocation: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] KCB token revocation: ' . $e->getMessage());
             return $this->badRequest('KCB token revocation failed.');
         }
     }
@@ -329,7 +329,7 @@ class FinanceController extends BaseController
                 LEFT JOIN accounting_journal_lines l ON l.chart_account_id=c.id LEFT JOIN accounting_journal_batches j ON j.id=l.journal_batch_id
                 WHERE {$where} GROUP BY c.id,c.account_code,c.account_name,t.code ORDER BY c.account_code";
             return $this->success(['type' => $type, 'rows' => $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC)]);
-        } catch (\Throwable $e) { error_log('[FinanceController] accounting report: '.$e->getMessage()); return $this->badRequest('Ledger report is not available.'); }
+        } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] accounting report: '.$e->getMessage()); return $this->badRequest('Ledger report is not available.'); }
     }
 
     /** POST /api/finance/financial-accounts */
@@ -411,7 +411,7 @@ class FinanceController extends BaseController
             unset($row);
             return $this->success(['payables' => $rows]);
         } catch (\Throwable $e) {
-            error_log('[FinanceController] supplier payables: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] supplier payables: ' . $e->getMessage());
             return $this->badRequest('Failed to load supplier payables.');
         }
     }
@@ -437,7 +437,7 @@ class FinanceController extends BaseController
                 $result = $service->initiateExpensePayment($expenseId, (int) $this->getUserId(), $item);
                 $results[] = array_merge(['expense_id' => $expenseId], $result);
             } catch (\Throwable $e) {
-                error_log('[FinanceController] supplier payment #' . $expenseId . ': ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('[FinanceController] supplier payment #' . $expenseId . ': ' . $e->getMessage());
                 $results[] = ['expense_id' => $expenseId, 'status' => 'failed', 'message' => $e->getMessage()];
             }
         }
@@ -471,7 +471,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         try { $service = new ParentRefundService(Database::getInstance()->getConnection()); $items = $data['items'] ?? [$data]; $results = []; foreach ($items as $item) { $results[] = $service->createRequest((int) ($item['fee_credit_note_id'] ?? 0), (int) $this->getUserId(), $item); } return $this->success(['results' => $results], 'Refund submitted for approval.'); }
-        catch (\Throwable $e) { error_log('[FinanceController] parent refund request: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] parent refund request: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
     /** GET /api/finance/student-fund-transfers */
@@ -548,7 +548,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         try { return $this->created((new StudentFundTransferService(Database::getInstance()->getConnection()))->create($data, (int)$this->getUserId()), 'Fund transfer submitted for approval'); }
-        catch (\Throwable $e) { error_log('[FinanceController] fund transfer create: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] fund transfer create: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
     /** PUT /api/finance/student-fund-transfers/{id} */
@@ -566,7 +566,7 @@ class FinanceController extends BaseController
         if (!$this->userHasAny(['finance.approve', 'finance_approve'], [3, 4, 10])) return $this->forbidden('Only authorized finance approvers may post fund transfers');
         if (!$id) return $this->badRequest('Transfer ID is required');
         try { return $this->success((new StudentFundTransferService(Database::getInstance()->getConnection()))->post((int)$id, (int)$this->getUserId()), 'Fund transfer posted'); }
-        catch (\Throwable $e) { error_log('[FinanceController] fund transfer post: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] fund transfer post: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
     /** PUT /api/finance/parent-refund-requests/{id} — approve or reject. */
@@ -585,7 +585,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         try { $result = (new ParentRefundService(Database::getInstance()->getConnection()))->submit((int) $id, (int) $this->getUserId()); return $this->success($result, 'Parent refund submitted for provider processing.'); }
-        catch (\Throwable $e) { error_log('[FinanceController] parent refund submit: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] parent refund submit: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
     /** GET /api/finance/parent-payment-accounts?parent_id=... */
@@ -608,7 +608,7 @@ class FinanceController extends BaseController
         if ($provider === 'mpesa' && empty($data['phone_number'])) return $this->badRequest('phone_number is required for M-Pesa');
         if ($provider === 'bank' && (empty($data['account_number']) || empty($data['bank_name']))) return $this->badRequest('bank_name and account_number are required for bank refunds');
         try { $pdo = Database::getInstance()->getConnection(); $stmt = $pdo->prepare("INSERT INTO parent_payment_accounts (parent_id, provider, phone_number, bank_name, bank_code, account_name, account_number, is_primary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"); $stmt->execute([$parentId, $provider, $data['phone_number'] ?? null, $data['bank_name'] ?? null, $data['bank_code'] ?? null, $data['account_name'], $data['account_number'] ?? null, !empty($data['is_primary']) ? 1 : 0]); return $this->created(['id' => (int) $pdo->lastInsertId()], 'Parent payment account saved for verification.'); }
-        catch (\Throwable $e) { error_log('[FinanceController] parent payment account: ' . $e->getMessage()); return $this->badRequest('Unable to save parent payment account.'); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] parent payment account: ' . $e->getMessage()); return $this->badRequest('Unable to save parent payment account.'); }
     }
 
     private function requirePayrollPermission(string $permission, array $roles = []): ?array
@@ -616,7 +616,7 @@ class FinanceController extends BaseController
         try {
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
+        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     private function validatePayrollPayloadEligibility(array $payload): ?array
@@ -629,7 +629,7 @@ class FinanceController extends BaseController
         }
         foreach (array_unique(array_filter($staffIds)) as $staffId) {
             try { $this->staffAccess->assertPayrollEligible($staffId); }
-            catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
+            catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
         }
         return null;
     }
@@ -1817,7 +1817,7 @@ class FinanceController extends BaseController
             $result = $recon->listUnreconciled($data);
             return $this->handleResponse($result);
         } catch (Exception $e) {
-            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->error('An internal error occurred.');
         }
     }
@@ -2390,7 +2390,7 @@ return $this->error('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
             return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
-            error_log('[FinanceController] scholarship create: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] scholarship create: ' . $e->getMessage());
             return $this->serverError('Unable to save student scholarship.');
         }
     }
@@ -2404,7 +2404,7 @@ return $this->error('An internal error occurred.');
             $this->crud->revokeStudentScholarship((int)$id, $this->getUserId());
             return $this->success(null, 'Student scholarship revoked.');
         } catch (\Throwable $e) {
-            error_log('[FinanceController] scholarship revoke: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] scholarship revoke: ' . $e->getMessage());
             return $this->serverError('Unable to revoke student scholarship.');
         }
     }
@@ -2537,8 +2537,8 @@ return $this->error('An internal error occurred.');
                 'total_pages' => (int) ceil($result['total'] / $limit),
             ]);
         } catch (\Exception $e) {
-            error_log('getUnmatchedPayments: ' . $e->getMessage());
-            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('getUnmatchedPayments: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->error('An internal error occurred.');
         }
     }
@@ -2560,8 +2560,8 @@ return $this->error('An internal error occurred.');
             $this->crud->matchPayment((int)$paymentId, $studentId ? (int)$studentId : null, $obligationId ? (int)$obligationId : null);
             return $this->success(null, 'Payment matched successfully');
         } catch (\Exception $e) {
-            error_log('postUnmatchedPaymentsMatch: ' . $e->getMessage());
-            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('postUnmatchedPaymentsMatch: ' . $e->getMessage());
+            \App\API\Services\Logger::legacyError('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->error('An internal error occurred.');
         }
     }

@@ -17,6 +17,12 @@ const attendanceReportsController = {
       return;
     }
     this._bindTabs();
+    ['arPeriod', 'arDateFrom', 'arDateTo', 'arClass'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        if (id === 'arPeriod') this.onPeriodChange();
+        this.load();
+      });
+    });
     this._populateClassFilter();
     await this.load();
   },

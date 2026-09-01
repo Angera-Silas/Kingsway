@@ -65,7 +65,7 @@ class EquipmentManager extends BaseAPI
                 'count' => count($records)
             ];
         } catch (\Exception $e) {
-            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -98,7 +98,7 @@ return ['success' => false, 'message' => 'An internal error occurred.'];
                 'data' => $record
             ];
         } catch (\Exception $e) {
-            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -163,7 +163,7 @@ return ['success' => false, 'message' => 'An internal error occurred.'];
                 ];
             }
         } catch (\Exception $e) {
-            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -220,7 +220,7 @@ return ['success' => false, 'message' => 'An internal error occurred.'];
                 ];
             }
         } catch (\Exception $e) {
-            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -246,7 +246,7 @@ return ['success' => false, 'message' => 'An internal error occurred.'];
                 ];
             }
         } catch (\Exception $e) {
-            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -273,7 +273,7 @@ return ['success' => false, 'message' => 'An internal error occurred.'];
                 'count' => count($records)
             ];
         } catch (\Exception $e) {
-            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
@@ -309,7 +309,7 @@ return ['success' => false, 'message' => 'An internal error occurred.'];
                 ];
             }
         } catch (\Exception $e) {
-            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            \App\API\Services\Logger::legacyError('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
