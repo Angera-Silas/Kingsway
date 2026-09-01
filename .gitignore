@@ -121,6 +121,9 @@ database/migrations/*.sql
 database/migrations/
 database/seeds/
 
+# Portable-media cleanup is part of the deployable schema, not local data.
+database/migrations/*
+
 # --------------------------------------------------------
 # Local-only directories (environment / build / scratch)
 # --------------------------------------------------------

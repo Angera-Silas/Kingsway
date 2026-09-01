@@ -258,7 +258,10 @@ class SystemController extends BaseController
             return $auth;
         }
         return $this->success($this->systemAdminManager->getAuditRows([
-            'permission_create', 'permission_update', 'permission_delete', 'role_permission_assign', 'role_permission_remove'
+            'permission_create', 'permission_update', 'permission_delete',
+            'permission_definition_create', 'permission_definition_update', 'permission_definition_delete',
+            'role_permission_assign', 'role_permission_remove',
+            'role_create', 'role_update', 'role_delete',
         ], null, 200), 'Permission changes retrieved');
     }
 
@@ -912,7 +915,7 @@ class SystemController extends BaseController
         if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
         }
-        return $this->handleApiResponse($this->systemAdminManager->getStateRecords('role_navigation', 'Role navigation config retrieved'));
+        return $this->handleApiResponse($this->systemAdminManager->getSidebarMenus());
     }
 
     // ========================================================================

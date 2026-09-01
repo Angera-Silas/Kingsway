@@ -14,6 +14,23 @@ namespace App\API\Services;
 class SidebarConfigReader
 {
     /**
+     * Return the effective, fully-normalised menu for every configured role.
+     * Administrative previews and dashboard APIs must use this method instead
+     * of exposing the raw PHP array or the obsolete database menu tables.
+     */
+    public static function forAllRoles(): array
+    {
+        $path = dirname(__DIR__, 2) . '/config/role_sidebars.php';
+        $config = file_exists($path) ? (include $path) : [];
+        $menus = [];
+        foreach (array_keys($config) as $roleId) {
+            $roleId = (int) $roleId;
+            $menus[$roleId] = self::forRoles([$roleId]);
+        }
+        return $menus;
+    }
+
+    /**
      * Build one blended sidebar for several roles.
      *
      * A user's roles are additive, but a route must only appear once. This is
@@ -34,6 +51,14 @@ class SidebarConfigReader
             return self::attachModuleReports(self::forRole(2), [2]);
         }
 
+        // School-domain menus are semantically deduplicated only after every
+        // role has contributed its context. If duplicate routes are removed
+        // here, the first role can incorrectly force a route into Operations
+        // before a later role identifies it as Academic, Discipline, Reports,
+        // or another specific module. The Accountant retains its deliberately
+        // curated finance workflow and therefore keeps immediate deduplication.
+        $deferRouteDeduplication = $roleIds[0] !== 10;
+
         // The first assigned role supplies the primary navigation. Additional
         // roles contribute capabilities, not a second copy of their entire
         // menu. This is what makes Headteacher + Subject Teacher, Deputy +
@@ -44,19 +69,16 @@ class SidebarConfigReader
         $routeOwners = [];
         foreach (self::forRole($roleIds[0]) as $item) {
             if (!is_array($item)) continue;
-            // Some role definitions already repeat a child route in separate
-            // groups. Keep the first occurrence before blending any other
-            // role, so duplicates cannot survive inside the primary menu.
             if (!empty($item['url'])) {
                 $parentRoute = self::routeKey($item);
-                if (isset($routeOwners[$parentRoute])) continue;
+                if (!$deferRouteDeduplication && isset($routeOwners[$parentRoute])) continue;
                 $routeOwners[$parentRoute] = true;
             }
             $children = [];
             foreach (($item['subitems'] ?? []) as $child) {
                 if (!is_array($child)) continue;
                 $routeKey = self::childCapabilityKey($child);
-                if (isset($routeOwners[$routeKey])) continue;
+                if (!$deferRouteDeduplication && isset($routeOwners[$routeKey])) continue;
                 $routeOwners[$routeKey] = true;
                 $children[] = $child;
             }
@@ -97,13 +119,15 @@ class SidebarConfigReader
                 } elseif ($targetIndex === null) {
                     // Keep genuinely distinct personal/operational areas such
                     // as My HR, Communications, and Family as their own item.
-                    if (!empty($item['url']) && isset($routeOwners[self::routeKey($item)])) {
+                    if (!$deferRouteDeduplication
+                        && !empty($item['url'])
+                        && isset($routeOwners[self::routeKey($item)])) {
                         continue;
                     }
                     $filteredChildren = [];
                     foreach (self::uniqueChildren($item['subitems'] ?? []) as $child) {
                         $childRoute = self::childCapabilityKey($child);
-                        if (isset($routeOwners[$childRoute])) continue;
+                        if (!$deferRouteDeduplication && isset($routeOwners[$childRoute])) continue;
                         $routeOwners[$childRoute] = true;
                         $filteredChildren[] = $child;
                     }
@@ -121,7 +145,7 @@ class SidebarConfigReader
                 foreach ($children as $child) {
                     if (!is_array($child)) continue;
                     $routeKey = self::childCapabilityKey($child);
-                    if (isset($routeOwners[$routeKey])) continue;
+                    if (!$deferRouteDeduplication && isset($routeOwners[$routeKey])) continue;
                     $routeOwners[$routeKey] = true;
                     $merged[$targetIndex]['subitems'][] = $child;
                 }
@@ -134,10 +158,70 @@ class SidebarConfigReader
         // by generic prefixes destroys those workflow groups and sends unknown
         // finance routes to the Operations fallback.
         if ($roleIds[0] === 10) {
-            return self::attachModuleReports($merged, $roleIds);
+            return self::attachModuleReports(
+                self::relocatePersonalHrRoutes($merged, $roleIds),
+                $roleIds
+            );
         }
 
-        return self::attachModuleReports(self::organizeIntoModules($merged), $roleIds);
+        return self::attachModuleReports(
+            self::relocatePersonalHrRoutes(self::organizeIntoModules($merged), $roleIds),
+            $roleIds
+        );
+    }
+
+    /**
+     * staff_leave is a personal self-service page for ordinary staff. Director
+     * and School Administrator use the same route as an approval/management
+     * workspace, so only those two roles retain it under Staff.
+     */
+    private static function relocatePersonalHrRoutes(array $menu, array $roleIds): array
+    {
+        if (array_intersect([3, 4], array_map('intval', $roleIds))) return $menu;
+
+        $leaveItem = null;
+        foreach ($menu as $parentIndex => &$parent) {
+            if (($parent['url'] ?? null) === 'staff_leave') {
+                $leaveItem ??= $parent;
+                unset($menu[$parentIndex]);
+                continue;
+            }
+            $children = [];
+            foreach (($parent['subitems'] ?? []) as $child) {
+                if (($child['url'] ?? null) === 'staff_leave') {
+                    $leaveItem ??= $child;
+                    continue;
+                }
+                $children[] = $child;
+            }
+            $parent['subitems'] = $children;
+        }
+        unset($parent);
+        if ($leaveItem === null) return array_values($menu);
+
+        $menu = array_values(array_filter($menu, static function (array $parent): bool {
+            return !empty($parent['url']) || !empty($parent['subitems']);
+        }));
+        $targetIndex = null;
+        foreach ($menu as $index => $parent) {
+            if (strtolower((string) ($parent['label'] ?? '')) === 'my hr') {
+                $targetIndex = $index;
+                break;
+            }
+        }
+        if ($targetIndex === null) {
+            $targetIndex = count($menu);
+            $menu[] = self::item(970000, null, [
+                'label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge'
+            ], $targetIndex, []);
+        }
+
+        $leaveItem['label'] = 'Leave Requests';
+        $leaveItem['tooltip'] = $leaveItem['tooltip'] ?? 'Request and track my leave';
+        $leaveItem['parent_id'] = $menu[$targetIndex]['id'];
+        $leaveItem['display_order'] = count($menu[$targetIndex]['subitems'] ?? []);
+        $menu[$targetIndex]['subitems'][] = $leaveItem;
+        return $menu;
     }
 
     private static function attachModuleReports(array $menu, array $roleIds): array
@@ -160,14 +244,20 @@ class SidebarConfigReader
             }
             $children = [];
             foreach (($parent['subitems'] ?? []) as $child) {
-                if (($child['url'] ?? null) === 'analytics_catalogue') {
+                if (self::isReportRoute(
+                    (string) ($child['url'] ?? ''),
+                    (string) ($child['label'] ?? '')
+                )) {
                     $reportChildren[] = $child;
                     continue;
                 }
                 $children[] = $child;
             }
             $parent['subitems'] = $children;
-            if (($parent['url'] ?? null) === 'analytics_catalogue') {
+            if (self::isReportRoute(
+                (string) ($parent['url'] ?? ''),
+                (string) ($parent['label'] ?? '')
+            )) {
                 $reportChildren[] = $parent;
                 continue;
             }
@@ -196,6 +286,24 @@ class SidebarConfigReader
             ], count($cleanMenu), $children);
         }
         return self::compactMenuLabels($cleanMenu);
+    }
+
+    private static function isReportRoute(string $route, string $label = ''): bool
+    {
+        $route = strtolower(trim($route));
+        $label = strtolower(trim($label));
+        if ($route === 'analytics_catalogue'
+            || str_contains($route, 'report')
+            || str_ends_with($route, '_trends')
+            || str_contains($label, 'report')) {
+            return true;
+        }
+        foreach (ReportRegistry::all() as $report) {
+            if ($route !== '' && $route === strtolower((string) ($report['route'] ?? ''))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function compactMenuLabels(array $menu): array
@@ -456,20 +564,27 @@ class SidebarConfigReader
             'Discipline' => ['icon' => 'fas fa-gavel', 'children' => []],
             'Staff' => ['icon' => 'fas fa-user-tie', 'children' => []],
             'Finance' => ['icon' => 'fas fa-coins', 'children' => []],
+            'Controls & Audit' => ['icon' => 'fas fa-shield-halved', 'children' => []],
             'Transport' => ['icon' => 'fas fa-bus', 'children' => []],
             'Boarding' => ['icon' => 'fas fa-bed', 'children' => []],
             'Events & Calendar' => ['icon' => 'fas fa-calendar-alt', 'children' => []],
             'Families & Communication' => ['icon' => 'fas fa-comments', 'children' => []],
             'Library' => ['icon' => 'fas fa-book', 'children' => []],
             'Inventory & Store' => ['icon' => 'fas fa-boxes', 'children' => []],
+            'Catering & Food' => ['icon' => 'fas fa-utensils', 'children' => []],
+            'Activities & Clubs' => ['icon' => 'fas fa-person-running', 'children' => []],
+            'Mentorship & Growth' => ['icon' => 'fas fa-seedling', 'children' => []],
+            'Spiritual Life' => ['icon' => 'fas fa-church', 'children' => []],
+            'Quick Tools' => ['icon' => 'fas fa-toolbox', 'children' => []],
             'Reports & Analytics' => ['icon' => 'fas fa-chart-bar', 'children' => []],
             'Resources' => ['icon' => 'fas fa-folder-open', 'children' => []],
             'Web Management' => ['icon' => 'fas fa-globe', 'children' => []],
             'Operations' => ['icon' => 'fas fa-cogs', 'children' => []],
             'My HR' => ['icon' => 'fas fa-id-badge', 'children' => []],
         ];
-        $seen = [];
         $standalone = [];
+        $candidates = [];
+        $candidateOrder = [];
 
         foreach ($items as $item) {
             if (!is_array($item)) continue;
@@ -488,16 +603,34 @@ class SidebarConfigReader
             foreach ($children as $child) {
                 if (!is_array($child)) continue;
                 $capability = self::childCapabilityKey($child);
-                if (isset($seen[$capability])) continue;
-                $seen[$capability] = true;
-
                 $module = self::moduleForRoute($child['url'] ?? '', $parentLabel);
                 if (!isset($modules[$module])) {
                     $module = 'Operations';
                 }
                 $child['parent_id'] = null;
-                $modules[$module]['children'][] = $child;
+                if (!isset($candidates[$capability])) {
+                    $candidates[$capability] = ['child' => $child, 'module' => $module];
+                    $candidateOrder[] = $capability;
+                    continue;
+                }
+
+                // A route may be contributed by several roles/sections. A
+                // specific classification must replace a generic one, and a
+                // governed report classification always wins so reports stay
+                // under the single Reports & Analytics section.
+                $currentModule = $candidates[$capability]['module'];
+                if (self::preferModule($module, $currentModule)) {
+                    $candidates[$capability]['module'] = $module;
+                    // Preserve the first user-facing label, but retain the
+                    // better source context for diagnostics/tooltips.
+                    $candidates[$capability]['child']['source_section'] = $parentLabel;
+                }
             }
+        }
+
+        foreach ($candidateOrder as $capability) {
+            $candidate = $candidates[$capability];
+            $modules[$candidate['module']]['children'][] = $candidate['child'];
         }
 
         $result = $standalone;
@@ -520,6 +653,15 @@ class SidebarConfigReader
             ], count($result), $children);
         }
         return $result;
+    }
+
+    private static function preferModule(string $candidate, string $current): bool
+    {
+        if ($candidate === $current) return false;
+        if ($candidate === 'Reports & Analytics') return true;
+        if ($current === 'Reports & Analytics') return false;
+        if ($current === 'Operations' && $candidate !== 'Operations') return true;
+        return false;
     }
 
     private static function moduleForRoute(string $url, string $parentLabel): string
@@ -554,8 +696,10 @@ class SidebarConfigReader
             'inventory_reports' => 'Inventory & Procurement Reports',
             'purchase_reports' => 'Inventory & Procurement Reports',
             'stock_reports' => 'Inventory & Procurement Reports',
-            'food_consumption' => 'Catering & Nutrition Reports',
-            'meal_statistics' => 'Catering & Nutrition Reports',
+            // These are operational catering views unless their source parent
+            // is explicitly Reports & Analytics (handled above).
+            'food_consumption' => 'Catering & Food',
+            'meal_statistics' => 'Catering & Food',
             'discipline_reports' => 'Discipline & Safeguarding Reports',
             'conduct_reports' => 'Discipline & Safeguarding Reports',
             'monthly_discipline_report' => 'Discipline & Safeguarding Reports',
@@ -610,6 +754,11 @@ class SidebarConfigReader
             'view_results' => 'Assessment & Exams',
             'results_' => 'Assessment & Exams',
             'report_cards' => 'Assessment & Exams',
+            'all_lesson_plans' => 'Academic',
+            'lesson_plan_' => 'Academic',
+            'lesson_plans_' => 'Academic',
+            'formative_assessments' => 'Assessment & Exams',
+            'national_exams' => 'Assessment & Exams',
             // Financial ownership must be resolved before broad learner,
             // parent, staff, or transport prefixes. These routes move money,
             // establish charges, or reconcile a financial ledger.
@@ -639,6 +788,11 @@ class SidebarConfigReader
             'manage_fee_' => 'Finance',
             'finance_' => 'Finance',
             'budget_' => 'Finance',
+            'manage_expenses' => 'Finance',
+            'transaction_approvals' => 'Controls & Audit',
+            'audit_logs' => 'Controls & Audit',
+            'adjustments' => 'Controls & Audit',
+            'kcb_disbursement_reconciliation' => 'Controls & Audit',
             // Transport is an operational module in its own right. Only its
             // billing/rate routes above belong to Finance.
             'manage_transport' => 'Transport',
@@ -653,6 +807,10 @@ class SidebarConfigReader
             'manage_boarding' => 'Boarding',
             'boarding_' => 'Boarding',
             'permissions_exeats' => 'Boarding',
+            'pending_exeat_' => 'Boarding',
+            'exeat_history' => 'Boarding',
+            'end_of_term_travel' => 'Boarding',
+            'room_assignments' => 'Boarding',
             'school_events' => 'Events & Calendar',
             'manage_holidays' => 'Events & Calendar',
             'assemblies' => 'Events & Calendar',
@@ -662,6 +820,14 @@ class SidebarConfigReader
             'library_' => 'Library',
             'uniform_catalog' => 'Inventory & Store',
             'internal_products_catalog' => 'Inventory & Store',
+            'products_catalog_management' => 'Inventory & Store',
+            'catalog_orders_management' => 'Inventory & Store',
+            'uniform_point_of_sale' => 'Inventory & Store',
+            'uniform_stock_intake' => 'Inventory & Store',
+            'uniform_unit_tracking' => 'Inventory & Store',
+            'uniform_discounts' => 'Inventory & Store',
+            'goods_received' => 'Inventory & Store',
+            'vendor_invoices' => 'Inventory & Store',
             'manage_inventory' => 'Inventory & Store',
             'manage_classes' => 'Learners',
             'class_streams' => 'Learners',
@@ -670,6 +836,9 @@ class SidebarConfigReader
             'student_' => 'Learners',
             'student_counseling' => 'Learners',
             'special_needs' => 'Learners',
+            'my_students_' => 'Learners',
+            'view_class_lists' => 'Learners',
+            'view_student_info' => 'Learners',
             'alumni_' => 'Learners',
             'view_attendance' => 'Attendance',
             'attendance_reports' => 'Attendance Reports',
@@ -679,12 +848,16 @@ class SidebarConfigReader
             'staff_' => 'Staff',
             'all_teachers' => 'Staff',
             'teacher_' => 'Staff',
+            'assign_class_teachers' => 'Staff',
+            'assign_subjects_to_teachers' => 'Staff',
             'all_parents' => 'Families & Communication',
             'parent_' => 'Families & Communication',
             'pta_' => 'Families & Communication',
             'communications/' => 'Families & Communication',
             'manage_announcements' => 'Families & Communication',
             'manage_sms' => 'Families & Communication',
+            'manage_communications' => 'Families & Communication',
+            'schedule_parent_meetings' => 'Families & Communication',
             'performance_analysis' => 'Reports & Analytics',
             'term_reports' => 'Reports & Analytics',
             'comparative_reports' => 'Reports & Analytics',
@@ -695,6 +868,41 @@ class SidebarConfigReader
             'past_papers' => 'Resources',
             'view_teaching_materials' => 'Resources',
             'view_past_papers' => 'Resources',
+            'manage_activities' => 'Activities & Clubs',
+            'create_activity' => 'Activities & Clubs',
+            'clubs_societies' => 'Activities & Clubs',
+            'competitions' => 'Activities & Clubs',
+            'sports' => 'Activities & Clubs',
+            'chapel_' => 'Spiritual Life',
+            'food_' => 'Catering & Food',
+            'menu_' => 'Catering & Food',
+            'manage_menus' => 'Catering & Food',
+            'todays_menu' => 'Catering & Food',
+            'weekly_menu' => 'Catering & Food',
+            'catering_' => 'Catering & Food',
+            'my_mentor' => 'Mentorship & Growth',
+            'mentor_' => 'Mentorship & Growth',
+            'observation_' => 'Mentorship & Growth',
+            'improvement_areas' => 'Mentorship & Growth',
+            'competency_checklist' => 'Mentorship & Growth',
+            'development_progress' => 'Mentorship & Growth',
+            'learning_goals' => 'Mentorship & Growth',
+            'reflection_journal' => 'Mentorship & Growth',
+            'intern_assigned_' => 'Teaching & Learning',
+            'intern_schedule' => 'Timetables',
+            'at_risk_students' => 'Health & Welfare',
+            'intervention_plans' => 'Health & Welfare',
+            'welfare_follow_ups' => 'Health & Welfare',
+            'counseling_' => 'Health & Welfare',
+            'medical_alerts' => 'Health & Welfare',
+            'vaccination_records' => 'Health & Welfare',
+            'behavior_logs' => 'Discipline',
+            'conduct_grades' => 'Discipline',
+            'rewards_recognition' => 'Discipline',
+            'qr-scanner' => 'Quick Tools',
+            'manage_terms' => 'Academic',
+            'year_calendar' => 'Events & Calendar',
+            'fee_structure_approvals' => 'Finance',
             'manage_articles' => 'Web Management',
             'manage_public_' => 'Web Management',
             'manage_school_gallery' => 'Web Management',
@@ -725,6 +933,72 @@ class SidebarConfigReader
             'communications' => 'Families & Communication', 'reports' => 'Reports & Analytics',
             'resources' => 'Resources',
         ];
-        return $parentModules[$parentLabel] ?? 'Operations';
+        if (isset($parentModules[$parentLabel])) return $parentModules[$parentLabel];
+
+        // Parent names vary by role (for example "Lesson Plan Review", "My
+        // Students", and "Student Conduct"). Keyword classification retains
+        // that useful context instead of discarding unknown parents into the
+        // generic Operations group.
+        $parentKeywords = [
+            'report' => 'Reports & Analytics',
+            'admission' => 'Admissions',
+            'lesson' => 'Academic',
+            'curriculum' => 'Academic',
+            'academic' => 'Academic',
+            'timetable' => 'Timetables',
+            'schedule' => 'Timetables',
+            'assessment' => 'Assessment & Exams',
+            'exam' => 'Assessment & Exams',
+            'grading' => 'Assessment & Exams',
+            'student conduct' => 'Discipline',
+            'discipline' => 'Discipline',
+            'counsel' => 'Health & Welfare',
+            'welfare' => 'Health & Welfare',
+            'health' => 'Health & Welfare',
+            'medical' => 'Health & Welfare',
+            'my student' => 'Learners',
+            'my class' => 'Learners',
+            'student' => 'Learners',
+            'learner' => 'Learners',
+            'teacher management' => 'Staff',
+            'staff' => 'Staff',
+            'my teaching' => 'Teaching & Learning',
+            'my assignment' => 'Teaching & Learning',
+            'teaching' => 'Teaching & Learning',
+            'fee' => 'Finance',
+            'payment' => 'Finance',
+            'finance' => 'Finance',
+            'expenditure' => 'Finance',
+            'control' => 'Controls & Audit',
+            'audit' => 'Controls & Audit',
+            'transport' => 'Transport',
+            'exeat' => 'Boarding',
+            'boarder' => 'Boarding',
+            'boarding' => 'Boarding',
+            'parent' => 'Families & Communication',
+            'communication' => 'Families & Communication',
+            'library' => 'Library',
+            'uniform' => 'Inventory & Store',
+            'inventory' => 'Inventory & Store',
+            'supplier' => 'Inventory & Store',
+            'vendor' => 'Inventory & Store',
+            'food' => 'Catering & Food',
+            'menu' => 'Catering & Food',
+            'kitchen' => 'Catering & Food',
+            'catering' => 'Catering & Food',
+            'activit' => 'Activities & Clubs',
+            'club' => 'Activities & Clubs',
+            'sport' => 'Activities & Clubs',
+            'mentor' => 'Mentorship & Growth',
+            'observation' => 'Mentorship & Growth',
+            'development' => 'Mentorship & Growth',
+            'chapel' => 'Spiritual Life',
+            'resource' => 'Resources',
+            'website' => 'Web Management',
+        ];
+        foreach ($parentKeywords as $keyword => $module) {
+            if (str_contains($parentLabel, $keyword)) return $module;
+        }
+        return 'Operations';
     }
 }

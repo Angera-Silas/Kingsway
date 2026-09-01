@@ -253,20 +253,17 @@
     },
 
     "role-navigation": {
-      title: "Role Navigation Config",
+      title: "Role Navigation",
       list: function (p) { return API.system.getRoleNavigation(p); },
       save: null,
       del: null,
       readonly: true,
       columns: [
-        { key: "id", label: "#" },
         { key: "role_name", label: "Role" },
+        { key: "section", label: "Section" },
         { key: "menu_label", label: "Menu Item" },
         { key: "route", label: "Route" },
-        { key: "visible", label: "Visible", badge: true, badgeMap: { true: "success", false: "secondary", 1: "success", 0: "secondary" } },
-        { key: "sort_order", label: "Order" },
-        { key: "status", label: "Status", badge: true },
-        { key: "updated_at", label: "Updated" }
+        { key: "status", label: "Status", badge: true }
       ],
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
     },
@@ -295,27 +292,17 @@
     },
 
     "sidebar-menus": {
-      title: "Sidebar Menus",
+      title: "Role Navigation",
       list: function (p) { return API.system.getSidebarMenus(p); },
-      save: function (id, d) {
-        return id ? API.system.updateSidebarMenu(id, d) : API.system.createSidebarMenu(d);
-      },
-      del: function (id) { return API.system.deleteSidebarMenu(id); },
+      save: null,
+      del: null,
+      readonly: true,
       columns: [
-        { key: "id", label: "#" },
-        { key: "label", label: "Label" },
-        { key: "icon", label: "Icon" },
+        { key: "role_name", label: "Role" },
+        { key: "section", label: "Section" },
+        { key: "menu_label", label: "Menu Item" },
         { key: "route", label: "Route" },
-        { key: "sort_order", label: "Order" },
-        { key: "is_active", label: "Active", badge: true, badgeMap: { true: "success", false: "secondary", 1: "success", 0: "secondary" } }
-      ],
-      fields: [
-        { name: "label", label: "Label", type: "text", required: true },
-        { name: "icon", label: "Icon Class", type: "text", placeholder: "bi bi-house" },
-        { name: "route", label: "Route", type: "text" },
-        { name: "parent_id", label: "Parent ID", type: "number" },
-        { name: "sort_order", label: "Sort Order", type: "number" },
-        { name: "is_active", label: "Active", type: "select", options: [{ v: "1", t: "Yes" }, { v: "0", t: "No" }] }
+        { key: "status", label: "Status", badge: true }
       ],
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
     },
@@ -410,9 +397,10 @@
       columns: [
         { key: "id", label: "#" },
         { key: "action", label: "Event", badge: true, badgeMap: { security_incident: "danger", unauthorized_access: "danger", permission_denied: "warning", failed_login: "warning", login_failed: "warning" } },
+        { key: "username", label: "User" },
         { key: "entity", label: "Entity" },
         { key: "entity_id", label: "Entity ID" },
-        { key: "details", label: "Details" },
+        { key: "details", label: "Details", format: function (v) { return (v !== null && typeof v === "object") ? JSON.stringify(v) : v; } },
         { key: "status", label: "Status", badge: true, badgeMap: { success: "success", failure: "danger" } },
         { key: "created_at", label: "Reported" }
       ],
@@ -428,9 +416,10 @@
       columns: [
         { key: "id", label: "#" },
         { key: "action", label: "Event", badge: true, badgeMap: { policy_violation: "danger", permission_denied: "warning", rbac_denied: "warning", access_denied: "warning" } },
+        { key: "username", label: "User" },
         { key: "entity", label: "Entity" },
         { key: "entity_id", label: "Entity ID" },
-        { key: "details", label: "Details" },
+        { key: "details", label: "Details", format: function (v) { return (v !== null && typeof v === "object") ? JSON.stringify(v) : v; } },
         { key: "status", label: "Status", badge: true, badgeMap: { success: "success", failure: "danger" } },
         { key: "created_at", label: "Date" }
       ],
@@ -595,10 +584,10 @@
       readonly: true,
       columns: [
         { key: "id", label: "#" },
-        { key: "action", label: "Action", badge: true, badgeMap: { permission_create: "info", permission_update: "warning", permission_delete: "danger", role_permission_assign: "success", role_permission_remove: "danger" } },
+        { key: "action", label: "Action", badge: true, badgeMap: { permission_create: "info", permission_update: "warning", permission_delete: "danger", permission_definition_create: "info", permission_definition_update: "warning", permission_definition_delete: "danger", role_permission_assign: "success", role_permission_remove: "danger", role_create: "info", role_update: "warning", role_delete: "danger", role_assigned: "success", role_revoked: "danger", permission_assign: "success", permission_revoke: "danger" } },
         { key: "entity", label: "Entity" },
         { key: "entity_id", label: "Entity ID" },
-        { key: "user_id", label: "User ID" },
+        { key: "username", label: "User" },
         { key: "status", label: "Status", badge: true, badgeMap: { success: "success", failure: "danger" } },
         { key: "created_at", label: "Date" }
       ],

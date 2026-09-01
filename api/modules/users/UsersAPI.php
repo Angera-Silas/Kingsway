@@ -1385,6 +1385,20 @@ class UsersAPI extends BaseAPI
                     : substr($failureReason, 0, 100),
             ]);
 
+            // Mirror failed authentication into the audit journal with the
+            // canonical actions the Audit & Forensics console filters for.
+            if (!in_array($status, ['success', 'info', 'ok'], true)) {
+                \App\API\Includes\SecurityEventNotifier::failedLogin(
+                    (string) $identifier,
+                    (string) ($failureReason ?? 'unknown'),
+                    [
+                        'user_id' => $userId,
+                        'entity_id' => $userId,
+                        'details' => ['ip' => $ipAddress, 'identifier' => substr($identifier, 0, 100)],
+                    ]
+                );
+            }
+
             if ($ownsTransaction) {
                 $this->db->commit();
             }

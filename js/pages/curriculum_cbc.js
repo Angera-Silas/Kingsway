@@ -7,14 +7,25 @@ const CurriculumCBCController = (() => {
     let curriculumData = [];
     let pagination = { page: 1, limit: 15, total: 0 };
     let refs = { learningAreas: [], strands: [] };
+    let canManage = false;
+    let scope = null;
+    let isRestricted = false;
+    const allGradeLevels = ['PlayGroup','PP1','PP2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9'];
 
     async function init() {
+        await window.AuthContext?.ready?.();
+        // All mutations now pass through the reviewed/versioned proposal flow.
+        canManage = false;
+        document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !canManage));
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             // Subscribe to context changes
             window.AcademicContext.subscribe((context, event, data) => {
                 if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadData(1);
+                    loadTeacherScope().finally(() => {
+                        loadReferences();
+                        loadData(1);
+                    });
                 }
             });
 
@@ -24,9 +35,45 @@ const CurriculumCBCController = (() => {
             }
         }
 
+        await loadTeacherScope();
         attachListeners();
         await loadReferences();
         await loadData();
+    }
+
+    // Resolve the current user's curriculum assignment scope (server-authoritative).
+    // Leadership roles get unrestricted access; teaching staff are limited to the
+    // grades, learning areas and strands of the classes they are assigned to.
+    async function loadTeacherScope() {
+        try {
+            const resp = await window.API.apiCall('/academic/teacher-curriculum-scope', 'GET');
+            scope = resp?.data || resp || null;
+            isRestricted = !!(scope && scope.restricted);
+        } catch (e) {
+            console.error('Load curriculum scope failed:', e);
+            scope = null;
+            isRestricted = false;
+        }
+    }
+
+    function scopedGradeLevels() {
+        const grades = new Set();
+        (scope?.contexts || []).forEach(c => {
+            const g = String(c.grade_level || '').trim();
+            if (g) grades.add(g);
+        });
+        return allGradeLevels.filter(g => grades.has(g));
+    }
+
+    function populateGradeFilter() {
+        const gradeSel = document.getElementById('gradeLevelFilter');
+        if (!gradeSel) return;
+        const current = gradeSel.value;
+        const levels = isRestricted ? scopedGradeLevels() : allGradeLevels;
+        gradeSel.innerHTML = '<option value="">All Grade Levels</option>' +
+            levels.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
+        gradeSel.value = levels.includes(current) ? current : '';
+        refreshStrandFilter();
     }
 
     async function loadReferences() {
@@ -37,6 +84,7 @@ const CurriculumCBCController = (() => {
             ]);
             refs.learningAreas = Array.isArray(las?.data || las) ? (las?.data || las) : [];
             refs.strands = Array.isArray(strands?.data || strands) ? (strands?.data || strands) : [];
+            populateGradeFilter();
             populateFilters();
         } catch (e) { console.error('Load curriculum references failed:', e); }
     }
@@ -171,8 +219,8 @@ const CurriculumCBCController = (() => {
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-info btn-sm" onclick="CurriculumCBCController.view(${c.id})" title="View"><i class="bi bi-eye"></i></button>
-                        <button class="btn btn-warning btn-sm" onclick="CurriculumCBCController.edit(${c.id})" title="Edit"><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-danger btn-sm" onclick="CurriculumCBCController.remove(${c.id})" title="Delete"><i class="bi bi-trash"></i></button>
+                        ${canManage ? `<button class="btn btn-warning btn-sm" onclick="CurriculumCBCController.edit(${c.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" onclick="CurriculumCBCController.remove(${c.id})" title="Delete"><i class="bi bi-trash"></i></button>` : ''}
                     </div>
                 </td>
             </tr>`;

@@ -44,36 +44,7 @@ class AuthAPI extends BaseAPI
         $this->communicationsApi = new CommunicationsAPI();
         $this->authSessionService = new AuthSessionService($this->db);
 
-        // Check if database-driven config is available
-        // DISABLED: $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
-    }
-
-    /**
-     * Check if database-driven config tables exist
-     */
-    private function checkDatabaseConfigAvailable(): bool
-    {
-        try {
-            // Check for sidebar_menu_items table (renamed from menu_items to avoid collision with food menu)
-            $stmt = $this->db->query("SHOW TABLES LIKE 'sidebar_menu_items'");
-            if ($stmt->rowCount() === 0) {
-                return false;
-            }
-
-            // Consider the database config available if either per-role sidebar mappings exist
-            // OR role->dashboard mappings exist (role_dashboards). Some deployments use one or the other.
-            $stmt = $this->db->query("SELECT COUNT(*) as cnt FROM role_sidebar_menus");
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $roleSidebarCount = (int) ($result['cnt'] ?? 0);
-
-            $stmt = $this->db->query("SELECT COUNT(*) as cnt FROM role_dashboards");
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $roleDashboardsCount = (int) ($result['cnt'] ?? 0);
-
-            return ($roleSidebarCount > 0) || ($roleDashboardsCount > 0);
-        } catch (\Exception $e) {
-            return false;
-        }
+        // Sidebar navigation is file-driven through SidebarConfigReader.
     }
 
     /**

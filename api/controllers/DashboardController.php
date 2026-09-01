@@ -14,6 +14,7 @@ use App\API\Services\ClassTeacherAnalyticsService;
 use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
+use App\API\Services\SidebarConfigReader;
 use App\Config\DashboardRouter;
 
 /**
@@ -1679,13 +1680,14 @@ class DashboardController extends BaseController
 
     /**
      * GET /api/dashboard/sidebars
-     * Returns sidebar config from role_sidebars.php
+     * Returns the same effective sidebar config used at login.
      */
     public function getSidebars($id = null, $data = [], $segments = [])
     {
-        global $role_sidebars;
-
-        return $this->success($role_sidebars, 'Sidebar config retrieved');
+        return $this->success(
+            SidebarConfigReader::forAllRoles(),
+            'Effective sidebar config retrieved'
+        );
     }
 
     /**

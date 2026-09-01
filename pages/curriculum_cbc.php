@@ -17,7 +17,8 @@
             <button class="btn btn-outline-primary btn-sm" id="exportCurriculumBtn">
                 <i class="bi bi-download"></i> Export
             </button>
-            <button class="btn btn-success btn-sm" id="addCurriculumBtn">
+            <a class="btn btn-outline-success btn-sm" href="home.php?route=curriculum_proposals"><i class="bi bi-lightbulb"></i> Propose Change</a>
+            <button class="btn btn-success btn-sm" id="addCurriculumBtn" data-curriculum-manage>
                 <i class="bi bi-plus-circle"></i> Add Entry
             </button>
         </div>
@@ -66,18 +67,6 @@
                 <div class="col-md-3">
                     <select class="form-select" id="gradeLevelFilter">
                         <option value="">All Grade Levels</option>
-                        <option value="PlayGroup">PlayGroup</option>
-                        <option value="PP1">PP1</option>
-                        <option value="PP2">PP2</option>
-                        <option value="Grade 1">Grade 1</option>
-                        <option value="Grade 2">Grade 2</option>
-                        <option value="Grade 3">Grade 3</option>
-                        <option value="Grade 4">Grade 4</option>
-                        <option value="Grade 5">Grade 5</option>
-                        <option value="Grade 6">Grade 6</option>
-                        <option value="Grade 7">Grade 7</option>
-                        <option value="Grade 8">Grade 8</option>
-                        <option value="Grade 9">Grade 9</option>
                     </select>
                 </div>
                 <div class="col-md-3">

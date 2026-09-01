@@ -12,6 +12,7 @@ function escapeHtml(value) {
 
 const GradingScalesCtrl = {
     initialized: false,
+    canManage: false,
     state: {
         scales: [],           // [{ scale: {...}, rules: [...] }]
         activeScaleId: null,
@@ -24,6 +25,9 @@ const GradingScalesCtrl = {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
+        const teacher = (window.AuthContext?.getRoles?.() || []).some(role => [7,8,9].includes(Number(role?.id || role)) || /teacher|intern/i.test(String(role?.name || role)));
+        this.canManage = !teacher || window.AuthContext?.hasPermission?.('curriculum_manage');
+        document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !this.canManage));
         this.setupEventListeners();
         await this.loadScales();
         this.initialized = true;
@@ -90,9 +94,9 @@ const GradingScalesCtrl = {
             <div class="mb-1"><strong>Status:</strong> <span class="badge ${s.status === 'active' ? 'bg-success' : 'bg-secondary'}">${escapeHtml(s.status)}</span></div>
             <div class="mb-1"><strong>Grades:</strong> ${item.rules.length}</div>
             ${s.description ? `<div class="mb-1"><strong>Notes:</strong> ${escapeHtml(s.description)}</div>` : ''}
-            <button class="btn btn-outline-secondary btn-sm mt-2" onclick="GradingScalesCtrl.openScaleModal()">
+            ${this.canManage ? `<button class="btn btn-outline-secondary btn-sm mt-2" onclick="GradingScalesCtrl.openScaleModal()">
                 <i class="bi bi-pencil me-1"></i> Edit Scale
-            </button>`;
+            </button>` : '<a class="btn btn-outline-success btn-sm mt-2" href="home.php?route=curriculum_proposals">Propose a change</a>'}`;
     },
 
     renderRules() {
@@ -113,14 +117,14 @@ const GradingScalesCtrl = {
                 <td>${r.grade_points}</td>
                 <td>${escapeHtml(r.performance_level || '—')}</td>
                 <td>${r.sort_order}</td>
-                <td>
+                <td>${this.canManage ? `
                     <button class="btn btn-sm btn-outline-primary me-1" title="Edit" onclick="GradingScalesCtrl.openRuleModal(${r.id})">
                         <i class="bi bi-pencil"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="GradingScalesCtrl.deleteRule(${r.id})">
                         <i class="bi bi-trash"></i>
                     </button>
-                </td>
+                ` : '<span class="text-muted small">View only</span>'}</td>
             </tr>`;
         }).join('');
     },

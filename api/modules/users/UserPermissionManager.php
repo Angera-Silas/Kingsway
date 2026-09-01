@@ -59,6 +59,20 @@ class UserPermissionManager
             $stmt = $this->db->prepare($sql);
             $ok = $stmt->execute([$userId, $permissionId, $permissionType, $expiresAt, $reason, $grantedBy]);
 
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_permission',
+                $userId,
+                'permission_assign',
+                'Permission assigned to user',
+                ['details' => [
+                    'user_id' => $userId,
+                    'permission_id' => $permissionId,
+                    'permission_type' => $permissionType,
+                    'expires_at' => $expiresAt,
+                    'reason' => $reason,
+                ]]
+            );
+
             return [
                 'success' => $ok,
                 'data' => [
@@ -84,6 +98,14 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
             $sql = 'DELETE FROM user_permissions WHERE user_id = ? AND permission_id = ?';
             $stmt = $this->db->prepare($sql);
             $ok = $stmt->execute([$userId, $permissionId]);
+
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_permission',
+                $userId,
+                'permission_revoke',
+                'Permission revoked from user',
+                ['details' => ['user_id' => $userId, 'permission_id' => $permissionId]]
+            );
 
             return [
                 'success' => $ok,
@@ -353,6 +375,14 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                 }
             }
 
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_permission',
+                $userId,
+                'permission_assign',
+                'Permissions assigned to user in bulk',
+                ['details' => ['user_id' => $userId, 'assigned_count' => count($results), 'details' => $results]]
+            );
+
             return [
                 'success' => true,
                 'data' => [
@@ -382,6 +412,14 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
                     $count++;
                 }
             }
+
+            \App\API\Includes\SecurityEventNotifier::permissionChange(
+                'user_permission',
+                $userId,
+                'permission_revoke',
+                'Permissions revoked from user in bulk',
+                ['details' => ['user_id' => $userId, 'revoked_count' => $count, 'total_attempted' => count($permissionIds)]]
+            );
 
             return [
                 'success' => true,

@@ -16,6 +16,8 @@ use App\API\Services\StaffDomainAccessService;
 use App\API\Services\StaffTeachingAssignmentService;
 use App\API\Services\ReportCardReleaseService;
 use App\API\Services\AcademicContextService;
+use App\API\Services\TeacherCurriculumScopeService;
+use App\API\Services\CurriculumProposalService;
 use App\API\Modules\academic\AcademicCohortProjectionService;
 use RuntimeException;
 use function App\API\Includes\errorResponse;
@@ -132,6 +134,8 @@ class AcademicController extends BaseController
     private AcademicReportService $reportService;
     private AcademicCurriculumService $curriculumService;
     private AcademicYearService $yearService;
+    private TeacherCurriculumScopeService $curriculumScopeService;
+    private CurriculumProposalService $curriculumProposalService;
 
     public function __construct()
     {
@@ -150,6 +154,161 @@ class AcademicController extends BaseController
         $this->reportService = new AcademicReportService($this->api);
         $this->curriculumService = new AcademicCurriculumService($this->api);
         $this->yearService = new AcademicYearService($this->api);
+        $this->curriculumScopeService = new TeacherCurriculumScopeService($this->db->getConnection());
+        $this->curriculumProposalService = new CurriculumProposalService(
+            $this->db->getConnection(),
+            $this->curriculumScopeService
+        );
+    }
+
+    private function scopedCurriculumQuery(array $query): array
+    {
+        $yearId = isset($query['academic_year_id']) && $query['academic_year_id'] !== ''
+            ? (int) $query['academic_year_id']
+            : null;
+        $scope = $this->curriculumScopeService->resolve(
+            (int) $this->getUserId(),
+            $this->getUserRoleIds(),
+            $yearId
+        );
+        if (!empty($scope['restricted'])) {
+            $query['_scope_contexts'] = $scope['contexts'] ?? [];
+            $query['_scope_learning_area_ids'] = $scope['learning_area_ids'] ?? [];
+            $query['_scope_academic_year_id'] = $scope['academic_year_id'] ?? null;
+        }
+        return $query;
+    }
+
+    /** GET /api/academic/teacher-curriculum-scope */
+    public function getTeacherCurriculumScope($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->success($this->curriculumScopeService->resolve(
+            (int) $this->getUserId(),
+            $this->getUserRoleIds(),
+            !empty($query['academic_year_id']) ? (int) $query['academic_year_id'] : null
+        ), 'Curriculum assignment scope retrieved');
+    }
+
+    /** GET /api/academic/curriculum-proposal-context */
+    public function getCurriculumProposalContext($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->curriculumProposalRoleGuard()) return $guard;
+        $pdo = $this->db->getConnection();
+        $yearId = (int) ($_GET['academic_year_id'] ?? ($data['academic_year_id'] ?? 0));
+        $scope = $this->curriculumScopeService->resolve((int) $this->getUserId(), $this->getUserRoleIds(), $yearId ?: null);
+        $years = $pdo->query('SELECT id,year_code,year_name,status,is_current,start_date,end_date FROM academic_years ORDER BY start_date DESC')->fetchAll(PDO::FETCH_ASSOC);
+        $terms = [];
+        if (!empty($scope['academic_year_id'])) {
+            $stmt = $pdo->prepare('SELECT ayt.id,ayt.academic_year_id,ayt.status,t.name term_name,t.id term_number FROM academic_year_terms ayt JOIN terms t ON t.id=ayt.term_id WHERE ayt.academic_year_id=? ORDER BY t.id');
+            $stmt->execute([(int) $scope['academic_year_id']]);
+            $terms = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+        if (!empty($scope['restricted'])) {
+            $areaIds = array_map('intval', $scope['learning_area_ids'] ?? []);
+            $areas = [];
+            if ($areaIds) {
+                $marks = implode(',', array_fill(0, count($areaIds), '?'));
+                $stmt = $pdo->prepare("SELECT id,name,code,level_band,description,status,levels,is_optional FROM learning_areas WHERE id IN ($marks) ORDER BY name");
+                $stmt->execute($areaIds); $areas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        } else {
+            $areas = $pdo->query('SELECT id,name,code,level_band,description,status,levels,is_optional FROM learning_areas ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+        }
+        return $this->success(['scope' => $scope, 'years' => $years, 'terms' => $terms, 'learning_areas' => $areas]);
+    }
+
+    private function curriculumProposalRoleGuard()
+    {
+        if (!array_intersect([4, 5, 6, 7, 8, 9], $this->getUserRoleIds())) {
+            return $this->forbidden('Curriculum proposals are available only to academic staff.');
+        }
+        return null;
+    }
+
+    /** GET /api/academic/curriculum-proposals */
+    public function getCurriculumProposals($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->curriculumProposalRoleGuard()) return $guard;
+        try {
+            $filters = array_merge($_GET, is_array($data) ? $data : []);
+            return $this->success($this->curriculumProposalService->list(
+                $filters, (int) $this->getUserId(), in_array(4, $this->getUserRoleIds(), true)
+            ), 'Curriculum proposals retrieved');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[Curriculum proposals] ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/academic/curriculum-proposals */
+    public function postCurriculumProposals($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->curriculumProposalRoleGuard()) return $guard;
+        try {
+            return $this->success($this->curriculumProposalService->saveDraft(
+                is_array($data) ? $data : [], (int) $this->getUserId(), $this->getUserRoleIds()
+            ), 'Curriculum proposal saved as draft');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** PUT /api/academic/curriculum-proposals/{id} */
+    public function putCurriculumProposals($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->curriculumProposalRoleGuard()) return $guard;
+        if (!$id) return $this->badRequest('Proposal ID is required.');
+        try {
+            return $this->success($this->curriculumProposalService->saveDraft(
+                is_array($data) ? $data : [], (int) $this->getUserId(), $this->getUserRoleIds(), (int) $id
+            ), 'Curriculum proposal draft updated');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/academic/curriculum-proposals-submit */
+    public function postCurriculumProposalsSubmit($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->curriculumProposalRoleGuard()) return $guard;
+        $proposalId = (int) ($id ?: ($data['proposal_id'] ?? 0));
+        if (!$proposalId) return $this->badRequest('Proposal ID is required.');
+        try {
+            return $this->success($this->curriculumProposalService->submit($proposalId, (int) $this->getUserId()), 'Proposal submitted for School Administrator review');
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/academic/curriculum-proposals-review */
+    public function postCurriculumProposalsReview($id = null, $data = [], $segments = [])
+    {
+        if (!in_array(4, $this->getUserRoleIds(), true)) {
+            return $this->forbidden('Only the School Administrator can approve or reject curriculum changes.');
+        }
+        $proposalId = (int) ($id ?: ($data['proposal_id'] ?? 0));
+        if (!$proposalId) return $this->badRequest('Proposal ID is required.');
+        try {
+            return $this->success($this->curriculumProposalService->review(
+                $proposalId, (string) ($data['decision'] ?? ''), (string) ($data['review_notes'] ?? ''), (int) $this->getUserId()
+            ), 'Curriculum review recorded');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** GET /api/academic/curriculum-history */
+    public function getCurriculumHistory($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->curriculumProposalRoleGuard()) return $guard;
+        try {
+            return $this->success($this->curriculumProposalService->history(
+                array_merge($_GET, is_array($data) ? $data : []), (int) $this->getUserId(), $this->getUserRoleIds()
+            ), 'Curriculum history retrieved');
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
     }
 
     public function index()
@@ -1820,7 +1979,15 @@ return $this->serverError('An internal error occurred.');
      */
     public function getLearningAreasList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getLearningAreasList($data);
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
+        $result = $this->api->getLearningAreasList($query);
+        if (isset($query['_scope_learning_area_ids']) && isset($result['data']) && is_array($result['data'])) {
+            $allowed = array_flip(array_map('intval', $query['_scope_learning_area_ids']));
+            $result['data'] = array_values(array_filter(
+                $result['data'],
+                static fn(array $area): bool => isset($allowed[(int) ($area['id'] ?? 0)])
+            ));
+        }
         return $this->handleResponse($result);
     }
 
@@ -1859,7 +2026,17 @@ return $this->serverError('An internal error occurred.');
      */
     public function getLearningAreasGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->get($id ?? ($data['id'] ?? null));
+        $areaId = (int) ($id ?? ($data['id'] ?? 0));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        $scope = $this->curriculumScopeService->resolve(
+            (int) $this->getUserId(),
+            $this->getUserRoleIds(),
+            !empty($query['academic_year_id']) ? (int) $query['academic_year_id'] : null
+        );
+        if (!empty($scope['restricted']) && !in_array($areaId, array_map('intval', $scope['learning_area_ids'] ?? []), true)) {
+            return $this->forbidden('This learning area is not assigned to you for the selected academic year.');
+        }
+        $result = $this->api->get($areaId);
         return $this->handleResponse($result);
     }
 
@@ -1868,6 +2045,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function postLearningAreasCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
         $result = $this->api->create($data);
         return $this->handleResponse($result);
     }
@@ -1882,8 +2060,8 @@ return $this->serverError('An internal error occurred.');
      */
     public function putLearningAreasUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->update($id, $data);
-        return $this->handleResponse($result);
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        return $this->badRequest('Learning-area changes must use Curriculum Proposals so they are reviewed and versioned.');
     }
 
     public function putSubjects($id = null, $data = [], $segments = [])
@@ -1896,8 +2074,8 @@ return $this->serverError('An internal error occurred.');
      */
     public function deleteLearningAreasDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->delete($id);
-        return $this->handleResponse($result);
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        return $this->badRequest('Learning areas are retired through Curriculum Proposals, never directly deleted.');
     }
 
     public function deleteSubjects($id = null, $data = [], $segments = [])
@@ -2848,7 +3026,8 @@ return $this->serverError('An internal error occurred.');
      */
     public function getAssessmentTools($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->academicManager->getAssessmentTools());
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
+        return $this->handleResponse($this->academicManager->getAssessmentTools($query));
     }
 
     /** POST /api/academic/assessment-tools */
@@ -2965,7 +3144,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getStrands($id = null, $data = [], $segments = [])
     {
-        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        $filters = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($this->academicManager->getStrands($filters));
     }
 
@@ -2973,23 +3152,21 @@ return $this->serverError('An internal error occurred.');
     public function postStrands($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
-        return $this->handleResponse($this->academicManager->postStrands(is_array($data) ? $data : []));
+        return $this->badRequest('Direct curriculum changes are disabled. Create and approve a governed curriculum proposal.');
     }
 
     /** PUT /api/academic/strands/{id} */
     public function putStrands($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
-        if (!$id) return $this->badRequest('Strand ID is required');
-        return $this->handleResponse($this->academicManager->putStrands((int) $id, is_array($data) ? $data : []));
+        return $this->badRequest('Direct curriculum changes are disabled. Create and approve a governed curriculum proposal.');
     }
 
     /** DELETE /api/academic/strands/{id} */
     public function deleteStrands($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
-        if (!$id) return $this->badRequest('Strand ID is required');
-        return $this->handleResponse($this->academicManager->deleteStrands((int) $id));
+        return $this->badRequest('Curriculum items are retired through the governed proposal workflow, never directly deleted.');
     }
 
     // ==================== CBC: CLASS STUDENTS ====================
@@ -3435,7 +3612,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getSubStrands($id = null, $data = [], $segments = [])
     {
-        $query = array_merge($_GET, is_array($data) ? $data : []);
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($this->academicManager->getSubStrands($id !== null ? (int)$id : null, $query));
     }
 
@@ -3443,23 +3620,21 @@ return $this->serverError('An internal error occurred.');
     public function postSubStrands($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
-        return $this->handleResponse($this->academicManager->postSubStrands(is_array($data) ? $data : []));
+        return $this->badRequest('Direct curriculum changes are disabled. Create and approve a governed curriculum proposal.');
     }
 
     /** PUT /api/academic/sub-strands/{id} */
     public function putSubStrands($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
-        if (!$id) return $this->badRequest('Sub-strand ID is required');
-        return $this->handleResponse($this->academicManager->putSubStrands((int)$id, is_array($data) ? $data : []));
+        return $this->badRequest('Direct curriculum changes are disabled. Create and approve a governed curriculum proposal.');
     }
 
     /** DELETE /api/academic/sub-strands/{id} */
     public function deleteSubStrands($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
-        if (!$id) return $this->badRequest('Sub-strand ID is required');
-        return $this->handleResponse($this->academicManager->deleteSubStrands((int)$id));
+        return $this->badRequest('Curriculum items are retired through the governed proposal workflow, never directly deleted.');
     }
 
     /** POST /api/academic/sub-strands/bulk — auto-populate orphaned strands with default sub-strands */
@@ -3482,7 +3657,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getLearningOutcomes($id = null, $data = [], $segments = [])
     {
-        $query = array_merge($_GET, is_array($data) ? $data : []);
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($this->academicManager->getLearningOutcomes($id !== null ? (int)$id : null, $query));
     }
 
@@ -3514,7 +3689,7 @@ return $this->serverError('An internal error occurred.');
     /** GET /api/academic/assessment-rubrics?tool_id=X */
     public function getAssessmentRubrics($id = null, $data = [], $segments = [])
     {
-        $query = array_merge($_GET, is_array($data) ? $data : []);
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($this->academicManager->getAssessmentRubrics($id !== null ? (int)$id : null, $query));
     }
 
@@ -3597,7 +3772,7 @@ return $this->serverError('An internal error occurred.');
     /** GET /api/academic/strand-competencies?strand_id=X&competency_id=X */
     public function getStrandCompetencies($id = null, $data = [], $segments = [])
     {
-        $query = array_merge($_GET, is_array($data) ? $data : []);
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($this->academicManager->getStrandCompetencies($id !== null ? (int)$id : null, $query));
     }
 
@@ -3632,7 +3807,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getCurriculumTree($id = null, $data = [], $segments = [])
     {
-        $query = array_merge($_GET, is_array($data) ? $data : []);
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($this->academicManager->getCurriculumTree($query));
     }
 
@@ -3701,7 +3876,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getCurriculum($id = null, $data = [], $segments = [])
     {
-        $query = array_merge($_GET, is_array($data) ? $data : []);
+        $query = $this->scopedCurriculumQuery(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($this->academicManager->getCurriculum($query, $id ? (int) $id : null));
     }
 
@@ -3905,7 +4080,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function postCurriculum($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->academicManager->createCurriculumEntry(is_array($data) ? $data : []));
+        return $this->badRequest('Direct curriculum changes are disabled. Use Curriculum Proposals so the change is reviewed and versioned.');
     }
 
     /**
@@ -3913,7 +4088,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function putCurriculum($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->academicManager->updateCurriculumEntry((int) $id, is_array($data) ? $data : []));
+        return $this->badRequest('Direct curriculum changes are disabled. Use Curriculum Proposals so the change is reviewed and versioned.');
     }
 
     /**
@@ -3921,7 +4096,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function deleteCurriculum($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->academicManager->deleteCurriculumEntry((int) $id));
+        return $this->badRequest('Curriculum items are retired through the governed proposal workflow, never directly deleted.');
     }
 
     // ==================== PORTFOLIO MANAGEMENT ====================

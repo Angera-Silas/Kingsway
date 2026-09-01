@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Services\payments;
 
+use App\API\Services\UploadService;
 use PDO;
 use RuntimeException;
 
@@ -10,7 +11,13 @@ use RuntimeException;
 final class UniformCatalogService
 {
     private PDO $db;
-    public function __construct(PDO $db) { $this->db = $db; }
+    private UploadService $uploads;
+
+    private function publicImageUrl(?string $stored): ?string
+    {
+        return $this->uploads->publicUrl($stored);
+    }
+    public function __construct(PDO $db) { $this->db = $db; $this->uploads = new UploadService(); }
 
     public function list(array $filters = []): array
     {
@@ -26,8 +33,8 @@ final class UniformCatalogService
         $variantWhere = !empty($filters['staff']) ? '1=1' : "v.status='active'";
         $variants=$this->db->query("SELECT v.id,v.product_id,v.item_id,v.code,v.name,v.color_name,v.swatch_hex,v.status,v.is_default,v.display_order,(SELECT im.url FROM uniform_catalog_images im WHERE im.variant_id=v.id ORDER BY im.is_primary DESC,im.display_order,im.id LIMIT 1) image_url FROM uniform_catalog_variants v WHERE {$variantWhere} ORDER BY v.product_id,v.display_order,v.id")->fetchAll(PDO::FETCH_ASSOC);
         $images=$this->db->query("SELECT id,product_id,variant_id,url,alt_text,view_type,is_primary,display_order FROM uniform_catalog_images ORDER BY product_id,variant_id,is_primary DESC,display_order,id")->fetchAll(PDO::FETCH_ASSOC);
-        $by=[];$variantBy=[];$imageBy=[]; foreach($sizes as $size)$by[(int)$size['product_id']][]=$size; foreach($variants as $variant)$variantBy[(int)$variant['product_id']][]=$variant; foreach($images as $image)$imageBy[(int)$image['product_id']][]=$image;
-        foreach($rows as &$row){$row['sizes']=$by[(int)$row['id']]??[];$row['variants']=$variantBy[(int)$row['id']]??[];$row['images']=$imageBy[(int)$row['id']]??[];} unset($row); return $rows;
+        $by=[];$variantBy=[];$imageBy=[]; foreach($sizes as $size)$by[(int)$size['product_id']][]=$size; foreach($variants as $variant){$variant['image_url']=$this->publicImageUrl($variant['image_url']??null);$variantBy[(int)$variant['product_id']][]=$variant;} foreach($images as $image){$image['url']=$this->publicImageUrl($image['url']??null);$imageBy[(int)$image['product_id']][]=$image;}
+        foreach($rows as &$row){$row['image_url']=$this->publicImageUrl($row['image_url']??null);$row['sizes']=$by[(int)$row['id']]??[];$row['variants']=$variantBy[(int)$row['id']]??[];$row['images']=$imageBy[(int)$row['id']]??[];} unset($row); return $rows;
     }
 
     public function saveProduct(array $data, int $userId): array
@@ -41,7 +48,7 @@ final class UniformCatalogService
     }
 
     public function addImage(int $productId, string $url, ?string $alt=null, bool $primary=false, ?int $variantId=null, string $viewType='catalog'): array
-    { if(!$productId||$url==='')throw new RuntimeException('product_id and image URL are required');if(!in_array($viewType,['catalog','front','back','detail','lifestyle','size_guide'],true))throw new RuntimeException('Invalid image view type'); $this->db->beginTransaction(); try { if($primary){$sql=$variantId?'UPDATE uniform_catalog_images SET is_primary=0 WHERE product_id=? AND variant_id=?':'UPDATE uniform_catalog_images SET is_primary=0 WHERE product_id=? AND variant_id IS NULL';$params=$variantId?[$productId,$variantId]:[$productId];$this->db->prepare($sql)->execute($params);}$s=$this->db->prepare('INSERT INTO uniform_catalog_images(product_id,variant_id,url,alt_text,view_type,is_primary) VALUES(?,?,?,?,?,?)');$s->execute([$productId,$variantId?:null,$url,$alt,$viewType,$primary?1:0]);$this->db->commit();return ['id'=>(int)$this->db->lastInsertId(),'url'=>$url]; }catch(\Throwable $e){$this->db->rollBack();throw $e;} }
+    { if(!$productId||$url==='')throw new RuntimeException('product_id and image URL are required');if(!in_array($viewType,['catalog','front','back','detail','lifestyle','size_guide'],true))throw new RuntimeException('Invalid image view type'); $canonical=$this->uploads->canonicalStoredReference($url); $this->db->beginTransaction(); try { if($primary){$sql=$variantId?'UPDATE uniform_catalog_images SET is_primary=0 WHERE product_id=? AND variant_id=?':'UPDATE uniform_catalog_images SET is_primary=0 WHERE product_id=? AND variant_id IS NULL';$params=$variantId?[$productId,$variantId]:[$productId];$this->db->prepare($sql)->execute($params);}$s=$this->db->prepare('INSERT INTO uniform_catalog_images(product_id,variant_id,url,alt_text,view_type,is_primary) VALUES(?,?,?,?,?,?)');$s->execute([$productId,$variantId?:null,$canonical,$alt,$viewType,$primary?1:0]);$this->db->commit();return ['id'=>(int)$this->db->lastInsertId(),'url'=>$this->publicImageUrl($canonical)]; }catch(\Throwable $e){$this->db->rollBack();throw $e;} }
 
     public function get(int $id): array { $s=$this->db->prepare('SELECT * FROM uniform_catalog_products WHERE id=?');$s->execute([$id]);return $s->fetch(PDO::FETCH_ASSOC)?:[]; }
 
