@@ -12,7 +12,7 @@
             <h4 class="mb-1"><i class="bi bi-bag-check me-2 text-primary"></i>Uniform Sales</h4>
             <p class="text-muted mb-0">Manage uniform inventory, record sales, and track payments</p>
         </div>
-        <a class="btn btn-outline-success" href="uniform_catalog.php" target="_blank"><i class="bi bi-shop me-1"></i>Preview Store</a>
+        <a class="btn btn-outline-success" href="index.php?route=r39d07ccbcf8a" target="_blank"><i class="bi bi-shop me-1"></i>Preview Store</a>
         <div class="d-flex gap-2">
             <button class="btn btn-primary" onclick="UniformSalesController.showNewSaleModal()">
                 <i class="bi bi-cart-plus me-1"></i>New Sale
@@ -209,7 +209,7 @@
 
 <!-- ── New Sale Modal ──────────────────────────────────────────────── -->
 <div class="modal fade" id="newSaleModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-cart-plus me-2"></i>New Uniform Sale</h5>
@@ -273,7 +273,7 @@
 
 <!-- ── Restock Modal ───────────────────────────────────────────────── -->
 <div class="modal fade" id="restockModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-boxes me-2"></i>Restock Uniform</h5>
@@ -322,7 +322,7 @@
 
 <!-- ── View Sizes Modal ────────────────────────────────────────────── -->
 <div class="modal fade" id="viewSizesModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="viewSizesTitle">Uniform Sizes</h5>
@@ -338,7 +338,7 @@
 
 <!-- ── Record Payment Modal ────────────────────────────────────────── -->
 <div class="modal fade" id="uniformPaymentModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-cash-coin me-2"></i>Record Payment</h5>

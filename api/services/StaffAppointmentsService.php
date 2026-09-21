@@ -375,35 +375,34 @@ final class StaffAppointmentsService
 
         // 4NF identity model: persons holds first/last name + email; users links via
         // person_id (password_hash, not password); staff links to the same person.
+        // ids come from AUTO_INCREMENT — a MAX(id)+1 read here would race concurrent inserts.
         $this->db->beginTransaction();
         try {
-            $personId = $this->nextId('persons');
             $this->db->query(
-                "INSERT INTO persons (id, first_name, middle_name, last_name, email, phone)
-                 VALUES (?, ?, NULL, ?, ?, ?)",
-                [$personId, $appointment['candidate_first_name'], $appointment['candidate_last_name'], $appointment['candidate_email'], $appointment['candidate_phone'] ?? null]
+                "INSERT INTO persons (first_name, middle_name, last_name, email, phone)
+                 VALUES (?, NULL, ?, ?, ?)",
+                [$appointment['candidate_first_name'], $appointment['candidate_last_name'], $appointment['candidate_email'], $appointment['candidate_phone'] ?? null]
             );
+            $personId = (int)$this->db->lastInsertId();
 
-            $userId = $this->nextId('users');
             $this->db->query(
-                "INSERT INTO users (id, username, password_hash, person_id, status, force_password_change, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'active', 1, NOW(), NOW())",
-                [$userId, $username, password_hash($tempPassword, PASSWORD_DEFAULT), $personId]
+                "INSERT INTO users (username, password_hash, person_id, status, force_password_change, created_at, updated_at)
+                 VALUES (?, ?, ?, 'active', 1, NOW(), NOW())",
+                [$username, password_hash($tempPassword, PASSWORD_DEFAULT), $personId]
             );
+            $userId = (int)$this->db->lastInsertId();
             $this->db->query(
                 "INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, NOW())",
                 [$userId, $roleId]
             );
 
-            $staffId = $this->nextId('staff');
             $this->db->query(
                 "INSERT INTO staff
-                  (id, person_id, staff_type_id, staff_category_id, staff_no,
+                  (person_id, staff_type_id, staff_category_id, staff_no,
                    supervisor_id, position, employment_date, contract_type, salary, status, created_at, updated_at)
                  VALUES
-                  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())",
+                  (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())",
                 [
-                    $staffId,
                     $personId,
                     $appointment['staff_type_id'],
                     $appointment['staff_category_id'],
@@ -415,6 +414,7 @@ final class StaffAppointmentsService
                     $appointment['salary'],
                 ]
             );
+            $staffId = (int)$this->db->lastInsertId();
             if (!empty($appointment['department_id'])) {
                 $this->openDepartmentAssignment($staffId, (int)$appointment['department_id'], $appointment['employment_date'] ?? date('Y-m-d'));
             }
@@ -652,17 +652,11 @@ final class StaffAppointmentsService
 
     private function openDepartmentAssignment(int $staffId, int $departmentId, string $effectiveDate): void
     {
-        $nextId = (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM staff_department_assignments')->fetchColumn();
         $this->db->query(
-            "INSERT INTO staff_department_assignments (id, staff_id, department_id, effective_from)
-             VALUES (?, ?, ?, ?)",
-            [$nextId, $staffId, $departmentId, $effectiveDate]
+            "INSERT INTO staff_department_assignments (staff_id, department_id, effective_from)
+             VALUES (?, ?, ?)",
+            [$staffId, $departmentId, $effectiveDate]
         );
-    }
-
-    private function nextId(string $table): int
-    {
-        return (int)$this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}")->fetchColumn();
     }
 
     private function recordHistory(string $type, int $appointmentId, string $action, int $actorId, ?string $remarks, ?string $previousStatus, ?string $newStatus, array $changes): void
@@ -723,8 +717,8 @@ final class StaffAppointmentsService
                 'name' => trim($appointment['candidate_first_name'] . ' ' . $appointment['candidate_last_name']),
                 'username' => $username,
                 'temporary_password' => $password,
-                'setup_url' => $base . '/reset_default_password.php?token=' . rawurlencode($token),
-                'login_url' => $base . '/index.php',
+                'setup_url' => $base . '/index.php?route=rf4a47967b780&token=' . rawurlencode($token),
+                'login_url' => $base . '/index.php?route=r6d394ab20b0b',
                 'profile_url' => $base . '/home.php?route=complete_staff_profile',
                 'expires_hours' => 72,
             ];

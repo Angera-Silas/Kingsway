@@ -188,13 +188,13 @@ class StaffPayrollManager extends BaseAPI
             $runStmt->execute([$month, $year]);
             $runId = $runStmt->fetchColumn();
             if (!$runId) {
-                $runId = $this->nextId('payroll_runs');
                 $runStatus = in_array($status, ['draft', 'processing', 'approved', 'paid'], true) ? $status : 'draft';
                 $runStmt = $this->db->prepare(
-                    "INSERT INTO payroll_runs (id, month, year, status, created_by)
-                     VALUES (?, ?, ?, ?, ?)"
+                    "INSERT INTO payroll_runs (month, year, status, created_by)
+                     VALUES (?, ?, ?, ?)"
                 );
-                $runStmt->execute([$runId, $month, $year, $runStatus, $this->user_id]);
+                $runStmt->execute([$month, $year, $runStatus, $this->user_id]);
+                $runId = (int) $this->db->lastInsertId();
             }
 
             $payslipStatus = in_array($status, ['draft', 'approved', 'paid', 'cancelled'], true) ? $status : 'draft';
@@ -321,7 +321,7 @@ class StaffPayrollManager extends BaseAPI
                 SELECT ps.*, s.staff_no,
                     CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
                     s.position, s.bank_account, spp.nssf_no, spp.nhif_no, spp.kra_pin,
-                    st.name AS staff_type, d.name AS department_name,
+                    spp.bank_name, st.name AS staff_type, d.name AS department_name,
                     CONCAT(ap.first_name, ' ', ap.last_name) AS approved_by_name
                 FROM payslips ps
                 INNER JOIN staff s ON ps.staff_id = s.id
@@ -864,7 +864,7 @@ class StaffPayrollManager extends BaseAPI
             $staffSalary = floatval($staffRow['salary']);
             $maxDeductible = $staffSalary * ($maxDeductionPct / 100);
 
-            $feeManager = new FeeManager();
+            $feeManager = $this->contract('App\API\Modules\finance\FeeManager');
             $invoiceWarnings = [];
 
             // Get active children
@@ -1387,15 +1387,6 @@ class StaffPayrollManager extends BaseAPI
         $stmt->execute([$staffId, $month, $year]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ? $row['id'] : null;
-    }
-
-    /**
-     * Generate the next id for manual-id tables (e.g. payroll_runs).
-     */
-    private function nextId($table)
-    {
-        $stmt = $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM `{$table}`");
-        return (int) $stmt->fetchColumn();
     }
 
     private function statutoryRule($agency, $ruleCode, $year = null)

@@ -14,6 +14,7 @@
  */
 ?>
 
+<div class="card border-success-subtle bg-light mb-3" id="aiStaffHrPanel"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Staff and HR assistant</strong><div class="small text-muted">Aggregate workload, leave, onboarding, and coverage guidance; no employment decisions or staff identity disclosure to the provider.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiHrReview"><i class="bi bi-stars me-1"></i>Review HR signals</button></div><div id="aiHrReviews" class="row g-2 mt-2"></div></div></div>
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-success text-white">
         <div class="d-flex justify-content-between align-items-center">
@@ -719,7 +720,7 @@
 
 <!-- Assign Class Modal -->
 <div class="modal fade" id="assignClassModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Assign Staff to Class</h5>
@@ -765,7 +766,7 @@
 
 <!-- Assign Subject Modal -->
 <div class="modal fade" id="assignSubjectModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Assign Subject to Staff</h5>
@@ -803,7 +804,7 @@
 
 <!-- Payslip View Modal -->
 <div class="modal fade" id="payslipModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">Staff Payslip</h5>
@@ -824,7 +825,7 @@
 
 <!-- Staff Modal (Create/Edit) -->
 <div class="modal fade" id="staffModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title" id="staffModalLabel">Add Staff Member</h5>
@@ -1023,7 +1024,7 @@
 
 <!-- View Staff Details Modal - Enhanced -->
 <div class="modal fade" id="viewStaffModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Staff Details</h5>
@@ -1044,7 +1045,7 @@
 
 <!-- Bulk Import Modal -->
 <div class="modal fade" id="bulkImportModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">Bulk Import Staff</h5>
@@ -1072,7 +1073,7 @@
 
         <!-- Leave Requests Modal -->
         <div class="modal fade" id="leaveRequestsModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
+            <div class="modal-dialog modal-dialog-scrollable modal-lg">
                 <div class="modal-content">
                     <div class="modal-header bg-success text-white">
                         <h5 class="modal-title">Leave Requests</h5>
@@ -1106,7 +1107,7 @@
 
         <!-- Contract Modal -->
         <div class="modal fade" id="contractModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
+            <div class="modal-dialog modal-dialog-scrollable modal-lg">
                 <div class="modal-content">
                     <div class="modal-header bg-success text-white">
                         <h5 class="modal-title">Staff Contract</h5>
@@ -1181,3 +1182,4 @@
 
 <!-- Link Controller Script -->
 <?php asset_script($appBase, 'js/pages/staff.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_staff_hr.js'); ?>

@@ -55,14 +55,14 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <div class="modal fade" id="mapPromptModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title">Send admission payment prompt</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <div id="mapPromptSummary" class="alert alert-light border small"></div>
       <form id="mapPromptForm">
         <input type="hidden" id="mapApplicationId">
         <div class="mb-3"><label class="form-label small fw-semibold">Amount calculated by system</label><div class="input-group"><span class="input-group-text">KES</span><input id="mapAmount" class="form-control" readonly></div><div class="form-text">The accountant cannot change this amount.</div></div>
-        <div class="mb-3"><label class="form-label small fw-semibold">Parent M-Pesa phone</label><input id="mapPhone" class="form-control" type="tel" readonly required><div class="form-text">This is the parent’s registered number. Update the parent record if it is missing or incorrect.</div></div>
+        <div class="mb-3"><label class="form-label small fw-semibold">Parent M-Pesa phone</label><input id="mapPhone" class="form-control" type="tel" required><div class="form-text">The parent’s registered number is loaded by default. You may change it when payment is being made from another number.</div></div>
         <div id="mapPromptError" class="alert alert-danger small d-none mb-0"></div>
       </form>
     </div>
@@ -71,7 +71,7 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <div class="modal fade" id="mapAuditModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title">Admission payment audit trail</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body" id="mapAuditBody"><div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span></div></div>
   </div></div>

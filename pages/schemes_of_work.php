@@ -146,7 +146,7 @@
 
 <!-- Auto-Generate Schemes Modal -->
 <div class="modal fade" id="generateSchemeModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-magic me-1"></i>Auto-Generate Schemes of Work</h5>
@@ -157,6 +157,11 @@
                     Generates weekly scheme-of-work entries from the CBC curriculum strands and sub-strands.
                     Generates a draft for one exact class stream and learning-area assignment. Existing entries for that stream, learning area and calendar week are skipped.
                 </div>
+                <div class="alert alert-light border py-2 small d-flex justify-content-between align-items-center gap-2">
+                    <span><i class="bi bi-stars text-success me-1"></i>Need a teaching sequence? The assistant will use only the authorized CBC selection below and return an editable draft.</span>
+                    <button type="button" class="btn btn-outline-success btn-sm" id="queueAiSchemeDraft"><i class="bi bi-stars me-1"></i>Draft with assistant</button>
+                </div>
+                <div id="aiSchemeDrafts" class="row g-2 mb-3"></div>
                 <form id="generateSchemeForm">
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -220,7 +225,7 @@
 
 <!-- View Scheme Details Modal -->
 <div class="modal fade" id="viewSchemeModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-light">
                 <h5 class="modal-title">Scheme of Work Details</h5>
@@ -270,3 +275,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/schemes_of_work.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_scheme_draft.js'); ?>

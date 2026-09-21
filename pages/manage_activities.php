@@ -6,6 +6,7 @@
 ?>
 
 <div class="container-fluid mt-3">
+  <div class="card border-success-subtle bg-light mb-3" id="aiActivitiesReviewPanel"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Activities and resources assistant</strong><div class="small text-muted">Aggregate programme/resource guidance only; no learner identity disclosure or record changes.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiActivitiesReview"><i class="bi bi-stars me-1"></i>Review activities</button></div><div id="aiActivitiesReviews" class="row g-2 mt-2"></div></div></div>
 
   <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4">
@@ -179,7 +180,7 @@
 
 <!-- Add/Edit Activity Modal -->
 <div class="modal fade" id="activityModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="activityModalTitle">Add Activity</h5>
@@ -244,7 +245,7 @@
 
 <!-- Category Modal -->
 <div class="modal fade" id="categoryModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="categoryModalTitle">Add Category</h5>
@@ -271,7 +272,7 @@
 
 <!-- Participant Register Modal -->
 <div class="modal fade" id="participantModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Register Participant</h5>
@@ -301,7 +302,7 @@
 
 <!-- Schedule Modal -->
 <div class="modal fade" id="scheduleModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="scheduleModalTitle">Add Schedule</h5>
@@ -342,7 +343,7 @@
 
 <!-- Resource Modal -->
 <div class="modal fade" id="resourceModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="resourceModalTitle">Add Resource</h5>
@@ -388,3 +389,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/manage_activities.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_activities_review.js'); ?>

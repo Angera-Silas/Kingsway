@@ -240,7 +240,7 @@ class StudentInsightsService
                     COALESCE(SUM(amount_paid), 0) as total_paid,
                     COALESCE(SUM(amount_waived), 0) as total_waived,
                     COALESCE(SUM(balance), 0) as balance
-             FROM vw_student_fee_balances
+             FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
              WHERE student_id = ?",
             [$studentId]
         ) ?: ['total_due' => 0, 'total_paid' => 0, 'total_waived' => 0, 'balance' => 0];
@@ -501,6 +501,72 @@ class StudentInsightsService
             'stream_name' => $iep['stream_name'] ?? '',
             'created_by_name' => $iep['created_by_name'] ?? 'System',
             'approved_by_name' => $iep['approved_by_name'] ?? '',
+        ];
+    }
+
+    public function createSpecialNeedsIep(array $data, int $createdByUserId): array
+    {
+        $studentId = (int)($data['student_id'] ?? 0);
+        if ($studentId <= 0) {
+            throw new RuntimeException('A student must be selected.');
+        }
+
+        $student = $this->fetchOne(
+            "SELECT s.id, s.admission_no FROM students s WHERE s.id = ? AND s.status = 'active' LIMIT 1",
+            [$studentId]
+        );
+        if (!$student) {
+            throw new RuntimeException('The selected student is not an active learner.');
+        }
+
+        $goalsSummary = trim((string)($data['goals_summary'] ?? ''));
+        if ($goalsSummary === '') {
+            throw new RuntimeException('Goals summary is required.');
+        }
+
+        $academicYear = trim((string)($data['academic_year'] ?? ''));
+        $yearCode = $academicYear !== '' ? $academicYear : null;
+        if ($yearCode === null) {
+            $row = $this->fetchOne(
+                "SELECT year_code FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1"
+            );
+            $yearCode = $row['year_code'] ?? null;
+        }
+
+        $iepType = trim((string)($data['iep_type'] ?? ''));
+        $category = trim((string)($data['special_needs_category'] ?? ''));
+        $status = in_array(($data['status'] ?? ''), ['draft', 'active', 'completed', 'archived'], true)
+            ? $data['status']
+            : 'draft';
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO ieps
+                (student_id, academic_year, iep_type, special_needs_category,
+                 goals_summary, strategies, accommodations, progress_monitoring_plan,
+                 created_by, approved_by, approved_date, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)"
+        );
+        $stmt->execute([
+            $studentId,
+            $yearCode,
+            $iepType !== '' ? $iepType : null,
+            $category !== '' ? $category : null,
+            $goalsSummary,
+            trim((string)($data['strategies'] ?? '')),
+            trim((string)($data['accommodations'] ?? '')),
+            trim((string)($data['progress_monitoring_plan'] ?? '')),
+            $createdByUserId,
+            $status,
+        ]);
+
+        return [
+            'id' => (int)$this->db->lastInsertId(),
+            'student_id' => $studentId,
+            'admission_no' => $student['admission_no'] ?? '',
+            'academic_year' => $yearCode,
+            'iep_type' => $iepType,
+            'special_needs_category' => $category,
+            'status' => $status,
         ];
     }
 

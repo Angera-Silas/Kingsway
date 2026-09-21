@@ -33,11 +33,12 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
                 <div class="alert alert-danger d-none" id="authError" role="alert"></div>
                 <form id="authLoginForm">
                     <label class="form-label" for="authIdentifier">Username or email</label><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-person"></i></span><input class="form-control" id="authIdentifier" placeholder="Enter username or email" required autocomplete="username"></div>
-                    <div class="d-flex justify-content-between"><label class="form-label" for="authPassword">Password</label><a href="<?= htmlspecialchars($appBase) ?>/forgot_password.php">Forgot password?</a></div><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-key"></i></span><input type="password" class="form-control" id="authPassword" placeholder="Enter your password" required autocomplete="current-password"><button class="btn auth-password-toggle" type="button" id="authTogglePassword" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
+                    <div class="d-flex justify-content-between"><label class="form-label" for="authPassword">Password</label><a href="<?= htmlspecialchars($appBase) ?>/index.php?route=r8f1bc67a3eb2">Forgot password?</a></div><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-key"></i></span><input type="password" class="form-control" id="authPassword" placeholder="Enter your password" required autocomplete="current-password"><button class="btn auth-password-toggle" type="button" id="authTogglePassword" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
                     <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="authRemember"><label class="form-check-label" for="authRemember">Keep me signed in on this device</label></div>
                     <button class="btn btn-warning w-100 auth-submit" id="authSubmit" type="submit"><span>Sign in</span><span class="spinner-border spinner-border-sm d-none"></span></button>
                 </form>
                 <div class="auth-divider"><span>or</span></div><button class="btn btn-outline-dark w-100" id="authPasswordless" type="button"><i class="bi bi-fingerprint me-2"></i>Sign in with a passkey</button>
+                <p class="text-center mt-3 mb-0"><a href="<?= htmlspecialchars($appBase) ?>/parent_portal.php"><i class="bi bi-people me-1"></i>Login as parent or guardian</a></p>
             </div>
             <div class="d-none" id="verificationStep">
                 <span class="auth-step-label">Identity verification</span><h2 id="verificationTitle">Two-factor authentication 🔑</h2><p class="auth-intro" id="verificationDescription">Use your device to get the code.</p>
@@ -48,6 +49,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
             </div>
         </div>
         <p class="auth-help"><i class="bi bi-shield-lock"></i> Kingsway will never ask you to share a verification code.</p>
+        <p class="auth-soft">Maintained by <a href="https://www.angisoft.co.ke" target="_blank" rel="noopener">AngiSoft Technologies</a></p>
     </section>
 </main>
 <script src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"></script>

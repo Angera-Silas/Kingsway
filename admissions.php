@@ -180,14 +180,14 @@ $adSteps = [
             </li>
             <?php endforeach; ?>
           </ul>
-          <a href="<?= $appBase ?>/downloads.php" class="btn-kw-outline" style="color:<?= $fp[2] ?>;border-color:<?= $fp[2] ?>">
+          <a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e" class="btn-kw-outline" style="color:<?= $fp[2] ?>;border-color:<?= $fp[2] ?>">
             <i class="bi bi-download"></i>Download Full Fee Structure
           </a>
         </div>
       </div>
       <?php endforeach; ?>
     </div>
-    <p class="text-center text-muted small mt-4">* Fees are reviewed annually. Payment plans available. Bursaries offered to deserving students — <a href="<?= $appBase ?>/downloads.php" class="text-success">download bursary form</a>.</p>
+    <p class="text-center text-muted small mt-4">* Fees are reviewed annually. Payment plans available. Bursaries offered to deserving students — <a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e" class="text-success">download bursary form</a>.</p>
   </div>
 </section>
 
@@ -235,8 +235,11 @@ $adSteps = [
               <input type="text" name="child_name" class="form-control-kw" placeholder="As on birth certificate" required>
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold">Date of Birth</label>
-              <input type="date" name="child_dob" class="form-control-kw">
+              <label class="form-label small fw-semibold">Date of Birth <span class="text-danger">*</span></label>
+              <input type="date" name="child_dob" class="form-control-kw" required
+                     max="<?= (new DateTimeImmutable('now', new DateTimeZone('Africa/Nairobi')))->modify('-2 years')->format('Y-m-d') ?>"
+                     aria-describedby="childDobHelp">
+              <small id="childDobHelp" class="form-text text-muted">The child must be at least 2 years old.</small>
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold">Gender <span class="text-danger">*</span></label>
@@ -262,7 +265,15 @@ $adSteps = [
             </div>
             <div class="col-md-6">
               <label class="form-label small fw-semibold">Current Grade / Class</label>
-              <input type="text" name="child_prev_grade" class="form-control-kw" placeholder="e.g. Grade 3, Standard 4">
+              <select name="child_prev_grade" class="form-control-kw">
+                <option value="">Select current grade / class</option>
+                <option value="Playgroup">Playgroup</option>
+                <option value="PP1">PP1</option>
+                <option value="PP2">PP2</option>
+                <?php for ($grade = 1; $grade <= 8; $grade++): ?>
+                  <option value="Grade<?= $grade ?>">Grade <?= $grade ?></option>
+                <?php endfor; ?>
+              </select>
             </div>
           </div>
           <div class="d-flex justify-content-end mt-4">
@@ -510,7 +521,7 @@ $adSteps = [
         <p class="text-muted mb-1">Your application reference number is:</p>
         <div class="display-6 fw-bold text-success mb-3" id="adRefDisplay"></div>
         <p class="text-muted small">Save this reference number. Our admissions team will call you within 24 hours.</p>
-        <a href="<?= $appBase ?>/contact.php" class="btn-kw-outline mt-3">
+        <a href="<?= $appBase ?>/index.php?route=r3443047604ab" class="btn-kw-outline mt-3">
           <i class="bi bi-telephone"></i>Contact Admissions
         </a>
       </div>
@@ -549,7 +560,7 @@ $adSteps = [
           <?php endforeach; ?>
         </div>
         <div class="text-center mt-4">
-          <p class="text-muted small">Still have questions? <a href="<?= $appBase ?>/contact.php" class="text-success fw-semibold">Contact our admissions team</a></p>
+          <p class="text-muted small">Still have questions? <a href="<?= $appBase ?>/index.php?route=r3443047604ab" class="text-success fw-semibold">Contact our admissions team</a></p>
         </div>
       </div>
     </div>
@@ -586,10 +597,26 @@ function adNext(fromSection) {
       return;
     }
   }
+  if (fromSection === 0 && !adValidateDob()) return;
   if (fromSection === 3) adUpdateSummary();
   adShowSection(fromSection + 1);
   window.scrollTo({top: document.getElementById('apply').offsetTop - 80, behavior:'smooth'});
 }
+
+function adValidateDob() {
+  const dob = document.querySelector('[name="child_dob"]');
+  if (!dob || !dob.value) return false;
+  if (dob.max && dob.value > dob.max) {
+    dob.setCustomValidity('Date of birth must be at least 2 years before today.');
+    dob.reportValidity();
+    dob.focus();
+    return false;
+  }
+  dob.setCustomValidity('');
+  return true;
+}
+
+document.querySelector('[name="child_dob"]')?.addEventListener('input', adValidateDob);
 
 function adPrev(fromSection) {
   adShowSection(fromSection - 1);
@@ -663,6 +690,7 @@ adSyncDocumentRequirements();
 /* ── Form submission ── */
 document.getElementById('admissionForm')?.addEventListener('submit', async function(e) {
   e.preventDefault();
+  if (!adValidateDob()) return;
   const check = document.getElementById('declarationCheck');
   if (!check.checked) {
     check.focus();

@@ -379,6 +379,11 @@ function kw_leadership(): array {
              JOIN leadership_levels ll ON ll.id = lp.level_id
              JOIN persons p ON p.id = sl.person_id
              WHERE sl.is_active = 1 AND sl.academic_year_id = ?
+               AND p.data_scope = 'live'
+               AND NOT EXISTS (
+                   SELECT 1 FROM users u
+                   WHERE u.person_id = sl.person_id AND u.is_test_user = 1
+               )
              ORDER BY ll.display_order, sl.display_order"
         );
         $stmt->execute([$ayId]);
@@ -577,4 +582,47 @@ function kw_category_image(string $category, int $w = 800): string {
     ];
     $id = $map[$category] ?? 'photo-1503676260728-1c00da094a0b';
     return "https://images.unsplash.com/{$id}?w={$w}&q=80";
+}
+
+/* ── Public route tokens (anonymised routes) ────────────────────────────────────
+ * Public users, curl, and scripts see opaque `index.php?route=r<hex>` values
+ * instead of real page keys/paths. The salt is NOT a secret: hashing here is
+ * anonymisation/obfuscation only — the deny-by-default `.htaccess` allowlist
+ * remains the real security boundary. The same salt (deployment-independent
+ * constant) means tokens are identical across dev and prod, which lets us
+ * hard-code them into templates and link builders.
+ */
+if (!defined('APP_PUBLIC_ROUTE_SALT')) {
+    define('APP_PUBLIC_ROUTE_SALT', 'kingsway-public-route-v1::9f2b7d41');
+}
+
+function public_route_token(string $routeKey): string
+{
+    return 'r' . substr(hash('sha256', APP_PUBLIC_ROUTE_SALT . '|' . $routeKey), 0, 12);
+}
+
+function public_route_url(string $routeKey, array $query = [], string $fragment = ''): string
+{
+    $url = 'index.php?route=' . public_route_token($routeKey);
+    if ($query !== []) {
+        $url .= '&' . http_build_query($query);
+    }
+    if ($fragment !== '') {
+        $url .= '#' . $fragment;
+    }
+    return $url;
+}
+
+function public_route_map(): array
+{
+    static $map = null;
+    if ($map !== null) {
+        return $map;
+    }
+    $map = [];
+    $routes = include __DIR__ . '/../public/layout/facade_routes.php';
+    foreach ($routes['public'] ?? [] as $routeKey => $_target) {
+        $map[public_route_token($routeKey)] = $routeKey;
+    }
+    return $map;
 }

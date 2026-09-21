@@ -14,6 +14,8 @@ use App\API\Services\ClassTeacherAnalyticsService;
 use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
+use App\API\Services\AiWorkflowService;
+use App\API\Services\AiInsightOrchestrator;
 use App\API\Services\SidebarConfigReader;
 use App\Config\DashboardRouter;
 
@@ -44,6 +46,77 @@ class DashboardController extends BaseController
         return $this->success(['message' => 'Dashboard API is running']);
     }
 
+    /**
+     * GET /api/dashboard/ai-assistant-catalog
+     * Return only contextual assistance the current staff member may use.
+     * This powers the shell assistant; domain actions remain in their own
+     * controllers and pages.
+     */
+    public function getAiAssistantCatalog($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        try {
+            $permissions = array_values(array_unique(array_map('strval', array_merge(
+                (array) ($this->user['effective_permissions'] ?? []),
+                (array) ($this->user['permissions'] ?? [])
+            ))));
+            $route = strtolower(trim((string) ($_GET['route'] ?? '')));
+            $module = strtolower(trim((string) ($_GET['module'] ?? 'dashboard')));
+            $roleNames = (array) ($this->user['roles'] ?? $this->user['role_names'] ?? []);
+            $service = $this->contract(AiWorkflowService::class);
+            $workflows = $service->describeForContext($permissions, $route, $module, 'staff', $roleNames);
+
+            return $this->success([
+                'workflows' => $workflows,
+                'context' => [
+                    'route' => $route,
+                    'module' => $module,
+                ],
+            ], 'AI assistance catalogue retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] AI catalogue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load contextual assistance');
+        }
+    }
+
+    /**
+     * GET /api/dashboard/insight-brief
+     * Page-load insight briefing: serves a fresh cached briefing (<1h)
+     * immediately; when stale it enqueues background regeneration and reports
+     * "generating". Never performs a synchronous provider call on page load.
+     * Returns BYO cadence, defaults to a daily briefing.
+     */
+    public function getInsightBrief($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasPermission('analytics_catalogue_view')) {
+            return $this->forbidden('Insight briefings require analytics catalogue access');
+        }
+        try {
+            $userId = (int) $this->getUserId();
+            if ($userId < 1) {
+                return $this->unauthorized('A valid session is required');
+            }
+            $permissions = array_values(array_unique(array_map('strval', array_merge(
+                (array) ($this->user['effective_permissions'] ?? []),
+                (array) ($this->user['permissions'] ?? [])
+            ))));
+            $cadence = preg_match('/^(daily|weekly|term)$/', (string) ($_GET['cadence'] ?? 'daily'))
+                ? (string) $_GET['cadence']
+                : 'daily';
+            $orchestrator = $this->contract(AiInsightOrchestrator::class);
+            $result = $orchestrator->pageLoad(
+                $userId,
+                $permissions,
+                (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                ['cadence' => $cadence, 'broadcast' => false]
+            );
+            return $this->success($result, 'Insight briefing retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] insight brief failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load the insight briefing');
+        }
+    }
+
     /** Resolve the normalized staff.id used by teaching assignment tables. */
     private function getTeachingStaffId(): ?int
     {
@@ -66,7 +139,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $service = new DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $result = $service->getLatestAnnouncements();
             // Returns: { announcements: [...], expiring_notices: [...] }
             return $this->success($result, 'Latest announcements retrieved');
@@ -87,7 +160,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $service = new DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $total = $service->getMonthlyPayrollSummary();
             return $this->success([
                 'total_payroll' => $total
@@ -109,7 +182,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $service = new DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $status = $service->getSystemHealthStatus();
             return $this->success([
                 'status' => $status
@@ -131,7 +204,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $kpis = $analytics->getSummaryKPIs();
 
             return $this->success([
@@ -156,7 +229,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $trends = $analytics->getFinancialTrends();
 
             return $this->success([
@@ -180,7 +253,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $sources = $analytics->getRevenueSources();
 
             return $this->success([
@@ -204,7 +277,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $trends = $analytics->getAttendanceTrends();
 
             // Ensure we return an array for the frontend
@@ -232,7 +305,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $report = $analytics->getFeesByClassTerm();
 
             return $this->success([
@@ -255,7 +328,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $rows = $analytics->getAcademicKPIsTable();
 
             return $this->success([
@@ -278,7 +351,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $rows = $analytics->getStudentDistribution();
             return $this->success(['data' => $rows], 'Student distribution retrieved');
         } catch (Exception $e) {
@@ -298,7 +371,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $rows = $analytics->getStaffDeployment();
             return $this->success(['data' => $rows], 'Staff deployment retrieved');
         } catch (Exception $e) {
@@ -318,7 +391,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $risks = $analytics->getOperationalRisks();
 
             // Return risks directly - success() will wrap it in 'data'
@@ -344,7 +417,7 @@ class DashboardController extends BaseController
             return $this->forbidden('System Admin access only');
         }
         try {
-            $service = new SystemAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SystemAdminAnalyticsService');
             $result = $service->getAuthEvents();
             return $this->success($result, 'Auth events retrieved');
         } catch (Exception $e) {
@@ -364,7 +437,7 @@ class DashboardController extends BaseController
             return $this->forbidden('System Admin access only');
         }
         try {
-            $service = new SystemAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SystemAdminAnalyticsService');
             $result = $service->getActiveSessions();
             return $this->success($result, 'Active sessions retrieved');
         } catch (Exception $e) {
@@ -384,7 +457,7 @@ class DashboardController extends BaseController
             return $this->forbidden('System Admin access only');
         }
         try {
-            $service = new SystemAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SystemAdminAnalyticsService');
             $result = $service->getUptime();
             return $this->success($result, 'System runtime health retrieved');
         } catch (Exception $e) {
@@ -404,7 +477,7 @@ class DashboardController extends BaseController
             return $this->forbidden('System Admin access only');
         }
         try {
-            $service = new SystemAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SystemAdminAnalyticsService');
             $result = $service->getHealthErrors();
             return $this->success($result, 'Health errors retrieved');
         } catch (Exception $e) {
@@ -424,7 +497,7 @@ class DashboardController extends BaseController
             return $this->forbidden('System Admin access only');
         }
         try {
-            $service = new SystemAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SystemAdminAnalyticsService');
             $result = $service->getHealthWarnings();
             return $this->success($result, 'Health warnings retrieved');
         } catch (Exception $e) {
@@ -444,7 +517,7 @@ class DashboardController extends BaseController
             return $this->forbidden('System Admin access only');
         }
         try {
-            $service = new SystemAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SystemAdminAnalyticsService');
             $result = $service->getApiLoad();
             return $this->success($result, 'API load retrieved');
         } catch (Exception $e) {
@@ -467,7 +540,7 @@ class DashboardController extends BaseController
         }
 
         try {
-            $service = new DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $enrollment = $service->getEnrollmentStats();
             return $this->success([
                 'data' => $enrollment
@@ -490,7 +563,7 @@ class DashboardController extends BaseController
         }
 
         try {
-            $service = new DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $staffStats = $service->getStaffStats();
             return $this->success([
                 'data' => $staffStats
@@ -513,7 +586,7 @@ class DashboardController extends BaseController
         }
 
         try {
-            $service = new DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $financeStats = $service->getFinanceStats();
             return $this->success([
                 'data' => $financeStats
@@ -536,7 +609,7 @@ class DashboardController extends BaseController
         }
 
         try {
-            $service = new DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $attendanceStats = $service->getAttendanceStats();
             return $this->success([
                 'data' => $attendanceStats
@@ -568,8 +641,8 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher/Deputy Head access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
-            $result = $service->getFullDashboardData();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Headteacher dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -590,8 +663,8 @@ class DashboardController extends BaseController
             return $this->forbidden('Deputy Academic access only');
         }
         try {
-            $service = new DeputyAcademicAnalyticsService();
-            $result = $service->getFullDashboardData();
+            $service = $this->contract('App\API\Services\DeputyAcademicAnalyticsService');
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Deputy Academic dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -610,8 +683,8 @@ class DashboardController extends BaseController
             return $this->forbidden('Deputy Discipline access only');
         }
         try {
-            $service = new DeputyDisciplineAnalyticsService();
-            $result = $service->getFullDashboardData();
+            $service = $this->contract('App\API\Services\DeputyDisciplineAnalyticsService');
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Deputy Discipline dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -630,7 +703,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $overview = $service->getOverview();
             return $this->success([
                 'data' => $overview
@@ -652,7 +725,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $attendance = $service->getAttendanceToday();
             return $this->success([
                 'data' => $attendance
@@ -674,7 +747,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $schedules = $service->getSchedules();
             return $this->success([
                 'data' => $schedules
@@ -696,7 +769,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $admissions = $service->getAdmissionsStats();
             return $this->success([
                 'data' => $admissions
@@ -718,7 +791,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $discipline = $service->getDisciplineStats();
             return $this->success([
                 'data' => $discipline
@@ -740,7 +813,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $communications = $service->getCommunicationsStats();
             return $this->success([
                 'data' => $communications
@@ -762,7 +835,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $assessments = $service->getAssessmentsStats();
             return $this->success([
                 'data' => $assessments
@@ -784,7 +857,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $performance = $service->getPerformanceStats();
             return $this->success([
                 'data' => $performance
@@ -816,7 +889,7 @@ class DashboardController extends BaseController
         }
         try {
             $filters = $_GET ?? [];
-            $financeService = new \App\API\Modules\finance\FinanceService();
+            $financeService = $this->contract('App\API\Modules\finance\FinanceService');
             $reporting = $financeService->getReportingManager();
 
             // Check if pivot parameter is provided
@@ -862,6 +935,11 @@ class DashboardController extends BaseController
             // Standard financial dashboard
             $safeFilters = [];
             $safeFilters['academic_year'] = preg_match('/^\d{4}$/', $filters['academic_year'] ?? '') ? $filters['academic_year'] : date('Y');
+            foreach (['date_from', 'date_to'] as $dateKey) {
+                if (!empty($filters[$dateKey]) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters[$dateKey])) {
+                    $safeFilters[$dateKey] = $filters[$dateKey];
+                }
+            }
             $result = $reporting->getFinancialDashboard($safeFilters);
 
             if (isset($result['status']) && $result['status'] === 'error') {
@@ -888,7 +966,7 @@ class DashboardController extends BaseController
         }
         try {
             $filters = $_GET ?? [];
-            $financeService = new \App\API\Modules\finance\FinanceService();
+            $financeService = $this->contract('App\API\Modules\finance\FinanceService');
             $reporting = $financeService->getReportingManager();
 
             // Sanitize date filters to YYYY-MM-DD format only
@@ -908,7 +986,7 @@ class DashboardController extends BaseController
 
             // Recent transactions
             $limit = isset($filters['limit']) ? (int) $filters['limit'] : 10;
-            $recent = $reporting->getRecentTransactions($limit);
+            $recent = $reporting->getRecentTransactions($limit, $safeFilters);
             if (isset($recent['status']) && $recent['status'] === 'error') {
                 return $this->serverError($recent['message'] ?? 'Failed to fetch recent transactions');
             }
@@ -937,7 +1015,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $pendingAdmissions = $service->getPendingAdmissions();
             return $this->success([
                 'data' => $pendingAdmissions['data'],
@@ -960,7 +1038,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Headteacher access only');
         }
         try {
-            $service = new HeadteacherAnalyticsService();
+            $service = $this->contract('App\API\Services\HeadteacherAnalyticsService');
             $disciplineCases = $service->getDisciplineCases();
             return $this->success([
                 'data' => $disciplineCases['data'],
@@ -986,7 +1064,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Subject Teacher dashboard data retrieved');
         } catch (Exception $e) {
@@ -1006,7 +1084,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getClassesStats();
             return $this->success([
                 'data' => $result
@@ -1028,7 +1106,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getSectionsStats();
             return $this->success([
                 'data' => $result
@@ -1050,7 +1128,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getAssessmentsDueStats();
             return $this->success([
                 'data' => $result
@@ -1072,7 +1150,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getGradedStats();
             return $this->success([
                 'data' => $result
@@ -1094,7 +1172,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getExamsStats();
             return $this->success([
                 'data' => $result
@@ -1116,7 +1194,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getLessonPlansStats();
             return $this->success([
                 'data' => $result
@@ -1138,7 +1216,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getPendingAssessments();
             return $this->success([
                 'data' => $result['data'],
@@ -1161,7 +1239,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\SubjectTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getExamSchedule();
             return $this->success([
                 'data' => $result['data'],
@@ -1187,7 +1265,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\ClassTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Class Teacher dashboard data retrieved');
         } catch (Exception $e) {
@@ -1207,7 +1285,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\ClassTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getMyStudentsStats();
             return $this->success($result, 'My class data retrieved');
         } catch (Exception $e) {
@@ -1227,7 +1305,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\ClassTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getTodayAttendanceStats();
             return $this->success($result, 'Attendance data retrieved');
         } catch (Exception $e) {
@@ -1247,7 +1325,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\ClassTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getPendingAssessmentsStats();
             return $this->success($result, 'Assessments data retrieved');
         } catch (Exception $e) {
@@ -1267,7 +1345,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\ClassTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getLessonPlansStats();
             return $this->success($result, 'Lesson plans data retrieved');
         } catch (Exception $e) {
@@ -1287,7 +1365,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
+            $service = $this->contract('App\API\Services\ClassTeacherAnalyticsService', $this->getTeachingStaffId());
             $result = $service->getStudentRoster();
             return $this->success(['data' => $result], 'Student roster retrieved');
         } catch (Exception $e) {
@@ -1309,7 +1387,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new TeacherAnalyticsService($this->getUserId());
+            $service = $this->contract('App\API\Services\TeacherAnalyticsService', $this->getUserId());
             $result = $service->getMyClass();
             if (!$result) {
                 return $this->notFound('No class assigned');
@@ -1334,7 +1412,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new TeacherAnalyticsService($this->getUserId());
+            $service = $this->contract('App\API\Services\TeacherAnalyticsService', $this->getUserId());
             $result = $service->getMyAttendanceToday();
             return $this->success([
                 'data' => $result
@@ -1355,7 +1433,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminFull($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             $result = $service->getFullDashboardData();
             return $this->success($result, 'School Admin dashboard data retrieved');
         } catch (Exception $e) {
@@ -1372,7 +1450,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminStudents($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             $students = $service->getActiveStudentsStats();
             $classDistribution = $service->getClassDistributionStats();
             return $this->success([
@@ -1393,7 +1471,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminStaff($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success([
                 'teaching' => $service->getTeachingStaffStats(),
                 'activities' => $service->getStaffActivitiesStats(),
@@ -1413,7 +1491,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminAttendance($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success([
                 'today' => $service->getDailyAttendanceStats(),
                 'trend' => $service->getWeeklyAttendanceTrend(4)
@@ -1432,7 +1510,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminAdmissions($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success($service->getStudentAdmissionsStats(), 'Admission stats retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -1448,7 +1526,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminTimetables($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success([
                 'stats' => $service->getClassTimetablesStats(),
                 'today' => $service->getTodaySchedule()
@@ -1467,7 +1545,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminAnnouncements($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success($service->getAnnouncementsStats(), 'Announcement stats retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -1483,7 +1561,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminPendingItems($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             $items = $service->getPendingItems();
             return $this->success([
                 'items' => $items,
@@ -1504,7 +1582,7 @@ class DashboardController extends BaseController
     {
         try {
             $search = preg_replace('/[^a-zA-Z0-9 ]/', '', $_GET['search'] ?? '');
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             $directory = $service->getStaffDirectory($search);
             return $this->success([
                 'staff' => $directory,
@@ -1525,7 +1603,7 @@ class DashboardController extends BaseController
     {
         try {
             $filter = preg_replace('/[^a-zA-Z0-9 ]/', '', $_GET['filter'] ?? 'all');
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success($service->getClassDistributionChart($filter), 'Class distribution retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -1542,7 +1620,7 @@ class DashboardController extends BaseController
     {
         try {
             $weeks = (int) ($_GET['weeks'] ?? 4);
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success($service->getWeeklyAttendanceTrend($weeks), 'Attendance trend retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -1558,7 +1636,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminSystemStatus($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new SchoolAdminAnalyticsService();
+            $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
             return $this->success($service->getSystemStatus(), 'System status retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -1579,8 +1657,8 @@ class DashboardController extends BaseController
             return $this->forbidden('Intern Teacher access only');
         }
         try {
-            $service = new InternTeacherAnalyticsService($this->getUserId());
-            $result = $service->getFullDashboardData();
+            $service = $this->contract('App\API\Services\InternTeacherAnalyticsService', $this->getUserId());
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Intern Teacher dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -1599,7 +1677,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Intern Teacher access only');
         }
         try {
-            $service = new InternTeacherAnalyticsService($this->getUserId());
+            $service = $this->contract('App\API\Services\InternTeacherAnalyticsService', $this->getUserId());
             $result = $service->getAssignedClassesStats();
             return $this->success($result, 'Assigned classes retrieved');
         } catch (Exception $e) {
@@ -1619,7 +1697,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Intern Teacher access only');
         }
         try {
-            $service = new InternTeacherAnalyticsService($this->getUserId());
+            $service = $this->contract('App\API\Services\InternTeacherAnalyticsService', $this->getUserId());
             $result = $service->getLessonObservationsStats();
             return $this->success($result, 'Observations retrieved');
         } catch (Exception $e) {

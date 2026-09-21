@@ -109,7 +109,7 @@
 
 <!-- SCHEDULE INTERVIEW MODAL -->
 <div class="modal fade" id="aiScheduleModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
         <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Schedule Interview</h5>
@@ -128,6 +128,11 @@
             <label class="form-label fw-semibold">Interview session <span class="text-danger">*</span></label>
             <select id="aiSessionId" class="form-select"><option value="">— Select a configured session —</option></select>
             <small class="text-muted">Sessions are created against an intake window. Date, time, venue and interviewer come from the selected session.</small>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold" for="aiLearningAreas">Learning areas / subjects to be tested <span class="text-danger">*</span></label>
+            <select id="aiLearningAreas" class="form-select" multiple="multiple" size="6" aria-multiselectable="true"></select>
+            <small class="text-muted">Choose 1–3 learning areas from the applicant's current class curriculum. Click each area to select or deselect it.</small>
           </div>
           <div class="col-12">
             <label class="form-label fw-semibold">Notify parent/guardian</label>
@@ -155,14 +160,14 @@
   <div class="modal-body"><div id="aiSessionsBody"></div><hr><h6>Create / edit session</h6><div class="row g-2">
     <input type="hidden" id="aiSessionEditId"><div class="col-md-4"><label class="form-label">Admission window</label><select id="aiSessionWindow" class="form-select"></select></div>
     <div class="col-md-2"><label class="form-label">Date</label><input type="date" id="aiSessionDate" class="form-control"></div><div class="col-md-2"><label class="form-label">Start</label><input type="time" id="aiSessionStart" class="form-control"></div><div class="col-md-2"><label class="form-label">End</label><input type="time" id="aiSessionEnd" class="form-control"></div><div class="col-md-2"><label class="form-label">Capacity</label><input type="number" id="aiSessionCapacity" class="form-control" min="1" value="20"></div>
-    <div class="col-md-6"><label class="form-label">Teacher interviewer <span class="text-danger">*</span></label><select id="aiSessionInterviewer" class="form-select"></select></div><div class="col-md-6"><label class="form-label">Venue</label><input type="text" id="aiSessionVenue" class="form-control" value="Main Office"></div>
+    <div class="col-md-6"><label class="form-label" for="aiSessionInterviewer">Supervisors / invigilators <span class="text-danger">*</span></label><select id="aiSessionInterviewer" name="supervisor_ids[]" class="form-select" multiple="multiple" size="6" aria-multiselectable="true" style="min-height: 9rem;"></select><small class="text-muted">Click each teacher to select or deselect them.</small></div><div class="col-md-6"><label class="form-label">Venue</label><input type="text" id="aiSessionVenue" class="form-control" value="Main Office"></div>
   </div><div id="aiSessionError" class="alert alert-danger mt-3 d-none"></div></div>
   <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button class="btn btn-primary" onclick="admissionInterviewsController.saveSession()">Save session</button></div>
 </div></div></div>
 
 <!-- RECORD OUTCOME MODAL -->
 <div class="modal fade" id="aiOutcomeModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-success text-white">
         <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Record Interview Assessment</h5>
@@ -180,18 +185,16 @@
         
         <div class="row g-3">
           <!-- Assessment Scores -->
-          <div class="col-12">
-            <h6 class="fw-semibold mb-3">Assessment Scores (0-100)</h6>
-          </div>
-          <div class="col-md-4">
+          <div class="col-12"><h6 class="fw-semibold mb-3">Assessment Scores and CBC grading</h6><div id="aiAssessmentItems" class="row g-2"></div><small class="text-muted">Scores are graded using the active CBC grading scale. Overall score is calculated from all tested areas.</small></div>
+          <div class="col-md-4 d-none">
             <label class="form-label fw-semibold">Academic Readiness</label>
             <input type="number" id="aiAcademicScore" class="form-control" min="0" max="100" placeholder="0-100">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-4 d-none">
             <label class="form-label fw-semibold">Behavior / Social</label>
             <input type="number" id="aiBehaviorScore" class="form-control" min="0" max="100" placeholder="0-100">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-4 d-none">
             <label class="form-label fw-semibold">Communication</label>
             <input type="number" id="aiCommunicationScore" class="form-control" min="0" max="100" placeholder="0-100">
           </div>
@@ -222,16 +225,6 @@
           <div class="col-12">
             <label class="form-label fw-semibold">Interview Notes</label>
             <textarea id="aiOutcomeNotes" class="form-control" rows="3" placeholder="Key observations from the interview…"></textarea>
-          </div>
-          <div class="col-12">
-            <label class="form-label fw-semibold">Next Workflow Step <span class="text-danger">*</span></label>
-            <select id="aiNextStep" class="form-select">
-              <option value="">Select Next Step</option>
-              <option value="proceed_to_admission">Proceed to Admission Decision</option>
-              <option value="waitlist">Add to Waitlist</option>
-              <option value="decline">Decline Application</option>
-              <option value="placement_test">Schedule Placement Test</option>
-            </select>
           </div>
         </div>
         <div id="aiOutcomeError" class="alert alert-danger mt-3 d-none"></div>
