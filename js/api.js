@@ -1432,6 +1432,7 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "students_edit",
     DELETE: "students_delete",
   },
+  "/students/import-context": "students_create",
   "/students/bulk-create": "students_create",
   "/students/bulk-update": "students_edit",
   "/students/bulk-delete": "students_delete",
@@ -1811,7 +1812,10 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/academic-kpi-summary": "staff_performance_view",
   "/staff/performance-reviews": "staff_performance_view",
   "/staff/available-roles": "staff_roles_manage",
+  "/staff/classification-options": "staff_roles_manage",
   "/staff/role-assignments": "staff_roles_manage",
+  "/staff/bulk-management": "staff_roles_manage",
+  "/staff/password-reset-link": "staff_roles_manage",
   "/staff/assign-role": "staff_roles_manage",
   "/staff/revoke-role": "staff_roles_manage",
   "/staff/onboarding": null,
@@ -1839,6 +1843,8 @@ const ENDPOINT_PERMISSIONS = {
   "/staff-migration/commit": "staff_import",
   "/staff-migration/rollback": "staff_import_rollback",
   "/staff-migration/resend-invitation": "staff_invitation_resend",
+  "/staff-migration/resend-setup-otp": "staff_invitation_resend",
+  "/staff-migration/cancel-invitation": "staff_invitation_resend",
   "/staff-migration/onboarding": null,
   "/staff-migration/profile": null,
 
@@ -2027,6 +2033,12 @@ const ENDPOINT_PERMISSIONS = {
 
   // System
   "/system/index": "system_view",
+  "/data-quality/audit": {
+    GET: ["system_view", "system.view", "data_quality_view"],
+  },
+  "/data-quality/apply": {
+    POST: ["system_manage", "system.manage", "data_quality_manage"],
+  },
   "/system/logs": { GET: "system_view", DELETE: "system_manage" },
   "/system/roles": {
     GET: ["system.rbac.view", "system.rbac.manage", "system_roles_view"],
@@ -2862,6 +2874,9 @@ async function apiCallDirect(
       "/auth/register",
       "/auth/forgot-password",
       "/auth/reset-password",
+      "/auth/reset-default-password",
+      "/auth/verify-invitation-setup-otp",
+      "/auth/resend-invitation-setup-otp",
       "/auth/complete-reset",
       "/auth/verify-reset-token",
       "/auth/refresh-token",
@@ -3477,6 +3492,10 @@ window.API = {
   // Auth endpoints
   auth: {
     index: async () => apiCall("/auth/index", "GET"),
+    verifyInvitationSetupOtp: async (token, code) =>
+      apiCall("/auth/verify-invitation-setup-otp", "POST", { token, code }, {}, { checkPermission: false }),
+    resendInvitationSetupOtp: async (token) =>
+      apiCall("/auth/resend-invitation-setup-otp", "POST", { token }, {}, { checkPermission: false }),
     login: async (username, password, rememberMe = false) => {
       AuthContext.setPersistence(rememberMe);
       const response = await apiCall("/auth/login", "POST", {
@@ -3527,6 +3546,8 @@ window.API = {
         let redirectUrl;
         if (response.password_setup_required && response.password_setup_url) {
           redirectUrl = response.password_setup_url;
+        } else if (response.profile_completion_required || dashboardInfo?.key === "complete_staff_profile") {
+          redirectUrl = (window.APP_BASE || "") + "/home.php?route=complete_staff_profile";
         } else if (dashboardInfo && dashboardInfo.key) {
           // Use the normalized key (route name)
           redirectUrl =
@@ -3647,6 +3668,11 @@ window.API = {
         user_ids: userIds,
         action,
         ...data,
+      }),
+    bulkUpdateDataScope: async (userIds, dataScope) =>
+      apiCall("/users/users-bulk-data-scope", "POST", {
+        user_ids: userIds,
+        data_scope: dataScope,
       }),
 
     // Profile
@@ -3832,6 +3858,7 @@ window.API = {
         : apiCall("/students/student", "GET"),
     create: async (data) => apiCall("/students/student", "POST", data),
     addExisting: async (data) => apiCall("/students/existing-add", "POST", data),
+    getImportContext: async () => apiCall("/students/import-context", "GET"),
     importExisting: async (formData) =>
       apiCall("/students/import-existing", "POST", formData, {}, { isFile: true }),
     update: async (id, data) => apiCall(`/students/student/${id}`, "PUT", data),
@@ -3844,10 +3871,10 @@ window.API = {
         : apiCall("/students/profile-get", "GET"),
     getMyProfile: async () => apiCall("/students/my-profile", "GET"),
     getMyChildren: async () => apiCall("/students/my-children", "GET"),
-    getAttendance: async (id = null) =>
+    getAttendance: async (id = null, params = {}) =>
       id
-        ? apiCall(`/students/attendance-get/${id}`, "GET")
-        : apiCall("/students/attendance-get", "GET"),
+        ? apiCall(`/students/attendance-get/${id}`, "GET", null, params)
+        : apiCall("/students/attendance-get", "GET", null, params),
     getPerformance: async (id = null) =>
       id
         ? apiCall(`/students/performance-get/${id}`, "GET")
@@ -3956,6 +3983,10 @@ window.API = {
     // Photo
     uploadPhoto: async (formData) =>
       apiCall("/students/photo-upload", "POST", formData, {}, { isFile: true }),
+    getPhotoHistory: async (id) => apiCall(`/students/photo-history/${id}`, "GET"),
+    getPendingPhotos: async () => apiCall("/students/photo-pending", "GET"),
+    approvePhoto: async (id, reason = "") => apiCall(`/students/photo-approve/${id}`, "POST", { reason }),
+    rejectPhoto: async (id, reason) => apiCall(`/students/photo-reject/${id}`, "POST", { reason }),
 
     // Transfer workflow
     startTransferWorkflow: async (data) =>
@@ -5349,6 +5380,11 @@ window.API = {
         `/finance/bulk-payroll-preview?month=${month}&year=${year}`,
         "GET",
       ),
+    getCompensationSetup: async () => apiCall("/finance/compensation-setup", "GET"),
+    saveRoleSalaryRate: async (data) => apiCall("/finance/role-salary-rates", "POST", data),
+    saveStaffSalaryOverride: async (data) => apiCall("/finance/staff-salary-overrides", "POST", data),
+    createCompensationAward: async (data) => apiCall("/finance/compensation-awards", "POST", data),
+    cancelCompensationAward: async (batchId) => apiCall(`/finance/compensation-awards/${batchId}/cancel`, "POST", {}),
     processBulkPayroll: async (data) =>
       apiCall("/finance/process-bulk-payroll", "POST", data),
     processPayrollWithDeductions: async (data) =>
@@ -5866,6 +5902,8 @@ window.API = {
       apiCall("/staff/school-administrator-bootstrap", "GET"),
     bootstrapSchoolAdministrator: async (data) =>
       apiCall("/staff/school-administrator-bootstrap", "POST", data),
+    manageSchoolAdministratorInvitation: async (userId, action) =>
+      apiCall("/staff/school-administrator-invitation-action", "POST", { user_id: userId, action }),
     getTeacherScope: async (params = {}) =>
       apiCall("/staff/teacher-scope", "GET", null, params),
     index: async (params = {}) => {
@@ -6105,8 +6143,19 @@ window.API = {
     createIncidentReport: async (payload) =>
       apiCall("/staff/incidents", "POST", payload),
     getAvailableRoles: async () => apiCall("/staff/available-roles", "GET"),
+    getClassificationOptions: async () => apiCall("/staff/classification-options", "GET"),
+    getPositions: async () => apiCall("/staff/positions", "GET"),
+    createPosition: async (payload) => apiCall("/staff/positions", "POST", payload),
+    updatePosition: async (id, payload) => apiCall(`/staff/positions/${Number(id)}`, "PUT", payload),
+    getDepartmentCatalog: async () => apiCall("/staff/department-catalog", "GET"),
+    createDepartment: async (payload) => apiCall("/staff/departments", "POST", payload),
+    updateDepartment: async (id, payload) => apiCall(`/staff/departments/${Number(id)}`, "PUT", payload),
     getRoleAssignments: async (staffId) =>
       apiCall("/staff/role-assignments", "GET", null, { staff_id: staffId }),
+    manageStaffAccounts: async (payload) =>
+      apiCall("/staff/bulk-management", "POST", payload),
+    requestStaffPasswordReset: async (staffId) =>
+      apiCall("/staff/password-reset-link", "POST", { staff_id: Number(staffId) }),
     assignStaffRole: async (payload) =>
       apiCall("/staff/role-assignments", "POST", payload),
     revokeStaffRole: async (staffId, roleId) =>
@@ -7191,6 +7240,12 @@ window.API = {
     getAiReadiness: async () => apiCall("/system/ai-readiness", "GET"),
     getAiProviderHealth: async () => apiCall("/system/ai-provider-health", "GET"),
     queueAiSecurityReview: async () => apiCall("/system/ai-security-review-queue", "POST", {}),
+
+    // Data-quality governance (read-only audit + approval-gated apply)
+    dataQualityAudit: async (params = {}) =>
+      apiCall("/data-quality/audit", "GET", null, params),
+    dataQualityApply: async (fixes = []) =>
+      apiCall("/data-quality/apply", "POST", { confirm: "APPLY_DATA_QUALITY_FIXES", fixes }),
     queueAiOperationsReview: async () =>
       apiCall("/system/ai-operations-review-queue", "POST", {}),
     getAiOperationsReviews: async (scope = "own") =>
@@ -7440,6 +7495,9 @@ window.API = {
 
     getDirectorSummary: async () => {
       return await apiCall("/dashboard/director/summary", "GET");
+    },
+    getDirectorFull: async (params = {}) => {
+      return await apiCall("/dashboard/director/full", "GET", null, params);
     },
     getPaymentsTrends: async () => {
       return await apiCall("/payments/trends", "GET");
@@ -7869,6 +7927,17 @@ window.API = {
       apiCall(`/stafflifecycle/cancel/${id}`, "PUT", { reason }),
   },
 
+  imports: {
+    downloadTemplate: async (type, format = "csv") => {
+      const extension = String(format || "csv").toLowerCase();
+      return apiCall("/import/template", "GET", null, { type, format: extension }, {
+        isDownload: true,
+        checkPermission: false,
+        filename: `${type}_template.${extension}`,
+      });
+    },
+  },
+
   staffMigration: {
     referenceData: async () =>
       apiCall("/staff-migration/reference-data", "GET"),
@@ -7877,6 +7946,7 @@ window.API = {
     batch: async (id) => apiCall(`/staff-migration/batch/${id}`, "GET"),
     templateUrl: () => `${API_BASE_URL}/staff-migration/template`,
     templateXlsxUrl: () => `${API_BASE_URL}/staff-migration/template-xlsx`,
+    templateOdsUrl: () => `${API_BASE_URL}/staff-migration/template-ods`,
     downloadTemplate: async () =>
       apiCall("/staff-migration/template", "GET", null, {}, {
         isDownload: true,
@@ -7887,17 +7957,23 @@ window.API = {
         isDownload: true,
         filename: "existing_staff_migration_template.xlsx",
       }),
+    downloadTemplateOds: async () =>
+      apiCall("/staff-migration/template-ods", "GET", null, {}, {
+        isDownload: true,
+        filename: "existing_staff_migration_template.ods",
+      }),
     stage: async (formData) =>
       apiCall("/staff-migration/stage", "POST", formData, {}, { isFile: true }),
     commit: async (batchId) =>
       apiCall("/staff-migration/commit", "POST", { batch_id: batchId }),
     rollback: async (batchId) =>
       apiCall("/staff-migration/rollback", "POST", { batch_id: batchId }),
-    resendInvitation: async (userId, baseUrl = window.location.origin) =>
-      apiCall("/staff-migration/resend-invitation", "POST", {
-        user_id: userId,
-        base_url: baseUrl,
-      }),
+    resendInvitation: async (userId) =>
+      apiCall("/staff-migration/resend-invitation", "POST", { user_id: userId }),
+    resendSetupOtp: async (userId) =>
+      apiCall("/staff-migration/resend-setup-otp", "POST", { user_id: userId }),
+    cancelInvitation: async (userId) =>
+      apiCall("/staff-migration/cancel-invitation", "POST", { user_id: userId }),
     onboarding: async () => apiCall("/staff-migration/onboarding", "GET"),
     completeProfile: async (payload) =>
       apiCall("/staff-migration/profile", "PUT", payload),

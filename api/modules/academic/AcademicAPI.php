@@ -6721,10 +6721,37 @@ return errorResponse($e->getMessage(), 400);
         }
     }
 
+    /**
+     * Attach a class teacher to an existing stream-in-year row.
+     *
+     * A class teacher is never created as a class teacher: they are created as a
+     * Subject Teacher and attached to a class here. The school-admin picker may
+     * therefore only offer people who already qualify as teachers, which is any
+     * role title containing "teacher" (Headteacher, Class Teacher, Subject
+     * Teacher, Intern/Student Teacher) plus the two Deputy Head offices. A
+     * secondary duty such as Librarian never disqualifies anyone.
+     */
     public function assignClassTeacher($streamId, $teacherId)
     {
         try {
             $this->db->beginTransaction();
+
+            $teachingRoles = $this->db->query(
+                "SELECT r.name
+                   FROM user_roles ur
+                   JOIN users u ON u.id = ur.user_id
+                   JOIN staff s ON s.person_id = u.person_id
+                   JOIN roles r ON r.id = ur.role_id
+                  WHERE s.id = ?
+                    AND (LOWER(r.name) LIKE '%teacher%'
+                         OR r.name IN ('Deputy Head - Academic', 'Deputy Head - Discipline'))",
+                [(int)$teacherId]
+            )->fetchAll(PDO::FETCH_COLUMN);
+
+            if (!$teachingRoles) {
+                $this->db->rollBack();
+                return errorResponse('Only a teacher can be appointed. Create this person as a Subject Teacher first, then assign the class.');
+            }
 
             $sql = "UPDATE academic_year_class_streams SET class_teacher_id = ? WHERE id = ?";
             $stmt = $this->db->prepare($sql);
@@ -8106,9 +8133,24 @@ return errorResponse($e->getMessage(), 400);
                 ?? $derivedAverage;
             $overallGrade = $student['overall_grade'] ?? $this->deriveGradeFromPercentage($overallPercentage);
 
+            $admissionInterview = null;
+            $interviewStmt = $this->db->prepare(
+                "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                        ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                        ai.overall_score, ai.recommendation, ai.remarks
+                   FROM admission_applications aa
+                   JOIN admission_interviews ai ON ai.application_id = aa.id
+                  WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+                  ORDER BY ai.id DESC LIMIT 1"
+            );
+            $interviewStmt->execute([$studentId]);
+            $admissionInterview = $interviewStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
             return successResponse([
                 'student' => $student,
                 'subjects' => $subjects,
+                'admission_interview' => $admissionInterview,
+                'financial_relief' => (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId),
                 'summary' => [
                     'percentage' => $overallPercentage,
                     'grade' => $overallGrade,

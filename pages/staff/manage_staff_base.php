@@ -20,11 +20,11 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-person-workspace"></i> Staff Management</h4>
             <div class="btn-group">
-                <!-- Add Staff - HR Manager, Headteacher, Admin only -->
+                <!-- Add Existing Staff - HR Manager, Headteacher, Admin only -->
                 <button class="btn btn-light btn-sm" onclick="staffManagementController.showStaffModal()"
                     data-permission="staff_create"
                     data-role="hr_manager,headteacher,school_administrator,admin,director">
-                    <i class="bi bi-plus-circle"></i> Add Staff
+                    <i class="bi bi-plus-circle"></i> Add Existing Staff
                 </button>
                 <!-- Bulk Import - HR Manager, Admin only -->
                 <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.showBulkImportModal()"
@@ -499,7 +499,7 @@
                         </div>
                         <div class="input-group" style="width: 250px;">
                             <input type="date" class="form-control" id="attendanceDate" 
-                                   value="<?php echo date('Y-m-d'); ?>">
+                                   value="<?php echo date('Y-m-d'); ?>" data-kw-validate="not_future">
                             <button class="btn btn-outline-secondary" onclick="staffManagementController.loadAttendance()">
                                 <i class="bi bi-search"></i>
                             </button>
@@ -833,6 +833,7 @@
             </div>
             <form id="staffForm" enctype="multipart/form-data" onsubmit="staffManagementController.saveStaff(event)">
                 <div class="modal-body">
+                    <div class="alert alert-info small">Use this form for a person already employed by the school whose staff record needs to be added or completed. For a new online applicant or walk-in candidate, use Staff Appointments so the school assigns employment details, the Director approves, and the School Administrator creates the account and invitation.</div>
                     <input type="hidden" id="staffId">
 
                     <!-- Personal Information -->

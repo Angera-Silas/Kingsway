@@ -73,6 +73,9 @@ class DashboardRouter
         'create_assessment' => 'my_cats',
         'create_subject_cat' => 'my_cats',
         'my_subject_cats' => 'my_cats',
+        'staff_onboarding' => 'manage_staff',
+        'staff_lifecycle' => 'manage_staff',
+        'import_existing_staff' => 'manage_staff',
     ];
 
 // Auto-generated from the final SidebarConfigReader menu — do not edit manually
@@ -302,7 +305,6 @@ private const ROUTE_ROLES = [
     'my_subjects_overview' => [8],  // 1 role(s)
     'my_vehicle' => [23],  // 1 role(s)
     'national_exams' => [6],  // 1 role(s)
-    'new_applications' => [4],  // 1 role(s)
     'observation_feedback' => [9],  // 1 role(s)
     'observation_schedule' => [9],  // 1 role(s)
     'parent_meeting_records' => [7, 24, 63],  // 3 role(s)

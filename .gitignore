@@ -180,5 +180,9 @@ kingsway-ngrok.yml
 kcb_buni/
 !database/migrations/188_expand_admissions_leadership_visibility.sql
 
-# Manually deployed application manifest.
+# Manually deployed public discovery and app configuration files.
+/robots.txt
+/sitemap*.xml
+/llm.txt
+/llms.txt
 /manifest.webmanifest

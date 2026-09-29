@@ -2,6 +2,9 @@
 namespace App\API\Modules\website;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\AuthSessionService;
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 use Exception;
 
 /**
@@ -12,8 +15,8 @@ use Exception;
  * job_vacancies, school_settings, school_content, admission_applications,
  * job_applications, contact_inquiries, news_categories plus the static
  * showcase tables (programs/facilities/history/values/departments/benefits)
- * and the leadership hierarchy (leadership_levels, leadership_positions,
- * school_leadership).
+ * and the leadership hierarchy (leadership_categories, leadership_positions,
+ * school_leader).
  */
 class WebsiteManager extends BaseAPI
 {
@@ -188,7 +191,8 @@ class WebsiteManager extends BaseAPI
                         ay.id AS academic_year_id, ayt.opening_date AS start_date,
                         ayt.closing_date AS end_date, t.code AS term_number, ayt.status,
                         aw.application_open_at, aw.application_close_at,
-                        aw.eligible_grades, aw.default_admission_category
+                        aw.eligible_grades, aw.default_admission_category,
+                        aw.label AS admission_window_label
                  FROM admission_windows aw
                  JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
                  JOIN terms t ON t.id = ayt.term_id
@@ -968,21 +972,22 @@ class WebsiteManager extends BaseAPI
                     $extra[$key] = $this->allOrdered($table, $where);
                 }
             }
-            // Leadership: grouped by level from normalized hierarchy tables
+            // Leadership: grouped by category from normalized hierarchy tables
             try {
                 $ayId = (int) ($this->db->query("SELECT id FROM academic_years ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 1);
                 $lStmt = $this->db->prepare(
-                    "SELECT sl.id, sl.position_id, sl.person_id, sl.staff_id, sl.student_id,
+                    "SELECT sl.id, sl.leadership_position_id, sl.person_id, sl.staff_id, sl.student_id,
                             CONCAT(p.first_name,' ',p.last_name) AS name,
                             sl.public_photo_url AS avatar_url, sl.public_bio AS bio,
                             sl.display_order, sl.is_active,
                             lp.name AS position_name,
-                            ll.id AS level_id, ll.name AS level_name, ll.display_order AS level_order,
+                            lc.id AS category_id, lc.code AS category_code,
+                            lc.name AS category_name, lc.display_order AS category_order,
                             s.position AS staff_position,
                             CONCAT('person/', p.id, '/leadership') AS photo_target
-                     FROM school_leadership sl
-                     JOIN leadership_positions lp ON lp.id = sl.position_id
-                     JOIN leadership_levels ll ON ll.id = lp.level_id
+                     FROM school_leader sl
+                     JOIN leadership_positions lp ON lp.id = sl.leadership_position_id
+                     JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
                      JOIN persons p ON p.id = sl.person_id
                      LEFT JOIN staff s ON s.id = sl.staff_id
                      WHERE sl.is_active = 1 AND sl.academic_year_id = ?
@@ -992,21 +997,22 @@ class WebsiteManager extends BaseAPI
                            SELECT 1 FROM users u
                            WHERE u.person_id = sl.person_id AND u.is_test_user = 1
                        )
-                     ORDER BY ll.display_order, sl.display_order"
+                     ORDER BY lc.display_order, sl.display_order"
                 );
                 $lStmt->execute([$ayId]);
                 $allLeaders = $lStmt->fetchAll(\PDO::FETCH_ASSOC);
 
-                // Group by level
+                // Group by category
                 $grouped = [];
                 foreach ($allLeaders as $row) {
-                    $lvl = $row['level_name'];
+                    $lvl = $row['category_name'];
                     if (!isset($grouped[$lvl])) {
                         $grouped[$lvl] = [
-                            'level_id'   => (int) $row['level_id'],
-                            'level_name' => $lvl,
-                            'level_order'=> (int) $row['level_order'],
-                            'members'    => [],
+                            'category_id'   => (int) $row['category_id'],
+                            'category_code' => $row['category_code'],
+                            'category_name' => $lvl,
+                            'category_order'=> (int) $row['category_order'],
+                            'members'       => [],
                         ];
                     }
                     $grouped[$lvl]['members'][] = $row;
@@ -1041,43 +1047,45 @@ class WebsiteManager extends BaseAPI
 
     // ───────────────────────── LEADERSHIP HIERARCHY CRUD ─────────────────────────
 
-    public function getLeadershipHierarchy(?int $levelId = null)
+    public function getLeadershipHierarchy(?int $categoryId = null)
     {
         try {
             $ayId = (int) ($this->db->query("SELECT id FROM academic_years ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 1);
-            $sql = "SELECT sl.id, sl.position_id, sl.person_id, sl.staff_id, sl.student_id,
+            $sql = "SELECT sl.id, sl.leadership_position_id, sl.person_id, sl.staff_id, sl.student_id,
                            CONCAT(p.first_name,' ',p.last_name) AS name,
                            sl.public_photo_url AS avatar_url, sl.public_bio AS bio,
                            sl.display_order, sl.is_active,
                            lp.name AS position_name,
-                           ll.id AS level_id, ll.name AS level_name, ll.display_order AS level_order,
+                           lc.id AS category_id, lc.code AS category_code,
+                           lc.name AS category_name, lc.display_order AS category_order,
                            s.position AS staff_position,
                            CONCAT('person/', p.id, '/leadership') AS photo_target
-                    FROM school_leadership sl
-                    JOIN leadership_positions lp ON lp.id = sl.position_id
-                    JOIN leadership_levels ll ON ll.id = lp.level_id
+                    FROM school_leader sl
+                    JOIN leadership_positions lp ON lp.id = sl.leadership_position_id
+                    JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
                     JOIN persons p ON p.id = sl.person_id
                     LEFT JOIN staff s ON s.id = sl.staff_id
                     WHERE sl.academic_year_id = ?";
             $params = [$ayId];
-            if ($levelId !== null) {
-                $sql .= " AND ll.id = ?";
-                $params[] = $levelId;
+            if ($categoryId !== null) {
+                $sql .= " AND lc.id = ?";
+                $params[] = $categoryId;
             }
-            $sql .= " ORDER BY ll.display_order, sl.display_order";
+            $sql .= " ORDER BY lc.display_order, sl.display_order";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             $allLeaders = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
             $grouped = [];
             foreach ($allLeaders as $row) {
-                $lvl = $row['level_name'];
+                $lvl = $row['category_name'];
                 if (!isset($grouped[$lvl])) {
                     $grouped[$lvl] = [
-                        'level_id'    => (int) $row['level_id'],
-                        'level_name'  => $lvl,
-                        'level_order' => (int) $row['level_order'],
-                        'members'     => [],
+                        'category_id'    => (int) $row['category_id'],
+                        'category_code'  => $row['category_code'],
+                        'category_name'  => $lvl,
+                        'category_order' => (int) $row['category_order'],
+                        'members'        => [],
                     ];
                 }
                 $grouped[$lvl]['members'][] = $row;
@@ -1089,10 +1097,10 @@ class WebsiteManager extends BaseAPI
         }
     }
 
-    public function getLeadershipLevels()
+    public function getLeadershipCategories()
     {
         try {
-            $rows = $this->allOrdered('leadership_levels', 'is_active=1');
+            $rows = $this->allOrdered('leadership_categories', 'is_active=1');
             return $this->successResponse($rows);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
@@ -1100,12 +1108,21 @@ class WebsiteManager extends BaseAPI
         }
     }
 
-    public function getLeadershipPositions(?int $levelId = null)
+    /**
+     * @deprecated Retained so the existing website/leadership/levels route keeps
+     *             working. Delegates to getLeadershipCategories().
+     */
+    public function getLeadershipLevels()
+    {
+        return $this->getLeadershipCategories();
+    }
+
+    public function getLeadershipPositions(?int $categoryId = null)
     {
         try {
             $where = 'is_active=1';
-            if ($levelId !== null) {
-                $where .= " AND level_id=" . (int) $levelId;
+            if ($categoryId !== null) {
+                $where .= " AND leadership_category_id=" . (int) $categoryId;
             }
             $rows = $this->allOrdered('leadership_positions', $where);
             return $this->successResponse($rows);
@@ -1118,11 +1135,27 @@ class WebsiteManager extends BaseAPI
     public function createLeadershipEntry(array $data)
     {
         try {
-            if (empty($data['position_id'])) {
+            if (empty($data['position_id']) && empty($data['leadership_position_id'])) {
                 return $this->errorResponse('position_id is required.', 400);
             }
+            $positionId = (int) ($data['leadership_position_id'] ?? $data['position_id']);
 
-            // Resolve person_id: create persons record if none provided
+            // The category belongs to the position, so it is derived rather than
+            // accepted from the client — otherwise a BOM seat and a staff seat
+            // could be recorded for the same position and drift apart.
+            $catStmt = $this->db->prepare(
+                "SELECT leadership_category_id FROM leadership_positions WHERE id = ?"
+            );
+            $catStmt->execute([$positionId]);
+            $categoryId = $catStmt->fetchColumn();
+            if ($categoryId === false) {
+                return $this->errorResponse('Unknown leadership position.', 400);
+            }
+            $categoryId = (int) $categoryId;
+
+            // Resolve person_id: create persons record if none provided. This is
+            // how a community member or investor without a staff/learner/parent
+            // record becomes a first-class holder.
             if (empty($data['person_id'])) {
                 if (empty($data['first_name']) || empty($data['last_name'])) {
                     return $this->errorResponse('person_id or first_name + last_name is required.', 400);
@@ -1142,7 +1175,7 @@ class WebsiteManager extends BaseAPI
             // Auto-fill display_order if not set
             if (empty($data['display_order'])) {
                 $data['display_order'] = (int) $this->scalar(
-                    "SELECT COALESCE(MAX(display_order),0) FROM school_leadership WHERE academic_year_id=?",
+                    "SELECT COALESCE(MAX(display_order),0) FROM school_leader WHERE academic_year_id=?",
                     [$data['academic_year_id']]
                 ) + 10;
             }
@@ -1152,18 +1185,33 @@ class WebsiteManager extends BaseAPI
                 $data['is_active'] = 1;
             }
 
+            // Derive the optional population links from the one universal
+            // person_id, so a BOM member who is also a teacher or a parent is
+            // reported under both without anyone having to remember to tick a
+            // second box. A community member matches none and stays NULL.
+            $population = $this->db->prepare(
+                "SELECT
+                    (SELECT id FROM staff    WHERE person_id = ? LIMIT 1) AS staff_id,
+                    (SELECT id FROM students WHERE person_id = ? LIMIT 1) AS student_id,
+                    (SELECT id FROM parents  WHERE person_id = ? LIMIT 1) AS parent_id"
+            );
+            $population->execute([$data['person_id'], $data['person_id'], $data['person_id']]);
+            $pop = $population->fetch(\PDO::FETCH_ASSOC) ?: [];
+
             $stmt = $this->db->prepare(
-                "INSERT INTO school_leadership
-                    (academic_year_id, position_id, person_id, staff_id, student_id,
+                "INSERT INTO school_leader
+                    (academic_year_id, leadership_position_id,
+                     person_id, staff_id, student_id, parent_id,
                      public_photo_url, public_bio, display_order, is_active)
-                 VALUES (?,?,?,?,?,?,?,?,?)"
+                 VALUES (?,?,?,?,?,?,?,?,?,?)"
             );
             $stmt->execute([
                 $data['academic_year_id'],
-                $data['position_id'],
+                $positionId,
                 $data['person_id'],
-                $data['staff_id'] ?? null,
-                $data['student_id'] ?? null,
+                $data['staff_id'] ?? $pop['staff_id'] ?? null,
+                $data['student_id'] ?? $pop['student_id'] ?? null,
+                $data['parent_id'] ?? $pop['parent_id'] ?? null,
                 $data['public_photo_url'] ?? null,
                 $data['public_bio'] ?? null,
                 $data['display_order'],
@@ -1179,15 +1227,31 @@ class WebsiteManager extends BaseAPI
     public function updateLeadershipEntry(int $id, array $data)
     {
         try {
-            $existing = $this->db->prepare("SELECT id FROM school_leadership WHERE id=?");
+            $existing = $this->db->prepare("SELECT id FROM school_leader WHERE id=?");
             $existing->execute([$id]);
             if (!$existing->fetch()) {
                 return $this->errorResponse('Leadership entry not found.', 404);
             }
 
-            $allowed = ['position_id','person_id','staff_id','student_id','public_photo_url','public_bio','display_order','is_active'];
+            $allowed = ['person_id','staff_id','student_id','parent_id','public_photo_url','public_bio','display_order','is_active'];
             $fields = [];
             $params = [];
+
+            // Category is derived from the selected position.
+            if (array_key_exists('position_id', $data) || array_key_exists('leadership_position_id', $data)) {
+                $positionId = (int) ($data['leadership_position_id'] ?? $data['position_id']);
+                $catStmt = $this->db->prepare(
+                    "SELECT leadership_category_id FROM leadership_positions WHERE id = ?"
+                );
+                $catStmt->execute([$positionId]);
+                $categoryId = $catStmt->fetchColumn();
+                if ($categoryId === false) {
+                    return $this->errorResponse('Unknown leadership position.', 400);
+                }
+                $fields[] = 'leadership_position_id=?';
+                $params[] = $positionId;
+            }
+
             foreach ($allowed as $col) {
                 if (array_key_exists($col, $data)) {
                     $fields[] = "$col=?";
@@ -1199,7 +1263,7 @@ class WebsiteManager extends BaseAPI
             }
             $fields[] = "updated_at=NOW()";
             $params[] = $id;
-            $stmt = $this->db->prepare("UPDATE school_leadership SET " . implode(',', $fields) . " WHERE id=?");
+            $stmt = $this->db->prepare("UPDATE school_leader SET " . implode(',', $fields) . " WHERE id=?");
             $stmt->execute($params);
             return $this->successResponse(['id' => $id], 'Leadership entry updated.');
         } catch (Exception $e) {
@@ -1211,7 +1275,7 @@ class WebsiteManager extends BaseAPI
     public function deleteLeadershipEntry(int $id)
     {
         try {
-            $stmt = $this->db->prepare("DELETE FROM school_leadership WHERE id=?");
+            $stmt = $this->db->prepare("DELETE FROM school_leader WHERE id=?");
             $stmt->execute([$id]);
             if ($stmt->rowCount() === 0) {
                 return $this->errorResponse('Leadership entry not found.', 404);
@@ -1267,10 +1331,12 @@ class WebsiteManager extends BaseAPI
         try {
             $rows = $this->db->query(
                 "SELECT a.id, a.job_id, a.job_title, a.first_name, a.last_name, a.email, a.phone,
-                        a.tsc_number, a.status, a.created_at,
+                        a.tsc_number, a.status, a.applicant_type, a.staff_id, a.created_at,
                         i.id AS interview_id, i.scheduled_at AS interview_scheduled_at,
                         i.mode AS interview_mode, i.location AS interview_location,
-                        i.status AS interview_status, i.score AS interview_score, i.notes AS interview_notes
+                        i.status AS interview_status, i.score AS interview_score, i.notes AS interview_notes,
+                        (SELECT sa.id FROM staff_appointments sa WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_id,
+                        (SELECT sa.status FROM staff_appointments sa WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_status
                  FROM job_applications a
                  LEFT JOIN job_application_interviews i ON i.id = (
                     SELECT i2.id FROM job_application_interviews i2
@@ -1289,6 +1355,7 @@ class WebsiteManager extends BaseAPI
     {
         $allowed = ['received','shortlisted','interview_scheduled','interviewed','hired','rejected'];
         if (!in_array($status, $allowed, true)) return $this->errorResponse('Invalid application status.', 422);
+        if ($status === 'hired') return $this->errorResponse('An application is marked hired only when its approved staff appointment creates and links the staff account.', 422);
         try {
             $this->db->beginTransaction();
             $q = $this->db->prepare('SELECT status FROM job_applications WHERE id=? FOR UPDATE');
@@ -1298,7 +1365,7 @@ class WebsiteManager extends BaseAPI
                 'received' => ['shortlisted', 'rejected'],
                 'shortlisted' => ['interview_scheduled', 'rejected'],
                 'interview_scheduled' => ['rejected'],
-                'interviewed' => ['hired', 'rejected'],
+                'interviewed' => ['rejected'],
                 'hired' => [],
                 'rejected' => [],
             ];
@@ -1883,6 +1950,59 @@ class WebsiteManager extends BaseAPI
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve an explicitly requested parent-portal binding, if any.
+     *
+     * The anonymous public admissions endpoint must not call this method. Its
+     * guardian is resolved from the submitted identity. The authenticated
+     * parent portal uses its own endpoint and binds the parent server-side.
+     *
+     * @param string $bearerHeader Full Authorization header value (may be '').
+     */
+    public function resolvePortalBindingParentId(string $bearerHeader): int
+    {
+        $bearer = trim((string) $bearerHeader);
+        if ($bearer === '') {
+            return 0;
+        }
+        $token = preg_replace('/^Bearer\s+/i', '', $bearer);
+        if ($token === '') {
+            return 0;
+        }
+
+        try {
+            $decoded = JWT::decode($token, new Key(JWT_SECRET, 'HS256'));
+        } catch (\Exception $e) {
+            return 0;
+        }
+
+        if (($decoded->iss ?? null) !== JWT_ISSUER || ($decoded->aud ?? null) !== JWT_AUDIENCE) {
+            return 0;
+        }
+
+        $parentId = (int) ($decoded->parent_id ?? 0);
+        $userId = (int) ($decoded->user_id ?? $decoded->id ?? 0);
+        if ($parentId <= 0 || $userId <= 0) {
+            return 0;
+        }
+
+        try {
+            // The token must still be an active (non-revoked) access session.
+            $session = (new AuthSessionService($this->db))->validateAccessToken($token, $userId);
+            if ($session === null) {
+                return 0;
+            }
+            $exists = $this->scalar(
+                "SELECT id FROM parents WHERE id = ? AND status = 'active'",
+                [$parentId]
+            );
+            return $exists ? $parentId : 0;
+        } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] portal binding check failed: ' . $e->getMessage());
+            return 0;
+        }
     }
 
     private function allOrdered(string $table, string $where)

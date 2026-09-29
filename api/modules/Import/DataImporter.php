@@ -190,11 +190,70 @@ class DataImporter
         return $row ?: null;
     }
 
-    public function getTemplateFile(string $type): ?string
+    public function getTemplateFile(string $type, string $format = 'csv'): ?string
     {
         $this->validateType($type);
-        $path = dirname(__DIR__, 3) . '/templates/import/' . $type . '.csv';
-        return file_exists($path) ? $path : null;
+        $format = strtolower($format);
+        if (!in_array($format, ['csv', 'xlsx', 'ods'], true)) return null;
+
+        $projectRoot = dirname(__DIR__, 3);
+        $directory = rtrim((string) UPLOAD_PATH, '/\\') . '/imports/templates';
+        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) return null;
+
+        // This is the only runtime template store. Student templates retain
+        // their established public-facing filename; other imports use their
+        // import type as the filename (for example imports/templates/classes.csv).
+        $stem = $type === 'students' ? 'student_import_template' : $type;
+        $target = $directory . '/' . $stem . '.' . $format;
+        if (is_file($target) && is_readable($target)) return $target;
+
+        // Seed the managed template once from repository-owned source files.
+        // uploads_backup is deliberately not a source of truth: it was the old
+        // duplicate location and varies between local and hosted deployments.
+        $sourceCandidates = $type === 'students'
+            ? [$projectRoot . '/templates/student_import_template.' . $format]
+            : [$projectRoot . '/templates/import/' . $type . '.' . $format];
+        $source = null;
+        foreach ($sourceCandidates as $candidate) {
+            if (is_file($candidate) && is_readable($candidate)) { $source = $candidate; break; }
+        }
+        if ($source !== null) {
+            $temporary = $target . '.' . bin2hex(random_bytes(4)) . '.tmp';
+            if (!copy($source, $temporary) || !rename($temporary, $target)) {
+                @unlink($temporary);
+                return null;
+            }
+            @chmod($target, 0664);
+            return $target;
+        }
+
+        // Other generic import types currently publish CSV only. Re-encode a
+        // canonical CSV as a workbook only if the workbook writer is available.
+        if ($source === null && $format !== 'csv') {
+            $csvPath = $this->getTemplateFile($type, 'csv');
+            if (!$csvPath || !class_exists(\PhpOffice\PhpSpreadsheet\IOFactory::class)) return null;
+            try {
+                $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($csvPath);
+                $writerClass = $format === 'xlsx'
+                    ? \PhpOffice\PhpSpreadsheet\Writer\Xlsx::class
+                    : \PhpOffice\PhpSpreadsheet\Writer\Ods::class;
+                $writer = new $writerClass($spreadsheet);
+                $writer->save($target);
+                return is_file($target) ? $target : null;
+            } catch (\Throwable $error) {
+                return null;
+            }
+        }
+
+        // Keep every generic type downloadable from the same managed folder,
+        // even when it has no separately maintained sample workbook.
+        if ($format === 'csv') {
+            $headers = self::TYPES[$type]['required'] ?? [];
+            if (!$headers) return null;
+            $contents = implode(',', array_map(static fn(string $header): string => '"' . str_replace('"', '""', $header) . '"', $headers)) . "\r\n";
+            return file_put_contents($target, $contents, LOCK_EX) !== false ? $target : null;
+        }
+        return null;
     }
 
     // ── Validation ──────────────────────────────────────────────────────────
@@ -313,9 +372,9 @@ class DataImporter
 
                 $stmt = $this->db->prepare(
                     'INSERT INTO students
-                     (person_id, admission_no, student_type_id, admission_date, status, blood_group, created_at, updated_at)
+                     (person_id, admission_no, student_type_id, admission_date, status, blood_group, entry_source, created_at, updated_at)
                      VALUES
-                     (:pid,:a,:st,:ad,:s,:bg,NOW(),NOW())
+                     (:pid,:a,:st,:ad,:s,:bg,\'existing_student\',NOW(),NOW())
                      ON DUPLICATE KEY UPDATE
                      person_id=VALUES(person_id), student_type_id=VALUES(student_type_id),
                      status=VALUES(status), updated_at=NOW()'
@@ -324,7 +383,7 @@ class DataImporter
                     ':pid' => $personId,
                     ':a'   => $row['admission_no'],
                     ':st'  => $this->resolveStudentTypeId($row['student_type'] ?? 'DAY'),
-                    ':ad'  => $row['admission_date'] ?? date('Y-m-d'),
+                    ':ad'  => $row['admission_date'] ?? null,
                     ':s'   => $row['status'] ?? 'active',
                     ':bg'  => $row['blood_group'] ?? null,
                 ]);
