@@ -3,6 +3,7 @@ namespace App\API\Controllers;
 
 use App\API\Modules\students\StudentsAPI;
 use App\API\Modules\system\SystemAPI;
+use DomainException;
 use Exception;
 use App\API\Services\DirectorAnalyticsService;
 use App\API\Services\DeputyAcademicAnalyticsService;
@@ -14,8 +15,13 @@ use App\API\Services\ClassTeacherAnalyticsService;
 use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
+use App\API\Services\AiAgentService;
+use App\API\Services\AiBehaviorProfiler;
+use App\API\Services\AiPythonBridge;
+use App\API\Services\AiProviderException;
 use App\API\Services\AiWorkflowService;
 use App\API\Services\AiInsightOrchestrator;
+use App\API\Services\CurriculumPolicyWatchAgent;
 use App\API\Services\SidebarConfigReader;
 use App\Config\DashboardRouter;
 
@@ -66,6 +72,20 @@ class DashboardController extends BaseController
             $service = $this->contract(AiWorkflowService::class);
             $workflows = $service->describeForContext($permissions, $route, $module, 'staff', $roleNames);
 
+            // Bounded behaviour observation (allowlisted facts only) so the
+            // assistant can adapt to the workspaces this staff member uses.
+            try {
+                $userId = (int) $this->getUserId();
+                if ($userId > 0) {
+                    (new AiBehaviorProfiler())->observe($userId, 'workspace_visit', [
+                        'route' => $route,
+                        'module' => $module,
+                    ]);
+                }
+            } catch (Exception $e) {
+                // Behaviour observation must never break the catalogue.
+            }
+
             return $this->success([
                 'workflows' => $workflows,
                 'context' => [
@@ -77,6 +97,301 @@ class DashboardController extends BaseController
             \App\API\Services\Logger::legacyError('[DashboardController] AI catalogue failed: ' . $e->getMessage());
             return $this->serverError('Unable to load contextual assistance');
         }
+    }
+
+    /**
+     * POST /api/dashboard/agent-assist
+     * Governed multi-agent staff assistant. The Python AI platform
+     * (AiPythonBridge) is the PRIMARY engine when configured - all agent
+     * routing, provider calls, tool loops and behaviour personalization
+     * run there, freeing PHP workers after a single bounded relay. The
+     * PHP-native AiAgentService remains as the resilience path so a
+     * Python redeployment never takes the assistant down. Frontend
+     * contract is identical either way.
+     */
+    public function postAgentAssist($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $question = (string) ($data['question'] ?? '');
+        if ($question === '' || mb_strlen($question) > 500) {
+            return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+        $context = [
+            'user_id' => $userId,
+            'roles' => $this->user['roles'] ?? [],
+            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            'audience' => 'staff',
+            'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
+            'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
+        ];
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+
+            // PRIMARY: the Python AI platform.
+            $bridge = $this->contract(AiPythonBridge::class);
+            if ($bridge->available()) {
+                $result = $bridge->assist($context, $question);
+                return $this->success($result, 'Agent answer prepared');
+            }
+
+            // Resilience: the PHP-native governed agent loop.
+            $result = $this->contract(AiAgentService::class)->assist(
+                $this->getDb()->getConnection(),
+                $context,
+                $question
+            );
+            return $this->success($result, 'Agent answer prepared');
+        } catch (AiProviderException $e) {
+            // Python platform down mid-redeploy: degrade to the PHP engine
+            // rather than failing the staff member's question.
+            try {
+                $result = $this->contract(AiAgentService::class)->assist(
+                    $this->getDb()->getConnection(),
+                    $context,
+                    $question
+                );
+                return $this->success($result, 'Agent answer prepared');
+            } catch (\Throwable $inner) {
+                \App\API\Services\Logger::legacyError('[DashboardController] agent assist failed: ' . $inner->getMessage());
+                return $this->serverError('The assistant could not answer right now');
+            }
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent assist failed: ' . $e->getMessage());
+            return $this->serverError('The assistant could not answer right now');
+        }
+    }
+
+    /**
+     * POST /api/dashboard/agent-tool
+     * Worker-secret service endpoint called by the Python AI platform's
+     * agents for governed school data. The RECORDED operator context is
+     * re-authorized against the tool's workflow inside PHP before any
+     * governed service runs - the model never touches school data and
+     * this endpoint is never browser-facing.
+     */
+    public function postAgentTool($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) {
+            return $this->respond(null, 'Invalid worker credential', 403, false);
+        }
+        $payload = is_array($data) ? $data : [];
+        try {
+            $result = $this->contract(AiAgentService::class)->executeToolRequest(
+                $this->getDb()->getConnection(),
+                $payload
+            );
+            return $this->success($result, 'Agent tool executed');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent tool failed: ' . $e->getMessage());
+            return $this->serverError('The governed tool could not run');
+        }
+    }
+
+    /**
+     * POST /api/dashboard/agent-digest-worker
+     * Cron-driven (curl line with X-Kingsway-Worker-Secret, never a staff
+     * JWT): resolve every staff member holding assistant-relevant permissions
+     * and queue one deterministic ai.agent.run digest per operator on the
+     * existing JobQueue. The worker re-authorizes each recorded operator, so
+     * this endpoint never broadens anyone's scope.
+     */
+    public function postAgentDigestWorker($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) {
+            return $this->respond(null, 'Invalid worker credential', 403, false);
+        }
+        try {
+            $pdo = $this->getDb()->getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT DISTINCT user_id FROM v_user_permissions_effective
+                 WHERE permission_code IN (?, ?) AND user_id IS NOT NULL AND user_id > 0'
+            );
+            $stmt->execute(['analytics_catalogue_view', '*']);
+            $userIds = array_values(array_unique(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN))));
+
+            $permissionsByUser = $this->effectivePermissionsForUsers($pdo, $userIds);
+            $queued = 0;
+            $skipped = 0;
+            $agent = $this->contract(AiAgentService::class);
+            foreach ($userIds as $targetUserId) {
+                $permissions = $permissionsByUser[$targetUserId] ?? [];
+                try {
+                    $agent->enqueue($targetUserId, $permissions, [
+                        'mode' => 'digest',
+                        'cadence' => 'daily',
+                        'request_id' => 'ai-agent-digest-cron',
+                        'broadcast' => true,
+                    ]);
+                    $queued++;
+                } catch (Exception $e) {
+                    $skipped++;
+                }
+            }
+
+            return $this->success([
+                'queued' => $queued,
+                'skipped' => $skipped,
+            ], 'Agent digest jobs queued');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent digest worker failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue agent digests');
+        }
+    }
+
+    /**
+     * POST /api/dashboard/insight-brief-queue
+     *
+     * Cron-driven (a single curl line with X-Kingsway-Worker-Secret, never a
+     * staff JWT): resolve every staff member eligible for the governed
+     * `reports.school_brief` workflow and queue one AI insight briefing per
+     * operator on the existing JobQueue. This endpoint is the curl-crontab
+     * replacement for the dormant scripts/cron/briefings.php and is the only
+     * supported way the daily/weekly/term cadences are triggered in either
+     * localhost or production.
+     *
+     * Body: {"cadence":"daily"|"weekly"|"term"}. Nothing calls a provider
+     * synchronously — POST /api/realtime/worker drains the queue.
+     */
+    public function postInsightBriefQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) {
+            return $this->respond(null, 'Invalid worker credential', 403, false);
+        }
+        $cadence = strtolower(trim((string) ($data['cadence'] ?? '')));
+        if (!in_array($cadence, [AiInsightOrchestrator::CADENCE_DAILY, AiInsightOrchestrator::CADENCE_WEEKLY, AiInsightOrchestrator::CADENCE_TERM], true)) {
+            return $this->respond(null, 'Cadence must be daily, weekly, or term', 422, false);
+        }
+        try {
+            $pdo = $this->getDb()->getConnection();
+            $eligible = $pdo->prepare(
+                'SELECT DISTINCT user_id FROM v_user_permissions_effective
+                 WHERE permission_code IN (?, ?) AND user_id IS NOT NULL AND user_id > 0'
+            );
+            $eligible->execute(['analytics_catalogue_view', '*']);
+            $userIds = array_values(array_unique(array_map('intval', $eligible->fetchAll(\PDO::FETCH_COLUMN))));
+
+            $permissionsByUser = $this->effectivePermissionsForUsers($pdo, $userIds);
+            $orchestrator = $this->contract(AiInsightOrchestrator::class);
+            $queued = 0;
+            $skipped = 0;
+            foreach ($userIds as $targetUserId) {
+                $permissions = $permissionsByUser[$targetUserId] ?? [];
+                // Re-authorize per operator so a scheduled run can never widen
+                // anyone's scope beyond the workflow's own permission gate.
+                if (!in_array('*', $permissions, true) && !in_array('analytics_catalogue_view', $permissions, true)) {
+                    $skipped++;
+                    continue;
+                }
+                try {
+                    $orchestrator->enqueueBrief($cadence, [
+                        'user_id' => $targetUserId,
+                        'permissions' => $permissions,
+                        'request_id' => 'scheduled:' . $cadence,
+                    ], [
+                        'audience' => 'staff',
+                        'broadcast' => true,
+                    ]);
+                    $queued++;
+                } catch (Exception $e) {
+                    $skipped++;
+                }
+            }
+
+            return $this->success([
+                'cadence' => $cadence,
+                'queued_users' => $queued,
+                'skipped_users' => $skipped,
+            ], 'Insight briefing jobs queued');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] insight brief queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue insight briefings');
+        }
+    }
+
+    /**
+     * POST /api/dashboard/kicd-policy-watch
+     *
+     * Cron-driven (a single curl line with X-Kingsway-Worker-Secret): run the
+     * deterministic KICD curriculum policy-watch stage. It hashes the
+     * configured KICD_POLICY_SOURCE against the managed baseline and queues one
+     * `curriculum.policy_interpret` job only on a genuine change. This is the
+     * curl-crontab replacement for the dormant
+     * scripts/cron/kicd_policy_watch.php.
+     *
+     * When KICD_POLICY_SOURCE is empty the agent stays dormant and reports
+     * `no_source` (HTTP 200), which is not a failure.
+     */
+    public function postKicdPolicyWatch($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) {
+            return $this->respond(null, 'Invalid worker credential', 403, false);
+        }
+        try {
+            $pdo = $this->getDb()->getConnection();
+            $result = (new CurriculumPolicyWatchAgent())->run($pdo);
+
+            return $this->success($result, 'KICD policy watch completed');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] KICD policy watch failed: ' . $e->getMessage());
+            return $this->serverError('KICD policy watch failed');
+        }
+    }
+
+    /**
+     * Effective permission codes for many users in ONE query.
+     *
+     * `v_user_permissions_effective` is expensive to evaluate per user (each
+     * `WHERE user_id = ?` lookup costs seconds), so the scheduled workers must
+     * never loop over users querying it one at a time. Batching keeps a cron
+     * endpoint inside the `--max-time` window of its curl line.
+     *
+     * @param int[] $userIds
+     * @return array<int,string[]>
+     */
+    private function effectivePermissionsForUsers(\PDO $pdo, array $userIds): array
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if ($userIds === []) {
+            return [];
+        }
+        $inClause = implode(',', $userIds);
+        $stmt = $pdo->prepare(
+            "SELECT user_id, permission_code FROM v_user_permissions_effective
+             WHERE user_id IN ($inClause)"
+        );
+        $stmt->execute();
+        $byUser = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $userId = (int) ($row['user_id'] ?? 0);
+            $permission = trim((string) ($row['permission_code'] ?? ''));
+            if ($userId < 1 || $permission === '') {
+                continue;
+            }
+            if (!in_array($permission, $byUser[$userId] ?? [], true)) {
+                $byUser[$userId][] = $permission;
+            }
+        }
+        return $byUser;
+    }
+
+    private function hasValidWorkerCredential(): bool
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+
+        return $expected !== ''
+            && is_string($provided)
+            && hash_equals($expected, $provided);
     }
 
     /**

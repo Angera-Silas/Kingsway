@@ -95,6 +95,9 @@ final class AiPromptTemplateService
         'academics.timetable_planning' => [
             1 => ['content' => 'Help the authorised academic planner collect missing timetable constraints and prepare an editable assignment proposal from the supplied authorized candidate IDs. Treat approved teacher specializations, explicit learning-area assignments, class-teacher rules, availability, workload, rooms, periods, and collision checks as authoritative. Never invent identifiers. Do not write timetable entries, claim a conflict-free plan, or bypass server validation and human approval. Return JSON with title, body, questions, suggestions, unresolved_constraints, assignments, and next_steps. Each assignments item must contain academic_year_class_stream_id, day_of_week, time_slot_id, learning_area_id, teacher_id, optional room_id, and notes.', 'summary' => 'Specialist-aware conversational timetable planning prompt'],
         ],
+        'academics.exam_timetable_planning' => [
+            1 => ['content' => 'Prepare a complete proposed examination timetable for the supplied class-level papers. Each paper is one class plus learning area and all parallel streams of that class sit the same paper at the same time. Assign every paper exactly once using only supplied paper_id and slot_id values. Respect the provided allowed slots, the two-per-day morning limit for early classes and three-per-day limit for upper classes. Teacher group labels are anonymized collision tokens: never assign two papers sharing a teacher group to the same slot. Do not invent dates, times, identifiers, rooms, invigilators, or teacher assignments; do not write official records or claim human approval. If constraints cannot all be satisfied, return no partial assignment and explain the conflict in unresolved_constraints. Return JSON with title, body, next_steps, unresolved_constraints, and assignments; each assignment must contain only paper_id and slot_id.', 'summary' => 'AI-prepared class-level exam timetable under hard server constraints'],
+        ],
         'learners.support_planning' => [
             1 => ['content' => 'Prepare aggregate learner-support follow-up suggestions using only supplied bands and counts. Do not identify learners, reveal fees, diagnose welfare or health conditions, infer causes, or make disciplinary decisions. Return JSON with title, body, next_steps.', 'summary' => 'Initial aggregate learner-support prompt'],
         ],
@@ -173,6 +176,18 @@ final class AiPromptTemplateService
                 'summary' => 'Initial system-operations advisory review prompt',
             ],
         ],
+        'system.agent_triage' => [
+            1 => [
+                'content' => 'Choose the single best agent for the staff question using ONLY the supplied agent list (id | name | domain | goal). Consider the supplied route and module as strong hints. Never invent an agent id outside the list. Return JSON with agent_id (exact id from the list), confidence (0 to 1), and reason (one short sentence).',
+                'summary' => 'Initial multi-agent routing triage prompt',
+            ],
+        ],
+        'system.agent_chat' => [
+            1 => [
+                'content' => 'You are a governed AI co-worker agent inside a Kenyan CBC primary and junior-secondary school system (Kingsway Preparatory School). You help authenticated staff only; learners are never system users. Respond ONLY with a single JSON object. To call a tool return {"action":"tool","tool":"<exact tool id>","tool_input":{...}}; to finish return {"action":"final","answer":{"title":"...","body":"...","next_steps":[...],"suggested_questions":[...],"escalation_required":false}}. Call a tool ONLY when the question needs school data, a governed report, the intelligence briefing, or the workflow catalogue; answer directly for process, policy or guidance questions. Use each tool at most once; you have at most two tool steps. Never invent numbers, identifiers, balances, dates, learner or staff details, or policy. Never claim to have created, approved, posted, sent, published or changed anything - drafts and decisions always belong to human staff. If a tool reports not_authorized or fails, say so plainly and point the staff member to the right workspace. Keep the body under 250 words, practical and actionable; put concrete follow-up actions in next_steps (max 6) and at most 3 short suggested_questions. This is a Christian Adventist school; keep a respectful, professional tone.',
+                'summary' => 'Initial governed agent runtime contract prompt',
+            ],
+        ],
     ];
 
     private const DEFAULT_CONTENT = 'Prepare a factual staff draft. Return JSON with title, body, next_steps.';
@@ -192,6 +207,7 @@ final class AiPromptTemplateService
         'academics.coverage_review' => 1,
         'academics.learning_gap_review' => 1,
         'academics.timetable_planning' => 1,
+        'academics.exam_timetable_planning' => 1,
         'learners.support_planning' => 1,
         'reports.kpi_brief' => 1,
         'reports.school_brief' => 1,
@@ -205,6 +221,8 @@ final class AiPromptTemplateService
         'curriculum.kicd_change_interpretation' => 1,
         'system.nlq_query' => 1,
         'system.operations_brief' => 1,
+        'system.agent_triage' => 1,
+        'system.agent_chat' => 1,
         'research.external_knowledge' => 1,
         'system.security_brief' => 1,
     ];

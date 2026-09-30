@@ -1423,6 +1423,8 @@ const ENDPOINT_PERMISSIONS = {
     GET: "users_view",
     POST: "users_update",
   },
+  "/users/users-bulk-action": "users_update",
+  "/users/users-bulk-revoke-from-role": "users_update",
 
   // Students
   "/students/index": "students_view",
@@ -1678,6 +1680,7 @@ const ENDPOINT_PERMISSIONS = {
   "/system/ai-readiness": "system_view",
   "/system/ai-provider-health": "system_view",
   "/dashboard/ai-assistant-catalog": null,
+  "/dashboard/agent-assist": null,
   "/system/ai-security-review-queue": "system_view",
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
   "/attendance/ai-exception-summaries": { GET: "attendance_view" },
@@ -3673,6 +3676,12 @@ window.API = {
       apiCall("/users/users-bulk-data-scope", "POST", {
         user_ids: userIds,
         data_scope: dataScope,
+      }),
+    bulkAction: async (userIds, action, data = {}) =>
+      apiCall("/users/users-bulk-action", "POST", {
+        user_ids: userIds,
+        action,
+        ...data,
       }),
 
     // Profile
@@ -7452,6 +7461,11 @@ window.API = {
 
   // Dashboard endpoints — one canonical namespace for all role dashboards.
   dashboard: {
+    // Governed multi-agent staff assistant (triage -> allowlisted tools ->
+    // structured answer). Server owns routing and per-tool authorization.
+    agentAssist: async (question, route = "", module = "dashboard") =>
+      apiCall("/dashboard/agent-assist", "POST", { question, route, module }),
+
     // System Administrator (role 2): infrastructure only, no School Domain data.
     getAuthEvents: async () =>
       apiCall("/dashboard/system-admin/auth-events", "GET"),
