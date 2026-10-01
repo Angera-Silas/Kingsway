@@ -28,15 +28,27 @@ class SharedCache
     private const DEFAULT_TTL = 300; // 5 minutes
 
     private string $dir;
-    private UploadService $storage;
+    private ?UploadService $storage;
     private ?LocalSqliteBuffer $sqlite = null;
+    private bool $disabled = false;
 
     public function __construct(?string $dir = null)
     {
-        $this->storage = new UploadService();
-        $this->dir = $dir
-            ?? (sys_get_temp_dir() . '/kingsway_cache');
-        $this->storage->ensureDirectoryPath($this->dir);
+        // A cache must not require the upload subsystem (or its directory
+        // constants) to be configured: unit tests and cron contexts construct
+        // it without a booted application.
+        try {
+            $this->storage = new UploadService();
+        } catch (\Throwable) {
+            $this->storage = null;
+        }
+        $this->dir = $this->resolveDirectory($dir);
+        // A cache must never be the reason a request or job fails: when no
+        // writable directory exists the cache degrades to read-only no-ops.
+        if (!is_dir($this->dir) || !is_writable($this->dir)) {
+            $this->disabled = true;
+            return;
+        }
         // SQLite is the fast local index. JSON files remain a portable
         // fallback for shared hosts without pdo_sqlite and for recovery.
         try {
@@ -44,6 +56,46 @@ class SharedCache
         } catch (\Throwable) {
             $this->sqlite = null;
         }
+    }
+
+    /**
+     * Resolve a writable cache directory.
+     *
+     * The web server and CLI can run as different users on shared hosting
+     * (LAMPP/HostAfrica), so a directory created by one is unwritable for the
+     * other. Try the shared location, widen it when we own it, then fall back
+     * to a per-user directory.
+     */
+    private function resolveDirectory(?string $dir): string
+    {
+        $candidates = [];
+        if ($dir !== null && $dir !== '') {
+            $candidates[] = $dir;
+        } else {
+            $candidates[] = sys_get_temp_dir() . '/kingsway_cache';
+            $uid = function_exists('posix_geteuid') ? posix_geteuid() : getmyuid();
+            if ($uid !== false && $uid !== null) {
+                $candidates[] = sys_get_temp_dir() . '/kingsway_cache_' . $uid;
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if (!is_dir($candidate) && $this->storage !== null) {
+                try {
+                    $this->storage->ensureDirectoryPath($candidate);
+                } catch (\Throwable) {
+                    continue;
+                }
+            }
+            if (is_dir($candidate) && !is_writable($candidate) && is_writable(dirname($candidate))) {
+                @chmod($candidate, 0777);
+                clearstatcache(true, $candidate);
+            }
+            if (is_dir($candidate) && is_writable($candidate)) {
+                return $candidate;
+            }
+        }
+        return $candidates[0];
     }
 
     /**
@@ -56,6 +108,9 @@ class SharedCache
      */
     public function get(string $key): mixed
     {
+        if ($this->disabled) {
+            return null;
+        }
         if ($this->sqlite) {
             try {
                 $buffered = $this->sqlite->get('shared_cache_v1', $key);
@@ -79,6 +134,9 @@ class SharedCache
      */
     public function set(string $key, mixed $value, ?int $ttl = null): bool
     {
+        if ($this->disabled) {
+            return false;
+        }
         $ttl = $ttl ?? self::DEFAULT_TTL;
         $payload = json_encode([
             'expires' => time() + $ttl,
@@ -94,12 +152,32 @@ class SharedCache
                 // The JSON copy below is the portable fallback.
             }
         }
-        $this->storage->atomicWrite($this->pathFor($key), $payload);
+        $path = $this->pathFor($key);
+        try {
+            if ($this->storage !== null) {
+                $this->storage->atomicWrite($path, $payload);
+            } else {
+                // Native atomic replace when the upload service is unavailable.
+                $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
+                if (@file_put_contents($tmp, $payload, LOCK_EX) === false) {
+                    return false;
+                }
+                if (!@rename($tmp, $path)) {
+                    @unlink($tmp);
+                    return false;
+                }
+            }
+        } catch (\Throwable) {
+            return false;
+        }
         return true;
     }
 
     public function remember(string $key, callable $compute, ?int $ttl = null): mixed
     {
+        if ($this->disabled) {
+            return $compute();
+        }
         $ttl = $ttl ?? self::DEFAULT_TTL;
         $path = $this->pathFor($key);
 
@@ -122,6 +200,9 @@ class SharedCache
 
     public function forget(string $key): void
     {
+        if ($this->disabled) {
+            return;
+        }
         if ($this->sqlite) {
             try {
                 $this->sqlite->delete('shared_cache_v1', $key);
@@ -137,6 +218,9 @@ class SharedCache
 
     public function clear(): void
     {
+        if ($this->disabled) {
+            return;
+        }
         if ($this->sqlite) {
             try {
                 $this->sqlite->clearNamespace('shared_cache_v1');

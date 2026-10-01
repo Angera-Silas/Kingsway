@@ -19,7 +19,14 @@ final class StaffMigrationController extends BaseController
 
     public function getReferenceData($id = null, $data = [], $segments = [])
     {
-        return $this->respondWithGuard('staff_import', fn() => $this->success($this->service->referenceData()));
+        // Read-only master/reference data (departments, staff types, staff
+        // categories, learning areas, leadership positions, supervisors) that
+        // the staff form needs to render populated dropdowns. Gating this on
+        // `staff_import` alone left every other staff-facing role with empty
+        // selects, so the lookup follows `staff_view`. This grants no import
+        // capability: every mutating endpoint below still requires
+        // `staff_import`.
+        return $this->respondWithGuard(['staff_view', 'staff_import'], fn() => $this->success($this->service->referenceData()));
     }
 
     public function getBatches($id = null, $data = [], $segments = [])
@@ -44,11 +51,11 @@ final class StaffMigrationController extends BaseController
     {
         $this->guard('staff_import');
 
-        $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.csv');
+        $path = $this->managedPath('import_file', 'templates', 'existing_staff_import_template.csv');
         if (!$this->atomicWriteManagedFile($path, $this->service->templateCsv())) {
             throw new RuntimeException('Unable to prepare staff import template.');
         }
-        $this->downloads()->streamAbsolutePath($path, 'existing_staff_migration_template.csv', 'text/csv; charset=utf-8');
+        $this->downloads()->streamAbsolutePath($path, 'existing_staff_import_template.csv', 'text/csv; charset=utf-8');
     }
 
     public function getTemplateXlsx($id = null, $data = [], $segments = []): never
@@ -68,12 +75,12 @@ final class StaffMigrationController extends BaseController
     public function getTemplateOds($id = null, $data = [], $segments = []): never
     {
         $this->guard('staff_import');
-        $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.ods');
+        $path = $this->managedPath('import_file', 'templates', 'existing_staff_import_template.ods');
         $this->ensureManagedDirectory(dirname($path));
         $this->service->writeTemplateOds($path);
         $this->downloads()->streamAbsolutePath(
             $path,
-            'existing_staff_migration_template.ods',
+            'existing_staff_import_template.ods',
             'application/vnd.oasis.opendocument.spreadsheet'
         );
     }
@@ -206,7 +213,7 @@ final class StaffMigrationController extends BaseController
         });
     }
 
-    private function respondWithGuard(string $permission, callable $callback)
+    private function respondWithGuard(string|array $permission, callable $callback)
     {
         return $this->runSafely(function () use ($permission, $callback) {
             $this->guard($permission);
@@ -233,7 +240,7 @@ return $this->serverError('An internal error occurred.');
         return $id;
     }
 
-    private function guard(string $permission): void
+    private function guard(string|array $permission): void
     {
         if (!$this->user) {
             throw new RuntimeException('Authentication required.', 401);
@@ -244,12 +251,18 @@ return $this->serverError('An internal error occurred.');
             (array)($this->user['roles'] ?? [$this->user['role'] ?? ''])
         );
         $permissions = (array)($this->user['permissions'] ?? []);
+        $required = (array)$permission;
 
         if (
             !array_intersect($roles, ['school_administrator', 'school_admin', 'admin'])
-            && !in_array($permission, $permissions, true)
+            && !array_intersect($required, $permissions)
         ) {
-            throw new RuntimeException('School Administrator permission is required.', 403);
+            throw new RuntimeException(
+                count($required) === 1
+                    ? sprintf('%s permission is required.', $required[0])
+                    : sprintf('One of these permissions is required: %s.', implode(', ', $required)),
+                403
+            );
         }
     }
 
