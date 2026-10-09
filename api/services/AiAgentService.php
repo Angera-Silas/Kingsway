@@ -530,15 +530,19 @@ class AiAgentService
 
         try {
             while ($providerCalls < self::MAX_PROVIDER_CALLS) {
+                // Field order is deliberate: stable context first, the
+                // per-request question last, so providers can cache by exact
+                // token prefix across turns for the same agent and route.
                 $envelope = AiPromptPolicy::minimize(self::WORKFLOW_CHAT, array_filter([
-                    'question' => $question,
                     'audience' => 'staff',
                     'agent_id' => (string) $agent['id'],
                     'route' => $route,
                     'module' => $module,
-                    'behavior_hints' => $this->hintLines($hints),
                     'tools' => $tools,
+                    'behavior_hints' => $this->hintLines($hints),
+                    'grounding_note' => 'Governed results are already in tool_results. Answer from them; only request a tool if the results genuinely do not cover the question.',
                     'tool_results' => $toolResults,
+                    'question' => $question,
                 ], static fn($value): bool => $value !== null && $value !== []));
 
                 if ($messages === []) {
@@ -551,7 +555,10 @@ class AiAgentService
                 }
 
                 $providerCalls++;
-                $response = $this->provider->complete($messages);
+                $response = $this->provider->complete(
+                    $messages,
+                    ['task' => 'chat']
+                );
                 if (!is_array($response)) {
                     throw new AiProviderException('The agent provider returned an unusable response.');
                 }
@@ -688,10 +695,13 @@ class AiAgentService
         ]);
         $prompt = $this->templates->resolve(self::WORKFLOW_TRIAGE);
         try {
-            $intent = $this->provider->complete([
-                ['role' => 'system', 'content' => (string) $prompt['content']],
-                ['role' => 'user', 'content' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-            ]);
+            $intent = $this->provider->complete(
+                [
+                    ['role' => 'system', 'content' => (string) $prompt['content']],
+                    ['role' => 'user', 'content' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+                ],
+                ['task' => 'triage']
+            );
         } catch (AiProviderException $e) {
             return null;
         }
