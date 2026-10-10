@@ -848,50 +848,61 @@ const StudentIdCardsController = {
     },
 
     generateBulkPDF: async function() {
+        const includeFront = document.getElementById('bulkIncludeFront').checked;
+        const includeBack = document.getElementById('bulkIncludeBack').checked;
+        const printMode = document.getElementById('bulkPrintMode').value;
+
+        if (!includeFront && !includeBack) {
+            this.notify("warning", "Please select at least one card side");
+            return;
+        }
+
+        // Map frontend printMode to backend printerMode
+        const printerMode = printMode === 'a4_sheet' ? 'a4_pdf' : 'direct_card';
+        const side = (!includeFront && includeBack) ? 'back' : (includeFront && !includeBack ? 'front' : 'both');
+
         try {
-            const includeFront = document.getElementById('bulkIncludeFront').checked;
-            const includeBack = document.getElementById('bulkIncludeBack').checked;
-            const printMode = document.getElementById('bulkPrintMode').value;
-
-            if (!includeFront && !includeBack) {
-                this.notify("warning", "Please select at least one card side");
-                return;
-            }
-
-            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
+            const batch = await window.BulkPrint.enqueue('student_id_cards', {
                 student_ids: Array.from(this.selectedStudents),
-                print_mode: printMode,
-                include_front: includeFront,
-                include_back: includeBack
+            }, {
+                printerMode,
+                side,
             });
 
-            const data = this.unwrapPayload(response);
-            
-            if (data && data.pdf_url) {
-                this.notify("success", `Bulk PDF generated for ${data.student_count} students`);
-                
-                // Close modal
-                const modal = document.getElementById('bulkGenerateModal');
-                if (modal && typeof bootstrap !== "undefined") {
-                    const bootstrapModal = bootstrap.Modal.getInstance(modal);
-                    if (bootstrapModal) bootstrapModal.hide();
-                }
-
-                // Keep generated school PDFs inside the application viewer.
-                if (window.PrintManager?.openDocument) {
-                    window.PrintManager.openDocument(data.pdf_url, { title: 'Student ID cards' });
-                } else {
-                    window.KingswayFileLifecycle?.open?.(data.pdf_url);
-                }
-                
-                // Reload students to update status
-                await this.loadStudents();
-            } else {
-                this.notify("error", response.message || "Failed to generate bulk PDF");
+            // Close modal
+            const modal = document.getElementById('bulkGenerateModal');
+            if (modal && typeof bootstrap !== "undefined") {
+                const bootstrapModal = bootstrap.Modal.getInstance(modal);
+                if (bootstrapModal) bootstrapModal.hide();
             }
+
+            this.notify("info", `Bulk ID card generation started for ${batch.total || this.selectedStudents.size} students. Processing in background…`);
+
+            const final = await window.BulkPrint.poll(batch.batch_id, {
+                onProgress: (payload) => {
+                    if (payload.status === 'processing' && payload.progress_pct && payload.progress_pct % 10 === 0) {
+                        this.notify("info", `Bulk ID cards: ${payload.progress_pct}% (${payload.processed}/${payload.total} ${payload.unit || 'items'})`);
+                    }
+                },
+                onDone: (payload) => {
+                    this.notify("success", `Bulk ID cards ready: ${payload.total} ${payload.unit || 'items'} (${payload.delivery === 'zip' ? 'ZIP' : 'PDF'})`);
+                    window.BulkPrint.openArtifact(payload);
+                    this.loadStudents();
+                },
+                maxAttempts: 600,
+                intervalMs: 3000,
+            });
         } catch (error) {
             console.error('Failed to generate bulk PDF:', error);
-            this.notify("error", error.message || "Failed to generate bulk PDF");
+            if (error.code === 'cancelled') {
+                this.notify("warning", "Bulk print was cancelled.");
+            } else if (error.code === 'failed') {
+                this.notify("error", `Bulk print failed: ${error.message}`);
+            } else if (error.code === 'timeout') {
+                this.notify("warning", error.message);
+            } else {
+                this.notify("error", error.message || "Failed to generate bulk PDF");
+            }
         }
     },
 

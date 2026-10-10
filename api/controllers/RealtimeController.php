@@ -291,6 +291,15 @@ class RealtimeController extends BaseAPI
             $report['local_buffers'] = ['status' => 'degraded'];
         }
 
+        // Sweep document batch state and artifacts (48-hour TTL).
+        try {
+            $purged = (new \App\API\Services\documents\DocumentBatchStore())->purgeExpired(48);
+            $report['document_batches_purged'] = $purged;
+        } catch (\Throwable $error) {
+            \App\API\Services\Logger::legacyError('[RealtimeController] document batch purge failed: ' . $error->getMessage());
+            $report['document_batches_purged'] = 0;
+        }
+
         // Sweep every materialized projection on the same hourly schedule so
         // staleness, missing targets, and never-synced views are surfaced by
         // the scheduler instead of by a user's broken page.

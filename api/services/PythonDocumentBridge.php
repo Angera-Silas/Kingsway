@@ -134,4 +134,158 @@ final class PythonDocumentBridge
 
         return $data;
     }
+
+    /**
+     * Merge multiple PDFs returned from the renderer.
+     *
+     * @param array<int, string> $encodedPdfs Base64-encoded PDF strings.
+     * @return string Merged PDF as base64.
+     */
+    public function mergePdfs(array $encodedPdfs): string
+    {
+        if (!$this->available()) {
+            throw new RuntimeException('The Python document renderer is not configured.');
+        }
+        if (count($encodedPdfs) < 2) {
+            throw new RuntimeException('At least two PDFs are required to merge.');
+        }
+
+        $pdfs = [];
+        $totalBytes = 0;
+        foreach ($encodedPdfs as $index => $encoded) {
+            if (!is_string($encoded) || $encoded === '') {
+                throw new RuntimeException('An encoded PDF is required for merging.');
+            }
+            $decoded = base64_decode($encoded, true);
+            if (!is_string($decoded) || !str_starts_with($decoded, '%PDF-')) {
+                throw new RuntimeException('The Python renderer returned an invalid PDF document.');
+            }
+            $size = strlen($decoded);
+            $totalBytes += $size;
+            if ($size > 9 * 1024 * 1024 || $totalBytes > 30 * 1024 * 1024) {
+                throw new RuntimeException('The merged PDF input exceeds the size limit.');
+            }
+            $pdfs[] = ['pdf_base64' => $encoded];
+        }
+
+        $body = json_encode(['pdfs' => $pdfs], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($body === false) {
+            throw new RuntimeException('The merge request could not be encoded.');
+        }
+
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', ''),
+        ];
+        $started = microtime(true);
+        [$raw, $status, $transportError] = $this->client->post(
+            'python_ai',
+            '/api/documents/merge-pdfs',
+            $headers,
+            $body,
+            90
+        );
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'python_document_merge',
+            'input_count' => count($pdfs),
+            'http_status' => (int) $status,
+            'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+            'transport_error' => $transportError !== '',
+        ]);
+
+        if (!is_string($raw) || $status < 200 || $status >= 300) {
+            throw new RuntimeException('The Python document renderer did not complete the PDF merge.');
+        }
+        $decoded = json_decode($raw, true);
+        $data = is_array($decoded) ? ($decoded['data'] ?? null) : null;
+        if (!is_array($data) || !is_string($data['pdf_base64'] ?? null)) {
+            throw new RuntimeException('The Python renderer returned an invalid merged PDF.');
+        }
+        $merged = base64_decode($data['pdf_base64'], true);
+        if (!is_string($merged) || !str_starts_with($merged, '%PDF-')) {
+            throw new RuntimeException('The Python renderer returned an invalid merged PDF.');
+        }
+
+        return $data['pdf_base64'];
+    }
+
+    /**
+     * Render academic report cards in batch via Python service.
+     *
+     * @param array<int, int> $studentIds
+     * @param int $termId
+     * @param string $resultMode 'summative'|'formative'|'both'
+     * @param string $outputFormat 'pdf'|'zip'
+     * @param string $jobId
+     * @return array{artifact: string, download_url: string, total_students: int, processed: int}
+     */
+    public function renderReportCardsBatch(
+        array $studentIds,
+        int $termId,
+        string $resultMode,
+        string $outputFormat,
+        string $jobId
+    ): array {
+        if (!$this->available()) {
+            throw new RuntimeException('The Python document renderer is not configured.');
+        }
+        if ($studentIds === []) {
+            throw new RuntimeException('No student IDs provided for report card batch.');
+        }
+        if ($termId <= 0) {
+            throw new RuntimeException('Invalid term_id for report card batch.');
+        }
+
+        $body = json_encode([
+            'job_id' => $jobId,
+            'student_ids' => $studentIds,
+            'term_id' => $termId,
+            'result_mode' => $resultMode,
+            'output_format' => $outputFormat,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($body === false) {
+            throw new RuntimeException('The report card batch request could not be encoded.');
+        }
+
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', ''),
+        ];
+        $started = microtime(true);
+        [$raw, $status, $transportError] = $this->client->post(
+            'python_ai',
+            '/api/documents/report-cards/batch',
+            $headers,
+            $body,
+            300
+        );
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'python_report_card_batch',
+            'job_id' => $jobId,
+            'student_count' => count($studentIds),
+            'term_id' => $termId,
+            'result_mode' => $resultMode,
+            'http_status' => (int) $status,
+            'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+            'transport_error' => $transportError !== '',
+        ]);
+
+        if (!is_string($raw) || $status < 200 || $status >= 300) {
+            throw new RuntimeException('The Python document renderer did not complete the report card batch.');
+        }
+        $decoded = json_decode($raw, true);
+        $data = is_array($decoded) ? ($decoded['data'] ?? null) : null;
+        if (!is_array($data)) {
+            throw new RuntimeException('The Python renderer returned an invalid report card batch response.');
+        }
+        return [
+            'artifact' => $data['artifact'] ?? '',
+            'download_url' => $data['download_url'] ?? '',
+            'total_students' => (int) ($data['total_students'] ?? 0),
+            'processed' => (int) ($data['processed'] ?? 0),
+        ];
+    }
+
 }

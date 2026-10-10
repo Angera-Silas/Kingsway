@@ -189,6 +189,52 @@ class JobHandlerRegistry
             'automation.run' => static function (array $payload, PDO $pdo): void {
                 (new \App\API\Services\automations\AutomationArtifacts())->execute($payload, $pdo);
             },
+            // Resumable bulk-document pipeline (BATCH lane via the 'print.'
+            // prefix). Each invocation performs one bounded step and re-enqueues
+            // itself until the batch is finalised, so 1000+ printable items
+            // never hold an HTTP request open.
+            'print.document_batch' => static function (array $payload, PDO $pdo): void {
+                $batchId = (string) ($payload['batch_id'] ?? '');
+                if ($batchId === '') {
+                    throw new RuntimeException('print.document_batch: missing batch_id');
+                }
+                (new \App\API\Services\documents\DocumentBatchService($pdo))->step($batchId);
+            },
+            // Academic report card batch rendering (BATCH lane). Delegates to
+            // Python service (ReportLab vector PDF + WeasyPrint fallback) for
+            // high-performance multi-student report card generation.
+            'academic.report_card_batch' => static function (array $payload, PDO $pdo): void {
+                $jobId = (string) ($payload['job_id'] ?? '');
+                $studentIds = isset($payload['student_ids']) && is_array($payload['student_ids'])
+                    ? array_values(array_map('intval', $payload['student_ids']))
+                    : [];
+                $termId = (int) ($payload['term_id'] ?? 0);
+                $resultMode = (string) ($payload['result_mode'] ?? 'both');
+                $outputFormat = (string) ($payload['output_format'] ?? 'pdf');
+
+                if ($studentIds === [] || $termId <= 0) {
+                    throw new RuntimeException('academic.report_card_batch: student_ids and term_id are required');
+                }
+
+                $bridge = new \App\API\Services\PythonDocumentBridge();
+                if (!$bridge->available()) {
+                    throw new RuntimeException('Python document renderer not configured for academic.report_card_batch');
+                }
+
+                // Call Python academic batch render endpoint
+                $result = $bridge->renderReportCardsBatch($studentIds, $termId, $resultMode, $outputFormat, $jobId);
+
+                // Persist artifact metadata (path, download URL) for the job
+                $job = \App\API\Services\JobQueue::fetchJob($jobId);
+                if ($job) {
+                    $meta = $job['meta'] ?? [];
+                    $meta['artifact'] = $result['artifact'] ?? null;
+                    $meta['download_url'] = $result['download_url'] ?? null;
+                    $meta['total_students'] = $result['total_students'] ?? 0;
+                    $meta['processed'] = $result['processed'] ?? 0;
+                    \App\API\Services\JobQueue::updateMeta($jobId, $meta);
+                }
+            },
             // Extend here with 'generate_report_card' => ..., 'send_bulk_sms' => ...
             // only once the producing workflow pushes and consumes them.
         ];

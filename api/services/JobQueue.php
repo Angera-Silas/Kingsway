@@ -345,8 +345,22 @@ final class JobQueue
         }, ConnectionManager::NS_BUFFERS);
     }
 
+/**
+     * Update a job's payload with additional metadata (e.g., artifact info).
+     * Merges the provided array into the existing JSON payload.
+     */
+    public static function updateMeta(int $id, array $meta): void
+    {
+        ConnectionManager::run(static function (PDO $pdo) use ($id, $meta): void {
+            $stmt = $pdo->prepare(
+                "UPDATE jobs_queue SET payload = JSON_MERGE_PATCH(payload, ?), updated_at = NOW() WHERE id = ?"
+            );
+            $stmt->execute([json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $id]);
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
     /**
-     * Fetch one queued job for dispatch.
+     * Fetch a job by ID.
      *
      * @return array{id:int, job_type:string, priority:int, payload:array, status:string,
      *               attempts:int, max_attempts:int, backoff_seconds:int,

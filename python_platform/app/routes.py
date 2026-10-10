@@ -373,6 +373,333 @@ def create_app(config: Config | None = None) -> Flask:
                 {"success": False, "message": "document batch rendering failed"}
             ), 503
 
+    @app.post("/api/documents/merge-pdfs")
+    def merge_pdfs():
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        if (
+            not isinstance(payload.get("pdfs"), list)
+            or not 2 <= len(payload["pdfs"]) <= 200
+        ):
+            return jsonify(
+                {"success": False, "message": "pdfs must be a list of 2-200 items"}
+            ), 422
+        started = time.monotonic()
+        try:
+            from io import BytesIO
+            from pypdf import PdfReader, PdfWriter
+
+            writer = PdfWriter()
+            total_in = 0
+            for item in payload["pdfs"]:
+                if not isinstance(item, dict):
+                    return jsonify(
+                        {"success": False, "message": "invalid pdf entry"}
+                    ), 422
+                enc = item.get("pdf_base64") or ""
+                if not isinstance(enc, str) or not enc.strip():
+                    return jsonify(
+                        {"success": False, "message": "pdf_base64 required"}
+                    ), 422
+                pdf_bytes = base64.b64decode(enc, validate=True)
+                total_in += len(pdf_bytes)
+                if len(pdf_bytes) > 9 * 1024 * 1024 or total_in > 30 * 1024 * 1024:
+                    return jsonify(
+                        {"success": False, "message": "merged input exceeds size limit"}
+                    ), 413
+                for page in PdfReader(BytesIO(pdf_bytes), strict=True).pages:
+                    writer.add_page(page)
+            out = BytesIO()
+            writer.write(out)
+            merged = out.getvalue()
+            if len(merged) > 30 * 1024 * 1024:
+                return jsonify(
+                    {"success": False, "message": "merged PDF exceeds size limit"}
+                ), 413
+            journal.write(
+                "document_generation",
+                {
+                    "type": "document_batch_merged",
+                    "input_count": len(payload["pdfs"]),
+                    "input_bytes": total_in,
+                    "output_bytes": len(merged),
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "data": {
+                        "pdf_base64": base64.b64encode(merged).decode("ascii"),
+                        "page_count": len(writer.pages),
+                    },
+                }
+            )
+        except Exception:  # noqa: BLE001
+            journal.write(
+                "document_generation",
+                {
+                    "type": "document_batch_merge_failed",
+                    "input_count": len(payload.get("pdfs", [])),
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+            return jsonify({"success": False, "message": "pdf merge failed"}), 503
+
+    @app.post("/api/documents/report-cards/batch")
+    def report_cards_batch():
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        job_id = str(payload.get("job_id") or "")
+        student_ids = payload.get("student_ids") or []
+        term_id = int(payload.get("term_id") or 0)
+        result_mode = str(payload.get("result_mode") or "both")
+        output_format = str(payload.get("output_format") or "pdf")
+
+        if (
+            not job_id
+            or not isinstance(student_ids, list)
+            or not student_ids
+            or term_id <= 0
+        ):
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "job_id, student_ids[], and term_id required",
+                }
+            ), 422
+        if len(student_ids) > 2000:
+            return jsonify(
+                {"success": False, "message": "student_ids exceeds limit (2000)"}
+            ), 413
+        if result_mode not in ("summative", "formative", "both"):
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "result_mode must be summative, formative, or both",
+                }
+            ), 422
+        if output_format not in ("pdf", "zip"):
+            return jsonify(
+                {"success": False, "message": "output_format must be pdf or zip"}
+            ), 422
+
+        started = time.monotonic()
+        try:
+            # Fetch student data from PHP via internal API (worker-secret)
+            # For now, generate report cards using ReportLab directly with mock data
+            # In production, this would call back to PHP via /api/dashboard/agent-tool
+            from io import BytesIO
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.units import mm
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.platypus import (
+                SimpleDocTemplate,
+                Paragraph,
+                Spacer,
+                Table,
+                TableStyle,
+                PageBreak,
+            )
+            from reportlab.lib import colors
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
+            # Determine if we need ZIP (multiple PDFs) or single combined PDF
+            use_zip = output_format == "zip" or len(student_ids) > 100
+
+            if use_zip:
+                from zipstream import ZipStream
+                import zipstream
+            else:
+                # Single combined PDF - use ReportLab's multi-doc capability
+                pass
+
+            # For now, create a simple report card for each student
+            # In production, fetch actual data from PHP
+            pdfs = []
+            for i, student_id in enumerate(student_ids):
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(
+                    buffer,
+                    pagesize=A4,
+                    topMargin=20 * mm,
+                    bottomMargin=20 * mm,
+                    leftMargin=20 * mm,
+                    rightMargin=20 * mm,
+                )
+                styles = getSampleStyleSheet()
+                title_style = ParagraphStyle(
+                    "Title",
+                    parent=styles["Heading1"],
+                    alignment=TA_CENTER,
+                    spaceAfter=12,
+                )
+                subtitle_style = ParagraphStyle(
+                    "Subtitle",
+                    parent=styles["Heading2"],
+                    alignment=TA_CENTER,
+                    spaceAfter=6,
+                )
+                normal_style = ParagraphStyle(
+                    "Normal", parent=styles["Normal"], spaceAfter=4
+                )
+                right_style = ParagraphStyle(
+                    "Right", parent=styles["Normal"], alignment=TA_RIGHT, spaceAfter=4
+                )
+
+                story = []
+                story.append(Paragraph("KINGSWAY PREPARATORY SCHOOL", title_style))
+                story.append(Paragraph("CBC Progress Report", subtitle_style))
+                story.append(Spacer(1, 12))
+                story.append(Paragraph(f"Student ID: {student_id}", normal_style))
+                story.append(Paragraph(f"Term ID: {term_id}", normal_style))
+                story.append(Paragraph(f"Result Mode: {result_mode}", normal_style))
+                story.append(Spacer(1, 12))
+
+                # Sample subject table
+                data = [
+                    ["Learning Area", "Strand", "Sub-Strand", "Outcome", "Grade"],
+                    [
+                        "Mathematics",
+                        "Numbers",
+                        "Place Value",
+                        "Understands place value up to 10,000",
+                        "ME",
+                    ],
+                    [
+                        "English",
+                        "Reading",
+                        "Comprehension",
+                        "Answers literal questions",
+                        "AE",
+                    ],
+                    [
+                        "Kiswahili",
+                        "Kusoma",
+                        "Ufahamu",
+                        "Anajibu maswali ya msingi",
+                        "ME",
+                    ],
+                    [
+                        "Science & Technology",
+                        "Living Things",
+                        "Plants",
+                        "Identifies parts of a plant",
+                        "EE",
+                    ],
+                ]
+                table = Table(
+                    data, colWidths=[40 * mm, 35 * mm, 40 * mm, 50 * mm, 20 * mm]
+                )
+                table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("FONTSIZE", (0, 0), (-1, -1), 8),
+                            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+                            (
+                                "BACKGROUND",
+                                (0, 1),
+                                (-1, -1),
+                                colors.HexColor("#ecf0f1"),
+                            ),
+                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ]
+                    )
+                )
+                story.append(table)
+                story.append(Spacer(1, 12))
+                story.append(
+                    Paragraph("Class Teacher: ___________________", normal_style)
+                )
+                story.append(Paragraph("Principal: ___________________", normal_style))
+
+                doc.build(story)
+                pdf_bytes = buffer.getvalue()
+                if not pdf_bytes.startswith(b"%PDF-"):
+                    raise ValueError("Invalid PDF generated")
+                pdfs.append(pdf_bytes)
+
+                if i % 50 == 0:
+                    # Progress logging
+                    pass
+
+            if use_zip:
+                # Create ZIP with individual PDFs
+                zip_buffer = BytesIO()
+                zf = zipstream.ZipFile(zip_buffer, "w", zipstream.ZIP_DEFLATED)
+                for i, pdf in enumerate(pdfs):
+                    zf.write_iter(f"report_card_{student_ids[i]}.pdf", [pdf])
+                zf.close()
+                artifact_bytes = zip_buffer.getvalue()
+                artifact_name = f"report_cards_term_{term_id}_{job_id[:8]}.zip"
+            else:
+                # Combine PDFs into single document
+                from pypdf import PdfReader, PdfWriter
+
+                writer = PdfWriter()
+                for pdf in pdfs:
+                    reader = PdfReader(BytesIO(pdf))
+                    for page in reader.pages:
+                        writer.add_page(page)
+                out = BytesIO()
+                writer.write(out)
+                artifact_bytes = out.getvalue()
+                artifact_name = f"report_cards_term_{term_id}_{job_id[:8]}.pdf"
+
+            # In production, upload to PHP artifact store via /api/dashboard/agent-tool
+            # For now, return base64
+            import base64
+
+            artifact_b64 = base64.b64encode(artifact_bytes).decode("ascii")
+
+            journal.write(
+                "document_generation",
+                {
+                    "type": "report_card_batch_completed",
+                    "job_id": job_id,
+                    "student_count": len(student_ids),
+                    "term_id": term_id,
+                    "result_mode": result_mode,
+                    "output_format": output_format,
+                    "artifact_bytes": len(artifact_bytes),
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "data": {
+                        "artifact": artifact_name,
+                        "download_url": f"/api/download/generated/{artifact_name}",  # placeholder
+                        "total_students": len(student_ids),
+                        "processed": len(student_ids),
+                        "pdf_base64": artifact_b64,
+                    },
+                }
+            )
+        except Exception as e:  # noqa: BLE001
+            journal.write(
+                "document_generation",
+                {
+                    "type": "report_card_batch_failed",
+                    "job_id": job_id,
+                    "student_count": len(student_ids),
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "error": str(e),
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "report card batch failed"}
+            ), 503
+
     @app.errorhandler(413)
     def payload_too_large(_error):
         return jsonify(

@@ -124,7 +124,7 @@ function createApp(env = mergedEnv()) {
     if (!origin || !origins.includes(origin)) return undefined;
     reply.header('access-control-allow-origin', origin);
     reply.header('vary', 'Origin');
-    reply.header('access-control-allow-headers', 'content-type, x-kingsway-sse-token');
+    reply.header('access-control-allow-headers', 'content-type, x-kingsway-sse-token, last-event-id');
     reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
     reply.header('access-control-max-age', '600');
 
@@ -243,14 +243,47 @@ function createApp(env = mergedEnv()) {
 }
 
 if (require.main === module) {
-  const gateway = createApp();
+  // Shared hosting (CloudLINUX Passenger / Node.js Selector, LiteSpeed,
+  // Apache+mod_lsapi) inverts control of the socket: the web server owns it
+  // and hands it to this process through the injected `PhusionPassenger`
+  // global. Passenger's reverse port binding would also catch a plain
+  // listen(port), but the explicit form is deterministic — it fails loudly
+  // instead of depending on an auto-install hook. Locally there is no
+  // Passenger, so the fixed-port branch stays the development path.
+  const underPassenger = typeof PhusionPassenger !== 'undefined';
+  if (underPassenger && typeof PhusionPassenger.configure === 'function') {
+    PhusionPassenger.configure({ autoInstall: false });
+  }
+
+  let gateway;
+  try {
+    gateway = createApp();
+  } catch (error) {
+    // Missing secrets/configuration must reach the Passenger app log
+    // (PassengerAppLogFile) verbatim so the failure is diagnosable from
+    // shared hosting, where it otherwise surfaces only as an HTTP 500.
+    process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
+    process.exit(1);
+  }
+
   gateway.start()
-    .then(() => gateway.server.listen(gateway.config.port, gateway.config.host, () => {
-      process.stdout.write(
-        `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
-        + `(bus: ${gateway.bus.modeName}, pool: ${gateway.config.maxConnections})\n`,
-      );
-    }))
+    .then(() => {
+      if (underPassenger) {
+        gateway.server.listen('passenger', () => {
+          process.stdout.write(
+            `Kingsway realtime listening on the Passenger socket `
+            + `(bus: ${gateway.bus.modeName}, pool: ${gateway.config.maxConnections})\n`,
+          );
+        });
+        return;
+      }
+      gateway.server.listen(gateway.config.port, gateway.config.host, () => {
+        process.stdout.write(
+          `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
+          + `(bus: ${gateway.bus.modeName}, pool: ${gateway.config.maxConnections})\n`,
+        );
+      });
+    })
     .catch((error) => {
       process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
       process.exit(1);

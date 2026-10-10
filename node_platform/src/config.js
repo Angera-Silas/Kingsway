@@ -197,6 +197,19 @@ function validate(config) {
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     problems.push('NODE_REALTIME_PORT must be a valid port');
   }
+  // In production the gateway serves the PHP site cross-origin (realtime.… vs
+  // kingsway…), so an empty origin allowlist means the browser NEVER receives
+  // Access-Control-Allow-Origin — a healthy stream that CORS still blocks. That
+  // misconfiguration (most often: environment variables that never reached the
+  // Passenger-spawned process) must abort the boot with a greppable message in
+  // the Passenger app log, not surface as a confusing per-request failure.
+  if (config.nodeEnv === 'production' && allowedOrigins(config).length === 0) {
+    problems.push(
+      'NODE_REALTIME_WEB_ORIGIN is required in production (comma-separated browser origins,'
+      + ' e.g. https://kingswaypreparatoryschool.sc.ke) — without it every cross-origin SSE'
+      + ' stream is blocked by the browser',
+    );
+  }
   if (problems.length) throw new Error(problems.join('; '));
   return config;
 }
