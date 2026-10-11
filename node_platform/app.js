@@ -65,6 +65,7 @@ function createApp(env = mergedEnv()) {
   const registry = createRegistry({
     state,
     maxConnections: config.maxConnections,
+    userMaxConnections: config.userMaxConnections,
     queueLimit: config.queueLimit,
     slowClientTimeoutMs: config.slowClientTimeoutMs,
     presenceTtlMs: config.presenceTtlMs,

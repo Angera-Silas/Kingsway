@@ -84,43 +84,75 @@
     let attempts = 0;
     let startedAt = Date.now();
     let warned = false;
+    let watchedJobId = 0;
+    let wake = null;
 
-    while (attempts < maxAttempts) {
-      attempts += 1;
-      const payload = await status(batchId);
-      const onProgress = hooks.onProgress || function () {};
+    // Realtime early-wake: the batch worker publishes JOB_* descriptors on
+    // the SSE stream; a matching job_id interrupts the sleep so a finished
+    // batch resolves immediately instead of after the next interval. The
+    // poll loop remains the fallback for browsers without the stream.
+    const onRealtimeJob = (event) => {
+      const payload = (event.detail && event.detail.payload) || {};
+      const jobId = Number(payload.job_id || 0);
+      if (!jobId || (watchedJobId && jobId !== watchedJobId)) return;
+      if (wake) wake();
+    };
+    global.addEventListener?.("kingsway:job", onRealtimeJob);
 
-      if (payload.status === "done") {
+    const sleepUntil = (ms) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          wake = null;
+          resolve();
+        }, ms);
+        wake = () => {
+          clearTimeout(timer);
+          wake = null;
+          resolve();
+        };
+      });
+
+    try {
+      while (attempts < maxAttempts) {
+        attempts += 1;
+        const payload = await status(batchId);
+        if (Number(payload.job_id || 0)) watchedJobId = Number(payload.job_id);
+        const onProgress = hooks.onProgress || function () {};
+
+        if (payload.status === "done") {
+          onProgress(payload);
+          if (hooks.onDone) hooks.onDone(payload);
+          return payload;
+        }
+        if (payload.status === "failed" || payload.status === "cancelled") {
+          const error = new Error(
+            payload.error || `Bulk print ${payload.status}.`
+          );
+          error.code = payload.status;
+          throw error;
+        }
+
         onProgress(payload);
-        if (hooks.onDone) hooks.onDone(payload);
-        return payload;
-      }
-      if (payload.status === "failed" || payload.status === "cancelled") {
-        const error = new Error(
-          payload.error || `Bulk print ${payload.status}.`
-        );
-        error.code = payload.status;
-        throw error;
-      }
 
-      onProgress(payload);
+        if (!warned && Date.now() - startedAt > timeoutWarningAt) {
+          warned = true;
+          notify(
+            "info",
+            "Bulk print is still running in the background. You can leave this page."
+          );
+        }
 
-      if (!warned && Date.now() - startedAt > timeoutWarningAt) {
-        warned = true;
-        notify(
-          "info",
-          "Bulk print is still running in the background. You can leave this page."
-        );
+        await sleepUntil(intervalMs);
       }
 
-      await sleep(intervalMs);
+      const timeout = new Error(
+        "Bulk print is still processing. Check later from the ID Cards page."
+      );
+      timeout.code = "timeout";
+      throw timeout;
+    } finally {
+      global.removeEventListener?.("kingsway:job", onRealtimeJob);
     }
-
-    const timeout = new Error(
-      "Bulk print is still processing. Check later from the ID Cards page."
-    );
-    timeout.code = "timeout";
-    throw timeout;
   }
 
   function sleep(ms) {

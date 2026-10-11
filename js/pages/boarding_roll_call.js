@@ -596,6 +596,26 @@ const BoardingRollCall = {
     }
   },
 
+  /**
+   * Realtime collaboration: touching a learner's roll-call status declares
+   * this dormitory register as actively marked so the boarding master and
+   * matron cannot silently overwrite each other; the register already has a
+   * live refresh registration for peer saves.
+   */
+  presenceKey: function () {
+    return `boarding_rollcall:${this.selectedDormitory || 0}:${this.selectedSession || 0}:${this.selectedDate || ''}`;
+  },
+
+  bindRealtimeCollaboration: function () {
+    this.elements.studentsTableBody?.addEventListener("change", () => {
+      window.RealtimePresence?.begin(this.presenceKey());
+    });
+    this.elements.studentsTableBody?.addEventListener("input", () => {
+      window.RealtimePresence?.begin(this.presenceKey());
+    });
+    window.addEventListener("pagehide", () => window.RealtimePresence?.end(this.presenceKey()), { once: true });
+  },
+
   submitRollCall: async function () {
     if (!this.students.length) {
       this.notify("Load a dormitory register before submitting roll call", "warning");
@@ -646,6 +666,7 @@ const BoardingRollCall = {
 
       const total = Number(response?.total || attendance.length);
       this.notify(`Saved boarding roll call for ${total} students.`, "success");
+      window.RealtimePresence?.end(this.presenceKey());
       await this.loadStudents({ skipSchoolDayCheck: true });
     } catch (error) {
       console.error("Failed to submit boarding roll call:", error);
@@ -936,6 +957,7 @@ const BoardingRollCall = {
 document.addEventListener("DOMContentLoaded", () => {
   window.boardingRollCall = BoardingRollCall;
   BoardingRollCall.init();
+  BoardingRollCall.bindRealtimeCollaboration();
 });
 
 window.BoardingRollCall = BoardingRollCall;

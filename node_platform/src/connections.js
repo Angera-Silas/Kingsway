@@ -28,6 +28,10 @@ const { randomUUID } = require('node:crypto');
 
 const DEFAULTS = {
   maxConnections: 5000,
+  // Per-user ceiling so one user's many tabs can never consume the shared
+  // pool. 0 disables the check (development only). Browsers hold one
+  // EventSource per open tab; 5 covers a normal working set with headroom.
+  userMaxConnections: 5,
   queueLimit: 50,
   slowClientTimeoutMs: 5000,
   presenceTtlMs: 45000,
@@ -35,6 +39,7 @@ const DEFAULTS = {
 
 function createRegistry({
   maxConnections = DEFAULTS.maxConnections,
+  userMaxConnections = DEFAULTS.userMaxConnections,
   queueLimit = DEFAULTS.queueLimit,
   slowClientTimeoutMs = DEFAULTS.slowClientTimeoutMs,
   presenceTtlMs = DEFAULTS.presenceTtlMs,
@@ -44,6 +49,7 @@ function createRegistry({
   onEvict,
 } = {}) {
   const clients = new Set();
+  const perUser = new Map();
   let sequence = 0;
 
   function refreshGauge() {
@@ -68,6 +74,12 @@ function createRegistry({
     client.queuedBytes = 0;
     client.activity.clear();
     clients.delete(client);
+    const held = perUser.get(client.userId);
+    if (held !== undefined) {
+      const remaining = held - 1;
+      if (remaining > 0) perUser.set(client.userId, remaining);
+      else perUser.delete(client.userId);
+    }
     refreshGauge();
     if (metrics) metrics.connectionClosed();
     if (logger) {
@@ -144,6 +156,13 @@ function createRegistry({
     if (clients.size >= maxConnections) {
       return { ok: false, reason: 'pool_full' };
     }
+    // Fairness: a single user must not crowd out the whole school. The
+    // per-user ceiling is checked before the connection is created so an
+    // over-limit user costs nothing beyond a 503 the browser backs off from.
+    if (userMaxConnections > 0 && (perUser.get(userId) ?? 0) >= userMaxConnections) {
+      if (metrics) metrics.connectionRefused('user_pool_full');
+      return { ok: false, reason: 'user_pool_full' };
+    }
     sequence += 1;
     const client = {
       id: `${sequence}-${randomUUID().slice(0, 8)}`,
@@ -159,6 +178,7 @@ function createRegistry({
       openedAt: Date.now(),
     };
     clients.add(client);
+    perUser.set(userId, (perUser.get(userId) ?? 0) + 1);
     refreshGauge();
     if (metrics) metrics.connectionOpened();
     if (state) state.openedConnection();
@@ -252,6 +272,8 @@ function createRegistry({
     clients,
     get size() { return clients.size; },
     maxConnections,
+    userMaxConnections,
+    perUserCount: (userId) => perUser.get(userId) ?? 0,
     add,
     destroy,
     send,

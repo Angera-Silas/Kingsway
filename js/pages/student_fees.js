@@ -67,6 +67,73 @@ const StudentFeesController = {
     await this.loadInitialData();
     await this.loadPaymentStatus();
     this.attachEvents();
+    this.bindRealtimeCollaboration();
+  },
+
+  /**
+   * Realtime collaboration for the fee ledger:
+   *  - declares `fee_account:<studentId>` presence while the payment or
+   *    fee-statement modal is open on a student, so a colleague posting to
+   *    the same account is told someone is already in it;
+   *  - when a PAYMENT_ALERT (or any finance-domain change) arrives while a
+   *    student's fee-statement modal is open, refreshes just that one
+   *    student's statement in place instead of reloading the whole ledger
+   *    list and discarding the open modal, scroll and filters.
+   */
+  bindRealtimeCollaboration: function () {
+    const presenceFor = () => `fee_account:${this.currentStudentId || 0}`;
+
+    if (this.ui.feeDetailsModal) {
+      this.ui.feeDetailsModal.addEventListener("shown.bs.modal", () => {
+        if (this.currentStudentId) window.RealtimePresence?.begin(presenceFor());
+      });
+      this.ui.feeDetailsModal.addEventListener("hidden.bs.modal", () => {
+        window.RealtimePresence?.end(presenceFor());
+      });
+    }
+    if (this.ui.paymentModal) {
+      this.ui.paymentModal.addEventListener("shown.bs.modal", () => {
+        const id = Number(this.ui.paymentStudent?.value || 0);
+        if (id) window.RealtimePresence?.begin(`fee_account:${id}`);
+      });
+      this.ui.paymentModal.addEventListener("hidden.bs.modal", () => {
+        const id = Number(this.ui.paymentStudent?.value || 0);
+        if (id) window.RealtimePresence?.end(`fee_account:${id}`);
+      });
+      // Moving the payment to another student moves the declaration with it.
+      this.ui.paymentStudent?.addEventListener("change", () => {
+        const previous = Number(this.ui.paymentStudent.dataset.rtStudent || 0);
+        if (previous) window.RealtimePresence?.end(`fee_account:${previous}`);
+        const id = Number(this.ui.paymentStudent.value || 0);
+        this.ui.paymentStudent.dataset.rtStudent = id || "";
+        if (id && this.ui.paymentModal.classList.contains("show")) {
+          window.RealtimePresence?.begin(`fee_account:${id}`);
+        }
+      });
+    }
+
+    window.APIRealtime?.registerPatch?.({
+      id: "student_fees_ledger",
+      targets: ["finance", "payments"],
+      apply: (descriptor) => {
+        const type = String(descriptor.type || "").toUpperCase();
+        const isFinanceChange = type === "PAYMENT_ALERT"
+          || (descriptor.domain === "finance" && (descriptor.action === "record_payment" || descriptor.action === "posted"));
+        if (!isFinanceChange) return false;
+        // Surgical only when a student's statement is actually on screen;
+        // otherwise the normal full-list refresh is the right reaction.
+        const modalOpen = this.ui.feeDetailsModal?.classList.contains("show");
+        if (!modalOpen || !this.currentStudentId) return false;
+        this.openFeeDetails(this.currentStudentId);
+        return true;
+      },
+    });
+
+    window.APIRealtime?.register?.(
+      "student_fees",
+      { refresh: () => this.loadPaymentStatus() },
+      ["finance", "payments"],
+    );
   },
 
   cacheDom: function () {

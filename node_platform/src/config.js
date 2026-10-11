@@ -31,6 +31,8 @@ const DEFAULTS = Object.freeze({
   // Capacity ceilings. Defaults are sized for the documented 400-session target
   // with headroom; raise only alongside a measured load test, never on a hunch.
   maxConnections: 5000,
+  // Per-user SSE ceiling: one user's many tabs must never crowd out the pool.
+  userMaxConnections: 5,
   queueLimit: 50,
   slowClientTimeoutMs: 5000,
   presenceTtlMs: 45000,
@@ -131,6 +133,7 @@ function createConfig(env = mergedEnv(), overrides = {}) {
     pythonSecret: String(read('PYTHON_SECRET', '')),
     phpBaseUrl: String(read('PHP_BASE_URL', '')),
     maxConnections: int(read('NODE_REALTIME_MAX_CONNECTIONS', DEFAULTS.maxConnections), DEFAULTS.maxConnections),
+    userMaxConnections: int(read('NODE_REALTIME_USER_MAX_CONNECTIONS', DEFAULTS.userMaxConnections), DEFAULTS.userMaxConnections),
     queueLimit: int(read('NODE_REALTIME_QUEUE_LIMIT', DEFAULTS.queueLimit), DEFAULTS.queueLimit),
     slowClientTimeoutMs: int(read('NODE_REALTIME_SLOW_CLIENT_MS', DEFAULTS.slowClientTimeoutMs), DEFAULTS.slowClientTimeoutMs),
     presenceTtlMs: int(read('NODE_REALTIME_PRESENCE_TTL_MS', DEFAULTS.presenceTtlMs), DEFAULTS.presenceTtlMs),

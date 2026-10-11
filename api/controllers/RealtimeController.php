@@ -204,9 +204,13 @@ class RealtimeController extends BaseAPI
                 }
                 $handler($payload, $this->db);
                 JobQueue::markDone($id);
+                // AI jobs a human is waiting on tell their operator's own
+                // channel; every other family completes silently.
+                \App\API\Services\WorkerJobTelemetry::announceCompletion($job, 'completed');
                 $done++;
             } catch (\Throwable $e) {
                 $failureStatus = JobQueue::markFailed($id, $e->getMessage());
+                \App\API\Services\WorkerJobTelemetry::announceCompletion($job, 'failed');
                 if ($failureStatus === JobQueue::STATUS_PENDING) {
                     $retried++;
                 } else {
@@ -299,6 +303,11 @@ class RealtimeController extends BaseAPI
             \App\API\Services\Logger::legacyError('[RealtimeController] document batch purge failed: ' . $error->getMessage());
             $report['document_batches_purged'] = 0;
         }
+
+        // Scrape the Node gateway's deterministic counters into the realtime
+        // journal, so the realtime layer is observable from the existing
+        // system-health surfaces. Best-effort: never fails the cleanup job.
+        $report['gateway_health'] = \App\API\Services\RealtimeGatewayHealth::journalSnapshot();
 
         // Sweep every materialized projection on the same hourly schedule so
         // staleness, missing targets, and never-synced views are surfaced by
@@ -631,7 +640,14 @@ class RealtimeController extends BaseAPI
     private function allowedScopes(): array
     {
         $user = $this->getCurrentUser() ?: [];
-        return RealtimeScopeResolver::scopesForRoles($this->extractRoleIds($user));
+        // Audience-aware resolution: a parent-only account is minted family
+        // channels for its linked learners and can never inherit the staff
+        // 'all' channel (see RealtimeScopeResolver::scopesForUser).
+        return RealtimeScopeResolver::scopesForUser(
+            $this->db,
+            $user,
+            $this->extractRoleIds($user)
+        );
     }
 
     private function latestOutboxId(array $allowedScopes = [EventBroadcaster::DEFAULT_SCOPE]): int

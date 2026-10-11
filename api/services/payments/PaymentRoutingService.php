@@ -88,7 +88,35 @@ class PaymentRoutingService
         if (!empty($referenceRow['id'])) {
             $this->db->prepare("UPDATE payment_routing_references SET status='consumed' WHERE id=? AND status='active'")->execute([(int)$referenceRow['id']]);
         }
+        $this->announceFamilyPayment((int)$referenceRow['student_id'], $purpose);
         return ['status'=>'processed','purpose'=>$purpose,'student_id'=>(int)$referenceRow['student_id'],'reference'=>$reference,'provider_transaction_id'=>$providerTransactionId];
+    }
+
+    /**
+     * Tell the payer's family in real time that money landed: a
+     * family:<studentId>-scoped descriptor so the parent portal's fee view
+     * refreshes live for the guardian. Descriptor-only (no amount, no payer
+     * identity — PHP re-authorizes any follow-up fetch); fire-and-forget so a
+     * realtime outage can never disturb the money path. Staff finance
+     * dashboards are informed separately through the finance-scoped
+     * PAYMENT_ALERT published by FinancialPostingCoordinator.
+     */
+    private function announceFamilyPayment(int $studentId, string $purpose): void
+    {
+        if ($studentId < 1) return;
+        try {
+            \App\API\Services\RealtimeGatewayPublisher::publish('DATA_CHANGED', 'family:' . $studentId, [
+                'domain' => 'finance',
+                'action' => 'payment_posted',
+                'method' => $purpose,
+                'targets' => ['fees', 'payments', 'finance'],
+            ]);
+        } catch (\Throwable $error) {
+            \App\API\Includes\FileLogger::write('realtime', [
+                'event' => 'gateway.family_payment_alert_failed',
+                'exception' => get_class($error),
+            ]);
+        }
     }
 
     public function listRoutes(): array { return $this->db->query("SELECT r.*,p.code provider_code,sa.account_name settlement_account_name,sa.account_identifier settlement_account_identifier,(SELECT GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') FROM " . ReadReplicaService::qualifiedRef("payment_collection_route_channels") . " rch JOIN financial_channels fc ON fc.id=rch.channel_id WHERE rch.route_id=r.id) route_channels FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r JOIN payment_providers p ON p.id=r.provider_id LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sa ON sa.id=COALESCE(r.settlement_financial_account_id,r.financial_account_id) WHERE r.active=1 ORDER BY p.code,r.account_identifier,r.purpose")->fetchAll(PDO::FETCH_ASSOC); }

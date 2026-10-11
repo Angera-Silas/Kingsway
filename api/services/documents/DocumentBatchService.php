@@ -8,6 +8,7 @@ use App\API\Includes\FileLogger;
 use App\API\Services\DownloadService;
 use App\API\Services\JobQueue;
 use App\API\Services\PrintService;
+use App\API\Services\RealtimeGatewayPublisher;
 use App\Database\Database;
 use PDO;
 use RuntimeException;
@@ -229,6 +230,12 @@ final class DocumentBatchService
             'duration_ms' => (int) round((microtime(true) - $startWall) * 1000),
         ]);
 
+        $this->publishJobEvent('JOB_PROGRESS', $state, [
+            'progress' => (int) $state['total'] > 0
+                ? (int) round($processed / max(1, (int) $state['total']) * 100) : 0,
+            'status' => 'running',
+        ]);
+
         if ($processed < (int) $state['total']) {
             $state['step'] = (int) ($state['step'] ?? 0) + 1;
             $state['job_id'] = JobQueue::push(self::JOB_TYPE, [
@@ -291,6 +298,7 @@ final class DocumentBatchService
         $state['status'] = 'cancelled';
         $state['updated_at'] = date('Y-m-d H:i:s');
         $this->store->save($batchId, $state);
+        $this->publishJobEvent('JOB_FAILED', $state, ['status' => 'cancelled', 'reason' => 'user_cancelled']);
         FileLogger::write('document_generation', [
             'type' => 'document_batch_cancelled',
             'batch_id' => $batchId,
@@ -379,14 +387,16 @@ final class DocumentBatchService
             'type' => 'document_batch_completed',
             'batch_id' => $batchId,
             'kind' => (string) ($state['kind'] ?? ''),
-            'processed' => (int) $state['processed'],
-            'total' => (int) $state['total'],
-            'skipped' => (int) $state['skipped'],
+            'processed' => (int) ($state['processed']),
+            'total' => (int) ($state['total']),
+            'skipped' => (int) ($state['skipped']),
             'parts' => count($parts),
             'delivery' => $state['delivery'],
             'artifact' => $state['artifact'],
             'download_path' => $state['download_path'] ?? null,
         ]);
+
+        $this->publishJobEvent('JOB_COMPLETE', $state, ['progress' => 100, 'status' => 'completed']);
 
         return $this->publicStatus($state);
     }
@@ -437,7 +447,36 @@ final class DocumentBatchService
         $state['error'] = $reason;
         $state['updated_at'] = date('Y-m-d H:i:s');
         $this->store->save($batchId, $state);
+        $this->publishJobEvent('JOB_FAILED', $state, ['status' => 'failed', 'reason' => 'empty_selection']);
         throw new RuntimeException($reason);
+    }
+
+    /**
+     * Push a job-telemetry descriptor so the OWNER's browser renders live bulk
+     * print progress and the polling caller can short-circuit its sleep. The
+     * scope is the owner's own users:<id> channel: the person who started the
+     * batch is the only one watching it, so every other staff browser stays
+     * quiet. Descriptor-only (job_id/progress/status/domain),
+     * fire-and-forget: a realtime outage never slows a batch.
+     */
+    private function publishJobEvent(string $type, array $state, array $extra = []): void
+    {
+        try {
+            $ownerUserId = (int) ($state['owner_user_id'] ?? 0);
+            if ($ownerUserId < 1) {
+                return;
+            }
+            RealtimeGatewayPublisher::publish($type, 'users:' . $ownerUserId, array_merge([
+                'job_id' => (int) ($state['job_id'] ?? 0),
+                'domain' => 'documents',
+                'targets' => ['documents'],
+            ], $extra));
+        } catch (\Throwable $error) {
+            FileLogger::write('document_generation', [
+                'type' => 'document_batch_realtime_failed',
+                'error' => $this->safeError($error),
+            ]);
+        }
     }
 
     /**
@@ -513,6 +552,7 @@ final class DocumentBatchService
         $processed = max(0, (int) ($state['processed'] ?? 0));
         return [
             'batch_id' => (string) ($state['batch_id'] ?? ''),
+            'job_id' => (int) ($state['job_id'] ?? 0),
             'kind' => (string) ($state['kind'] ?? ''),
             'status' => (string) ($state['status'] ?? 'pending'),
             'total' => $total,
