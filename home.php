@@ -14,20 +14,10 @@ if ($appBase === '.') {
 }
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
-$nodeRealtimeUrl = trim((string) \App\Config\Config::get(
-    'NODE_REALTIME_URL',
-    \App\Config\Config::get('NODE_REALTIME_PUBLIC_URL', '')
-));
-$nodeRealtimeParts = $nodeRealtimeUrl === '' ? false : parse_url($nodeRealtimeUrl);
-$nodeRealtimeOrigin = '';
-if (is_array($nodeRealtimeParts)
-    && in_array(strtolower((string) ($nodeRealtimeParts['scheme'] ?? '')), ['http', 'https'], true)
-    && !empty($nodeRealtimeParts['host'])
-    && !isset($nodeRealtimeParts['user'], $nodeRealtimeParts['pass'])) {
-    $nodeRealtimeOrigin = strtolower((string) $nodeRealtimeParts['scheme']) . '://'
-        . $nodeRealtimeParts['host']
-        . (isset($nodeRealtimeParts['port']) ? ':' . (int) $nodeRealtimeParts['port'] : '');
-}
+// Browser-facing realtime origin: environment-agnostic resolver — public URL
+// first; the internal address is only usable when the client shares the host
+// with PHP (loopback development). Never handed to a remote browser.
+$nodeRealtimeOrigin = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
 
 // Define the filesystem root so page files under pages/ can resolve
 // Absolute paths used by page asset helpers for cache-busting version parameters.
@@ -208,12 +198,16 @@ echo '<script>window.APP_SW_VERSION = ' . ($__swMtime ? (int) $__swMtime : time(
 $files = [
     'js/api.js',
     'js/core/frontend_logger.js',
+    'js/core/soft_navigation.js',
     'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
     'js/core/realtime_dispatch.js',
     'js/core/realtime_manager.js',
     'js/core/realtime_sse.js',
+    'js/core/realtime_presence.js',
+    'js/core/realtime_jobs_widget.js',
+    'js/core/realtime_job_wake.js',
     'js/core/connectivity_manager.js',
     'js/core/data_store.js',
     'js/core/storage_monitor.js',
@@ -237,6 +231,7 @@ $files = [
     'js/utils/print_manager.js',
     'js/utils/academic_context.js',
     'js/utils/form-validation.js',
+    'js/core/recipient_picker.js',
     'js/index.js',
     'js/sidebar.js',
     'js/app_shell_ui.js',

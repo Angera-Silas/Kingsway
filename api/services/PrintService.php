@@ -52,6 +52,20 @@ final class PrintService
     /** @var array<string, mixed> */
     private array $schoolConfig;
 
+    /** @var array<string, string> Per-request cache of resolved asset data URIs keyed by path+mtime. */
+    private array $assetDataUriCache = [];
+
+    /**
+     * Maximum pixel dimension for raster assets inlined into print templates.
+     * The default only trims pathologically large images; ID-card generation
+     * lowers it further because the same logo is inlined into every card and a
+     * 1.2MB logo previously exhausted memory on large batches.
+     */
+    private int $inlineImageMaxPx = 1024;
+
+    /** Pixel cap applied while rendering student ID cards. */
+    private const ID_CARD_INLINE_IMAGE_MAX_PX = 256;
+
     public function __construct()
     {
         if (!defined('TEMPLATES_PATH')) {
@@ -190,47 +204,58 @@ final class PrintService
             throw new InvalidArgumentException('Invalid ID-card side.');
         }
 
-        $chunkSize = max(1, min(20, (int) $options['chunkSize']));
-        $normalizedCards = array_map(
-            fn (array $card): array => $this->normalizeStudentIdCard($card),
-            $cards
-        );
-        $chunks = array_chunk($normalizedCards, $chunkSize);
+        $chunkSize = max(1, min(8, (int) $options['chunkSize']));
+        $chunks = array_chunk($cards, $chunkSize);
         $rendered = [];
-        foreach ($chunks as $index => $chunk) {
-            $chunkNumber = $index + 1;
-            $suffix = count($chunks) > 1
-                ? '_' . str_pad((string) $chunkNumber, 3, '0', STR_PAD_LEFT)
-                : '';
-            $filename = $this->safeFilename((string) $options['filename'] . $suffix);
-            $frontTemplatePath = $this->idCardTemplatesPath . 'student_id_front.php';
-            $backTemplatePath = $this->idCardTemplatesPath . 'student_id_back.php';
-            $layoutTemplatePath = $this->idCardTemplatesPath . (
-                $printerMode === 'direct_card'
-                    ? 'student_id_both_two_pages.php'
-                    : 'student_id_both_single_row.php'
-            );
-            foreach ([$frontTemplatePath, $backTemplatePath, $layoutTemplatePath] as $templatePath) {
-                if (!is_file($templatePath)) {
-                    throw new RuntimeException('A required student ID-card template is unavailable.');
-                }
-            }
 
-            $body = $this->renderPhpTemplate($layoutTemplatePath, [
-                'cards' => $chunk,
-                'side' => $side,
-                'frontTemplatePath' => $frontTemplatePath,
-                'backTemplatePath' => $backTemplatePath,
-                'chunkNumber' => $chunkNumber,
-                'totalChunks' => count($chunks),
-            ]);
-            $css = $this->loadStudentIdCardStyles($printerMode);
-            $rendered[] = [
-                'filename' => $filename . '.pdf',
-                'html' => '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Student ID Cards</title><style>'
-                    . $css . '</style></head><body class="id-print-body id-print-'
-                    . $this->escape($printerMode) . '">' . $body . '</body></html>',
-            ];
+        // The school logo is identical for every card, so cap inlined raster
+        // assets aggressively while rendering; a full-resolution logo inlined
+        // into every card previously exhausted memory on large batches.
+        $previousMaxPx = $this->inlineImageMaxPx;
+        $this->inlineImageMaxPx = self::ID_CARD_INLINE_IMAGE_MAX_PX;
+
+        try {
+            foreach ($chunks as $index => $rawChunk) {
+                $chunkNumber = $index + 1;
+                $chunk = array_map(
+                    fn (array $card): array => $this->normalizeStudentIdCard($card),
+                    $rawChunk
+                );
+                $suffix = count($chunks) > 1
+                    ? '_' . str_pad((string) $chunkNumber, 3, '0', STR_PAD_LEFT)
+                    : '';
+                $filename = $this->safeFilename((string) $options['filename'] . $suffix);
+                $frontTemplatePath = $this->idCardTemplatesPath . 'student_id_front.php';
+                $backTemplatePath = $this->idCardTemplatesPath . 'student_id_back.php';
+                $layoutTemplatePath = $this->idCardTemplatesPath . (
+                    $printerMode === 'direct_card'
+                        ? 'student_id_both_two_pages.php'
+                        : 'student_id_both_single_row.php'
+                );
+                foreach ([$frontTemplatePath, $backTemplatePath, $layoutTemplatePath] as $templatePath) {
+                    if (!is_file($templatePath)) {
+                        throw new RuntimeException('A required student ID-card template is unavailable.');
+                    }
+                }
+
+                $body = $this->renderPhpTemplate($layoutTemplatePath, [
+                    'cards' => $chunk,
+                    'side' => $side,
+                    'frontTemplatePath' => $frontTemplatePath,
+                    'backTemplatePath' => $backTemplatePath,
+                    'chunkNumber' => $chunkNumber,
+                    'totalChunks' => count($chunks),
+                ]);
+                $css = $this->loadStudentIdCardStyles($printerMode);
+                $rendered[] = [
+                    'filename' => $filename . '.pdf',
+                    'html' => '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Student ID Cards</title><style>'
+                        . $css . '</style></head><body class="id-print-body id-print-'
+                        . $this->escape($printerMode) . '">' . $body . '</body></html>',
+                ];
+            }
+        } finally {
+            $this->inlineImageMaxPx = $previousMaxPx;
         }
 
         return $rendered;
@@ -755,6 +780,13 @@ final class PrintService
     }
 
     /**
+     * Render trusted template HTML into a PDF file.
+     *
+     * The primary engine is the private Python document renderer — the same
+     * PHP-templated pipeline student ID cards use. Local Dompdf remains the
+     * guaranteed fallback so printing never depends on the Python runtime
+     * being reachable (shared-hosting deploys included).
+     *
      * @param array<string, mixed> $options
      */
     private function generatePDF(
@@ -777,6 +809,158 @@ final class PrintService
             $options
         );
 
+        $rendered = $this->renderPdfBytes($html, $options);
+
+        $safeFilename = $this->safeFilename(
+            (string) $options['filename']
+        );
+
+        $filepath = $this->outputPath . $safeFilename . '.pdf';
+
+        $written = file_put_contents(
+            $filepath,
+            $rendered['pdf'],
+            LOCK_EX
+        );
+
+        if ($written === false) {
+            throw new RuntimeException(
+                "Unable to save generated PDF: {$filepath}"
+            );
+        }
+
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'pdf_render_completed',
+            'engine' => $rendered['engine'],
+            'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+            'output_bytes' => (int) $written,
+            'page_count' => $rendered['page_count'],
+            'paper_size' => (string) $options['paperSize'],
+            'orientation' => (string) $options['orientation'],
+        ]);
+
+        return $filepath;
+        } catch (\Throwable $exception) {
+            \App\API\Includes\FileLogger::write('document_generation', [
+                'type' => 'pdf_render_failed',
+                'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+                'error_class' => get_class($exception),
+            ], 'error');
+            throw $exception;
+        }
+    }
+
+    /**
+     * Render HTML to PDF bytes through ONE shared pipeline.
+     *
+     * Primary: the private Python document renderer (WeasyPrint), reached the
+     * same way student ID cards are — PHP builds trusted template HTML with
+     * inline CSS and data-URI images, Python receives no database
+     * credentials. Fallback: local Dompdf, so printing keeps working when
+     * the Python runtime is not configured (dormant config), unreachable,
+     * or cannot render a document (size limits, missing system libraries
+     * on shared hosting). Both engines are journaled.
+     *
+     * @param array<string, mixed> $options
+     * @return array{pdf:string, engine:string, page_count:int}
+     */
+    public function renderPdfBytes(string $html, array $options = []): array
+    {
+        $options = array_merge(
+            [
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+                'custom_width' => null,
+                'custom_height' => null,
+                'cr80' => false,
+                'showPageNumbers' => true,
+            ],
+            $options
+        );
+
+        $renderStartedAt = hrtime(true);
+        try {
+            return $this->renderPdfBytesViaPython($html, $options, $renderStartedAt);
+        } catch (\Throwable $pythonFailure) {
+            \App\API\Includes\FileLogger::write('document_generation', [
+                'type' => 'python_pdf_render_fallback',
+                'error_class' => get_class($pythonFailure),
+                'reason' => $pythonFailure->getMessage(),
+                'paper_size' => (string) $options['paperSize'],
+                'orientation' => (string) $options['orientation'],
+            ], 'warning');
+        }
+
+        return $this->renderDompdfBytes($html, $options, $renderStartedAt);
+    }
+
+    /**
+     * Python render leg. Throws whenever the renderer cannot produce a valid
+     * PDF so the caller falls back to Dompdf.
+     *
+     * @param array<string, mixed> $options
+     * @return array{pdf:string, engine:string, page_count:int}
+     */
+    private function renderPdfBytesViaPython(
+        string $html,
+        array $options,
+        int $startedAtNanos
+    ): array {
+        $renderer = new PythonDocumentBridge();
+        if (!$renderer->available()) {
+            throw new RuntimeException('The Python document renderer is not configured.');
+        }
+
+        // WeasyPrint takes paper geometry from a @page CSS rule rather than a
+        // renderer argument. Report shells and certificate templates declare
+        // their own @page; anything without one gets the requested paper
+        // size injected so a landscape table can never render portrait.
+        $preparedHtml = $this->ensureDocumentPageCss($html, $options);
+
+        // Report-style page numbers stay renderer-applied. 'auto' numbers only
+        // multi-page documents, matching the previous Dompdf behaviour where a
+        // single-page certificate or receipt never carried a page number.
+        $numbering = ((bool) $options['showPageNumbers'] && !(bool) $options['cr80'])
+            ? 'auto'
+            : 'none';
+
+        $batch = $renderer->renderDocuments(
+            [['document_id' => 'document', 'html' => $preparedHtml]],
+            'combined',
+            $numbering
+        );
+        $encodedPdf = $batch['pdf_base64'] ?? null;
+        $pdf = is_string($encodedPdf) ? base64_decode($encodedPdf, true) : false;
+        if (!is_string($pdf) || !str_starts_with($pdf, '%PDF-')) {
+            throw new RuntimeException('The Python renderer returned an invalid PDF document.');
+        }
+
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'python_pdf_render_completed',
+            'duration_ms' => (int) round((hrtime(true) - $startedAtNanos) / 1_000_000),
+            'output_bytes' => strlen($pdf),
+            'page_count' => (int) ($batch['page_count'] ?? 0),
+        ]);
+
+        return [
+            'pdf' => $pdf,
+            'engine' => 'python',
+            'page_count' => (int) ($batch['page_count'] ?? 0),
+        ];
+    }
+
+    /**
+     * Dompdf render leg (fallback engine). Same paper geometry and page-number
+     * behaviour the service has always applied.
+     *
+     * @param array<string, mixed> $options
+     * @return array{pdf:string, engine:string, page_count:int}
+     */
+    private function renderDompdfBytes(
+        string $html,
+        array $options,
+        int $startedAtNanos
+    ): array {
         $dompdfOptions = new Options();
         $dompdfOptions->set('isHtml5ParserEnabled', true);
         $dompdfOptions->set('isPhpEnabled', false);
@@ -852,46 +1036,57 @@ final class PrintService
             $this->addDompdfPageNumbers(
                 $dompdf,
                 (string) $options['orientation'],
-                (string) $options['reportCode']
-            );
-        }
-
-        $safeFilename = $this->safeFilename(
-            (string) $options['filename']
-        );
-
-        $filepath = $this->outputPath . $safeFilename . '.pdf';
-
-        $written = file_put_contents(
-            $filepath,
-            $dompdf->output(),
-            LOCK_EX
-        );
-
-        if ($written === false) {
-            throw new RuntimeException(
-                "Unable to save generated PDF: {$filepath}"
+                (string) ($options['reportCode'] ?? '')
             );
         }
 
         \App\API\Includes\FileLogger::write('document_generation', [
-            'type' => 'php_pdf_render_completed',
-            'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
-            'output_bytes' => (int) $written,
+            'type' => 'dompdf_pdf_render_completed',
+            'duration_ms' => (int) round((hrtime(true) - $startedAtNanos) / 1_000_000),
+            'output_bytes' => strlen((string) $dompdf->output()),
             'page_count' => $pageCount,
-            'paper_size' => (string) $options['paperSize'],
-            'orientation' => (string) $options['orientation'],
         ]);
 
-        return $filepath;
-        } catch (\Throwable $exception) {
-            \App\API\Includes\FileLogger::write('document_generation', [
-                'type' => 'php_pdf_render_failed',
-                'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
-                'error_class' => get_class($exception),
-            ], 'error');
-            throw $exception;
+        return [
+            'pdf' => (string) $dompdf->output(),
+            'engine' => 'dompdf',
+            'page_count' => $pageCount,
+        ];
+    }
+
+    /**
+     * Inject the requested paper geometry as a @page rule for the Python
+     * renderer when the document does not declare one of its own.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function ensureDocumentPageCss(string $html, array $options): string
+    {
+        if (stripos($html, '@page') !== false) {
+            return $html;
         }
+
+        if ((bool) $options['cr80']) {
+            $size = '85.6mm 53.98mm';
+        } elseif (
+            is_numeric($options['custom_width'] ?? null)
+            && is_numeric($options['custom_height'] ?? null)
+        ) {
+            $size = ((float) $options['custom_width']) . 'pt '
+                . ((float) $options['custom_height']) . 'pt';
+        } else {
+            $size = $this->safeCssToken((string) ($options['paperSize'] ?? 'A4'), 'A4')
+                . ' '
+                . $this->safeCssToken((string) ($options['orientation'] ?? 'portrait'), 'portrait');
+        }
+        $pageCss = '@page { size: ' . $size . '; margin: 12mm; }';
+
+        if (stripos($html, '</head>') !== false) {
+            return str_ireplace('</head>', '<style>' . $pageCss . '</style></head>', $html);
+        }
+
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+            . '<style>' . $pageCss . '</style></head><body>' . $html . '</body></html>';
     }
 
 
@@ -1109,6 +1304,421 @@ final class PrintService
             'showPageNumbers' => $config['showPageNumbers'] ?? true,
             'reportCode' => $config['reportCode'] ?? '',
         ]);
+    }
+
+    /**
+     * Build the report card HTML without generating a PDF.
+     * Used by the asynchronous bulk-document pipeline.
+     *
+     * @param array<string, mixed> $data  Full report card data
+     * @param array<string, mixed> $config
+     * @return string  Complete HTML document
+     */
+    public function buildReportCardHtml(array $data, array $config = []): string
+    {
+        $config = array_merge(
+            $this->defaultReportConfig(),
+            [
+                'filename' => 'report_card_' . date('Ymd_His'),
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+            ],
+            $config
+        );
+
+        $level = (string)($data['level'] ?? 'PP');
+        $templateMap = [
+            'PP'             => 'pp_report_card.php',
+            'LowerPrimary'   => 'lower_primary_report_card.php',
+            'UpperPrimary'   => 'upper_primary_report_card.php',
+            'JuniorSecondary'=> 'junior_secondary_report_card.php',
+        ];
+        $templateFile = $templateMap[$level] ?? 'pp_report_card.php';
+        $templatePath = $this->reportCardTemplatesPath . $templateFile;
+
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException(
+                "Report card template not found for level '{$level}': {$templatePath}"
+            );
+        }
+
+        $levelTitles = [
+            'PP'             => 'Pre-Primary Progress Report',
+            'LowerPrimary'   => 'Lower Primary Progress Report',
+            'UpperPrimary'   => 'Upper Primary Progress Report',
+            'JuniorSecondary'=> 'Junior Secondary Progress Report — KJSEA Format',
+        ];
+        $config['title'] = $config['title']
+            ?? $levelTitles[$level]
+            ?? 'CBC Progress Report';
+
+        $student = $data['student'] ?? [];
+        $studentName = trim(($student['first_name']??'') . ' ' . ($student['last_name']??'')) ?: 'Student';
+        $gradeLabel = (string)($student['class_name'] ?? '');
+        $streamLabel = (string)($student['stream_name'] ?? '');
+        $config['subtitle'] = $config['subtitle']
+            ?? trim("Grade {$gradeLabel} {$streamLabel} — {$studentName}");
+
+        $variables = $this->buildTemplateVariables($config);
+        $variables = array_merge($variables, $data, $config);
+
+        $bodyHtml = $this->renderPhpTemplate($templatePath, $variables);
+
+        $header = $this->renderServerPartial('report_header.php', $variables);
+        $footer = $this->renderServerPartial('report_footer.php', $variables);
+
+        return $this->buildReportDocument(
+            $config['title'],
+            $header,
+            $bodyHtml,
+            $footer,
+            $config['paperSize'],
+            $config['orientation']
+        );
+    }
+
+    /**
+     * Build the portfolio HTML without generating a PDF.
+     * Used by the asynchronous bulk-document pipeline.
+     *
+     * @param array<string, mixed> $data Full portfolio data
+     * @param array<string, mixed> $config
+     * @return string  Complete HTML document
+     */
+    public function buildPortfolioHtml(array $data, array $config = []): string
+    {
+        $config = array_merge(
+            $this->defaultReportConfig(),
+            [
+                'filename' => 'portfolio_' . date('Ymd_His'),
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+            ],
+            $config
+        );
+
+        $templatePath = $this->portfolioTemplatesPath . 'portfolio_main.php';
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException("Portfolio template not found: {$templatePath}");
+        }
+
+        $footerTemplatePath = $this->portfolioTemplatesPath . 'portfolio_footer.php';
+
+        $student = $data['student'] ?? [];
+        $studentName = trim(($student['first_name']??'') . ' ' . ($student['last_name']??'')) ?: 'Student';
+        $config['title'] = $config['title'] ?? 'CBC Student Portfolio';
+        $config['subtitle'] = $config['subtitle'] ?? ('Evidence of Learning — ' . $studentName);
+
+        $variables = $this->buildTemplateVariables($config);
+        $variables = array_merge(
+            $variables,
+            [
+                'schoolLogo' => $this->resolvePdfAsset(
+                    (string) ($this->schoolConfig['logo'] ?? '')
+                ),
+            ],
+            $data,
+            $config
+        );
+
+        $bodyHtml = $this->renderPhpTemplate($templatePath, $variables);
+
+        $footerHtml = '';
+        if (is_file($footerTemplatePath)) {
+            $footerHtml = $this->renderServerPartial(
+                'portfolio_footer.php',
+                $variables,
+                $this->portfolioTemplatesPath
+            );
+        }
+
+        $html = $this->buildReportDocument(
+            $config['title'],
+            '', // no header — portfolio cover page is its own opener
+            $bodyHtml,
+            $footerHtml,
+            $config['paperSize'],
+            $config['orientation']
+        );
+
+        if (is_file($this->portfolioCssPath)) {
+            $portfolioCss = file_get_contents($this->portfolioCssPath);
+            if ($portfolioCss !== false) {
+                $html = str_replace(
+                    '</head>',
+                    '<style>' . $portfolioCss . '</style></head>',
+                    $html
+                );
+            }
+        }
+
+        return $html;
+    }
+
+    /**
+     * Build a certificate HTML document without generating a PDF.
+     * Used by the asynchronous bulk-document pipeline.
+     *
+     * @param string $type   Certificate template key (e.g., 'leadership_service')
+     * @param array<string, mixed> $data   Certificate data
+     * @param array<string, mixed> $config
+     * @return string  Complete HTML document
+     */
+    public function buildCertificateHtml(string $type, array $data, array $config = []): string
+    {
+        if (!preg_match('/^[a-z0-9_]{1,80}$/i', $type)) {
+            throw new \InvalidArgumentException("Invalid certificate template key: {$type}");
+        }
+        $templatePath = $this->certificatesPath . $type . '.php';
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException("Certificate template was not found: {$templatePath}");
+        }
+
+        $config = array_merge(
+            [
+                'orientation' => 'landscape',
+                'paperSize' => 'A4',
+            ],
+            $config
+        );
+
+        $data = array_merge(
+            [
+                'schoolName' => $this->schoolConfig['name'],
+                'schoolMotto' => $this->schoolConfig['motto'],
+                'schoolLogo' => $this->resolvePdfAsset((string) $this->schoolConfig['logo']),
+                'schoolAddress' => $this->schoolConfig['address'],
+                'schoolPhone' => $this->schoolConfig['phone'],
+                'schoolEmail' => $this->schoolConfig['email'],
+                'schoolWebsite' => $this->schoolConfig['website'],
+                'recipientName' => '',
+                'achievement' => '',
+                'academicYear' => date('Y'),
+                'sport' => '',
+                'course' => '',
+                'certificateNumber' => '',
+                'dateAwarded' => date('d F Y'),
+                'principalName' => $this->schoolConfig['principal'],
+                'principalTitle' => $this->schoolConfig['principal_title'],
+                'teacherName' => 'Class Teacher',
+                'sportsCoordinatorName' => 'Sports Coordinator',
+                'examOfficerName' => 'Examinations Officer',
+                'certificateTypeName' => '',
+                'certificateCategoryName' => '',
+                'admissionNo' => '',
+                'departmentName' => '',
+                'eventName' => '',
+                'signatoryRole' => '',
+                'secondarySignatoryRole' => '',
+                'verificationUrl' => '',
+            ],
+            $data
+        );
+
+        $html = $this->renderPhpTemplate($templatePath, $data);
+
+        $certificateReference = $this->safeFilename(
+            (string) ($data['certificateNumber'] ?: date('Ymd_His'))
+        );
+        $config['filename'] = "certificate_{$type}_{$certificateReference}";
+        $config['title'] = $data['certificateTypeName'] ?? 'Certificate';
+
+        return $this->buildReportDocument(
+            $config['title'],
+            '',
+            $html,
+            '',
+            $config['paperSize'],
+            $config['orientation']
+        );
+    }
+
+    /**
+     * Build a staff security pass HTML document without generating a PDF.
+     * Used by the asynchronous bulk-document pipeline.
+     *
+     * @param array<string, mixed> $pass   Normalized pass data
+     * @param array<string, mixed> $options
+     * @return array{html: string, filename: string}
+     */
+    public function buildStaffSecurityPassHtml(array $pass, array $options = []): array
+    {
+        $options = array_merge([
+            'printerMode' => 'a4_pdf',
+            'side' => 'both',
+            'filename' => 'staff_security_pass',
+        ], $options);
+
+        $printerMode = strtolower(trim((string) $options['printerMode']));
+        $side = strtolower(trim((string) $options['side']));
+
+        if (!in_array($printerMode, ['direct_card', 'a4_pdf'], true)) {
+            throw new \InvalidArgumentException('Invalid staff security-pass printer mode.');
+        }
+        if (!in_array($side, ['front', 'back', 'both'], true)) {
+            throw new \InvalidArgumentException('Invalid staff security-pass side.');
+        }
+
+        $normalized = $this->normalizeStaffSecurityPass($pass);
+        $templateDirectory = defined('STAFF_SECURITY_PASS_TEMPLATES')
+            ? rtrim((string) STAFF_SECURITY_PASS_TEMPLATES, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR
+            : $this->idCardTemplatesPath . 'staff_security_pass' . DIRECTORY_SEPARATOR;
+
+        $frontTemplatePath = $templateDirectory . 'staff_security_pass_front.php';
+        $backTemplatePath = $templateDirectory . 'staff_security_pass_back.php';
+        $layoutTemplatePath = $templateDirectory . (
+            $printerMode === 'direct_card'
+                ? 'staff_security_pass_two_pages.php'
+                : 'staff_security_pass_a4.php'
+        );
+
+        foreach ([$frontTemplatePath, $backTemplatePath, $layoutTemplatePath] as $templatePath) {
+            if (!is_file($templatePath)) {
+                throw new \RuntimeException("Staff security-pass template was not found: {$templatePath}");
+            }
+        }
+
+        $body = $this->renderPhpTemplate($layoutTemplatePath, [
+            'passes' => [$normalized],
+            'side' => $side,
+            'frontTemplatePath' => $frontTemplatePath,
+            'backTemplatePath' => $backTemplatePath,
+            'chunkNumber' => 1,
+            'totalChunks' => 1,
+        ]);
+
+        $css = $this->loadStudentIdCardStyles($printerMode);
+        $html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Staff Security Pass</title><style>'
+            . $css . '</style></head><body class="id-print-body id-print-'
+            . $this->escape($printerMode) . '">' . $body . '</body></html>';
+
+        return [
+            'html' => $html,
+            'filename' => $this->safeFilename((string) $options['filename']),
+        ];
+    }
+
+    /**
+     * Build a payslip HTML document without generating a PDF.
+     * Used by the asynchronous bulk-document pipeline.
+     *
+     * @param array<string, mixed> $data   Payslip data
+     * @param array<string, mixed> $config
+     * @return string  Complete HTML document
+     */
+    public function buildPayslipHtml(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Staff Payslip',
+            'filename' => 'payslip_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'payslip/payslip_template.php';
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException("Payslip template not found: {$templatePath}");
+        }
+
+        $variables = array_merge(
+            $this->buildTemplateVariables($config),
+            $config,
+            $data,
+            [
+                'useSharedReportShell' => false,
+                'printStyles' => $this->loadTemplateStylesheet('pay-slip-print.css'),
+            ]
+        );
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->buildReportDocument(
+            $config['title'],
+            '',
+            $html,
+            '',
+            $config['paperSize'],
+            $config['orientation']
+        );
+    }
+
+    /**
+     * Build a fee statement HTML document without generating a PDF.
+     * Used by the asynchronous bulk-document pipeline.
+     *
+     * @param array<string, mixed> $data   Fee statement data (from prepareStudentFeeStatement)
+     * @param array<string, mixed> $config
+     * @return string  Complete HTML document
+     */
+    public function buildFeeStatementHtml(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Student Fee Statement',
+            'filename' => 'fee_statement_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'fee_statement/fee_statement_template.php';
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException("Fee statement template not found: {$templatePath}");
+        }
+
+        if (empty($config['signatureSection'])) {
+            $config['signatureSection'] = $data['signatureSection'] ?? [
+                ['label' => 'Accounts Office', 'dateLine' => true],
+                ['label' => 'Parent / Guardian', 'dateLine' => true],
+            ];
+        }
+        $html = $this->renderDedicatedReportTemplate($templatePath, $data, $config);
+
+        return $this->buildReportDocument(
+            $config['title'],
+            '',
+            $html,
+            '',
+            $config['paperSize'],
+            $config['orientation']
+        );
+    }
+
+    /**
+     * Build a transcript HTML document without generating a PDF.
+     * Used by the asynchronous bulk-document pipeline.
+     *
+     * @param array<string, mixed> $data   Transcript data (from AcademicReportService)
+     * @param array<string, mixed> $config
+     * @return string  Complete HTML document
+     */
+    public function buildTranscriptHtml(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Official Transcript',
+            'filename' => 'transcript_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'transcripts/transcript_template.php';
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException("Transcript template not found: {$templatePath}");
+        }
+
+        if (empty($config['signatureSection'])) {
+            $config['signatureSection'] = $data['signatureSection'] ?? [
+                ['label' => 'Principal', 'dateLine' => true],
+                ['label' => 'Registrar', 'dateLine' => true],
+            ];
+        }
+        $html = $this->renderDedicatedReportTemplate($templatePath, $data, $config);
+
+        return $this->buildReportDocument(
+            $config['title'],
+            '',
+            $html,
+            '',
+            $config['paperSize'],
+            $config['orientation']
+        );
     }
 
     /**
@@ -2564,10 +3174,13 @@ final class PrintService
             return '';
         }
 
-        $contents = file_get_contents($path);
+        $modifiedAt = @filemtime($path);
+        $cacheKey = $path
+            . '|' . ($modifiedAt !== false ? (string) $modifiedAt : '0')
+            . '|' . $this->inlineImageMaxPx;
 
-        if ($contents === false) {
-            return '';
+        if (isset($this->assetDataUriCache[$cacheKey])) {
+            return $this->assetDataUriCache[$cacheKey];
         }
 
         $mimeType = function_exists('mime_content_type')
@@ -2585,10 +3198,123 @@ final class PrintService
             };
         }
 
-        return 'data:'
+        // Downscale large rasters once; the same asset (e.g. the school logo)
+        // is reused across every card, so the cap plus the cache keeps the
+        // generated HTML small enough for large batches.
+        $contents = $this->downscaleInlineImage($path, $mimeType);
+
+        if ($contents === null) {
+            $contents = file_get_contents($path);
+        }
+
+        if ($contents === false) {
+            return '';
+        }
+
+        $dataUri = 'data:'
             . $mimeType
             . ';base64,'
             . base64_encode($contents);
+
+        $this->assetDataUriCache[$cacheKey] = $dataUri;
+
+        return $dataUri;
+    }
+
+    /**
+     * Downscale a raster image to a print-appropriate size.
+     *
+     * Returns the re-encoded binary, or null when the asset is already small
+     * enough, is not a raster image, or GD is unavailable — in which case the
+     * caller falls back to the original bytes.
+     */
+    private function downscaleInlineImage(string $path, string $mimeType): ?string
+    {
+        if (!extension_loaded('gd')) {
+            return null;
+        }
+
+        if (!in_array($mimeType, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true)) {
+            return null;
+        }
+
+        $info = @getimagesize($path);
+
+        if ($info === false) {
+            return null;
+        }
+
+        $width = (int) ($info[0] ?? 0);
+        $height = (int) ($info[1] ?? 0);
+        $maxPx = $this->inlineImageMaxPx;
+
+        if ($width <= 0 || $height <= 0 || ($width <= $maxPx && $height <= $maxPx)) {
+            return null;
+        }
+
+        $source = match ($mimeType) {
+            'image/jpeg' => @imagecreatefromjpeg($path),
+            'image/png' => @imagecreatefrompng($path),
+            'image/gif' => @imagecreatefromgif($path),
+            'image/webp' => function_exists('imagecreatefromwebp')
+                ? @imagecreatefromwebp($path)
+                : false,
+            default => false,
+        };
+
+        if ($source === false) {
+            return null;
+        }
+
+        $scale = $maxPx / max($width, $height);
+        $targetWidth = max(1, (int) round($width * $scale));
+        $targetHeight = max(1, (int) round($height * $scale));
+        $target = imagecreatetruecolor($targetWidth, $targetHeight);
+
+        if ($target === false) {
+            imagedestroy($source);
+            return null;
+        }
+
+        if (in_array($mimeType, ['image/png', 'image/gif', 'image/webp'], true)) {
+            imagealphablending($target, false);
+            imagesavealpha($target, true);
+            $transparent = imagecolorallocatealpha($target, 0, 0, 0, 127);
+            imagefilledrectangle($target, 0, 0, $targetWidth, $targetHeight, $transparent);
+        }
+
+        imagecopyresampled(
+            $target,
+            $source,
+            0,
+            0,
+            0,
+            0,
+            $targetWidth,
+            $targetHeight,
+            $width,
+            $height
+        );
+
+        ob_start();
+        $encoded = match ($mimeType) {
+            'image/jpeg' => imagejpeg($target, null, 85),
+            'image/gif' => imagegif($target),
+            'image/webp' => function_exists('imagewebp')
+                ? imagewebp($target, null, 85)
+                : false,
+            default => imagepng($target, null, 7),
+        };
+        $binary = ob_get_clean();
+
+        imagedestroy($target);
+        imagedestroy($source);
+
+        if ($encoded === false || !is_string($binary) || $binary === '') {
+            return null;
+        }
+
+        return $binary;
     }
 
     private function ensureDirectory(string $path): void
@@ -3596,6 +4322,7 @@ final class PrintService
                             sfa.account_identifier AS settlement_account_identifier,
                             CASE
                                 WHEN p.code = 'mpesa_daraja' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
+                                WHEN p.code = 'payhero' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
                                 WHEN p.code = 'kcb_buni' AND r.collection_product = 'buni' THEN 'kcb_mobile'
                                 WHEN r.collection_product = 'bank_collection' THEN 'bank'
                                 ELSE 'technical'

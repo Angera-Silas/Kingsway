@@ -10,6 +10,17 @@ const admissionsWorkspaceController = {
     dom: {},
     pendingStageSkip: null,
     workspaceModalParentState: null,
+    state: { referenceCache: null },
+
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.read("admissions", "workspace-references");
+            this.state.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Admissions Workspace Node view failed; using direct reads:", error);
+            this.state.referenceCache = null;
+        }
+    },
 
     init: async function() {
         if (this.initialized) return;
@@ -39,6 +50,7 @@ const admissionsWorkspaceController = {
 
             this.cacheDom();
             this.setupEventListeners();
+            await this.loadReferencesComposed();
             await this.loadQueueData();
             
             // Subscribe to conflict events
@@ -47,6 +59,14 @@ const admissionsWorkspaceController = {
                     this.handleConflict(conflict);
                 });
             }
+
+            window.APIRealtime?.register?.("admissions_workspace", {
+                refresh: async () => {
+                    this.state.referenceCache = null;
+                    await this.loadReferencesComposed();
+                    await this.loadQueueData();
+                }
+            }, ["admissions", "students", "finance", "academic"]);
 
         } catch (error) {
             console.error("Failed to initialize Admissions Workspace Controller:", error);
@@ -136,31 +156,23 @@ const admissionsWorkspaceController = {
         try {
             let queueData;
             
-            // Try DataStore first for caching
-            if (typeof DataStore !== 'undefined') {
-                try {
-                    queueData = await DataStore.get('admissions', {
-                        strategy: 'stale-while-revalidate',
-                        ttl: 60000, // 1 minute for fresh queue data
-                        storeName: 'admission_queue_cache',
-                        endpoint: '/admission/queues',
-                        forceRefresh: false
-                    });
-                } catch (dataStoreError) {
-                    console.warn("DataStore failed, falling back to API:", dataStoreError);
-                }
+            // Use Node view for initial queue data (with DataStore fallback for offline)
+            const cache = this.state.referenceCache;
+            if (cache?.queues !== undefined) {
+                queueData = cache.queues;
+            } else {
+                queueData = await this.apiCall('/admission/queues', 'GET');
             }
             
-            // Fallback to direct API call
-            if (!queueData) {
-                queueData = await this.apiCall('/admission/queues', 'GET');
-                
-                // Cache in DataStore
-                if (typeof DataStore !== 'undefined') {
+            // Cache in DataStore for offline
+            if (typeof DataStore !== 'undefined') {
+                try {
                     await DataStore.set('admissions', queueData, {
                         ttl: 60000,
                         storeName: 'admission_queue_cache'
                     });
+                } catch (e) {
+                    console.warn('DataStore cache failed:', e);
                 }
             }
 
@@ -869,7 +881,7 @@ const admissionsWorkspaceController = {
             <td>${Number(row.is_active) === 1 ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}</td>
             <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="admissionsWorkspaceController.editRequirement(${Number(row.id)})"><i class="bi bi-pencil"></i> Edit</button></td>
         </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No admission requirements configured.</td></tr>';
-        contentDiv.innerHTML = `<div class="card border-0 shadow-sm"><div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center"><div><h6 class="mb-0 fw-semibold"><i class="bi bi-list-check me-2 text-success"></i>Admission Requirements</h6><small class="text-muted">Configure requirements by grade, gender, and day/boarding category.</small></div><div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" onclick="admissionsWorkspaceController.exportRequirements()"><i class="bi bi-download me-1"></i>CSV</button><button class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer me-1"></i>Print / PDF</button><button class="btn btn-success" onclick="admissionsWorkspaceController.editRequirement()"><i class="bi bi-plus-circle me-1"></i>Add requirement</button></div></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th>Grade</th><th>Gender</th><th>Category</th><th>Requirement</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>${tableRows}</tbody></table></div></div><div class="modal fade" id="admissionRequirementModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><form class="modal-content" id="admissionRequirementForm"><div class="modal-header bg-success text-white"><h5 class="modal-title">Admission Requirement</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="hidden" name="id" id="admissionRequirementId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Grade / class</label><select class="form-select" name="grade_code" id="admissionRequirementGrade">${gradeOptions.map(g => `<option value="${g}">${g || 'All grades'}</option>`).join('')}</select></div><div class="col-md-3"><label class="form-label">Gender</label><select class="form-select" name="gender_code" id="admissionRequirementGender"><option value="all">All</option><option value="female">Girls</option><option value="male">Boys</option></select></div><div class="col-md-3"><label class="form-label">Category</label><select class="form-select" name="student_type_code" id="admissionRequirementType"><option value="all">All</option><option value="day">Day scholar</option><option value="weekly">Weekly boarder</option><option value="boarder">Full boarder</option></select></div><div class="col-12"><label class="form-label">Title</label><input class="form-control" name="title" id="admissionRequirementTitle" required></div><div class="col-12"><label class="form-label">Instructions</label><textarea class="form-control" name="description" id="admissionRequirementDescription" rows="4" required></textarea></div><div class="col-md-6"><label class="form-label">Display order</label><input class="form-control" type="number" min="0" name="display_order" id="admissionRequirementOrder" value="0"></div><div class="col-md-6 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="admissionRequirementActive" checked><label class="form-check-label" for="admissionRequirementActive">Active</label></div></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save requirement</button></div></form></div></div>`;
+        contentDiv.innerHTML = `<div class="card border-0 shadow-sm"><div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center"><div><h6 class="mb-0 fw-semibold"><i class="bi bi-list-check me-2 text-success"></i>Admission Requirements</h6><small class="text-muted">Configure requirements by grade, gender, and day/boarding category.</small></div><div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" onclick="admissionsWorkspaceController.exportRequirements()"><i class="bi bi-download me-1"></i>CSV</button><button class="btn btn-outline-secondary btn-sm" onclick="window.PrintManager?.printPage({title:'Admission Requirements',orientation:'landscape'}) ?? window.print()"><i class="bi bi-printer me-1"></i>Print / PDF</button><button class="btn btn-success" onclick="admissionsWorkspaceController.editRequirement()"><i class="bi bi-plus-circle me-1"></i>Add requirement</button></div></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th>Grade</th><th>Gender</th><th>Category</th><th>Requirement</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>${tableRows}</tbody></table></div></div><div class="modal fade" id="admissionRequirementModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><form class="modal-content" id="admissionRequirementForm"><div class="modal-header bg-success text-white"><h5 class="modal-title">Admission Requirement</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="hidden" name="id" id="admissionRequirementId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Grade / class</label><select class="form-select" name="grade_code" id="admissionRequirementGrade">${gradeOptions.map(g => `<option value="${g}">${g || 'All grades'}</option>`).join('')}</select></div><div class="col-md-3"><label class="form-label">Gender</label><select class="form-select" name="gender_code" id="admissionRequirementGender"><option value="all">All</option><option value="female">Girls</option><option value="male">Boys</option></select></div><div class="col-md-3"><label class="form-label">Category</label><select class="form-select" name="student_type_code" id="admissionRequirementType"><option value="all">All</option><option value="day">Day scholar</option><option value="weekly">Weekly boarder</option><option value="boarder">Full boarder</option></select></div><div class="col-12"><label class="form-label">Title</label><input class="form-control" name="title" id="admissionRequirementTitle" required></div><div class="col-12"><label class="form-label">Instructions</label><textarea class="form-control" name="description" id="admissionRequirementDescription" rows="4" required></textarea></div><div class="col-md-6"><label class="form-label">Display order</label><input class="form-control" type="number" min="0" name="display_order" id="admissionRequirementOrder" value="0"></div><div class="col-md-6 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="admissionRequirementActive" checked><label class="form-check-label" for="admissionRequirementActive">Active</label></div></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save requirement</button></div></form></div></div>`;
         this.requirementRows = rows;
         loadingDiv.style.display = 'none';
         contentDiv.style.display = 'block';

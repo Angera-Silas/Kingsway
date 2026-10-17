@@ -63,17 +63,17 @@ require_once __DIR__ . '/upload_paths.php';
 */
 
 define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');
-define('DB_USER', $_ENV['DB_USER'] ?? 'root');
-define('DB_NAME', $_ENV['DB_NAME'] ?? 'KingsWayAcademy');
-define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
+define('DB_USER', $_ENV['DB_USER'] ?? '');
+define('DB_NAME', $_ENV['DB_NAME'] ?? '');
+define('DB_PORT', (int) ($_ENV['DB_PORT'] ));
 // WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
 define('DB_PASS', $_ENV['DB_PASS'] ?? 'CHANGE_ME_IN_ENV_FILE');
 
 // Auxiliary namespace schemas (roadmap §4.1). Optional overrides for local
 // environments that use renamed/prefixed schemas; defaults match ConnectionManager.
-define('DB_BUFFERS_NAME', trim((string) ($_ENV['DB_BUFFERS_NAME'] ?? '')) ?: 'KingsWayBuffers');
-define('DB_READS_NAME', trim((string) ($_ENV['DB_READS_NAME'] ?? '')) ?: 'KingsWayReads');
-define('DB_LOGS_NAME', trim((string) ($_ENV['DB_LOGS_NAME'] ?? '')) ?: 'KingsWayLogs');
+define('DB_BUFFERS_NAME', trim((string) ($_ENV['DB_BUFFERS_NAME'] ?? '')) ?: '');
+define('DB_READS_NAME', trim((string) ($_ENV['DB_READS_NAME'] ?? '')) ?: '');
+define('DB_LOGS_NAME', trim((string) ($_ENV['DB_LOGS_NAME'] ?? '')) ?: '');
 
 /*
 |--------------------------------------------------------------------------
@@ -120,7 +120,7 @@ try {
 
 $jwtSecret = trim((string) ($_ENV['JWT_SECRET'] ?? ''));
 if (strlen($jwtSecret) < 64) {
-    throw new \RuntimeException('JWT_SECRET must be configured with at least 64 characters in every environment.');
+    throw new \RuntimeException('JWT_SECRET.');
 }
 define('JWT_SECRET', $jwtSecret);
 
@@ -131,12 +131,12 @@ define(
 
 define(
     'JWT_ISSUER',
-    $_ENV['JWT_ISSUER'] ?? 'kingsway-prep-school'
+    $_ENV['JWT_ISSUER'] ?? ''
 );
 
 define(
     'JWT_AUDIENCE',
-    $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff'
+    $_ENV['JWT_AUDIENCE'] ?? ''
 );
 $tfaEncryptionKey = trim((string) ($_ENV['TFA_ENCRYPTION_KEY'] ?? ''));
 if (strlen($tfaEncryptionKey) < 64 || !ctype_xdigit($tfaEncryptionKey)) {
@@ -195,7 +195,7 @@ define(
 
 define(
     'SMTP_HOST',
-    $_ENV['SMTP_HOST'] ?? 'mail.kingswaypreparatoryschool.sc.ke'
+    $_ENV['SMTP_HOST'] ?? ''
 );
 
 define(
@@ -206,13 +206,13 @@ define(
 define(
     'SMTP_USERNAME',
     $_ENV['SMTP_USERNAME']
-        ?? 'info@kingswaypreparatoryschool.sc.ke'
+        ?? ''
 );
 
 define(
     'SMTP_FROM_EMAIL',
     $_ENV['SMTP_FROM_EMAIL']
-        ?? 'info@kingswaypreparatoryschool.sc.ke'
+        ?? ''
 );
 
 define(
@@ -234,38 +234,31 @@ define(
 
 define(
     'SMS_PROVIDER',
-    $_ENV['SMS_PROVIDER'] ?? 'africastalking'
+    $_ENV['SMS_PROVIDER'] ?? 'talksasa'
 );
 
 define('SMS_API_KEY', $_ENV['SMS_API_KEY'] ?? '');
-define('SMS_USERNAME', $_ENV['SMS_USERNAME'] ?? 'sandbox');
-define('SMS_APPNAME', $_ENV['SMS_APPNAME'] ?? 'Sandbox');
+define('SMS_USERNAME', $_ENV['SMS_USERNAME'] ?? '');
+define('SMS_APPNAME', $_ENV['SMS_APPNAME'] ?? '');
 
+// Base API URL and per-channel conversion defaults for the configured
+// messaging provider. Switch provider by changing these values only.
 define(
-    'SMS_SENDER_ID',
-    $_ENV['SMS_SENDER_ID'] ?? 'Kingsway Preparatory'
+    'SMS_API_URL',
+    rtrim($_ENV['SMS_API_URL'] ?? 'https://bulksms.talksasa.com/api/v3/', '/') . '/'
 );
 
-define(
-    'SMS_SHORTCODE',
-    $_ENV['SMS_SHORTCODE'] ?? '20174'
-);
+define('SMS_SENDER_ID', $_ENV['SMS_SENDER_ID'] ?? '');
+define('SMS_SHORTCODE', $_ENV['SMS_SHORTCODE'] ?? '');
+define('SMS_WHATSAPP_NUMBER', $_ENV['SMS_WHATSAPP_NUMBER'] ?? '');
+define('SMS_VOICE_LANGUAGE', $_ENV['SMS_VOICE_LANGUAGE'] ?? 'en-gb');
+define('SMS_VOICE_GENDER', $_ENV['SMS_VOICE_GENDER'] ?? 'female');
 
-define(
-    'SMS_WHATSAPP_NUMBER',
-    $_ENV['SMS_WHATSAPP_NUMBER'] ?? '+254710398690'
-);
-
-define('SMS_WHATSAPP_API_URL', $_ENV['SMS_WHATSAPP_API_URL'] ?? 'https://chat.africastalking.com');
 define('COMMUNICATION_WEBHOOK_SECRET', $_ENV['COMMUNICATION_WEBHOOK_SECRET'] ?? '');
-define('AFRICASTALKING_WEBHOOK_TOKEN', $_ENV['AFRICASTALKING_WEBHOOK_TOKEN'] ?? '');
 define('WHATSAPP_2FA_TEMPLATE_ID', $_ENV['WHATSAPP_2FA_TEMPLATE_ID'] ?? '');
 define('COMMUNICATION_WORKER_SECRET', $_ENV['COMMUNICATION_WORKER_SECRET'] ?? '');
 define('ATTENDANCE_WORKER_SECRET', $_ENV['ATTENDANCE_WORKER_SECRET'] ?? '');
 define('ATTENDANCE_GATE_SECRET', $_ENV['ATTENDANCE_GATE_SECRET'] ?? '');
-define('TWILIO_ACCOUNT_SID', $_ENV['TWILIO_ACCOUNT_SID'] ?? '');
-define('TWILIO_AUTH_TOKEN', $_ENV['TWILIO_AUTH_TOKEN'] ?? '');
-define('TWILIO_FROM', $_ENV['TWILIO_FROM'] ?? '');
 
 /*
 |--------------------------------------------------------------------------
@@ -423,6 +416,58 @@ define(
         ?? __DIR__ . '/kcb_public_key.pem'
 );
 define('KCB_VERIFY_CALLBACK_SIGNATURE', filter_var($_ENV['KCB_VERIFY_CALLBACK_SIGNATURE'] ?? '0', FILTER_VALIDATE_BOOLEAN));
+
+/*
+|--------------------------------------------------------------------------
+| PayHero (M-Pesa aggregation)
+|--------------------------------------------------------------------------
+| PayHero credentials are a single HTTP Basic pair (or its base64 token);
+| the channel id is the collection point registered in the PayHero panel.
+| Secrets stay in .env; the database only stores school-facing values.
+*/
+define('PAYHERO_BASE_URL', $_ENV['PAYHERO_BASE_URL'] ?? 'https://backend.payhero.co.ke');
+define('PAYHERO_BASIC_AUTH', $_ENV['PAYHERO_BASIC_AUTH'] ?? '');
+define('PAYHERO_USERNAME', $_ENV['PAYHERO_USERNAME'] ?? '');
+define('PAYHERO_PASSWORD', $_ENV['PAYHERO_PASSWORD'] ?? '');
+define('PAYHERO_ACCOUNT_ID', (int) ($_ENV['PAYHERO_ACCOUNT_ID'] ?? 0));
+define('PAYHERO_CHANNEL_ID', (int) ($_ENV['PAYHERO_CHANNEL_ID'] ?? 0));
+define('PAYHERO_PAYMENTS_PATH', $_ENV['PAYHERO_PAYMENTS_PATH'] ?? '/api/v2/payments');
+define('PAYHERO_TRANSACTION_STATUS_PATH', $_ENV['PAYHERO_TRANSACTION_STATUS_PATH'] ?? '/api/v2/transaction-status');
+define('PAYHERO_WALLET_PATH', $_ENV['PAYHERO_WALLET_PATH'] ?? '/api/v2/wallets');
+define('PAYHERO_PAYMENT_CHANNELS_PATH', $_ENV['PAYHERO_PAYMENT_CHANNELS_PATH'] ?? '/api/v2/payment_channels');
+define('PAYHERO_CALLBACK_BASE_URL', $_ENV['PAYHERO_CALLBACK_BASE_URL'] ?? (defined('BASE_URL') ? BASE_URL : ''));
+define('PAYHERO_VERIFY_CALLBACK_STATUS', filter_var($_ENV['PAYHERO_VERIFY_CALLBACK_STATUS'] ?? '0', FILTER_VALIDATE_BOOLEAN));
+define('PAYHERO_TIMEOUT_SECONDS', max(5, (int) ($_ENV['PAYHERO_TIMEOUT_SECONDS'] ?? 30)));
+
+/*
+|--------------------------------------------------------------------------
+| Node.js Gateway (Realtime & Async Jobs)
+|--------------------------------------------------------------------------
+*/
+define(
+    'NODE_REALTIME_INTERNAL_BASE_URL',
+    $_ENV['NODE_REALTIME_INTERNAL_BASE_URL'] ?? 'http://127.0.0.1'
+);
+
+define(
+    'NODE_REALTIME_INTERNAL_HOST',
+    $_ENV['NODE_REALTIME_INTERNAL_HOST'] ?? 'localhost'
+);
+
+define(
+    'NODE_REALTIME_PUBLISH_SECRET',
+    $_ENV['KINGSWAY_WORKER_SECRET'] ?? 'dev-worker-secret-change-in-production'
+);
+
+define(
+    'NODE_REALTIME_PUBLIC_URL',
+    $_ENV['NODE_REALTIME_URL'] ?? 'http://localhost:3000'
+);
+
+define(
+    'NODE_JWT_CAPABILITY_TTL',
+    (int) ($_ENV['NODE_JWT_CAPABILITY_TTL'] ?? 240)
+);
 
 /*
 |--------------------------------------------------------------------------

@@ -80,13 +80,20 @@
 
   // ── Reference data ───────────────────────────────────────────────────────
   async function loadReferences() {
+    let composed = null;
+    try {
+      const response = await window.API.nodeViews.resolve('academic', 'view-results-references');
+      composed = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn('View results reference Node view failed; using direct reads:', error);
+    }
     const [terms, classes, periods, areas, systems, classifications] = await Promise.allSettled([
-      payload('/academic/terms-list'),
-      payload('/academic/classes-list?limit=200'),
-      payload('/academic/exam-periods'),
-      payload('/academic/learning-areas/list'),
-      payload('/academic/grading-systems'),
-      payload('/academic/assessment-classifications'),
+      composed?.terms !== undefined ? composed.terms : payload('/academic/terms-list'),
+      composed?.classes !== undefined ? composed.classes : payload('/academic/classes-list?limit=200'),
+      composed?.examPeriods !== undefined ? composed.examPeriods : payload('/academic/exam-periods'),
+      composed?.learningAreas !== undefined ? composed.learningAreas : payload('/academic/learning-areas/list'),
+      composed?.gradingSystems !== undefined ? composed.gradingSystems : payload('/academic/grading-systems'),
+      composed?.classifications !== undefined ? composed.classifications : payload('/academic/assessment-classifications'),
     ]);
     state.refs.terms = terms.status === 'fulfilled' ? arr(terms.value) : [];
     state.refs.classes = classes.status === 'fulfilled' ? arr(classes.value) : [];
@@ -507,7 +514,7 @@
       </tr>`;
     }).join('');
 
-    const table = `<div class="vr-scroll"><table class="vr-matrix"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    const table = `<div class="vr-scroll"><table class="vr-matrix" id="vrFormativeAreaMatrix"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
     $('vrView').innerHTML = panel('Formative mastery',
       `${learners.length} learners · ${columns.length} areas`, '', table);
 
@@ -657,11 +664,11 @@
       'Sub-strand & assessment detail',
       `${assessments.length} assessments · ${learners.length} learners · ${editable ? 'editable' : 'read-only'}`,
       toolBtn('CSV', 'filetype-csv', 'vr-no-print', 'data-export="detail"') + toolBtn('Print', 'printer', 'vr-no-print', 'data-print="1"'),
-      `<div class="vr-scroll"><table class="vr-matrix"><thead>${headerTop}${headerSub}</thead><tbody>${body}</tbody></table></div>`
+      `<div class="vr-scroll"><table class="vr-matrix" id="vrFormativeDetailMatrix"><thead>${headerTop}${headerSub}</thead><tbody>${body}</tbody></table></div>`
     );
     bindDetailEditing(mount);
     mount.querySelector('[data-export="detail"]').onclick = () => state.exportSpec && downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
-    mount.querySelector('[data-print="1"]').onclick = () => window.print();
+    mount.querySelector('[data-print="1"]').onclick = () => window.PrintManager?.printElement('vrFormativeDetailMatrix', { title: 'Sub-strand & assessment detail', orientation: 'landscape' }) ?? window.print();
   }
 
   function bindDetailEditing(scope) {
@@ -799,7 +806,7 @@
       toolBtn('CSV', 'filetype-csv', 'vr-no-print', 'data-export="summative"') + toolBtn('Print', 'printer', 'vr-no-print', 'data-print="1"'),
       `<div class="vr-scroll"><table class="vr-matrix" id="vrSummativeMatrix"><thead>${headerTop}${headerSub}</thead><tbody>${body}</tbody></table></div>`);
     $('vrView').querySelector('[data-export="summative"]').onclick = () => state.exportSpec && downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
-    $('vrView').querySelector('[data-print="1"]').onclick = () => window.print();
+    $('vrView').querySelector('[data-print="1"]').onclick = () => window.PrintManager?.printElement('vrSummativeMatrix', { title: 'Summative matrix', orientation: 'landscape' }) ?? window.print();
     bindSummativeEditing(pivot.students, columns);
   }
 
@@ -1094,9 +1101,9 @@
     $('vrView').innerHTML = panel('Learner portfolios',
       `${learners.length} learners · ${withArtifacts} with evidence`,
       toolBtn('CSV', 'filetype-csv', 'vr-no-print', 'data-export="portfolio"') + toolBtn('Print', 'printer', 'vr-no-print', 'data-print="1"'),
-      `<div class="vr-cards" style="padding:14px">${cards}</div>`);
+      `<div class="vr-cards" id="vrPortfolioCards" style="padding:14px">${cards}</div>`);
     $('vrView').querySelector('[data-export="portfolio"]').onclick = () => state.exportSpec && downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
-    $('vrView').querySelector('[data-print="1"]').onclick = () => window.print();
+    $('vrView').querySelector('[data-print="1"]').onclick = () => window.PrintManager?.printElement('vrPortfolioCards', { title: 'Learner portfolios', orientation: 'portrait' }) ?? window.print();
     $('vrView').querySelectorAll('[data-profile]').forEach((b) => {
       b.onclick = () => openDrawer(b.dataset.profile, b.dataset.name, b.dataset.adm);
     });
@@ -1172,7 +1179,7 @@
       if (state.exportSpec) downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
       else notify('Nothing to export in this view.', 'info');
     });
-    $('vrPrintBtn')?.addEventListener('click', () => window.print());
+    $('vrPrintBtn')?.addEventListener('click', () => window.PrintManager?.printPage({ orientation: 'landscape' }) ?? window.print());
     $('vrDrawerClose')?.addEventListener('click', closeDrawer);
     $('vrDrawerBackdrop')?.addEventListener('click', closeDrawer);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
@@ -1194,6 +1201,7 @@
     await loadClassAreas();
     populateAreaSelect();
     await refresh();
+    window.APIRealtime?.register?.('view_results', { refresh: async () => { await loadReferences(); populateBaseSelectors(); renderGradingToggle(); populateExamPeriodSelect(); await populateStreams(); await loadClassAreas(); populateAreaSelect(); await refresh(); } }, ['academic']);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
