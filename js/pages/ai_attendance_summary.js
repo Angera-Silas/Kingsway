@@ -1,177 +1,252 @@
-/**
- * AI Attendance Summary Controller
- * Migrated to use AgentTaskPanel with Node gateway
- * Single workflow: attendance exception summary
- */
-
+/** Governed attendance AI summaries backed by the PHP attendance workflows. */
 (function () {
-    'use strict';
+  "use strict";
 
-    const esc = (value) => { const el = document.createElement('div'); el.textContent = String(value ?? ''); return el.innerHTML; };
-    const notify = (message, type = 'info') => window.showNotification?.(message, type);
+  const esc = (value) => {
+    const el = document.createElement("div");
+    el.textContent = String(value ?? "");
+    return el.innerHTML;
+  };
+  const notify = (message, type = "info") => window.showNotification?.(message, type);
+  const page = document.getElementById("attendanceReportsPage");
+  if (!page || !window.API?.attendance) return;
 
-    let panel = null;
+  let initialized = false;
+  let pollTimer = null;
+  let pollAttempts = 0;
+  let activeJobId = null;
 
-    async function init() {
-        if (window.AI_FEATURES.shouldUseAgentTaskPanel('ai_attendance_summary')) {
-            const host = document.getElementById('aiAttendanceSummaries');
-            if (!host) return;
+  function setState(message, type = "info") {
+    let state = document.getElementById("aiAttendanceState");
+    if (!state) {
+      state = document.createElement("div");
+      state.id = "aiAttendanceState";
+      state.className = "small mt-2";
+      state.setAttribute("role", "status");
+      document.querySelector("#aiAttendanceSummaries")?.before(state);
+    }
+    state.className = `small mt-2 ${type === "danger" ? "text-danger" : type === "success" ? "text-success" : "text-muted"}`;
+    state.textContent = message;
+  }
 
-            if (!panel) panel = new window.AgentTaskPanel({
-                container: host,
-                tool: 'reports.aggregate',
-                question: '',
-                route: 'attendance',
-                module: 'exception_summaries',
-                targetComponent: null,
-                componentId: 'ai-attendance-summary',
-                onComplete: (result) => {
-                    notify('Attendance summary ready!', 'success');
-                },
-                onError: (error) => {
-                    notify(error.message || 'Failed to generate attendance summary', 'danger');
-                },
-                onProgress: (progress) => {
-                    if (progress.type === 'status') {
-                        console.log('[Attendance Summary]', progress.text);
-                    }
-                },
-            });
+  function draftCard(draft, review) {
+    const body = draft.draft || {};
+    const id = Number(draft.id) || 0;
+    const approve = review && draft.status === "pending_approval" && id > 0;
+    const followUp = draft.status === "approved" && id > 0;
+    const steps = Array.isArray(body.next_steps)
+      ? `<ul class="small mb-2">${body.next_steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ul>`
+      : "";
+    return `<div class="col-12"><article class="border rounded p-2">
+      <div class="d-flex justify-content-between gap-2"><strong>${esc(body.title || "Attendance review")}</strong><span class="badge text-bg-secondary">${esc(draft.status || "queued")}</span></div>
+      <p class="small mt-2 mb-2">${esc(body.body || "The review is being prepared. This page will refresh automatically.")}</p>${steps}
+      ${approve ? `<button type="button" class="btn btn-sm btn-success me-2" data-ai-attendance-approve="${id}">Approve guidance</button>` : ""}
+      ${followUp ? `<div class="small text-info mb-2">Approved as staff guidance. Attendance records remain authoritative.</div><button type="button" class="btn btn-sm btn-outline-primary" data-ai-parent-followup="${id}">Draft parent follow-up</button>` : ""}
+    </article></div>`;
+  }
 
-            document.getElementById('queueAiAttendanceSummary')?.addEventListener('click', async () => {
-                const button = document.getElementById('queueAiAttendanceSummary');
-                if (!button) return;
-                button.disabled = true;
-                try {
-                    panel.question = `Generate an attendance exception summary for today (${new Date().toISOString().slice(0, 10)}). Identify students with unusual absence patterns, analyze trends, and recommend targeted interventions.`;
-                    await panel.start();
-                } catch (error) {
-                    notify(error.message || 'Unable to queue attendance summary', 'danger');
-                } finally {
-                    button.disabled = false;
-                }
-            });
+  function render(rows, error = false) {
+    // listForReview returns metadata/status/id on the row and generated copy
+    // under row.draft. Keep the envelope intact for rendering and actions.
+    const exceptions = rows.filter((item) => item.metadata?.subject_type === "attendance_exception_summary");
+    const lateness = rows.filter((item) => item.metadata?.subject_type === "attendance_lateness_pattern");
+    const exceptionsHost = document.getElementById("aiAttendanceSummaries");
+    const latenessHost = document.getElementById("aiAttendanceLatenessReviews");
+    if (exceptionsHost) {
+      exceptionsHost.innerHTML = exceptions.length
+        ? exceptions.map((item) => draftCard(item, item.review)).join("")
+        : `<div class="col-12 small ${error ? "text-warning" : "text-muted"}">${error ? "Attendance reviews could not be loaded." : "No attendance exception review has been requested."}</div>`;
+    }
+    if (latenessHost) {
+      latenessHost.innerHTML = lateness.length
+        ? lateness.map((item) => draftCard(item, item.review)).join("")
+        : `<div class="col-12 small ${error ? "text-warning" : "text-muted"}">${error ? "Lateness reviews could not be loaded." : "No lateness review has been requested."}</div>`;
+    }
+  }
 
-            const latenessButton = document.querySelector('#queueAiAttendanceLateness, #queueAiLatenessPattern');
-            latenessButton?.addEventListener('click', async () => {
-                const button = latenessButton;
-                if (!button) return;
-                button.disabled = true;
-                try {
-                    const range = () => {
-                        const period = document.getElementById('arPeriod')?.value;
-                        const now = new Date();
-                        const to = new Date().toISOString().slice(0, 10);
-                        const from = period === 'this_week'
-                            ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString().slice(0, 10)
-                            : period === 'this_term'
-                                ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90).toISOString().slice(0, 10)
-                                : new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-                        return { date_from: document.getElementById('arDateFrom')?.value || from, date_to: document.getElementById('arDateTo')?.value || to };
-                    };
-                    panel.question = `Generate a supportive lateness pattern review for ${range().date_from} to ${range().date_to}. Summarize recurring patterns using only authorized aggregate attendance data, identify where staff should verify the register, and suggest respectful follow-up. Do not label or rank individual learners, infer causes, or recommend punishment.`;
-                    await panel.start();
-                } catch (error) {
-                    notify(error.message || 'Unable to queue lateness review', 'danger');
-                } finally {
-                    button.disabled = false;
-                }
-            });
-        } else {
-            // Legacy PHP queue polling pattern (original implementation)
-            const host = document.getElementById('aiAttendanceSummaries');
-            if (!host || !window.API?.attendance) return;
-            try {
-                const own = await window.API.attendance.getAiExceptionSummaries('own');
-                let review = { drafts: [] };
-                try { review = await window.API.attendance.getAiExceptionSummaries('review'); } catch (_) { /* reviewer access is optional */ }
-                const rows = [
-                    ...(own?.data?.drafts || own?.drafts || []).map((draft) => ({ ...draft, __review: false })),
-                    ...(review?.data?.drafts || review?.drafts || []).map((draft) => ({ ...draft, __review: true })),
-                ];
-                const exceptionRows = rows.filter((draft) => draft.metadata?.subject_type === 'attendance_exception_summary');
-                host.innerHTML = exceptionRows.length ? exceptionRows.map((draft) => {
-                    const body = draft.draft || {};
-                    const approve = draft.__review && draft.status === 'pending_approval';
-                    return `<div class="col-12"><article class="border rounded p-2"><div class="d-flex justify-content-between"><strong>${esc(body.title || 'Attendance exception summary')}</strong><span class="badge text-bg-secondary">${esc(draft.status || 'queued')}</span></div><p class="small mt-2 mb-2">${esc(body.body || 'Summary is still being generated.')}</p>${Array.isArray(body.next_steps) && body.next_steps.length ? `<ul class="small mb-2">${body.next_steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ul>` : ''}${approve ? `<button class="btn btn-sm btn-success me-2" data-ai-attendance-approve="${Number(draft.id)}">Approve guidance</button>` : ''}${draft.status === 'approved' ? `<div class="small text-info mb-2">Approved for staff guidance. Attendance records remain authoritative.</div><button class="btn btn-sm btn-outline-primary" data-ai-parent-followup="${Number(draft.id)}">Draft parent follow-up</button>` : ''}</article></div>`;
-                }).join('') : '<div class="col-12 small text-muted">No attendance exception summary has been requested today.</div>';
-                host.querySelectorAll('[data-ai-attendance-approve]').forEach((button) => button.addEventListener('click', async () => {
-                    try {
-                        await window.API.attendance.approveAiExceptionSummary(button.dataset.aiAttendanceApprove);
-                        window.showNotification?.('Attendance guidance approved', 'success');
-                        await init();
-                    } catch (error) { window.showNotification?.(error.message || 'Unable to approve attendance guidance', 'danger'); }
-                }));
-                host.querySelectorAll('[data-ai-parent-followup]').forEach((button) => button.addEventListener('click', async () => {
-                    const draft = rows.find((item) => Number(item.id) === Number(button.dataset.aiParentFollowup));
-                    const body = draft?.draft || {};
-                    try {
-                        const result = await window.API.apiCall('/communications/ai-message-draft-queue', 'POST', { purpose: 'Attendance follow-up', audience: 'selected_parents', tone: 'respectful and supportive', facts: `Use placeholders such as [learner name], [class], and [date]. Approved staff guidance: ${body.body || ''}`, deadline: '', channel: 'sms' });
-                        window.showNotification?.(`Parent follow-up queued${result?.job_id ? ` (job ${result.job_id})` : ''}. Complete recipient review in Communications.`, 'info');
-                    } catch (error) { window.showNotification?.(error.message || 'Unable to queue parent follow-up', 'danger'); }
-                }));
-                // Generate buttons are inert on the legacy path without these
-                // listeners: the AgentTaskPanel branch that used to wire them
-                // never runs while the Node gateway flag is off.
-                const summaryButton = document.getElementById('queueAiAttendanceSummary');
-                if (summaryButton) {
-                    summaryButton.addEventListener('click', async () => {
-                        summaryButton.disabled = true;
-                        try {
-                            const today = new Date().toISOString().slice(0, 10);
-                            await window.API.attendance.queueAiExceptionSummary({
-                                summary_type: 'daily_attendance_exceptions',
-                                date_from: today,
-                                date_to: today
-                            });
-                            notify('Attendance summary queued. It appears here when ready.', 'success');
-                            await init();
-                        } catch (error) {
-                            notify(error.message || 'Unable to queue attendance summary', 'danger');
-                        } finally {
-                            summaryButton.disabled = false;
-                        }
-                    });
-                }
-                const latenessButton = document.querySelector('#queueAiAttendanceLateness, #queueAiLatenessPattern');
-                if (latenessButton) {
-                    latenessButton.addEventListener('click', async () => {
-                        const span = () => {
-                            const period = document.getElementById('arPeriod')?.value;
-                            const now = new Date();
-                            const to = new Date().toISOString().slice(0, 10);
-                            const from = period === 'this_week'
-                                ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString().slice(0, 10)
-                                : period === 'this_term'
-                                    ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90).toISOString().slice(0, 10)
-                                    : new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-                            return { date_from: document.getElementById('arDateFrom')?.value || from, date_to: document.getElementById('arDateTo')?.value || to };
-                        };
-                        latenessButton.disabled = true;
-                        try {
-                            await window.API.attendance.queueAiLatenessPattern({ ...span() });
-                            notify('Lateness pattern review queued. It appears here when ready.', 'success');
-                            await init();
-                        } catch (error) {
-                            notify(error.message || 'Unable to queue lateness review', 'danger');
-                        } finally {
-                            latenessButton.disabled = false;
-                        }
-                    });
-                }
-                const latenessHost = document.getElementById('aiAttendanceLatenessReviews');
-                if (latenessHost) {
-                    const lateness = rows.filter((draft) => draft.metadata?.subject_type === 'attendance_lateness_pattern');
-                    latenessHost.innerHTML = lateness.length ? lateness.map((draft) => {
-                        const body = draft.draft || {};
-                        const approve = draft.__review && draft.status === 'pending_approval';
-                        return `<div class="col-12"><article class="border rounded p-2"><div class="d-flex justify-content-between"><strong>${esc(body.title || 'Lateness pattern review')}</strong><span class="badge text-bg-secondary">${esc(draft.status || 'queued')}</span></div><p class="small mt-2 mb-2">${esc(body.body || 'Review is still being generated.')}</p>${approve ? `<button class="btn btn-sm btn-success" data-ai-attendance-approve="${Number(draft.id)}">Approve guidance</button>` : ''}</article></div>`;
-                    }).join('') : '';
-                }
-            } catch (_) { host.innerHTML = '<div class="col-12 small text-warning">Attendance assistance is temporarily unavailable.</div>'; }
+  async function refresh() {
+    const exceptionsHost = document.getElementById("aiAttendanceSummaries");
+    if (!exceptionsHost) return;
+    exceptionsHost.innerHTML = '<div class="col-12 small text-muted" role="status">Loading attendance reviews…</div>';
+    try {
+      const [own, review] = await Promise.all([
+        window.API.attendance.getAiExceptionSummaries("own"),
+        window.API.attendance.getAiExceptionSummaries("review").catch(() => ({ data: { drafts: [] } })),
+      ]);
+      const rows = [
+        ...((own?.data?.drafts || own?.drafts || []).map((draft) => ({ ...draft, review: false }))),
+        ...((review?.data?.drafts || review?.drafts || []).map((draft) => ({ ...draft, review: true }))),
+      ];
+      render(rows);
+      const finishedDraft = activeJobId && rows.find((item) =>
+        Number(item.metadata?.queue_job_id) === activeJobId
+        && ["pending_approval", "approved", "failed"].includes(item.status)
+      );
+      if (pollAttempts > 0 && finishedDraft) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+        pollAttempts = 0;
+        activeJobId = null;
+        setState(
+          finishedDraft.status === "failed"
+            ? "Attendance review could not be prepared. Check the job status or try again."
+            : "Attendance review is ready for staff review.",
+          finishedDraft.status === "failed" ? "danger" : "success",
+        );
+      }
+    } catch (error) {
+      render([], true);
+      setState(error.message || "Attendance assistance is temporarily unavailable.", "danger");
+    }
+  }
+
+  function watchForDraft(jobId) {
+    clearTimeout(pollTimer);
+    pollAttempts = 0;
+    activeJobId = Number(jobId) || null;
+    if (!activeJobId) {
+      setState("The review was queued. Use Refresh to check its status.");
+      return;
+    }
+    const poll = async () => {
+      pollAttempts += 1;
+      let jobStatus = null;
+      if (window.API.nodeJobs?.status) {
+        try {
+          jobStatus = await window.API.nodeJobs.status(activeJobId);
+        } catch (_) {
+          // Draft listing remains a fallback if the job-status endpoint is
+          // temporarily unavailable; it is still owner-scoped on the server.
         }
+      }
+      if (["failed", "cancelled"].includes(String(jobStatus?.status || ""))) {
+        activeJobId = null;
+        pollAttempts = 0;
+        pollTimer = null;
+        setState(
+          jobStatus.status === "failed" ? "Attendance review could not be prepared. Try again or contact support if it repeats." : "Attendance review was cancelled.",
+          jobStatus.status === "failed" ? "danger" : "info",
+        );
+        return;
+      }
+      await refresh();
+      if (!activeJobId) return;
+      if (jobStatus?.status === "done") {
+        activeJobId = null;
+        pollAttempts = 0;
+        pollTimer = null;
+        setState("The job completed, but its review draft was not returned. Refresh the page or contact support.", "danger");
+        return;
+      }
+      if (pollAttempts < 12) pollTimer = setTimeout(poll, 5000);
+      else {
+        pollTimer = null;
+        pollAttempts = 0;
+        activeJobId = null;
+        const status = String(jobStatus?.status || "unknown");
+        setState(`Attendance review status: ${status}. Use Refresh to check again.`);
+      }
+    };
+    pollTimer = setTimeout(poll, 2000);
+  }
+
+  async function dateRange() {
+    // Reuse the report controller's academic-term/custom-range calculation so
+    // the AI receives the same period currently displayed in the report.
+    const reports = window.attendanceReportsController;
+    if (document.getElementById("arPeriod")?.value === "this_term" && !reports?.state?.termRange) {
+      await reports?.loadTermRange?.();
+    }
+    const range = reports?.range?.();
+    if (range?.date_from && range?.date_to) return range;
+    const today = new Date();
+    const localDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const period = document.getElementById("arPeriod")?.value || "this_month";
+    if (period === "this_term") throw new Error("The selected academic term could not be loaded. Refresh the attendance report and try again.");
+    if (period === "custom") {
+      const dateFrom = document.getElementById("arDateFrom")?.value;
+      const dateTo = document.getElementById("arDateTo")?.value;
+      if (!dateFrom || !dateTo || dateFrom > dateTo) throw new Error("Choose a valid custom attendance date range first.");
+      return { date_from: dateFrom, date_to: dateTo };
+    }
+    const from = period === "this_week"
+      ? new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7))
+      : new Date(today.getFullYear(), today.getMonth(), 1);
+    return { date_from: localDate(from), date_to: localDate(today) };
+  }
+
+  async function withButton(button, task) {
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    try {
+      await task();
+    } catch (error) {
+      setState(error.message || "Attendance review could not be queued.", "danger");
+      notify(error.message || "Attendance review could not be queued", "danger");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function onClick(event) {
+    const summary = event.target.closest("#queueAiAttendanceSummary");
+    if (summary) {
+      await withButton(summary, async () => {
+        const today = new Date();
+        const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        const result = await window.API.attendance.queueAiExceptionSummary(date);
+        setState("Today’s attendance exception review was queued. This panel will update when it is ready.");
+        watchForDraft(result?.data?.job_id ?? result?.job_id);
+      });
+      return;
     }
 
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
-    else init();
+    const lateness = event.target.closest("#queueAiAttendanceLateness, #queueAiLatenessPattern");
+    if (lateness) {
+      await withButton(lateness, async () => {
+        const selectedClass = document.getElementById("arClass")?.value || "";
+        const result = await window.API.attendance.queueAiLatenessPattern({ ...await dateRange(), class_name: selectedClass });
+        setState(`The displayed period${selectedClass ? ` for ${selectedClass}` : ""}’s lateness review was queued. This panel will update when it is ready.`);
+        watchForDraft(result?.data?.job_id ?? result?.job_id);
+      });
+      return;
+    }
+
+    const approve = event.target.closest("[data-ai-attendance-approve]");
+    if (approve) {
+      await withButton(approve, async () => {
+        await window.API.attendance.approveAiExceptionSummary(approve.dataset.aiAttendanceApprove);
+        notify("Attendance guidance approved", "success");
+        await refresh();
+      });
+      return;
+    }
+
+    const followUp = event.target.closest("[data-ai-parent-followup]");
+    if (followUp) {
+      await withButton(followUp, async () => {
+        const id = Number(followUp.dataset.aiParentFollowup);
+        const cards = [...document.querySelectorAll("[data-ai-parent-followup]")];
+        const card = cards.find((item) => Number(item.dataset.aiParentFollowup) === id)?.closest("article");
+        const facts = card?.querySelector("p")?.textContent || "";
+        const result = await window.API.apiCall("/communications/ai-message-draft-queue", "POST", {
+          purpose: "Attendance follow-up", audience: "selected_parents", tone: "respectful and supportive",
+          facts: `Use placeholders such as [learner name], [class], and [date]. Approved staff guidance: ${facts}`,
+          deadline: "", channel: "sms",
+        });
+        notify(`Parent follow-up queued${result?.data?.job_id ? ` (job ${result.data.job_id})` : ""}. Complete recipient review in Communications.`, "info");
+      });
+    }
+  }
+
+  function init() {
+    if (initialized) return;
+    initialized = true;
+    page.addEventListener("click", onClick);
+    document.getElementById("aiAttendanceRefresh")?.addEventListener("click", refresh);
+    refresh();
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, { once: true });
+  else init();
 })();

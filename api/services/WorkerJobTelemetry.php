@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\API\Services;
 
+use App\API\Includes\FileLogger;
+use Throwable;
+
 /**
  * WorkerJobTelemetry - browser-visible completion signals for jobs a
  * specific staff member is waiting on.
@@ -59,6 +62,35 @@ final class WorkerJobTelemetry
             'domain' => 'ai',
             'targets' => ['ai'],
         ]);
+    }
+
+    /** Write identity-minimized lifecycle evidence for governed AI queue work. */
+    public static function recordLifecycle(array $job, string $status, ?Throwable $failure = null): void
+    {
+        $jobType = (string) ($job['job_type'] ?? '');
+        if (!self::isAnnounced($jobType)) return;
+
+        $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+        $requestId = trim((string) ($payload['request_id'] ?? ''));
+        $failureMessage = $failure === null ? '' : AiOutputGuard::scrubText($failure->getMessage());
+        FileLogger::write('jobs', [
+            'type' => 'ai_job_transition',
+            'job_id' => (int) ($job['id'] ?? 0),
+            'job_type' => $jobType,
+            'status' => mb_substr($status, 0, 24),
+            'attempt' => max(0, (int) ($job['attempts'] ?? 0)),
+            'operator_id' => max(0, (int) ($payload['user_id'] ?? $payload['operator_id'] ?? 0)),
+            'workflow_id' => mb_substr((string) ($payload['workflow_id'] ?? ''), 0, 80),
+            'request_fingerprint' => $requestId === '' ? '' : self::fingerprint($requestId),
+            'failure_class' => $failure === null ? '' : get_class($failure),
+            'failure_fingerprint' => $failureMessage === '' ? '' : self::fingerprint($failureMessage),
+        ]);
+    }
+
+    /** URL-safe digest avoids the logger's long-hex secret redaction pattern. */
+    private static function fingerprint(string $value): string
+    {
+        return rtrim(strtr(base64_encode(hash('sha256', $value, true)), '+/', '-_'), '=');
     }
 
     private static function isAnnounced(string $type): bool

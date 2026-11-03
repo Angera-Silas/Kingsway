@@ -127,13 +127,13 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="accountStatusTableBody">
-                    <tr>
+                    <tr id="accountStatusTableState">
                         <td colspan="8" class="text-center py-5 text-muted">Waiting for authentication...</td>
                     </tr>
                 </tbody>
             </table>
             <template id="accountStatusRowTemplate">
-                <tr>
+                <tr id="accountStatusTableState">
                     <td class="text-center">
                         <input
                             class="form-check-input"

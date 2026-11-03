@@ -41,7 +41,7 @@
                             </tr>
                         </thead>
                         <tbody id="rateLimitingStatusTableBody">
-                            <tr>
+                            <tr id="rateLimitingStatusTableState">
                                 <td colspan="4" class="text-center py-5 text-muted">Loading buckets...</td>
                             </tr>
                         </tbody>

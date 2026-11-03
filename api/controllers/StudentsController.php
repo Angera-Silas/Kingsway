@@ -2619,16 +2619,21 @@ return $this->badRequest('An internal error occurred.');
         if (!$this->user) return $this->unauthorized('Authentication required');
         $contextRes = $this->studentService->resolveContext($this->user, $data['context'] ?? ($_GET['context'] ?? null));
         if (!$contextRes['allowed']) return $this->forbidden($contextRes['message'] ?? 'Forbidden');
-        $aiContext = ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+        $aiContext = ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
         try {
             $this->contract('App\\API\\Services\\AiWorkflowService')->authorize('learners.support_planning', $aiContext);
-            $overview = $this->studentInsightsService->getPerformanceOverview($this->user, $contextRes['context'], array_merge($_GET, $data));
-            $rows = (array) ($overview['rows'] ?? $overview['data'] ?? []);
-            $belowAttendance = 0; $scores = []; $discipline = 0; $fees = 0.0;
-            foreach ($rows as $row) { if ((float) ($row['attendance_rate'] ?? 100) < 75) $belowAttendance++; if (isset($row['average_score'])) $scores[] = (float) $row['average_score']; $discipline += (int) ($row['discipline_cases'] ?? 0); $fees += (float) ($row['fee_balance'] ?? 0); }
-            $avg = $scores === [] ? 0 : array_sum($scores) / count($scores);
-            $input = ['report_date' => date('Y-m-d'), 'scope' => mb_substr((string) $contextRes['context'], 0, 100), 'learner_count' => (string) count($rows), 'attendance_below_threshold' => (string) $belowAttendance, 'average_score_band' => $avg >= 75 ? '75_plus' : ($avg >= 50 ? '50_to_74' : 'below_50'), 'discipline_case_count' => (string) $discipline, 'fee_balance_band' => $fees <= 0 ? 'none' : ($fees < 10000 ? 'low' : 'high'), 'support_follow_up_intent' => 'Verify authorized learner-support records with the responsible staff before action.'];
-            return $this->accepted($this->contract('App\\API\\Services\\AiDraftService')->queue('learners.support_planning', $aiContext, $input, ['subject_type' => 'learner_support_planning', 'scope' => 'authorized_aggregate_learner_signals']), 'Learner support planning queued');
+            $filters = \App\API\Services\LearnerSupportAiScopeService::sanitizeFilters(array_merge($_GET, $data));
+            $input = $this->studentInsightsService->buildSupportPlanningInput(
+                $this->user,
+                $contextRes['context'],
+                $filters
+            );
+            return $this->accepted($this->contract('App\\API\\Services\\AiDraftService')->queue('learners.support_planning', $aiContext, $input, [
+                'subject_type' => 'learner_support_planning',
+                'scope' => 'authorized_aggregate_learner_signals',
+                'support_context' => (string) $contextRes['context'],
+                'support_filters' => $filters,
+            ]), 'Learner support planning queued');
         } catch (\DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (\Throwable $e) { return $this->serverError('Unable to queue learner support planning'); }
     }

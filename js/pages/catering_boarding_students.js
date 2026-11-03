@@ -59,8 +59,7 @@ const cateringBoardingStudentsController = {
       this.setState(this.state.students.length ? 'ready' : 'empty');
     } catch (error) {
       this.setState('error', error?.message || 'Boarding meal data could not be loaded.');
-      const body = document.getElementById('studentsTableBody');
-      if (body) body.innerHTML = '<tr><td colspan="14" class="text-center text-danger py-4">Boarding meal data could not be loaded.</td></tr>';
+      this.showTableState('Boarding meal data could not be loaded.', 'text-center text-danger py-4');
     }
   },
   setState(state, message = '') {
@@ -96,12 +95,48 @@ const cateringBoardingStudentsController = {
     const meal = document.getElementById('mealFilter')?.value;
     this.state.visibleStudents = students;
     const body = document.getElementById('studentsTableBody');
-    if (body) body.innerHTML = students.length ? students.map((student) => {
-      const mealCell = (eating) => eating ? '<span class="badge text-bg-success">Yes</span>' : '<span class="badge text-bg-secondary">No</span>';
-      return `<tr><td>${this.esc(student.admission_no || '—')}</td><td>${this.esc(student.full_name || '—')}</td><td>${this.esc(student.class_name || '—')}</td><td>${this.esc(student.stream_name || '—')}</td><td>${this.esc(student.gender || '—')}</td><td>${this.esc(student.dormitory_name || '—')}</td><td>${this.esc(student.boarding_status || '—')}</td><td>${mealCell(student.breakfast)}</td><td>${mealCell(student.lunch)}</td><td>${mealCell(student.supper)}</td><td>${this.esc(student.diet_type || 'normal')}</td><td>${Number(student.has_food_restriction) ? 'Yes' : 'No'}</td><td>${this.esc(String(student.meal_status_today || '—').replaceAll('_',' '))}</td><td><button class="btn btn-sm btn-outline-primary" data-student-profile="${Number(student.student_id)}">Meal profile</button></td></tr>`;
-    }).join('') : '<tr><td colspan="14" class="text-center text-muted py-4">No boarding students match these filters.</td></tr>';
+    const stateRow = document.getElementById('studentsTableState');
+    const template = document.getElementById('cateringBoarderRowTemplate');
+    if (!body || !stateRow || !template) return;
+    body.querySelectorAll('[data-catering-student-row]').forEach((row) => row.remove());
+    if (!students.length) {
+      this.showTableState('No boarding students match these filters.');
+    } else {
+      stateRow.hidden = true;
+      const fragment = document.createDocumentFragment();
+      students.forEach((student) => {
+        const row = template.content.cloneNode(true);
+        const fill = (name, value) => { row.querySelector(`[data-fill="${name}"]`).textContent = String(value ?? '—'); };
+        fill('admission', student.admission_no || '—');
+        fill('name', student.full_name || '—');
+        fill('class', student.class_name || '—');
+        fill('stream', student.stream_name || '—');
+        fill('gender', student.gender || '—');
+        fill('dormitory', student.dormitory_name || '—');
+        fill('boarding', student.boarding_status || '—');
+        [['breakfast', student.breakfast], ['lunch', student.lunch], ['supper', student.supper]].forEach(([name, served]) => {
+          const badge = row.querySelector(`[data-fill="${name}"]`);
+          badge.textContent = served ? 'Yes' : 'No';
+          badge.classList.add(served ? 'text-bg-success' : 'text-bg-secondary');
+        });
+        fill('diet', student.diet_type || 'normal');
+        fill('restriction', Number(student.has_food_restriction) ? 'Yes' : 'No');
+        fill('today-status', String(student.meal_status_today || '—').replaceAll('_', ' '));
+        row.querySelector('[data-student-profile]').dataset.studentProfile = String(Number(student.student_id));
+        fragment.appendChild(row);
+      });
+      body.insertBefore(fragment, stateRow);
+    }
     this.renderSummary();
     if (meal) this.filterMealColumn(meal);
+  },
+  showTableState(message, tone = 'text-center text-muted py-4') {
+    const body = document.getElementById('studentsTableBody');
+    const stateRow = document.getElementById('studentsTableState');
+    body?.querySelectorAll('[data-catering-student-row]').forEach((row) => row.remove());
+    const cell = stateRow?.querySelector('td');
+    if (cell) { cell.className = tone; cell.textContent = message; }
+    if (stateRow) stateRow.hidden = false;
   },
   filterMealColumn(meal) {
     const index = { breakfast: 7, lunch: 8, supper: 9 }[meal];

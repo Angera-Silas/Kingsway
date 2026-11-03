@@ -61,7 +61,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="routeAccessRulesTableBody">
-                    <tr>
+                    <tr id="routeAccessRulesTableState">
                         <td colspan="7" class="text-center py-5 text-muted">Loading route access rules...</td>
                     </tr>
                 </tbody>

@@ -45,43 +45,59 @@ const studentHealthController = {
       const box = document.getElementById('recordsError');
       if (box) { box.textContent = error?.message || 'Could not load health records. Please refresh and try again.'; box.classList.remove('d-none'); }
       const body = document.getElementById('recordsTableBody');
-      if (body) body.innerHTML = '<tr><td colspan="12" class="text-center text-danger py-4">Health records could not be loaded.</td></tr>';
+      this.showTableState('Health records could not be loaded.', 'text-center text-danger py-4');
     } finally {
       if (request === this.state.request) { this.state.loading = false; this.setState('recordsLoading', false); }
     }
   },
 
   setState(id, visible) { const el = document.getElementById(id); if (el) el.classList.toggle('d-none', !visible); },
-  fmtDate(value) { if (!value) return '—'; const date = new Date(String(value).replace(' ', 'T')); return Number.isNaN(date.getTime()) ? this.esc(value) : date.toLocaleDateString(); },
+  fmtDate(value) { if (!value) return '—'; const date = new Date(String(value).replace(' ', 'T')); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString(); },
+  showTableState(message, tone = 'text-center text-muted py-4') {
+    const body = document.getElementById('recordsTableBody');
+    const stateRow = document.getElementById('recordsTableState');
+    body?.querySelectorAll('[data-health-record-row]').forEach((row) => row.remove());
+    const cell = stateRow?.querySelector('td');
+    if (cell) { cell.className = tone; cell.textContent = message; }
+    if (stateRow) stateRow.hidden = false;
+  },
   render() {
     const records = this.state.records;
     const body = document.getElementById('recordsTableBody');
     const empty = document.getElementById('recordsEmpty');
-    if (!body) return;
+    const stateRow = document.getElementById('recordsTableState');
+    const template = document.getElementById('healthRecordRowTemplate');
+    if (!body || !stateRow || !template) return;
+    body.querySelectorAll('[data-health-record-row]').forEach((row) => row.remove());
     if (!records.length) {
-      body.innerHTML = '';
+      this.showTableState('No health records found.');
       if (empty) empty.classList.remove('d-none');
     } else {
       if (empty) empty.classList.add('d-none');
-      body.innerHTML = records.map((record) => {
-        const severity = String(record.severity || '').toLowerCase();
-        const badge = severity === 'critical' || severity === 'high' ? 'danger' : severity === 'medium' ? 'warning' : 'info';
-        return `<tr>
-          <td>${Number(record.id) || '—'}</td>
-          <td class="fw-semibold">${this.esc(record.student_name || '—')}</td>
-          <td>${this.esc(record.admission_no || '—')}</td>
-          <td>${this.esc(record.class_name || '—')}</td>
-          <td>${this.esc(record.stream_name || '—')}</td>
-          <td>${this.esc(record.health_category || '—')}</td>
-          <td>${this.esc(record.alert_type || record.condition_name || record.allergy_name || record.medication_name || '—')}</td>
-          <td><span class="badge text-bg-${badge}">${this.esc(record.severity || '—')}</span></td>
-          <td>${this.esc(record.status || '—')}</td>
-          <td>${this.fmtDate(record.last_visit)}</td>
-          <td>${this.fmtDate(record.next_review_date)}</td>
-          <td><button class="btn btn-sm btn-outline-danger" type="button" data-health-record="${Number(record.id)}">View</button></td>
-        </tr>`;
-      }).join('');
+      stateRow.hidden = true;
+      const fragment = document.createDocumentFragment();
+      records.forEach((record) => {
+        const row = template.content.cloneNode(true);
+        row.querySelector('[data-fill="id"]').textContent = String(Number(record.id) || '—');
+        row.querySelector('[data-fill="student"]').textContent = record.student_name || '—';
+        row.querySelector('[data-fill="admission"]').textContent = record.admission_no || '—';
+        row.querySelector('[data-fill="class"]').textContent = record.class_name || '—';
+        row.querySelector('[data-fill="stream"]').textContent = record.stream_name || '—';
+        row.querySelector('[data-fill="category"]').textContent = record.health_category || '—';
+        row.querySelector('[data-fill="alert"]').textContent = record.alert_type || record.condition_name || record.allergy_name || record.medication_name || '—';
+        const severity = row.querySelector('[data-fill="severity"]');
+        severity.textContent = record.severity || '—';
+        const level = String(record.severity || '').toLowerCase();
+        severity.classList.add(level === 'critical' || level === 'high' ? 'text-bg-danger' : level === 'medium' ? 'text-bg-warning' : 'text-bg-info');
+        row.querySelector('[data-fill="status"]').textContent = record.status || '—';
+        row.querySelector('[data-fill="last-visit"]').textContent = this.fmtDate(record.last_visit);
+        row.querySelector('[data-fill="next-review"]').textContent = this.fmtDate(record.next_review_date);
+        row.querySelector('[data-health-record]').dataset.healthRecord = String(Number(record.id));
+        fragment.appendChild(row);
+      });
+      body.insertBefore(fragment, stateRow);
     }
+
     const count = (predicate) => records.filter(predicate).length;
     this.text('totalRecords', records.length);
     this.text('activeAlerts', count((r) => ['active', 'monitoring'].includes(String(r.status || '').toLowerCase())));

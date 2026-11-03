@@ -134,9 +134,20 @@
                                 </tr>
                             </thead>
                             <tbody id="calendarBody">
-                                <!-- Dynamic calendar cells -->
                             </tbody>
                         </table>
+                        <template id="calendarWeekTemplate"><tr data-calendar-week></tr></template>
+                        <template id="calendarDayCellTemplate">
+                            <td class="p-1" data-calendar-cell>
+                                <button type="button" class="btn btn-link p-0 fw-bold small" data-field="day"></button>
+                                <div data-field="events"></div>
+                                <small class="text-muted d-none" data-field="more"></small>
+                            </td>
+                        </template>
+                        <template id="calendarBlankCellTemplate"><td class="text-muted p-2" style="height:90px; vertical-align:top;"></td></template>
+                        <template id="calendarEventTemplate">
+                            <button type="button" class="badge text-truncate d-block mb-1 border-0 w-100" data-calendar-event></button>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -150,8 +161,18 @@
                 </div>
                 <div class="card-body p-0">
                     <div class="list-group list-group-flush" id="upcomingEventsList">
-                        <!-- Dynamic upcoming events -->
+                        <div class="list-group-item text-center text-muted py-4" id="upcomingEventsEmpty" hidden>No upcoming events</div>
                     </div>
+                    <template id="upcomingEventTemplate">
+                        <button type="button" class="list-group-item list-group-item-action text-start" data-upcoming-event>
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div><span class="badge me-2" data-field="type"></span><strong data-field="title"></strong></div>
+                                <small class="text-muted" data-field="datetime"></small>
+                            </div>
+                            <small class="text-muted d-block mt-1" data-field="description" hidden></small>
+                        </button>
+                    </template>
+                    <template id="calendarYearOptionTemplate"><option></option></template>
                 </div>
             </div>
         </div>

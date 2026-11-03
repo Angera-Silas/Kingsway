@@ -186,9 +186,8 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
                             <th scope="col">Created</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr class="kw-empty-row"><td colspan="5">Loading messages…</td></tr>
-                    </tbody>
+                    <tbody id="messagesTableBody"><tr id="messagesTableState" class="kw-empty-row"><td colspan="5">Loading messages…</td></tr></tbody>
+                    <template id="messageListRowTemplate"><tr data-message-row><td class="kw-cell-subject" data-fill="type"></td><td class="kw-cell-preview" data-fill="preview"></td><td class="kw-cell-recipients" data-fill="recipients"></td><td><span data-fill="status"></span></td><td class="text-nowrap" data-fill="created"></td></tr></template>
                 </table>
             </div>
 
@@ -288,6 +287,12 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
                             <option value="custom_numbers">Custom Numbers</option>
                         </select>
                         <small class="form-text text-muted">Choose a selected audience to load matching records from the school directory.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="taggedStaffSearch">Copy staff on this message</label>
+                        <input class="form-control form-control-sm mb-2" id="taggedStaffSearch" type="search" placeholder="Find staff to tag">
+                        <select class="form-select form-select-sm" id="taggedStaffUserIds" multiple size="4" aria-describedby="taggedStaffHelp"></select>
+                        <small class="form-text text-muted" id="taggedStaffHelp">Tagged active staff can see this message in their communications history. They are not added as delivery recipients.</small>
                     </div>
                     <div id="recipientPickerDiv" class="mb-3" style="display:none;">
                         <label class="form-label">Select Recipients</label>
@@ -509,9 +514,8 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
                                 <th class="text-end">Status / Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <tr><td colspan="3" class="text-center text-muted py-4">Loading contacts…</td></tr>
-                        </tbody>
+                        <tbody id="contactsTableBody"><tr id="contactsTableState"><td colspan="3" class="text-center text-muted py-4">Loading contacts…</td></tr></tbody>
+                        <template id="contactListRowTemplate"><tr data-contact-row><td class="small" data-fill="name"></td><td class="small" data-fill="phone"></td><td class="text-end text-nowrap"><span data-fill="status"></span> <div class="btn-group btn-group-sm"><button class="btn btn-outline-primary" data-contact-action="edit" type="button" title="Edit"><i class="bi bi-pencil"></i></button><button class="btn btn-outline-danger" data-contact-action="delete" type="button" title="Delete"><i class="bi bi-trash"></i></button></div></td></tr></template>
                     </table>
                 </div>
             </div>

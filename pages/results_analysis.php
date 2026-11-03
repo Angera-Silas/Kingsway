@@ -193,8 +193,9 @@
                 </tr>
             </thead>
             <tbody id="resultsTableBody">
-                <!-- Dynamic content -->
+                <tr id="resultsTableState"><td colspan="8" class="text-center py-4 text-muted">Loading...</td></tr>
             </tbody>
+            <template id="resultsAnalysisRowTemplate"><tr data-results-row><td data-fill="number"></td><td><strong data-fill="subject"></strong></td><td data-fill="teacher"></td><td><span class="badge" data-fill="mean"></span></td><td data-fill="highest"></td><td data-fill="lowest"></td><td><span class="fw-bold" data-fill="pass-rate"></span></td><td><small><span class="badge bg-success" data-fill="grade-a"></span> <span class="badge bg-primary" data-fill="grade-b"></span> <span class="badge bg-info" data-fill="grade-c"></span> <span class="badge bg-warning text-dark" data-fill="grade-d"></span> <span class="badge bg-danger" data-fill="grade-e"></span></small></td></tr></template>
         </table>
     </div>
     <div class="d-flex justify-content-between align-items-center mt-3">

@@ -53,7 +53,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="systemDiagnosticsTableBody">
-                    <tr>
+                    <tr id="systemDiagnosticsTableState">
                         <td colspan="3" class="text-center py-5 text-muted">Loading diagnostics...</td>
                     </tr>
                 </tbody>

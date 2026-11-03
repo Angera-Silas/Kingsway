@@ -63,6 +63,10 @@ final class ParentAiAssistantService
             ['role' => 'system', 'content' => $template['content']],
             ['role' => 'user', 'content' => json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
         ]);
+        // Apply the response-side confidentiality filter at this adapter too.
+        // The default gateway filters provider responses, but injected clients
+        // and future provider paths must obey the same contract.
+        $result = AiOutputGuard::scrub($result);
         if (!isset($result['title'], $result['body']) || !is_string($result['title']) || !is_string($result['body'])) {
             throw new DomainException('The assistant returned an invalid answer.', 502);
         }

@@ -44,7 +44,16 @@ def ensure_staff_context(context: dict) -> dict:
     roles = context.get("roles")
     role_labels = []
     if isinstance(roles, list):
-        role_labels = [str(r).strip() for r in roles if str(r).strip()]
+        for role in roles:
+            if isinstance(role, dict):
+                label = next(
+                    (role.get(key) for key in ("name", "role_name", "label", "slug", "code") if role.get(key)),
+                    "",
+                )
+            else:
+                label = role
+            if isinstance(label, (str, int)) and str(label).strip():
+                role_labels.append(str(label).strip()[:80])
     if not role_labels:
         role_labels = ["Staff"]
     scope_labels = context.get("scope_labels")
@@ -58,7 +67,22 @@ def ensure_staff_context(context: dict) -> dict:
             if t:
                 _humanized.append(" ".join(w.capitalize() for w in t.split()))
         scope_labels = _humanized
+    normalized_roles = {
+        re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
+        for label in role_labels
+    }
     is_system_admin = "system_admin" in permissions
+    # Role labels select advisory tone only. The system administrator
+    # capability includes operational diagnostics, so require the effective
+    # server-resolved permission; a label must never grant that surface.
+    if is_system_admin:
+        assistant_profile = "system_admin"
+    elif normalized_roles & {"director", "director owner"}:
+        assistant_profile = "director"
+    elif normalized_roles & {"school administrator", "school admin"}:
+        assistant_profile = "school_administrator"
+    else:
+        assistant_profile = "staff"
     requested_domain = str(context.get("assistant_domain") or "staff").lower()
     assistant_domain = (
         "system_admin"
@@ -78,6 +102,7 @@ def ensure_staff_context(context: dict) -> dict:
         "scope_labels": scope_labels[:40],
         "system_admin": bool(context.get("system_admin")) and is_system_admin,
         "assistant_domain": assistant_domain,
+        "assistant_profile": assistant_profile,
     }
 
 

@@ -68,6 +68,7 @@ const DomainIsolationController = {
       search: document.getElementById("domainIsolationSearch"),
       count: document.getElementById("domainIsolationCount"),
       body: document.getElementById("domainIsolationTableBody"),
+      tableState: document.getElementById("domainIsolationTableState"),
       rowTemplate: document.getElementById("domainIsolationRowTemplate"),
       exportCsvBtn: document.getElementById("domainIsolationExportCsvBtn"),
       printBtn: document.getElementById("domainIsolationPrintBtn"),
@@ -106,12 +107,13 @@ const DomainIsolationController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="4" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-domain-isolation-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -193,20 +195,23 @@ const DomainIsolationController = {
     if (!this.state.filtered.length) {
       this.showTableMessage("No isolation rules found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = this.state.filtered
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="key"]').textContent = row.key ?? "—";
-          fragment.querySelector('[data-fill="description"]').textContent = row.description ?? "—";
+      this.elements.body.querySelectorAll("[data-domain-isolation-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      this.state.filtered.forEach((row) => {
+          const rowFragment = this.elements.rowTemplate.content.cloneNode(true);
+          rowFragment.querySelector('[data-fill="key"]').textContent = row.key ?? "—";
+          rowFragment.querySelector('[data-fill="description"]').textContent = row.description ?? "—";
           const enabled = this.isEnabled(row);
-          fragment.querySelector('[data-fill="status"]').outerHTML =
-            '<span class="badge ' + (enabled ? "bg-success" : "bg-secondary") + '">' +
-            (enabled ? "Enforced" : "Not enforced") + "</span>";
-          const tr = fragment.querySelector("tr");
+          const badge = rowFragment.querySelector('[data-fill="status"]');
+          badge.classList.add(enabled ? "bg-success" : "bg-secondary");
+          badge.textContent = enabled ? "Enforced" : "Not enforced";
+          const tr = rowFragment.querySelector("tr");
+          tr.dataset.domainIsolationRow = "1";
           tr.dataset.key = row.key;
-          return tr.outerHTML;
-        })
-        .join("");
+          rows.appendChild(rowFragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
     const total = this.state.filtered.length;
     this.elements.count.textContent =

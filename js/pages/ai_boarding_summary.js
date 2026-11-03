@@ -4,10 +4,29 @@
 
   const esc = (value) => { const node = document.createElement('span'); node.textContent = String(value ?? ''); return node.innerHTML; };
   const host = () => document.getElementById('aiBoardingSummaries');
+  let initialized = false;
+  let pollTimer = null;
+  let pollAttempts = 0;
+  let activeJobId = null;
+  let isPolling = false;
+
+  function setState(message, type = 'info') {
+    let state = document.getElementById('aiBoardingSummaryState');
+    if (!state) {
+      state = document.createElement('div');
+      state.id = 'aiBoardingSummaryState';
+      state.className = 'small mt-2';
+      state.setAttribute('role', 'status');
+      host()?.before(state);
+    }
+    state.className = `small mt-2 ${type === 'danger' ? 'text-danger' : type === 'success' ? 'text-success' : 'text-muted'}`;
+    state.textContent = message;
+  }
 
   async function load() {
     const target = host();
-    if (!target || !window.API?.boarding) return;
+    if (!target || !window.API?.boarding) return [];
+    target.innerHTML = '<div class="col-12 small text-muted" role="status">Loading boarding reviews…</div>';
     try {
       const own = await window.API.boarding.getAiExceptionSummaries('own');
       let review = { drafts: [] };
@@ -16,6 +35,14 @@
         ...(own?.data?.drafts || own?.drafts || []).map((item) => ({ ...item, canReview: false })),
         ...(review?.data?.drafts || review?.drafts || []).map((item) => ({ ...item, canReview: true })),
       ].filter((item) => item.metadata?.subject_type === 'boarding_exception_summary');
+      if (pollAttempts > 0 && activeJobId && drafts.some((item) => item.metadata?.queue_job_id && Number(item.metadata.queue_job_id) === activeJobId && item.status === 'pending_approval')) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+        pollAttempts = 0;
+        activeJobId = null;
+        isPolling = false;
+        setState('Boarding review is ready for staff review.', 'success');
+      }
       target.innerHTML = drafts.length ? drafts.map((item) => {
         const content = item.draft || {};
         const canApprove = item.canReview && item.status === 'pending_approval';
@@ -38,23 +65,55 @@
           button.disabled = false;
         }
       }));
+      return drafts;
     } catch (error) {
       target.innerHTML = `<div class="col-12 small text-warning">${esc(error.message || 'Boarding assistance is temporarily unavailable.')}</div>`;
+      setState(error.message || 'Boarding assistance is temporarily unavailable.', 'danger');
+      return [];
     }
   }
 
+  function watchForDraft(jobId) {
+    clearTimeout(pollTimer);
+    pollAttempts = 0;
+    activeJobId = Number(jobId) || null;
+    isPolling = true;
+    const poll = async () => {
+      pollAttempts += 1;
+      await load();
+      if (!isPolling) return;
+      if (pollAttempts < 12) pollTimer = setTimeout(poll, 5000);
+      else {
+        pollTimer = null;
+        pollAttempts = 0;
+        activeJobId = null;
+        isPolling = false;
+        setState('The job is still processing. Use Refresh reviews to check again.');
+      }
+    };
+    pollTimer = setTimeout(poll, 2000);
+  }
+
   async function init() {
+    if (initialized) return;
+    initialized = true;
     const button = document.getElementById('queueAiBoardingSummary');
     button?.addEventListener('click', async () => {
       button.disabled = true;
       try {
-        await window.API.boarding.queueAiExceptionSummary(new Date().toISOString().slice(0, 10));
-        window.showNotification?.('Boarding exception summary queued for review.', 'success');
-        await load();
+        const dateFrom = document.getElementById('aiBoardingDateFrom')?.value || '';
+        const dateTo = document.getElementById('aiBoardingDateTo')?.value || '';
+        if (!dateFrom || !dateTo || dateFrom > dateTo) throw new Error('Choose a valid roll-call date range.');
+        const result = await window.API.boarding.queueAiExceptionSummary(dateFrom, dateTo);
+        const jobId = result?.data?.job_id ?? result?.job_id;
+        setState(`Boarding review for ${dateFrom} to ${dateTo} was queued. This panel will update when it is ready.`);
+        watchForDraft(jobId);
       } catch (error) {
+        setState(error.message || 'Unable to queue the boarding summary.', 'danger');
         window.showNotification?.(error.message || 'Unable to queue the boarding summary.', 'danger');
       } finally { button.disabled = false; }
     });
+    document.getElementById('refreshAiBoardingSummary')?.addEventListener('click', load);
     await load();
     window.APIRealtime?.register?.('ai_boarding_summary', { refresh: load }, ['boarding', 'ai']);
   }

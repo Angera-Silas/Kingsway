@@ -26,7 +26,7 @@ if (!isset($appBase)) {
         <div class="col-md-2"><div class="card border-0 shadow-sm h-100"><div class="card-body text-center py-3"><h5 class="text-warning mb-0" id="annStatExpiring">0</h5><small class="text-muted">Expiring</small></div></div></div>
         <div class="col-md-2"><div class="card border-0 shadow-sm h-100"><div class="card-body text-center py-3"><h5 class="text-danger mb-0" id="annStatArchived">0</h5><small class="text-muted">Archived</small></div></div></div>
     </div>
-    <div id="annState" class="alert alert-info"><i class="bi bi-hourglass-split me-1"></i>Loading announcements...</div>
+    <div id="annState" class="alert alert-info"><i class="bi bi-hourglass-split me-1"></i><span data-ann-state-message>Loading announcements...</span></div>
     <div class="row mb-3 g-2 align-items-end">
         <div class="col-md-3"><input type="text" class="form-control form-control-sm" id="annSearch" placeholder="Search announcements..."></div>
         <div class="col-md-2"><select class="form-select form-select-sm" id="annStatusFilter"><option value="">All Status</option><option value="draft">Draft</option><option value="scheduled">Scheduled</option><option value="published">Published</option><option value="archived">Archived</option><option value="expired">Expired</option></select></div>
@@ -36,9 +36,30 @@ if (!isset($appBase)) {
     </div>
     <div class="table-responsive"><table class="table table-hover table-sm" id="annTable">
         <thead class="table-light"><tr><th>Title</th><th>Type</th><th>Priority</th><th>Audience</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-        <tbody id="annTableBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+        <tbody id="annTableBody">
+            <tr id="annTableState"><td colspan="7" class="text-center text-muted py-4">Loading announcements...</td></tr>
+        </tbody>
     </table></div>
     <nav><ul class="pagination justify-content-center pagination-sm" id="annPagination"></ul></nav>
+    <template id="annRowTemplate">
+        <tr data-announcement-row>
+            <td class="fw-semibold" data-field="title"></td>
+            <td><span class="badge" data-field="type"></span></td>
+            <td><span class="badge" data-field="priority"></span></td>
+            <td data-field="audience"></td>
+            <td><span class="badge" data-field="status"></span></td>
+            <td><small data-field="created"></small></td>
+            <td>
+                <button type="button" class="btn btn-sm btn-outline-info me-1" data-action="view" title="View"><i class="bi bi-eye"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit"><i class="bi bi-pencil"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete"><i class="bi bi-trash"></i></button>
+            </td>
+        </tr>
+    </template>
+    <template id="annPageNumberTemplate"><li class="page-item"><a class="page-link" href="#" data-page></a></li></template>
+    <template id="annPagePreviousTemplate"><li class="page-item"><a class="page-link" href="#" data-page aria-label="Previous">&laquo;</a></li></template>
+    <template id="annPageNextTemplate"><li class="page-item"><a class="page-link" href="#" data-page aria-label="Next">&raquo;</a></li></template>
+    <template id="annPageEllipsisTemplate"><li class="page-item disabled"><span class="page-link">...</span></li></template>
 </div>
 
 <!-- Create/Edit Modal -->
@@ -65,7 +86,16 @@ if (!isset($appBase)) {
 <!-- View Modal -->
 <div class="modal fade" id="annViewModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header bg-warning"><h5 class="modal-title" id="annViewTitle">Announcement</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-    <div class="modal-body" id="annViewBody"></div>
+    <div class="modal-body" id="annViewBody">
+        <div class="mb-3">
+            <span class="badge bg-secondary me-1" data-view="type"></span>
+            <span class="badge bg-primary me-1" data-view="priority"></span>
+            <span class="badge bg-success me-1" data-view="status"></span>
+        </div>
+        <p><strong>Target:</strong> <span data-view="audience"></span> &bull; <strong>Views:</strong> <span data-view="views"></span></p>
+        <div class="p-3 bg-light rounded mb-3 text-break" style="white-space:pre-wrap" data-view="content"></div>
+        <small class="text-muted">Created: <span data-view="created"></span> | Updated: <span data-view="updated"></span></small>
+    </div>
 </div></div></div>
 
 <script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/manage_system_announcements.js?v=<?= asset_version('js/pages/system/manage_system_announcements.js') ?>"></script>

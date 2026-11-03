@@ -4,7 +4,7 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { terms: [], classes: [], periods: [], kinds: [], activePeriod: null, detail: null, aiPollTimer: null, importPollTimer: null };
+  const state = { terms: [], classes: [], periods: [], kinds: [], activePeriod: null, detail: null, aiPollTimer: null, importPollTimer: null, publishResultsPeriodId: null, publicationRecipients: [] };
   const esc = (value) => { const n = document.createElement('span'); n.textContent = String(value ?? ''); return n.innerHTML; };
   const payload = (response) => response?.data?.data ?? response?.data ?? response;
   const notify = (message, type = 'info') => window.API?.showNotification?.(message, type) || window.showNotification?.(message, type);
@@ -21,6 +21,34 @@
   };
   function printScope(scope) {
     window.PrintManager?.printPage({ title: printScopeTitles[scope] || 'Examination Workspace', orientation: 'landscape' }) ?? window.print();
+  }
+
+  function renderAiTimetableProposal(container, result) {
+    if (!container) return;
+    const draft = result?.draft && typeof result.draft === 'object' ? result.draft : {};
+    const body = result?.answer?.body || result?.body || draft.body || '';
+    const nextSteps = result?.next_steps || draft.next_steps || [];
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-info py-2 mb-0';
+    const title = document.createElement('strong');
+    title.textContent = result?.answer?.title || result?.title || draft.title || 'AI timetable proposal';
+    alert.appendChild(title);
+    if (body) {
+      const content = document.createElement('div');
+      content.textContent = body;
+      alert.appendChild(content);
+    }
+    if (Array.isArray(nextSteps) && nextSteps.length) {
+      const list = document.createElement('ul');
+      list.className = 'mb-0 mt-1';
+      nextSteps.forEach((step) => {
+        const item = document.createElement('li');
+        item.textContent = String(step ?? '');
+        list.appendChild(item);
+      });
+      alert.appendChild(list);
+    }
+    container.replaceChildren(alert);
   }
 
   async function call(path, method = 'GET', body = null, query = null) {
@@ -206,7 +234,7 @@
               const statusEl = $('examAiDraftStatus');
               const notesEl = $('examAiDraftNotes');
               if (statusEl) statusEl.textContent = 'Draft loaded into the timetable for your review. Nothing has been saved.';
-              if (notesEl) notesEl.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>AI timetable proposal</strong>${result.body ? `<div>${result.body}</div>` : ''}${(result.next_steps || []).length ? `<ul class="mb-0 mt-1">${result.next_steps.map((item) => `<li>${item}</li>`).join('')}</ul>` : ''}</div>`;
+              renderAiTimetableProposal(notesEl, result);
               notesEl.classList.remove('d-none');
               $('draftExamPeriodTimetable').disabled = false;
               notify('AI timetable draft ready!', 'success');
@@ -282,7 +310,7 @@
         row.querySelector('.slot-end').value = String(entry.end_time).slice(0, 5);
       });
       if (status) status.textContent = 'Draft loaded into the timetable for your review. Nothing has been saved.';
-      if (notes) notes.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>${esc(result.title || 'AI timetable proposal')}</strong>${result.body ? `<div>${esc(result.body)}</div>` : ''}${(result.next_steps || []).length ? `<ul class="mb-0 mt-1">${result.next_steps.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>`;
+        renderAiTimetableProposal(notes, result);
       notes.classList.remove('d-none');
       if (button) button.disabled = false;
       notify('AI draft loaded. Review the timetable and save it when ready.', 'success');
@@ -692,6 +720,18 @@
     // Row action menu. The buttons are re-rendered on every reload of the
     // period list, so one delegated listener on the table body owns them all.
     $('examPeriodsBody')?.addEventListener('click', onPeriodAction);
+    $('notifyResultsParents')?.addEventListener('change', async (event) => {
+      const options = $('resultsNotificationOptions');
+      options?.classList.toggle('d-none', !event.target.checked);
+      if (event.target.checked) await loadPublicationRecipients();
+    });
+    $('toggleResultsRecipients')?.addEventListener('click', (event) => {
+      const boxes = [...document.querySelectorAll('#resultsRecipientsList [data-student-id]')];
+      const select = boxes.some((box) => !box.checked);
+      boxes.forEach((box) => { box.checked = select; });
+      event.currentTarget.textContent = select ? 'Clear selection' : 'Select all';
+    });
+    $('confirmPublishResults')?.addEventListener('click', submitPublishResults);
 
     // Initial data load. The delegated listener above is registered first so
     // the very first render already responds to every action button.
@@ -768,12 +808,46 @@
   }
 
   async function publishPeriodResults(periodId, label) {
-    if (!confirm(`Publish the results for ${label}? Every register must be submitted and Grade 4-9 registers approved by their class teacher. Parents are notified when the report cards are released.`)) return;
+    state.publishResultsPeriodId = Number(periodId);
+    $('publishResultsTitle').textContent = `Publish results · ${label}`;
+    $('notifyResultsParents').checked = false;
+    $('resultsNotificationOptions').classList.add('d-none');
+    $('resultsRecipientsList').innerHTML = '<div class="text-muted small">Turn on notifications to load eligible parents.</div>';
+    $('publishResultsFeedback').textContent = 'Every register must be submitted; Grade 4–9 registers must also be approved by the class teacher.';
+    bootstrap.Modal.getOrCreateInstance($('publishResultsModal')).show();
+  }
+
+  async function loadPublicationRecipients() {
+    const list = $('resultsRecipientsList');
+    list.innerHTML = '<div class="text-muted small">Loading learners and linked parents…</div>';
     try {
-      const result = await call(`/academic/exam-periods/${periodId}/publish-results`, 'POST', {});
-      notify(result.official_parent_view || 'Results published to the official term results.', 'success');
+      state.publicationRecipients = await call(`/academic/exam-periods/${state.publishResultsPeriodId}/publication-recipients`) || [];
+      list.innerHTML = state.publicationRecipients.length ? state.publicationRecipients.map((row) => `<label class="list-group-item d-flex gap-2 align-items-start"><input class="form-check-input mt-1" type="checkbox" data-student-id="${Number(row.student_id)}" data-parent-id="${Number(row.parent_id)}"><span><strong>${esc(row.student_name || 'Learner')}</strong><small class="d-block text-muted">${esc(row.parent_name || 'Parent/guardian')} · SMS: ${esc(row.phone || 'not recorded')} · Email: ${esc(row.email || 'not recorded')}</small></span></label>`).join('') : '<div class="alert alert-warning">No linked parents were found for learners with submitted results.</div>';
+    } catch (error) {
+      list.innerHTML = `<div class="alert alert-danger">${esc(error.message || 'Unable to load parent choices.')}</div>`;
+    }
+  }
+
+  async function submitPublishResults() {
+    const periodId = state.publishResultsPeriodId;
+    const notifyParents = $('notifyResultsParents').checked;
+    const selected = [...document.querySelectorAll('#resultsRecipientsList [data-student-id]:checked')].map((box) => ({ student_id: Number(box.dataset.studentId), parent_id: Number(box.dataset.parentId) }));
+    const channels = [...document.querySelectorAll('[data-results-channel]:checked')].map((box) => box.value);
+    if (notifyParents && !selected.length) return notify('Choose at least one learner-parent pair or turn off parent notifications.', 'warning');
+    if (notifyParents && !channels.length) return notify('Choose SMS and/or email for the selected parent notifications.', 'warning');
+    const button = $('confirmPublishResults'); button.disabled = true;
+    try {
+      const result = await call(`/academic/exam-periods/${periodId}/publish-results`, 'POST', {
+        notification_recipients: notifyParents ? selected : [],
+        notification_channels: notifyParents ? channels : [],
+      });
+      bootstrap.Modal.getInstance($('publishResultsModal'))?.hide();
+      const delivery = result.notifications || {};
+      const suffix = notifyParents ? ` ${Number(delivery.queued || 0)} notification recipient(s) queued${delivery.failed ? `; ${Number(delivery.failed)} failed to queue` : ''}.` : ' No parent notifications were sent.';
+      notify((result.official_parent_view || 'Results published.') + suffix, delivery.failed ? 'warning' : 'success');
       await loadPeriods();
     } catch (error) { notify(error.message || 'Unable to publish results.', 'error'); }
+    finally { button.disabled = false; }
   }
 
   async function showNationalTimetable(periodId) {

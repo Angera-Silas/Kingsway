@@ -6,6 +6,7 @@ namespace App\API\Services;
 
 use App\API\Includes\FileLogger;
 use App\Config\Config;
+use PDO;
 use Throwable;
 
 /**
@@ -67,9 +68,8 @@ final class AiPythonBridge
     {
         $ctx = [
             'user_id' => (int) ($context['user_id'] ?? 0),
-            'permissions' => array_values(array_unique(array_map('strval', array_merge(
-                (array) ($context['effective_permissions'] ?? []),
-                (array) ($context['permissions'] ?? [])
+            'permissions' => array_values(array_unique(array_map('strval', (array) (
+                $context['effective_permissions'] ?? $context['permissions'] ?? []
             )))),
             'audience' => 'staff',
             'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
@@ -80,6 +80,23 @@ final class AiPythonBridge
                 ? (string) $context['assistant_domain']
                 : 'staff',
         ];
+        $roleNames = [];
+        foreach ((array) ($context['roles'] ?? $context['role_names'] ?? []) as $role) {
+            if (is_array($role)) {
+                $role = $role['name'] ?? $role['role_name'] ?? $role['label'] ?? $role['slug'] ?? $role['code'] ?? '';
+            } elseif (is_object($role)) {
+                $role = $role->name ?? $role->role_name ?? $role->label ?? $role->slug ?? $role->code ?? '';
+            }
+            if (is_string($role) || is_int($role)) {
+                $name = mb_substr(trim((string) $role), 0, 80);
+                if ($name !== '') {
+                    $roleNames[] = $name;
+                }
+            }
+        }
+        if ($roleNames !== []) {
+            $ctx['roles'] = array_values(array_unique(array_slice($roleNames, 0, 10)));
+        }
         if (!empty($context['session_id'])) {
             $ctx['session_id'] = mb_substr((string) $context['session_id'], 0, 64);
         }
@@ -153,19 +170,28 @@ final class AiPythonBridge
      * @param array<string,mixed> $payload
      * @return array<string,mixed>
      */
-    public function runJob(array $payload): array
+    public function runJob(array $payload, PDO $pdo): array
     {
         $userId = (int) ($payload['user_id'] ?? 0);
-        $hint = AiAgentService::permissionHint(
-            array_values(array_map('strval', (array) ($payload['permissions'] ?? []))),
-            200
-        );
-        $permissions = $hint['permissions'];
+        if ($userId < 1) {
+            throw new \DomainException('Background agent payload is incomplete.', 422);
+        }
+        // Queue hints can be stale after a role change. Resolve permissions
+        // and persona from current server state at execution time, matching
+        // the PHP fallback and the governed tool authorization boundary.
+        $agent = new AiAgentService();
+        $permissions = $agent->resolveEffectivePermissions($pdo, $userId);
+        if ($permissions === []) {
+            throw new \DomainException('The task owner has no currently resolved permissions.', 403);
+        }
+        $roles = $agent->resolveEffectiveRoles($pdo, $userId);
         $requestId = mb_substr((string) ($payload['request_id'] ?? 'ai-agent-run'), 0, 100);
         $mode = (string) ($payload['mode'] ?? 'digest');
         if ($mode === 'assist') {
             $result = $this->assist([
                 'user_id' => $userId,
+                'roles' => $roles,
+                'role_names' => array_values(array_map('strval', array_column($roles, 'name'))),
                 'permissions' => $permissions,
                 'effective_permissions' => $permissions,
                 'request_id' => $requestId,
@@ -331,10 +357,7 @@ final class AiPythonBridge
         // Build the context with session_id if present
         $streamContext = [
             'user_id' => (int) ($ctx['user_id'] ?? 0),
-            'permissions' => array_values(array_unique(array_map('strval', array_merge(
-                (array) ($ctx['effective_permissions'] ?? []),
-                (array) ($ctx['permissions'] ?? [])
-            )))),
+            'permissions' => array_values(array_unique(array_map('strval', (array) ($ctx['effective_permissions'] ?? $ctx['permissions'] ?? [])))),
             'audience' => 'staff',
             'route' => mb_substr((string) ($ctx['route'] ?? ''), 0, 120),
             'module' => mb_substr((string) ($ctx['module'] ?? 'dashboard'), 0, 60),
@@ -489,10 +512,7 @@ final class AiPythonBridge
         }
         $streamContext = [
             'user_id' => (int) ($context['user_id'] ?? 0),
-            'permissions' => array_values(array_unique(array_map('strval', array_merge(
-                (array) ($context['effective_permissions'] ?? []),
-                (array) ($context['permissions'] ?? [])
-            )))),
+            'permissions' => array_values(array_unique(array_map('strval', (array) ($context['effective_permissions'] ?? $context['permissions'] ?? [])))),
             'audience' => 'staff',
             'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
             'module' => mb_substr((string) ($context['module'] ?? 'dashboard'), 0, 60),

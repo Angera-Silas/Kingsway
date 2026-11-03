@@ -70,10 +70,14 @@ final class AiInsightOrchestrator
     /** @var array<string,mixed> per-domain options forwarded to IntelligenceEngine */
     private $engineOptions;
 
+    /** @var callable(PDO,int):list<string>|null authoritative resolver seam */
+    private $permissionResolver;
+
     /**
      * @param AiDraftService|null  $drafts null disables narrative drafting;
      * @param callable():bool|null $providerEnabled
      * @param array<string,mixed>  $engineOptions
+     * @param callable(PDO,int):list<string>|null $permissionResolver
      */
     public function __construct(
         ?SharedCache $cache = null,
@@ -81,7 +85,8 @@ final class AiInsightOrchestrator
         ?IntelligenceEngine $engine = null,
         ?AiDraftService $drafts = null,
         ?callable $providerEnabled = null,
-        array $engineOptions = []
+        array $engineOptions = [],
+        ?callable $permissionResolver = null
     ) {
         $this->cache = $cache ?: new SharedCache();
         $this->queuer = $queuer ?: static fn (string $jobType, array $payload): int => JobQueue::push(
@@ -98,6 +103,7 @@ final class AiInsightOrchestrator
             FILTER_VALIDATE_BOOLEAN
         );
         $this->engineOptions = $engineOptions;
+        $this->permissionResolver = $permissionResolver;
     }
 
     /**
@@ -229,7 +235,9 @@ final class AiInsightOrchestrator
         if ($userId < 1) {
             throw new DomainException('Background insight briefing payload is incomplete.', 422);
         }
-        $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
+        $permissions = $this->permissionResolver !== null
+            ? (array) call_user_func($this->permissionResolver, $pdo, $userId)
+            : (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
         if ($permissions === []) {
             throw new DomainException('Current operator permissions could not be resolved.', 403);
         }

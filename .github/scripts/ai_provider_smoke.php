@@ -19,6 +19,7 @@ if (!in_array('--live', $argv, true)) {
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use App\API\Services\AiProviderGateway;
+use App\API\Services\AiOutputGuard;
 
 $gateway = new AiProviderGateway();
 $health = $gateway->health();
@@ -44,7 +45,9 @@ try {
     fwrite(STDERR, json_encode([
         'health' => $health,
         'completion_error' => get_class($exception),
-        'message' => $exception->getMessage(),
+        // Exceptions can carry provider response fragments or deployment
+        // details. Keep the smoke output safe to paste into an internal ticket.
+        'message' => mb_substr(AiOutputGuard::scrubText($exception->getMessage()), 0, 240),
     ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL);
     exit(1);
 }

@@ -553,8 +553,8 @@ class TwoFactorService
     // ========================================================================
 
     /**
-     * Determine if a user needs 2FA verification after password login.
-     * Returns the method or null if 2FA is not required.
+     * Determine the mandatory login verification method after password login.
+     * Prefer email, then SMS, then an enrolled authenticator/passkey.
      */
     public function getRequiredMethod(int $userId): ?string
     {
@@ -565,27 +565,33 @@ class TwoFactorService
         $stmt->execute([$userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$row || !$row['two_factor_enabled']) return null;
+        if (!$row) return null;
 
-        // 'none' is the catalogued "no method" sentinel, and any value outside
-        // the deliverable set cannot produce a code. Returning it would gate
-        // the login on a challenge that can never be stored or delivered.
-        $method = strtolower(trim((string)($row['two_factor_method'] ?? '')));
-        if ($method !== '' && in_array($method, self::DELIVERABLE_METHODS, true)) return $method;
+        // Contact OTP remains the default, while the post-password chooser
+        // exposes every other enrolled factor the account can use.
+        $contact = $this->getUserContact($userId);
+        $email = trim((string) ($contact['email'] ?? ''));
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) return 'email';
+        $phone = trim((string) ($contact['phone_1'] ?? ''));
+        if (\App\API\Services\PhoneNumberNormalizer::normalize($phone) !== null) return 'sms';
 
-        // The stored method is unusable, but the account may still have a
-        // factor enrolled. Prefer a real enrolled channel over forcing the
-        // account back through setup. The flag above remains the only thing
-        // that switches the second factor off.
+        // Accounts without a deliverable email or phone may still use an
+        // already enrolled authenticator or passkey.
+        $configuredMethod = strtolower(trim((string) ($row['two_factor_method'] ?? '')));
+        if ($configuredMethod === 'passkey') {
+            $passkeys = $this->db->prepare('SELECT COUNT(*) FROM user_passkeys WHERE user_id = ?');
+            $passkeys->execute([$userId]);
+            if ((int) $passkeys->fetchColumn() > 0) return 'passkey';
+        }
         $enrolled = $this->db->prepare(
             "SELECT method FROM user_two_factor_methods
              WHERE user_id = ? AND is_enabled = 1
-               AND method IN ('" . implode("','", self::DELIVERABLE_METHODS) . "')
+               AND method = 'totp'
              ORDER BY is_primary DESC, id ASC LIMIT 1"
         );
         $enrolled->execute([$userId]);
         $fallback = strtolower(trim((string)($enrolled->fetchColumn() ?: '')));
-        return in_array($fallback, self::DELIVERABLE_METHODS, true) ? $fallback : null;
+        return $fallback === 'totp' ? $fallback : null;
     }
 
     /**
@@ -613,6 +619,30 @@ class TwoFactorService
         $passkeys = $this->db->prepare("SELECT COUNT(*) FROM user_passkeys WHERE user_id=?"); $passkeys->execute([$userId]);
         if ((int) $passkeys->fetchColumn() > 0) $methods[] = 'passkey';
         return $methods;
+    }
+
+    /** Return only enrolled verification methods that can be used for login. */
+    public function getAvailableLoginMethods(int $userId): array
+    {
+        $enabled = $this->getEnabledMethods($userId);
+        $contact = $this->getUserContact($userId);
+        $email = trim((string)($contact['email'] ?? ''));
+        $phone = trim((string)($contact['phone_1'] ?? ''));
+        $isParent = \App\API\Modules\parent\ParentPortalManager::isParentAccount($this->db, $userId);
+        $available = [];
+
+        foreach (['email', 'sms', 'whatsapp', 'totp', 'passkey'] as $method) {
+            $contactChannel = in_array($method, ['email', 'sms'], true);
+            if (!$contactChannel && !in_array($method, $enabled, true)) continue;
+            if ($method === 'email' && ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL))) continue;
+            if (in_array($method, ['sms', 'whatsapp'], true)
+                && ($phone === '' || \App\API\Services\PhoneNumberNormalizer::normalize($phone) === null)) continue;
+            if ($isParent && in_array($method, ['sms', 'whatsapp'], true)) continue;
+            if ($method === 'whatsapp' && !\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) continue;
+            $available[] = $method;
+        }
+
+        return $available;
     }
 
     public function setPrimaryMethod(int $userId, string $method): bool
@@ -682,7 +712,7 @@ class TwoFactorService
 
     public function setChallengeMethod(string $raw, int $userId, string $method): bool
     {
-        if (!in_array($method, $this->getEnabledMethods($userId), true)) return false;
+        if (!in_array($method, $this->getAvailableLoginMethods($userId), true)) return false;
         $row = $this->challenge($raw, $userId); if (!$row) return false;
         return $this->db->prepare("UPDATE user_two_factor_challenges SET method=? WHERE id=? AND status='pending'")->execute([$method, $row['id']]);
     }

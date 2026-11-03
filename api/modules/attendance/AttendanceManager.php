@@ -1403,13 +1403,10 @@ class AttendanceManager extends BaseAPI
             $trendParams = array_merge($trendParams, $streamScope['params']);
 
             if ($sessionId) {
-                $trendSql .= " AND student_id IN (
-                    SELECT DISTINCT en.student_id
-                    FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
-                    WHERE sa2.date BETWEEN ? AND ? AND sa2.session_id = ?
-                )";
-                $trendParams[] = $dateFrom;
-                $trendParams[] = $dateTo;
+                // The aggregate view already carries session_name. Keep the
+                // trend filter on that same source; the former subquery
+                // referenced an undefined sa2 alias and could not execute.
+                $trendSql .= ' AND session_name = (SELECT name FROM attendance_sessions WHERE id = ?)';
                 $trendParams[] = (int) $sessionId;
             }
 

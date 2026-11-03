@@ -87,18 +87,13 @@ class TransportController extends BaseController
     {
         if (!$this->canUseAiTransport()) return $this->forbidden('Transport AI assistance is not available for your account');
         try {
-            $summaryResponse = $this->api->getSummary();
-            $summary = is_array($summaryResponse['data'] ?? null) ? $summaryResponse['data'] : $summaryResponse;
+            $inputResponse = $this->api->getAiOperationsSummaryInput();
+            if (($inputResponse['success'] ?? false) !== true) return $this->handleResponse($inputResponse);
+            $input = is_array($inputResponse['data'] ?? null) ? $inputResponse['data'] : [];
             $queued = $this->contract(AiDraftService::class)->queue(
                 'transport.operations_summary',
                 $this->aiTransportContext(),
-                [
-                    'report_date' => date('Y-m-d'),
-                    'active_route_count' => (string) ($summary['routes'] ?? 0),
-                    'active_vehicle_count' => (string) ($summary['vehicles'] ?? 0),
-                    'assigned_passenger_count' => (string) ($summary['active_subscriptions'] ?? 0),
-                    'follow_up_intent' => 'Prepare transport operations review; do not change assignments or safety controls.',
-                ],
+                $input,
                 ['subject_type' => 'transport_operations_summary', 'scope' => 'authorized_transport_aggregate']
             );
             return $this->accepted($queued, 'Transport operations summary queued for review');
@@ -131,7 +126,7 @@ class TransportController extends BaseController
 
     private function aiTransportContext(): array
     {
-        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
     }
     private function canUseAiTransport(): bool
     {

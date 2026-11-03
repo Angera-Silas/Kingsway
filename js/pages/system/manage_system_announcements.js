@@ -31,6 +31,14 @@
       this.on("annClearFilters", "click", () => this.clearFilters());
       this.on("annExportCsv", "click", () => this.exportCsv());
       this.on("annPrint", "click", () => window.PrintManager?.printPage({ title: "System Announcements", orientation: "landscape" }) ?? window.print());
+      this.on("annTableBody", "click", (event) => {
+        const button = event.target.closest("[data-action]");
+        if (!button) return;
+        const id = Number(button.dataset.id);
+        if (button.dataset.action === "view") this.viewItem(id);
+        else if (button.dataset.action === "edit") this.editItem(id);
+        else if (button.dataset.action === "delete") this.deleteItem(id);
+      });
       ["annSearch", "annStatusFilter", "annTypeFilter", "annPriorityFilter"].forEach(id => {
         this.on(id, "input", () => { this.currentPage = 1; this.applyFilters(); });
         this.on(id, "change", () => { this.currentPage = 1; this.applyFilters(); });
@@ -42,8 +50,7 @@
     async load() {
       const state = document.getElementById("annState");
       const body = document.getElementById("annTableBody");
-      if (state) { state.className = "alert alert-info"; state.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Loading announcements...'; }
-      if (body) body.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr>';
+      this.setState(state, "Loading announcements...", "info");
       try {
         const params = { page: this.currentPage, limit: this.perPage };
         const s = document.getElementById("annSearch")?.value?.trim(); if (s) params.search = s;
@@ -55,10 +62,10 @@
         this.pagination = res?.pagination || this.pagination;
         this.filtered = [...this.items];
         this.renderTable();
-        if (state) { state.className = "alert alert-success py-2 d-none"; }
+        if (state) state.classList.add("d-none");
       } catch (e) {
         console.error("[Announcements] load failed", e);
-        if (state) { state.className = "alert alert-danger"; state.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Failed to load announcements.'; }
+        this.setState(state, "Failed to load announcements.", "danger");
       }
     },
 
@@ -105,43 +112,74 @@
     renderTable() {
       const body = document.getElementById("annTableBody");
       if (!body) return;
-      if (!this.filtered.length) { body.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No announcements found.</td></tr>'; this.renderPagination(); return; }
-      body.innerHTML = this.filtered.map(a => {
-        const typeBadge = {general:'secondary',academic:'info',administrative:'primary',event:'warning',emergency:'danger',maintenance:'dark'};
-        const priBadge = {low:'secondary',normal:'primary',high:'warning',critical:'danger'};
-        const statusBadge = {draft:'secondary',scheduled:'info',published:'success',archived:'dark',expired:'danger'};
-        return `<tr>
-          <td class="fw-semibold">${this.esc(a.title)}</td>
-          <td><span class="badge bg-${typeBadge[a.announcement_type]||'secondary'}">${this.esc(a.announcement_type)}</span></td>
-          <td><span class="badge bg-${priBadge[a.priority]||'secondary'}">${this.esc(a.priority)}</span></td>
-          <td>${this.esc(a.target_audience)}</td>
-          <td><span class="badge bg-${statusBadge[a.status]||'secondary'}">${this.esc(a.status)}</span></td>
-          <td><small>${this.esc(a.created_at || '—')}</small></td>
-          <td>
-            <button class="btn btn-sm btn-outline-info me-1" data-action="view" data-id="${a.id}" title="View"><i class="bi bi-eye"></i></button>
-            <button class="btn btn-sm btn-outline-primary me-1" data-action="edit" data-id="${a.id}" title="Edit"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${a.id}" title="Delete"><i class="bi bi-trash"></i></button>
-          </td>
-        </tr>`;
-      }).join("");
-      body.querySelectorAll("[data-action='view']").forEach(b => b.addEventListener("click", () => this.viewItem(+b.dataset.id)));
-      body.querySelectorAll("[data-action='edit']").forEach(b => b.addEventListener("click", () => this.editItem(+b.dataset.id)));
-      body.querySelectorAll("[data-action='delete']").forEach(b => b.addEventListener("click", () => this.deleteItem(+b.dataset.id)));
+      const stateRow = document.getElementById("annTableState");
+      const stateCell = stateRow?.querySelector("td");
+      body.querySelectorAll("[data-announcement-row]").forEach((row) => row.remove());
+      if (!this.filtered.length) {
+        if (stateCell) stateCell.textContent = "No announcements found.";
+        if (stateRow) stateRow.hidden = false;
+        this.renderPagination();
+        return;
+      }
+      if (stateRow) stateRow.hidden = true;
+      const template = document.getElementById("annRowTemplate");
+      if (!template) return;
+      const typeBadge = { general: "secondary", academic: "info", administrative: "primary", event: "warning", emergency: "danger", maintenance: "dark" };
+      const priorityBadge = { low: "secondary", normal: "primary", high: "warning", critical: "danger" };
+      const statusBadge = { draft: "secondary", scheduled: "info", published: "success", archived: "dark", expired: "danger" };
+      const fragment = document.createDocumentFragment();
+      this.filtered.forEach((announcement) => {
+        const row = template.content.firstElementChild.cloneNode(true);
+        const set = (field, value) => {
+          const element = row.querySelector(`[data-field="${field}"]`);
+          if (element) element.textContent = value ?? "—";
+        };
+        set("title", announcement.title);
+        set("type", announcement.announcement_type);
+        set("priority", announcement.priority);
+        set("audience", announcement.target_audience);
+        set("status", announcement.status);
+        set("created", announcement.created_at || "—");
+        const classes = [
+          ["type", typeBadge[announcement.announcement_type]],
+          ["priority", priorityBadge[announcement.priority]],
+          ["status", statusBadge[announcement.status]],
+        ];
+        classes.forEach(([field, color]) => row.querySelector(`[data-field="${field}"]`)?.classList.add(`bg-${color || "secondary"}`));
+        row.querySelectorAll("[data-action]").forEach((button) => { button.dataset.id = String(announcement.id); });
+        fragment.appendChild(row);
+      });
+      body.insertBefore(fragment, stateRow || null);
       this.renderPagination();
     },
 
     renderPagination() {
       const nav = document.getElementById("annPagination");
-      if (!nav || this.pagination.pages <= 1) { if (nav) nav.innerHTML = ""; return; }
-      let html = '';
-      if (this.currentPage > 1) html += `<li class="page-item"><a class="page-link" data-page="${this.currentPage-1}">&laquo;</a></li>`;
+      if (!nav) return;
+      nav.replaceChildren();
+      if (this.pagination.pages <= 1) return;
+      const appendPage = (templateId, page, active = false) => {
+        const template = document.getElementById(templateId);
+        if (!template) return;
+        const item = template.content.firstElementChild.cloneNode(true);
+        const link = item.querySelector("[data-page]");
+        if (link && page != null) {
+          link.dataset.page = String(page);
+          if (templateId === "annPageNumberTemplate") link.textContent = String(page);
+        }
+        if (active) item.classList.add("active");
+        nav.appendChild(item);
+      };
+      if (this.currentPage > 1) appendPage("annPagePreviousTemplate", this.currentPage - 1);
       for (let i = 1; i <= this.pagination.pages; i++) {
         if (i === 1 || i === this.pagination.pages || Math.abs(i - this.currentPage) <= 2) {
-          html += `<li class="page-item ${i===this.currentPage?'active':''}"><a class="page-link" data-page="${i}">${i}</a></li>`;
-        } else if (Math.abs(i - this.currentPage) === 3) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+          appendPage("annPageNumberTemplate", i, i === this.currentPage);
+        } else if (Math.abs(i - this.currentPage) === 3) {
+          const template = document.getElementById("annPageEllipsisTemplate");
+          if (template) nav.appendChild(template.content.firstElementChild.cloneNode(true));
+        }
       }
-      if (this.currentPage < this.pagination.pages) html += `<li class="page-item"><a class="page-link" data-page="${this.currentPage+1}">&raquo;</a></li>`;
-      nav.innerHTML = html;
+      if (this.currentPage < this.pagination.pages) appendPage("annPageNextTemplate", this.currentPage + 1);
       nav.querySelectorAll('[data-page]').forEach(a => a.addEventListener("click", e => { e.preventDefault(); this.currentPage = +a.dataset.page; this.load(); }));
     },
 
@@ -190,11 +228,18 @@
         if (!a?.id) { window.showNotification?.("Announcement not found.", "warning"); return; }
         const modal = new bootstrap.Modal(document.getElementById("annViewModal"));
         document.getElementById("annViewTitle").textContent = a.title;
-        document.getElementById("annViewBody").innerHTML = `
-          <div class="mb-3"><span class="badge bg-secondary me-1">${this.esc(a.announcement_type)}</span><span class="badge bg-primary me-1">${this.esc(a.priority)}</span><span class="badge bg-success me-1">${this.esc(a.status)}</span></div>
-          <p><strong>Target:</strong> ${this.esc(a.target_audience)} &bull; <strong>Views:</strong> ${a.view_count ?? 0}</p>
-          <div class="p-3 bg-light rounded mb-3" style="white-space:pre-wrap">${this.esc(a.content)}</div>
-          <small class="text-muted">Created: ${this.esc(a.created_at || '—')} | Updated: ${this.esc(a.updated_at || '—')}</small>`;
+        document.querySelectorAll("#annViewBody [data-view]").forEach((element) => {
+          element.textContent = ({
+            type: a.announcement_type,
+            priority: a.priority,
+            status: a.status,
+            audience: a.target_audience,
+            views: a.view_count ?? 0,
+            content: a.content,
+            created: a.created_at || "—",
+            updated: a.updated_at || "—",
+          })[element.dataset.view] ?? "—";
+        });
         modal.show();
       } catch (e) { console.error("[Announcements] view failed", e); window.showNotification?.("Failed to load announcement.", "error"); }
     },
@@ -221,7 +266,12 @@
       window.KingswayFileLifecycle?.exportText?.(csv, "system-announcements.csv", "text/csv");
     },
 
-    esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; },
+    setState(element, message, type) {
+      if (!element) return;
+      element.className = `alert alert-${type}`;
+      const text = element.querySelector("[data-ann-state-message]");
+      if (text) text.textContent = message;
+    },
   };
   window.AnnouncementsController = AnnouncementsController;
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => AnnouncementsController.init());

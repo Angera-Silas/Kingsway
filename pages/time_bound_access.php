@@ -57,7 +57,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="timeBoundAccessTableBody">
-                    <tr>
+                    <tr id="timeBoundAccessTableState">
                         <td colspan="7" class="text-center py-5 text-muted">Loading access grants...</td>
                     </tr>
                 </tbody>

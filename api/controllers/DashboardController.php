@@ -87,9 +87,8 @@ class DashboardController extends BaseController
     {
         if (!$this->user) return $this->unauthorized('Authentication required');
         try {
-            $permissions = array_values(array_unique(array_map('strval', array_merge(
-                (array) ($this->user['effective_permissions'] ?? []),
-                (array) ($this->user['permissions'] ?? [])
+            $permissions = array_values(array_unique(array_map('strval', (array) (
+                $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
             ))));
             $route = strtolower(trim((string) ($_GET['route'] ?? '')));
             $module = strtolower(trim((string) ($_GET['module'] ?? 'dashboard')));
@@ -311,9 +310,8 @@ class DashboardController extends BaseController
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
         }
-        $permissions = array_values(array_unique(array_map('strval', array_merge(
-            (array) ($this->user['effective_permissions'] ?? []),
-            (array) ($this->user['permissions'] ?? [])
+        $permissions = array_values(array_unique(array_map('strval', (array) (
+            $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
         ))));
         $context = $this->buildAssistantContext((array) $data, $userId);
         $context['permissions'] = $permissions;
@@ -682,7 +680,7 @@ class DashboardController extends BaseController
         if ($taskId === false || $taskId < 1) {
             return $this->respond(null, 'task_id required', 422, false);
         }
-        $task = $this->contract(AiAgentTaskService::class)->get((int) $taskId, $userId);
+        $task = $this->contract(AiAgentTaskService::class)->get($this->getDb()->getConnection(), (int) $taskId, $userId);
         return $task === null ? $this->notFound('Task not found') : $this->success($task, 'Task retrieved');
     }
 
@@ -699,7 +697,7 @@ class DashboardController extends BaseController
         }
         $limit = (int) ($data['limit'] ?? $_GET['limit'] ?? 30);
         $limit = max(1, min($limit, 100));
-        return $this->success($this->contract(AiAgentTaskService::class)->list($userId, $limit), 'Tasks retrieved');
+        return $this->success($this->contract(AiAgentTaskService::class)->list($this->getDb()->getConnection(), $userId, $limit), 'Tasks retrieved');
     }
 
     /**
@@ -1094,10 +1092,7 @@ class DashboardController extends BaseController
             if ($userId < 1) {
                 return $this->unauthorized('A valid session is required');
             }
-            $permissions = array_values(array_unique(array_map('strval', array_merge(
-                (array) ($this->user['effective_permissions'] ?? []),
-                (array) ($this->user['permissions'] ?? [])
-            ))));
+            $permissions = array_values(array_unique(array_map('strval', (array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))));
             $cadence = preg_match('/^(daily|weekly|term)$/', (string) ($_GET['cadence'] ?? 'daily'))
                 ? (string) $_GET['cadence']
                 : 'daily';

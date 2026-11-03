@@ -37,6 +37,28 @@ class TransportAPI extends BaseAPI
         }
     }
 
+    /** Return minimized aggregate context for the governed transport AI review. */
+    public function getAiOperationsSummaryInput(): array
+    {
+        $response = $this->getSummary();
+        if (($response['success'] ?? false) !== true) return $response;
+        $summary = is_array($response['data'] ?? null) ? $response['data'] : [];
+        return $this->successResponse(self::buildAiOperationsSummaryInput($summary, date('Y-m-d')));
+    }
+
+    /** Pure allow-listed aggregate transform shared by API and regression tests. */
+    public static function buildAiOperationsSummaryInput(array $summary, string $reportDate): array
+    {
+        $count = static fn($value): string => (string) max(0, (int) ($value ?? 0));
+        return [
+            'report_date' => $reportDate,
+            'active_route_count' => $count($summary['routes'] ?? 0),
+            'active_vehicle_count' => $count($summary['vehicles'] ?? 0),
+            'assigned_passenger_count' => $count($summary['active_subscriptions'] ?? 0),
+            'follow_up_intent' => 'Prepare transport operations review; do not change assignments or safety controls.',
+        ];
+    }
+
     // Mark a batch of students present on a transport trip.
     // Live table: student_transport_attendance (UNIQUE student_id, attendance_date, trip_session).
     // route_id defaults to the authenticated driver's assigned route when not supplied.

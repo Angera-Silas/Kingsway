@@ -72,8 +72,9 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term Name</th><th scope="col">Academic Year</th><th scope="col">Start Date</th><th scope="col">End Date</th><th scope="col">Weeks</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-                    <tbody id="mtTermsBody"><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="mtTermsBody"><tr id="mtTermsState"><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                 </table>
+                <template id="mtTermRowTemplate"><tr data-term-row><td class="small" data-fill="number"></td><td class="small" data-fill="name"></td><td class="small" data-fill="year"></td><td class="small" data-fill="start"></td><td class="small" data-fill="end"></td><td class="small" data-fill="weeks"></td><td class="small"><span class="badge" data-fill="status"></span></td><td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit term" data-action="edit"><i class="bi bi-pencil"></i></button></td></tr></template>
             </div>
         </div>
     </div>

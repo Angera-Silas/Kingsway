@@ -19,7 +19,10 @@
 
   function errorText(error) {
     if (error && error.code === "PERMISSION_DENIED") return "You don't have permission to view this data.";
-    if (error && typeof error.message === "string") return error.message;
+    if (error && typeof error.message === "string") {
+      const requestId = error.response?.request_id || error.response?.data?.request_id;
+      return requestId ? `${error.message} (Reference: ${requestId})` : error.message;
+    }
     return "Something went wrong.";
   }
 
@@ -29,6 +32,10 @@
       summary: null,
       ownDrafts: [],
       reviewDrafts: [],
+      generating: false,
+      activeJobId: null,
+      jobPollTimer: null,
+      jobPollAttempts: 0,
     },
 
     init() {
@@ -69,8 +76,8 @@
       state.textContent = message;
     },
 
-    async refresh() {
-      this._setState("Loading operations summary...");
+    async refresh(options = {}) {
+      if (!options.quiet) this._setState("Loading operations summary...");
       try {
         const [summary, own, review] = await Promise.all([
           window.API.system.getOperationsSummary(),
@@ -78,13 +85,31 @@
           window.API.system.getAiOperationsReviews("review"),
         ]);
         this.state.summary = summary?.data ?? summary;
-        this.state.ownDrafts = own?.data?.drafts ?? [];
-        this.state.reviewDrafts = review?.data?.drafts ?? [];
+        this.state.ownDrafts = own?.data?.drafts ?? own?.drafts ?? [];
+        this.state.reviewDrafts = review?.data?.drafts ?? review?.drafts ?? [];
         this.render();
-        this._setState(
-          `Operations summary refreshed ${this._stamp(summary?.data?.generated_at ?? "")}. AI review drafts require separate approval before use; AI cannot alter jobs.`,
-          "success",
+        const drafts = [...this.state.ownDrafts, ...this.state.reviewDrafts];
+        const completedDraft = this.state.activeJobId && drafts.find((row) =>
+          Number(row.metadata?.queue_job_id) === this.state.activeJobId
+          && ["pending_approval", "approved", "failed"].includes(row.status)
         );
+        if (completedDraft) {
+          clearTimeout(this.state.jobPollTimer);
+          this.state.jobPollTimer = null;
+          this.state.jobPollAttempts = 0;
+          this.state.activeJobId = null;
+          this._setState(
+            completedDraft.status === "failed"
+              ? "The operations review could not be prepared. Check the job status or try again."
+              : "The operations review is ready for staff review.",
+            completedDraft.status === "failed" ? "danger" : "success",
+          );
+        } else if (!options.quiet) {
+          this._setState(
+            `Operations summary refreshed ${this._stamp(summary?.data?.generated_at ?? "")}. AI review drafts require separate approval before use; AI cannot alter jobs.`,
+            "success",
+          );
+        }
       } catch (error) {
         this._setState(errorText(error), "danger");
         this._renderRows([]);
@@ -96,17 +121,74 @@
     },
 
     async generate() {
-      this._setState("Queuing an AI operations review... (background)");
+      if (this.state.generating) return;
+      this.state.generating = true;
+      const button = this._host.querySelector("[data-ops-generate]");
+      const originalLabel = button?.innerHTML ?? "";
+      if (button) {
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Queuing review…';
+      }
+      this._setState("Queuing an AI operations review in the background...");
       try {
         const result = await window.API.system.queueAiOperationsReview();
-        this._setState(
-          `Review queued (${result?.data?.job_id ?? "job"}). It will appear in the review list once prepared.`,
-          "success",
-        );
-        await this.refresh();
+        const jobId = result?.data?.job_id ?? result?.job_id;
+        this._watchJob(jobId);
+        await this.refresh({ quiet: true });
       } catch (error) {
         this._setState(errorText(error), "danger");
+      } finally {
+        this.state.generating = false;
+        if (button) {
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+          button.innerHTML = originalLabel;
+        }
       }
+    },
+
+    _watchJob(jobId) {
+      clearTimeout(this.state.jobPollTimer);
+      this.state.activeJobId = Number(jobId) || null;
+      this.state.jobPollAttempts = 0;
+      if (!this.state.activeJobId) {
+        this._setState("The operations review was queued. Use Refresh to check for its draft.");
+        return;
+      }
+      this._setState(`Operations review job #${this.state.activeJobId} is queued. Checking for progress…`);
+      const poll = async () => {
+        this.state.jobPollAttempts += 1;
+        let job = null;
+        try { job = await window.API.nodeJobs?.status?.(this.state.activeJobId); } catch (_) { /* Draft listing is a fallback if status polling is temporarily unavailable. */ }
+        const status = String(job?.status || "");
+        if (["failed", "cancelled"].includes(status)) {
+          this.state.activeJobId = null;
+          this.state.jobPollTimer = null;
+          this.state.jobPollAttempts = 0;
+          this._setState(status === "failed" ? "The operations review job failed. Try again or contact support if it repeats." : "The operations review was cancelled.", status === "failed" ? "danger" : "info");
+          await this.refresh({ quiet: true });
+          return;
+        }
+        this._setState(status === "processing" || status === "running" ? "Operations review is being prepared…" : `Operations review job #${this.state.activeJobId} is queued. Checking for progress…`);
+        await this.refresh({ quiet: true });
+        if (!this.state.activeJobId) return;
+        if (status === "done") {
+          this.state.activeJobId = null;
+          this.state.jobPollTimer = null;
+          this.state.jobPollAttempts = 0;
+          this._setState("The job completed, but its review draft was not returned. Refresh or contact support.", "danger");
+          return;
+        }
+        if (this.state.jobPollAttempts < 12) this.state.jobPollTimer = setTimeout(poll, 5000);
+        else {
+          this.state.activeJobId = null;
+          this.state.jobPollTimer = null;
+          this.state.jobPollAttempts = 0;
+          this._setState(`Operations review status: ${status || "unknown"}. Use Refresh to check again.`);
+        }
+      };
+      this.state.jobPollTimer = setTimeout(poll, 1500);
     },
 
     async approve(id) {
@@ -121,6 +203,7 @@
 
     render() {
       this._renderKpis();
+      this._renderErrorScanNotice();
       this._renderQueue();
       this._renderRows(this._signatureRows());
       this._renderDrafts();
@@ -136,9 +219,20 @@
         { label: "Stale", value: queue.stale_processing + queue.stale_pending, tone: queue.stale_processing + queue.stale_pending > 0 ? "danger" : "" },
         { label: "Failed", value: queue.statuses?.failed, tone: queue.statuses?.failed > 0 ? "danger" : "" },
         { label: "Dead letters", value: queue.dead_letter_total, tone: queue.dead_letter_total > 0 ? "danger" : "" },
-        { label: "Errors (24h)", value: errors.entries_24h, tone: errors.entries_24h > 0 ? "warning" : "" },
-        { label: "Critical (24h)", value: errors.critical_24h, tone: errors.critical_24h > 0 ? "danger" : "" },
+        { label: errors.scan_complete === false ? "Observed errors (24h)" : "Errors (24h)", value: errors.entries_24h, tone: errors.entries_24h > 0 ? "warning" : "" },
+        { label: errors.scan_complete === false ? "Observed critical (24h)" : "Critical (24h)", value: errors.critical_24h, tone: errors.critical_24h > 0 ? "danger" : "" },
       ];
+    },
+
+    _renderErrorScanNotice() {
+      const notice = this._host.querySelector("#systemOperationsErrorScanNotice");
+      if (!notice) return;
+      const errors = this.state.summary?.errors ?? {};
+      const partial = errors.scan_complete === false;
+      notice.classList.toggle("d-none", !partial);
+      notice.textContent = partial
+        ? `Journal scan was incomplete for ${Number(errors.truncated_category_count || 0)} categories. Displayed error counts and signatures are lower bounds.`
+        : "";
     },
 
     _renderKpis() {
@@ -194,16 +288,25 @@
 
     _renderRows(rows) {
       const tbody = this._host.querySelector("#systemOperationsRows");
-      if (!tbody) return;
+      const stateRow = this._host.querySelector("#systemOperationsRowsState");
+      const template = this._host.querySelector("#systemOperationsRowTemplate");
+      if (!tbody || !stateRow || !template) return;
+      tbody.querySelectorAll("[data-system-operation-row]").forEach((row) => row.remove());
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td class="text-center text-muted py-4" colspan="2">No error/critical signals in the last 24 hours.</td></tr>';
+        stateRow.querySelector("td").textContent = "No error/critical signals in the last 24 hours.";
+        stateRow.hidden = false;
         return;
       }
-      tbody.innerHTML = rows
-        .map(
-          (row) => `<tr><td class="font-monospace small">${escapeHtml(row.signature)}</td><td><span class="badge text-bg-secondary">${escapeHtml(row.count)}</span></td></tr>`,
-        )
-        .join("");
+      stateRow.hidden = true;
+      const fragment = document.createDocumentFragment();
+      rows.forEach((row) => {
+        const item = template.content.cloneNode(true);
+        item.querySelector('[data-fill="signature"]').textContent = row.signature;
+        item.querySelector('[data-fill="count"]').textContent = String(row.count);
+        item.querySelector("tr").dataset.systemOperationRow = "1";
+        fragment.appendChild(item);
+      });
+      tbody.insertBefore(fragment, stateRow);
     },
 
     _renderDrafts() {
@@ -216,17 +319,20 @@
       }
       const reviewOnly = this.state.reviewDrafts.length > 0;
       const list = drafts
-        .map(
-          (draft) => `
+        .map((row) => {
+          // AiDraftService::listForReview keeps workflow metadata on the row
+          // and the generated narrative under row.draft.
+          const draft = row?.draft ?? {};
+          return `
         <div class="d-flex flex-wrap gap-2 align-items-start border rounded-3 p-2 mb-2 text-start">
           <div class="flex-grow-1 min-w-0">
-            <div class="small fw-semibold">${escapeHtml(draft?.title ?? "Operations review")} <span class="badge text-bg-light">${escapeHtml(draft?.status ?? "")}</span></div>
-            <div class="small text-muted">${escapeHtml(draft?.summary ?? draft?.content ?? "")}</div>
-            <div class="small text-muted mt-1">Prepared ${escapeHtml(draft?.created_at ?? "")} &middot; advisory only &middot; review before acting</div>
+            <div class="small fw-semibold">${escapeHtml(draft?.title ?? "Operations review")} <span class="badge text-bg-light">${escapeHtml(row?.status ?? "")}</span></div>
+            <div class="small text-muted">${escapeHtml(draft?.summary ?? draft?.body ?? draft?.content ?? "")}</div>
+            <div class="small text-muted mt-1">Prepared ${escapeHtml(row?.created_at ?? "")} &middot; advisory only &middot; review before acting</div>
           </div>
-          ${reviewOnly ? `<button type="button" class="btn btn-sm btn-success" data-ops-approve="${Number(draft?.id ?? 0)}"><i class="bi bi-check2-circle me-1"></i> Approve</button>` : `<button type="button" class="btn btn-sm btn-outline-secondary" disabled>Awaiting approver</button>`}
-        </div>`,
-        )
+          ${reviewOnly ? `<button type="button" class="btn btn-sm btn-success" data-ops-approve="${Number(row?.id ?? 0)}"><i class="bi bi-check2-circle me-1"></i> Approve</button>` : `<button type="button" class="btn btn-sm btn-outline-secondary" disabled>Awaiting approver</button>`}
+        </div>`;
+        })
         .join("");
       container.innerHTML = `
         <hr class="my-3">

@@ -1802,6 +1802,9 @@ class UsersAPI extends BaseAPI
         } elseif (str_starts_with($digits, '7')) {
             $variants[] = '2547' . substr($digits, 1);
             $variants[] = '07' . substr($digits, 1);
+        } elseif (str_starts_with($digits, '1')) {
+            $variants[] = '2541' . substr($digits, 1);
+            $variants[] = '01' . substr($digits, 1);
         }
 
         return array_values(array_unique($variants));
@@ -1831,7 +1834,7 @@ class UsersAPI extends BaseAPI
         $phoneIn = '';
         $lookupParams = [$username, $username];
         if ($phoneVariants) {
-            $phoneIn = ' OR p.phone IN (' .
+            $phoneIn = " OR REGEXP_REPLACE(p.phone, '[^0-9]', '') IN (" .
                 implode(',', array_fill(0, count($phoneVariants), '?')) . ')';
             $lookupParams = array_merge($lookupParams, $phoneVariants);
         }
@@ -1867,11 +1870,16 @@ class UsersAPI extends BaseAPI
                 END AS is_locked
              FROM users u
              LEFT JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = u.person_id
-             WHERE u.username = ? OR p.email = ?' . $phoneIn . '
-             LIMIT 1'
+             WHERE u.username = ? OR LOWER(p.email) = LOWER(?)' . $phoneIn . '
+             ORDER BY u.id ASC'
         );
         $stmt->execute($lookupParams);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        $matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($matches) > 1) {
+            $this->recordAuthenticationAttempt($username, null, 'failed', 'ambiguous_identifier');
+            return ['success' => false, 'error' => 'This login identifier matches more than one account. Contact the school office to resolve your account details.'];
+        }
+        $user = $matches[0] ?? null;
         if (!$user) {
             $this->recordAuthenticationAttempt(
                 $username,

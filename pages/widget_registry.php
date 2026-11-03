@@ -61,7 +61,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="widgetRegistryTableBody">
-                    <tr>
+                    <tr id="widgetRegistryTableState">
                         <td colspan="7" class="text-center py-5 text-muted">Loading widgets...</td>
                     </tr>
                 </tbody>

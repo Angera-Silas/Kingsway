@@ -172,7 +172,7 @@ class RealtimeController extends BaseAPI
         $limit = max(1, min(50, (int) ($data['limit'] ?? 10)));
         $pythonTypes = $this->activePythonJobTypes();
         JobQueue::recoverStale(15, $pythonTypes);
-        $ids = JobQueue::claimBatch($limit, $pythonTypes);
+        $claims = JobQueue::claimBatchWithAttempts($limit, $pythonTypes);
         // A dead or slow Python runtime must never strand its job families.
         // The Python-side lease recovery only runs while Python itself is
         // reachable, so backstop it here, and take over jobs that have
@@ -186,18 +186,22 @@ class RealtimeController extends BaseAPI
                 static fn (string $type): bool => JobHandlerRegistry::resolve($type) !== null
             ));
             if ($takeoverTypes !== []) {
-                $ids = array_merge($ids, JobQueue::claimStarvedForTypes($takeoverTypes, 120, max(1, min(5, $limit))));
+                $claims = array_merge($claims, JobQueue::claimStarvedForTypesWithAttempts($takeoverTypes, 120, max(1, min(5, $limit))));
             }
         }
         $done = 0;
         $failed = 0;
         $retried = 0;
 
-        foreach ($ids as $id) {
+        foreach ($claims as $claim) {
+            $id = (int) ($claim['id'] ?? 0);
+            $attempts = max(0, (int) ($claim['attempts'] ?? -1));
+            if ($id < 1) continue;
             $job = JobQueue::fetchJob($id);
-            if ($job === null) {
+            if (!JobQueue::jobMatchesAttempt($job, $attempts)) {
                 continue;
             }
+            \App\API\Services\WorkerJobTelemetry::recordLifecycle($job, 'processing');
             $payload = $job['payload'];
             try {
                 // Typed handlers receive the durable queue id so they can
@@ -208,14 +212,27 @@ class RealtimeController extends BaseAPI
                     throw new \RuntimeException("No registered handler for job_type '{$job['job_type']}'");
                 }
                 $handler($payload, $this->db);
-                if (JobQueue::markDone($id)) {
+                if (JobQueue::markDoneForAttempt($id, $attempts)) {
+                    \App\API\Services\WorkerJobTelemetry::recordLifecycle($job, 'completed');
                     // AI jobs a human is waiting on tell their operator's own
                     // channel; every other family completes silently.
                     \App\API\Services\WorkerJobTelemetry::announceCompletion($job, 'completed');
                     $done++;
                 }
             } catch (\Throwable $e) {
-                $failureStatus = JobQueue::markFailed($id, $e->getMessage());
+                // Authorization failures are deterministic: retrying the same
+                // operator's job cannot restore access and only delays feedback.
+                $permanentAuthorizationFailure = $e instanceof \DomainException
+                    && in_array((int) $e->getCode(), [401, 403], true);
+                $failureStatus = $permanentAuthorizationFailure
+                    ? JobQueue::markPermanentlyFailedForAttempt($id, $attempts, $e->getMessage())
+                    : JobQueue::markFailedForAttempt($id, $attempts, $e->getMessage());
+                if ($failureStatus === null) continue;
+                \App\API\Services\WorkerJobTelemetry::recordLifecycle(
+                    $job,
+                    $failureStatus === JobQueue::STATUS_PENDING ? 'retrying' : 'failed',
+                    $e
+                );
                 \App\API\Services\WorkerJobTelemetry::announceCompletion($job, 'failed');
                 if ($failureStatus === JobQueue::STATUS_PENDING) {
                     $retried++;
@@ -226,7 +243,7 @@ class RealtimeController extends BaseAPI
         }
 
         return $this->successResponse(
-            ['claimed' => count($ids), 'done' => $done, 'retried' => $retried, 'failed' => $failed],
+            ['claimed' => count($claims), 'done' => $done, 'retried' => $retried, 'failed' => $failed],
             'Worker processed',
             200
         );

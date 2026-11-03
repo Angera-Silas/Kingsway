@@ -53,7 +53,7 @@ class AiAgentService
     private const MAX_TOOL_STEPS = 2;
     private const MAX_PROVIDER_CALLS = 3;
     private const MAX_TOOL_RESULT_CHARS = 500;
-    private const TOOL_RESULT_FIELDS = ['status', 'report_code', 'report_title', 'row_count', 'as_of', 'summary', 'alert_count', 'alerts', 'metrics', 'domains_ran', 'workflows', 'message', 'reason'];
+    private const TOOL_RESULT_FIELDS = ['status', 'draft_id', 'workflow_id', 'report_code', 'report_title', 'row_count', 'as_of', 'effective_scope', 'summary', 'alert_count', 'alerts', 'metrics', 'domains_ran', 'workflows', 'message', 'reason'];
     private const VALID_CADENCES = ['daily', 'weekly', 'term'];
 
     private AiCompletionProvider $provider;
@@ -116,10 +116,21 @@ class AiAgentService
         $route = mb_substr(trim((string) ($context['route'] ?? '')), 0, 120);
         $module = mb_substr(trim((string) ($context['module'] ?? 'dashboard')), 0, 60);
         $requestId = mb_substr((string) ($context['request_id'] ?? 'ai-agent-assist'), 0, 100);
-        // Conversation history for context-aware responses (last 10 turns)
-        $history = !empty($context['history']) && is_array($context['history'])
-            ? array_slice($context['history'], -10)
-            : [];
+        // Conversation history is an untrusted client hint. Keep only bounded
+        // user/assistant turns; system, developer, and tool messages can only
+        // be constructed by this service.
+        $history = [];
+        foreach (is_array($context['history'] ?? null) ? array_slice($context['history'], -10) : [] as $message) {
+            if (!is_array($message)) {
+                continue;
+            }
+            $role = strtolower(trim((string) ($message['role'] ?? '')));
+            $content = trim((string) ($message['content'] ?? ''));
+            if (!in_array($role, ['user', 'assistant'], true) || $content === '') {
+                continue;
+            }
+            $history[] = ['role' => $role, 'content' => mb_substr($content, 0, 3000)];
+        }
         // Sidebar state for navigation guidance
         $sidebarState = !empty($context['sidebar_state']) && is_array($context['sidebar_state'])
             ? $context['sidebar_state']
@@ -209,6 +220,15 @@ class AiAgentService
             return [];
         }
         try {
+            // Permission projections describe grants, not the lifecycle state
+            // of the account that holds them. Background jobs and the Python
+            // tool relay can outlive a staff session, so re-check account
+            // status at execution time before honoring any grant.
+            $account = $pdo->prepare('SELECT status FROM users WHERE id = ? LIMIT 1');
+            $account->execute([$userId]);
+            if (strtolower(trim((string) $account->fetchColumn())) !== 'active') {
+                return [];
+            }
             $stmt = $pdo->prepare(
                 'SELECT DISTINCT permission_code FROM v_user_permissions_effective
                  WHERE user_id = ? AND permission_code IS NOT NULL AND LENGTH(permission_code) > 0'
@@ -224,7 +244,7 @@ class AiAgentService
      * Resolve the user's roles for NLQ report authorization.
      * Returns array of role objects with id and name.
      */
-    private function resolveUserRoles(PDO $pdo, int $userId): array
+    public function resolveEffectiveRoles(PDO $pdo, int $userId): array
     {
         if ($userId < 1) {
             return [];
@@ -281,8 +301,14 @@ class AiAgentService
 
         if ($mode === 'assist') {
             $question = (string) ($payload['question'] ?? '');
+            // Role-specific presentation is resolved from the authoritative
+            // role tables at execution time, just like permissions. Never
+            // carry a browser or queued role claim into the background prompt.
+            $roles = $this->resolveEffectiveRoles($pdo, $userId);
             $result = $this->assist($pdo, [
                 'user_id' => $userId,
+                'roles' => $roles,
+                'role_names' => array_values(array_map('strval', array_column($roles, 'name'))),
                 'permissions' => $permissions,
                 'effective_permissions' => $permissions,
                 'request_id' => $requestId,
@@ -413,15 +439,40 @@ class AiAgentService
             throw new DomainException('The recorded operator permissions could not be resolved.', 403);
         }
         // Also resolve roles for NLQ report authorization which needs role_ids
-        $roles = $this->resolveUserRoles($pdo, $userId);
+        $roles = $this->resolveEffectiveRoles($pdo, $userId);
         $tool = (string) ($payload['tool'] ?? '');
-        $allowedTools = [AiAgentRegistry::TOOL_NLQ, AiAgentRegistry::TOOL_INSIGHT_BRIEF, AiAgentRegistry::TOOL_CATALOG, self::TOOL_SCAN];
+        $allowedTools = [
+            AiAgentRegistry::TOOL_NLQ,
+            AiAgentRegistry::TOOL_AGGREGATE,
+            AiAgentRegistry::TOOL_CHART,
+            AiAgentRegistry::TOOL_INSIGHT_BRIEF,
+            AiAgentRegistry::TOOL_CATALOG,
+            AiAgentRegistry::TOOL_DRAFT,
+            self::TOOL_SCAN,
+        ];
         if (!in_array($tool, $allowedTools, true)) {
             return ['status' => 'unknown_tool'];
         }
         $toolInput = is_array($payload['tool_input'] ?? null) ? $payload['tool_input'] : [];
         if ($tool === AiAgentRegistry::TOOL_NLQ) {
             $toolInput = ['question' => mb_substr((string) ($toolInput['question'] ?? ''), 0, self::MAX_QUESTION_CHARS)];
+        } elseif ($tool === AiAgentRegistry::TOOL_AGGREGATE) {
+            $aggType = strtolower(trim((string) ($toolInput['agg_type'] ?? 'count')));
+            $toolInput = [
+                'question' => mb_substr((string) ($toolInput['question'] ?? ''), 0, self::MAX_QUESTION_CHARS),
+                'agg_type' => in_array($aggType, ['count', 'sum', 'avg', 'min', 'max'], true) ? $aggType : 'count',
+            ];
+        } elseif ($tool === AiAgentRegistry::TOOL_CHART) {
+            $chartType = strtolower(trim((string) ($toolInput['chart_type'] ?? 'bar')));
+            $toolInput = [
+                'question' => mb_substr((string) ($toolInput['question'] ?? ''), 0, self::MAX_QUESTION_CHARS),
+                'chart_type' => in_array($chartType, ['bar', 'line', 'pie', 'doughnut', 'area'], true) ? $chartType : 'bar',
+            ];
+        } elseif ($tool === AiAgentRegistry::TOOL_DRAFT) {
+            $toolInput = [
+                'template' => mb_substr(trim((string) ($toolInput['template'] ?? '')), 0, 60),
+                'context' => mb_substr(trim((string) ($toolInput['context'] ?? '')), 0, 2000),
+            ];
         } elseif ($tool === AiAgentRegistry::TOOL_INSIGHT_BRIEF) {
             $cadence = (string) ($toolInput['cadence'] ?? 'daily');
             $toolInput = ['cadence' => in_array($cadence, self::VALID_CADENCES, true) ? $cadence : 'daily'];
@@ -476,14 +527,59 @@ class AiAgentService
             'as_of' => gmdate('c'),
         ];
 
-        // Drafts awaiting THIS user's review (separation of duties kept).
+        $domainPermission = [
+            'academics' => 'academic_view',
+            'admissions' => 'admission_view',
+            'attendance' => 'attendance_view',
+            'boarding' => 'attendance_boarding_view',
+            'communications' => 'communications_view',
+            'catering' => 'inventory_view',
+            'activities' => 'activities_view',
+            'curriculum' => 'academic_view',
+            'finance' => 'finance_view',
+            'health' => 'health_view',
+            'counseling' => 'health_view',
+            'inventory' => 'inventory_view',
+            'learners' => 'student_view',
+            'maintenance' => 'maintenance_view',
+            'reports' => 'analytics_catalogue_view',
+            'research' => 'ai_research',
+            'staff' => 'staff_view',
+            'system' => 'system_view',
+            'transport' => 'transport_view',
+        ][$domain] ?? null;
+        $hasDomainAccess = in_array('*', $permissions, true)
+            || ($domain === 'system' && in_array('system_admin', $permissions, true))
+            || ($domainPermission !== null && in_array($domainPermission, $permissions, true));
+        if (!$hasDomainAccess) {
+            $scan['status'] = 'restricted';
+            $scan['scope_status'] = 'restricted';
+            return $scan;
+        }
+
+        // Draft review signals are limited to this workspace's domain and
+        // workflows the operator is authorized to use. Never load draft bodies
+        // into a generic workspace scan.
         try {
-            $pending = (new AiDraftService())->listForReview($pdo, $userId, true);
-            $scan['pending_review_count'] = is_array($pending) ? count($pending) : 0;
-            $scan['pending_review_workflows'] = array_values(array_slice(array_map(
-                static fn(array $draft): string => (string) ($draft['workflow_id'] ?? ''),
-                is_array($pending) ? $pending : []
-            ), 0, 6));
+            $workflowService = new AiWorkflowService();
+            $allowedWorkflowIds = [];
+            foreach (AiWorkflowRegistry::all() as $workflow) {
+                if ((string) ($workflow['domain'] ?? '') !== $domain) continue;
+                try {
+                    $workflowService->authorize((string) ($workflow['id'] ?? ''), [
+                        'user_id' => $userId,
+                        'audience' => 'staff',
+                        'permissions' => $permissions,
+                        'effective_permissions' => $permissions,
+                    ]);
+                    $allowedWorkflowIds[] = (string) $workflow['id'];
+                } catch (DomainException $denied) {
+                    // A denied workflow is deliberately omitted from the scan.
+                }
+            }
+            $pending = (new AiDraftService())->pendingReviewSummary($pdo, $userId, $allowedWorkflowIds);
+            $scan['pending_review_count'] = (int) ($pending['count'] ?? 0);
+            $scan['pending_review_workflows'] = array_slice((array) ($pending['workflows'] ?? []), 0, 6);
         } catch (Throwable $e) {
             $scan['pending_review_count'] = null;
         }
@@ -526,7 +622,12 @@ class AiAgentService
             } catch (Throwable $e) {
                 $scan['system_scan_status'] = 'unavailable';
             }
-        } elseif (in_array($domain, ['finance', 'reports', 'admissions'], true)) {
+        } elseif ($domain === 'reports' && in_array('analytics_catalogue_view', $permissions, true)) {
+            // DirectorAnalyticsService returns a cross-domain executive KPI
+            // bundle. Keep it off finance/admissions workspace scans, where
+            // the caller may only have permission for that single domain.
+            // The reports workspace is already gated by the analytics
+            // catalogue permission and remains the intended entry point.
             try {
                 $kpis = (new DirectorAnalyticsService())->getSummaryKPIs();
                 $compact = [];
@@ -569,21 +670,21 @@ class AiAgentService
         $hints = $this->behavior->hints($userId);
         $tools = array_values(array_map('strval', (array) $agent['tools'] ?? []));
 
-        $system = $this->systemPrompt($agent, $hints);
+        $system = $this->systemPrompt($agent, $hints, $context);
         $toolResults = [];
         $toolsUsed = [];
+        $scopeChecks = [];
+        $charts = [];
         $providerCalls = 0;
-        $messages = [];
+        // Keep the server-owned policy prompt at index 0 on every request,
+        // even when a browser supplies conversation history.
+        $messages = [['role' => 'system', 'content' => $system]];
         $answer = null;
 
-        // Seed conversation history so the model sees previous turns
+        // Seed only the already-filtered user/assistant turns.
         if ($history !== []) {
             foreach ($history as $msg) {
-                $role = (string) ($msg['role'] ?? 'user');
-                $content = (string) ($msg['content'] ?? '');
-                if ($role !== '' && $content !== '') {
-                    $messages[] = ['role' => $role, 'content' => $content];
-                }
+                $messages[] = $msg;
             }
         }
 
@@ -628,14 +729,7 @@ class AiAgentService
                     'question' => $question,
                 ], static fn($value): bool => $value !== null && $value !== []));
 
-                if ($messages === []) {
-                    $messages = [
-                        ['role' => 'system', 'content' => $system],
-                        ['role' => 'user', 'content' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-                    ];
-                } else {
-                    $messages[] = ['role' => 'user', 'content' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)];
-                }
+                $messages[] = ['role' => 'user', 'content' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)];
 
                 $providerCalls++;
                 $response = $this->provider->complete(
@@ -666,6 +760,27 @@ class AiAgentService
 
                 $toolResult = $this->executeTool($pdo, $context, $toolId, $toolInput, $permissions, $requestId);
                 $toolsUsed[] = $toolId;
+                if ($toolId === AiAgentRegistry::TOOL_CHART && ($toolResult['status'] ?? '') === 'answered') {
+                    $chartAnswer = is_array($toolResult['answer'] ?? null) ? $toolResult['answer'] : [];
+                    $chart = $this->boundedChart($chartAnswer['chart'] ?? null);
+                    if ($chart !== null) {
+                        $charts[] = [
+                            'chart' => $chart,
+                            'report_code' => (string) ($chartAnswer['report_code'] ?? ''),
+                            'row_count' => (int) ($chartAnswer['row_count'] ?? count($chart['labels'])),
+                            'preview_limited' => (bool) ($chartAnswer['preview_limited'] ?? false),
+                            'effective_scope' => is_array($chartAnswer['effective_scope'] ?? null) ? $chartAnswer['effective_scope'] : [],
+                        ];
+                    }
+                }
+                $scope = $toolResult['answer']['effective_scope'] ?? $toolResult['effective_scope'] ?? null;
+                if (in_array($toolId, [AiAgentRegistry::TOOL_NLQ, AiAgentRegistry::TOOL_AGGREGATE, AiAgentRegistry::TOOL_CHART], true)
+                    && is_array($scope) && isset($scope['type'])) {
+                    $scopeChecks[] = [
+                        'report_code' => (string) ($toolResult['intent']['report_code'] ?? $toolResult['answer']['report_code'] ?? ''),
+                        'scope' => $scope,
+                    ];
+                }
                 $toolResults[] = $this->compactResult($toolId, $toolResult);
                 $this->behavior->observe($userId, 'tool_use', [
                     'agent_id' => (string) $agent['id'],
@@ -679,6 +794,7 @@ class AiAgentService
                 'status' => 'unavailable',
                 'answer' => null,
                 'tools_used' => $toolsUsed,
+                'scope_checks' => $scopeChecks,
                 'provider_calls' => $providerCalls,
             ];
         }
@@ -693,6 +809,8 @@ class AiAgentService
             'status' => 'answered',
             'answer' => $answer,
             'tools_used' => $toolsUsed,
+            'charts' => array_slice($charts, 0, 3),
+            'scope_checks' => $scopeChecks,
             'provider_calls' => $providerCalls,
         ];
     }
@@ -746,7 +864,7 @@ class AiAgentService
 
             case AiAgentRegistry::TOOL_DRAFT:
                 try {
-                    $this->workflows->authorize(AiDraftService::WORKFLOW, [
+                    $this->workflows->authorize('communications.parent_message_draft', [
                         'user_id' => $userId,
                         'permissions' => $permissions,
                         'audience' => 'staff',
@@ -759,7 +877,7 @@ class AiAgentService
                 if ($template === '') {
                     return ['status' => 'error', 'message' => 'Template is required.'];
                 }
-                return $this->drafts->createDraft($pdo, $context, $template, $ctx);
+                return (new AiDraftService())->createDraft($pdo, $context, $template, $ctx);
 
             case AiAgentRegistry::TOOL_INSIGHT_BRIEF:
                 try {
@@ -837,14 +955,50 @@ class AiAgentService
     }
 
     /** Assemble the agent system prompt: versioned runtime contract + persona + tools. */
-    private function systemPrompt(array $agent, array $hints): string
+    private function systemPrompt(array $agent, array $hints, array $context): string
     {
         $prompt = $this->templates->resolve(self::WORKFLOW_CHAT);
         $parts = [(string) $prompt['content']];
         $parts[] = 'AGENT PERSONA — ' . (string) $agent['name'] . ': ' . (string) $agent['persona'];
         $parts[] = 'AGENT GOAL: ' . (string) $agent['goal'];
         $parts[] = "TOOLS AVAILABLE (use exact ids):\n- " . implode("\n- ", AiAgentRegistry::toolSummaries($agent));
+        $profile = $this->assistantProfile($context);
+        $roleGuidance = [
+            'director' => 'ROLE FOCUS: prepare concise executive briefings across domains; highlight material changes and risks; cite the reporting period and evidence; separate observed facts from possible explanations. Use only the user\'s authorized reports.',
+            'school_administrator' => 'ROLE FOCUS: help coordinate day-to-day school operations, admissions review, timetable planning, reports, and staff follow-up. Prepare editable recommendations and drafts using only authorized workflows and existing approval steps.',
+            'system_admin' => 'ROLE FOCUS: monitor operational health, analyze authorized error and security signals, and recommend bounded fixes. Never self-authorize, expose secrets or personal records, or change system state.',
+        ];
+        if (isset($roleGuidance[$profile])) {
+            $parts[] = $roleGuidance[$profile];
+        }
         return implode("\n\n", $parts);
+    }
+
+    /** Resolve presentation profile from the authenticated server context only. */
+    private function assistantProfile(array $context): string
+    {
+        $roles = [];
+        foreach ((array) ($context['roles'] ?? $context['role_names'] ?? []) as $role) {
+            if (is_array($role)) {
+                $role = $role['name'] ?? $role['role_name'] ?? $role['label'] ?? $role['slug'] ?? '';
+            } elseif (is_object($role)) {
+                $role = $role->name ?? $role->role_name ?? $role->label ?? $role->slug ?? '';
+            }
+            if (is_scalar($role)) {
+                $roles[] = strtolower(trim(preg_replace('/[^a-z0-9]+/i', ' ', (string) $role)));
+            }
+        }
+        if (in_array('system_admin', $this->permissionsOf($context), true)
+            || array_intersect($roles, ['system administrator', 'system admin']) !== []) {
+            return 'system_admin';
+        }
+        if (array_intersect($roles, ['director', 'director owner']) !== []) {
+            return 'director';
+        }
+        if (array_intersect($roles, ['school administrator', 'school admin']) !== []) {
+            return 'school_administrator';
+        }
+        return 'staff';
     }
 
     /** @return list<string> bounded "key=value" hint lines for the envelope */
@@ -883,6 +1037,11 @@ class AiAgentService
             }
             $value = $result[$field];
             if (is_array($value)) {
+                if ($field === 'effective_scope') {
+                    $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    $compact[$field] = is_string($value) ? mb_substr($value, 0, 180) : '{}';
+                    continue;
+                }
                 $value = array_slice($value, 0, 6);
                 $value = array_map(static fn($item) => is_scalar($item) ? mb_substr((string) $item, 0, 120) : null, $value);
                 $compact[$field] = array_values(array_filter($value, 'is_scalar'));
@@ -896,6 +1055,36 @@ class AiAgentService
             $encoded = mb_substr($encoded, 0, self::MAX_TOOL_RESULT_CHARS - 3) . '...';
         }
         return $encoded;
+    }
+
+    /** Keep only the bounded chart contract produced by governed reports. */
+    private function boundedChart($chart): ?array
+    {
+        if (!is_array($chart) || !in_array((string) ($chart['type'] ?? ''), ['bar', 'line', 'pie', 'doughnut', 'area'], true)) {
+            return null;
+        }
+        $labels = array_slice(is_array($chart['labels'] ?? null) ? $chart['labels'] : [], 0, 25);
+        $datasets = [];
+        foreach (array_slice(is_array($chart['datasets'] ?? null) ? $chart['datasets'] : [], 0, 4) as $dataset) {
+            if (!is_array($dataset)) continue;
+            $data = array_slice(is_array($dataset['data'] ?? null) ? $dataset['data'] : [], 0, count($labels));
+            $data = array_map(static function ($value) {
+                return is_numeric($value) && is_finite((float) $value) ? (float) $value : null;
+            }, $data);
+            $datasets[] = [
+                'label' => mb_substr((string) ($dataset['label'] ?? 'Values'), 0, 80),
+                'data' => $data,
+                'backgroundColor' => $dataset['backgroundColor'] ?? null,
+                'borderColor' => $dataset['borderColor'] ?? null,
+            ];
+        }
+        if ($labels === [] || $datasets === []) return null;
+        return [
+            'type' => (string) $chart['type'],
+            'title' => mb_substr((string) ($chart['title'] ?? 'Report chart'), 0, 120),
+            'labels' => array_values(array_map(static fn($label): string => mb_substr((string) $label, 0, 120), $labels)),
+            'datasets' => $datasets,
+        ];
     }
 
     /**
@@ -1015,10 +1204,10 @@ class AiAgentService
         };
         if ((int) ($scan['pending_review_count'] ?? 0) > 0) {
             $add(
-                (int) $scan['pending_review_count'] . ' AI draft(s) await your review',
+                (int) $scan['pending_review_count'] . ' AI draft(s) need an authorized review',
                 'info',
-                'Assistants prepared drafts that need a second person to approve before they become official.',
-                'Open the module workspace(s): ' . implode(', ', (array) ($scan['pending_review_workflows'] ?? [])) . ' and approve or reject each draft.'
+                'Assistants prepared drafts that need a separate authorized reviewer before they become official.',
+                'Check the relevant workspace(s): ' . implode(', ', (array) ($scan['pending_review_workflows'] ?? [])) . ' and route each draft to a staff member with review access.'
             );
         }
         if ((int) ($scan['queue_stale'] ?? 0) > 0) {
@@ -1093,9 +1282,9 @@ class AiAgentService
     /** @return list<string> */
     private function permissionsOf(array $context): array
     {
-        return array_values(array_unique(array_map('strval', array_merge(
-            (array) ($context['effective_permissions'] ?? []),
-            (array) ($context['permissions'] ?? [])
-        ))));
+        // An explicitly resolved empty permission set is meaningful: never
+        // widen it with the less authoritative legacy permission hint.
+        $permissions = $context['effective_permissions'] ?? $context['permissions'] ?? [];
+        return array_values(array_unique(array_map('strval', (array) $permissions)));
     }
 }

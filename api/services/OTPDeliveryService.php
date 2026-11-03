@@ -60,7 +60,7 @@ class OTPDeliveryService
 
         if ($this->messageService) {
             try {
-                return $this->messageService->sendEmail($email, $subject, $body);
+                return $this->messageService->sendEmail($email, $subject, $body, [], false, false);
             } catch (\Throwable $e) {
                 \App\API\Services\Logger::legacyError("[OTPDelivery] Email failed: " . $e->getMessage());
                 return false;
@@ -138,7 +138,7 @@ class OTPDeliveryService
 
         if ($this->messageService) {
             try {
-                return $this->messageService->sendEmail($email, $subject, $body);
+                return $this->messageService->sendEmail($email, $subject, $body, [], false, false);
             } catch (\Throwable $e) {
                 \App\API\Services\Logger::legacyError("[OTPDelivery] Backup codes email failed: " . $e->getMessage());
                 return false;

@@ -82,7 +82,7 @@ class HealthController extends BaseController
         catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
     }
 
-    private function aiWelfareContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
+    private function aiWelfareContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
     private function canUseAiWelfare(): bool { try { $this->contract(AiWorkflowService::class)->authorize('health.welfare_review', $this->aiWelfareContext()); return true; } catch (DomainException $e) { return false; } }
     private function canApproveAiWelfare(): bool { return $this->userHasAny(['health_manage', 'health_view'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'school nurse', 'admin']); }
 

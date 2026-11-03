@@ -72,8 +72,10 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term</th><th scope="col">Week</th><th scope="col">Date</th><th scope="col">Day</th><th scope="col">Event</th><th scope="col">Type</th><th scope="col">Actions</th></tr></thead>
-                    <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="yearCalendarBody"><tr id="yearCalendarState"><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                 </table>
+                <template id="yearCalendarRowTemplate"><tr data-year-calendar-row><td data-fill="number"></td><td data-fill="term"></td><td data-fill="week"></td><td data-fill="date"></td><td data-fill="day"></td><td><strong data-fill="event-name"></strong><span class="badge bg-danger-subtle text-danger ms-1" data-fill="manual" hidden>Manual</span><div class="mt-1" data-fill="events"></div></td><td><span class="badge" data-fill="type"></span></td><td><button class="btn btn-sm btn-outline-primary" data-action="edit" type="button" title="Mark holiday / edit day"><i class="fas fa-calendar-day"></i></button></td></tr></template>
+                <template id="yearCalendarEventBadgeTemplate"><span class="badge bg-info-subtle text-info border border-info me-1"></span></template>
             </div>
         </div>
     </div>

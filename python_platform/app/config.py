@@ -120,6 +120,11 @@ class Config:
         self.provider_retries = _env_int("AI_PROVIDER_RETRIES", 2)
         self.retry_delay_ms = _env_int("AI_PROVIDER_RETRY_DELAY_MS", 250)
         self.enabled = _env_bool("AI_ENABLED", False)
+        # Source-code context is proprietary school material. Keep it disabled
+        # unless an operator explicitly enables it for a loopback-only model.
+        self.allow_system_code_context = _env_bool(
+            "AI_ALLOW_SYSTEM_CODE_CONTEXT", False
+        )
 
         # Additional fallback providers as a JSON list, mirroring the
         # PHP gateway contract: [{"name","base_url","model","api_key"?,"provider_kind"?}]

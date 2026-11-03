@@ -48,10 +48,7 @@ final class AiAnalyticsInsightService
         }
         (new AiWorkflowService())->authorize('reports.kpi_brief', [
             'user_id' => $actor['id'],
-            'permissions' => array_values(array_unique(array_merge(
-                $actor['effective_permissions'],
-                $actor['permissions']
-            ))),
+            'permissions' => array_values(array_unique($actor['effective_permissions'])),
         ]);
 
         $jobId = JobQueue::push('ai.analytics.insight', [
@@ -111,10 +108,7 @@ final class AiAnalyticsInsightService
             'reports.kpi_brief',
             [
                 'user_id' => (int) $user['id'],
-                'permissions' => array_values(array_unique(array_merge(
-                    (array) ($user['effective_permissions'] ?? []),
-                    (array) ($user['permissions'] ?? [])
-                ))),
+                'permissions' => array_values(array_unique((array) ($user['effective_permissions'] ?? $user['permissions'] ?? []))),
                 'request_id' => $requestId,
             ],
             $input,

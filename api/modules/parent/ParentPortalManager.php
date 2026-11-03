@@ -121,11 +121,11 @@ class ParentPortalManager extends BaseAPI
      */
     public function postLogin(array $data): array
     {
-        $identifier = trim((string)($data['email'] ?? ''));
+        $identifier = trim((string)($data['identifier'] ?? $data['username'] ?? $data['email'] ?? ''));
         $password   = (string)($data['password'] ?? '');
 
         if ($identifier === '' || $password === '') {
-            return $this->errorResponse('Email or phone and password are required', 400);
+            return $this->errorResponse('Phone, email, or username and password are required', 400);
         }
 
         // Build a match clause: exact email, or phone equal to any plausible
@@ -133,14 +133,14 @@ class ParentPortalManager extends BaseAPI
         // the staff side uses the same person row, so phone login lands on the
         // exact same parent account.
         $phoneVariants = $this->phoneLookupVariants($identifier);
-        $phoneOrEmail  = 'p.email = :email';
-        $params        = [':email' => $identifier];
+        $phoneOrEmail  = 'u.username = :username OR LOWER(p.email) = LOWER(:email)';
+        $params        = [':username' => $identifier, ':email' => $identifier];
         if ($phoneVariants !== []) {
             $ands = [];
             foreach ($phoneVariants as $i => $variant) {
                 $key = ':phone_'.$i;
                 // Stored phones may carry a leading '+'/spacing; compare digits-only.
-                $ands[] = "REPLACE(REPLACE(p.phone, '+', ''), ' ', '') = {$key}";
+                $ands[] = "REGEXP_REPLACE(p.phone, '[^0-9]', '') = {$key}";
                 $params[$key] = $variant;
             }
             $phoneOrEmail .= ' OR '.implode(' OR ', $ands);
@@ -148,8 +148,8 @@ class ParentPortalManager extends BaseAPI
 
         try {
             $stmt = $this->db->prepare(
-                "SELECT u.id AS user_id, pr.id AS parent_id,
-                        p.first_name, p.last_name, p.email,
+                "SELECT u.id AS user_id, u.username, p.id AS person_id, pr.id AS parent_id,
+                        p.first_name, p.last_name, p.email, p.phone,
                        u.password_hash, u.status AS user_status,
                        u.data_scope AS user_data_scope, p.data_scope AS person_data_scope
                 FROM users u
@@ -167,10 +167,14 @@ class ParentPortalManager extends BaseAPI
                         AND r.id = 73
                         AND r.name = 'Parent'
                   )
-                 LIMIT 1"
+                 ORDER BY u.id ASC"
             );
             $stmt->execute($params);
-            $parent = $stmt->fetch(PDO::FETCH_ASSOC);
+            $matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (count($matches) > 1) {
+                return $this->errorResponse('This login identifier matches more than one parent account. Contact the school office to resolve your account details.', 409);
+            }
+            $parent = $matches[0] ?? null;
 
             if (!$parent) {
                 // Symmetric guard: a real staff-only account that tries the
@@ -197,14 +201,56 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Invalid email/phone or password', 401);
             }
 
-            $otpSessionId = $this->sendParentEmailOtp((int)$parent['user_id'], (string)$parent['email']);
-            if (!$otpSessionId) return $this->errorResponse('Verification email could not be delivered. Please try again later.', 503);
+            // Test accounts may use fictitious contact details. Apply the same
+            // explicit access gate and MFA bypass used by the staff login path.
+            $testAccess = new \App\API\Services\TestAccountAccessService($this->db);
+            try {
+                $testAccess->requireAccess((int)$parent['user_id']);
+            } catch (\DomainException $e) {
+                return $this->errorResponse($e->getMessage(), 403);
+            }
+            if ($testAccess->mfaBypassAllowed((int)$parent['user_id'])) {
+                \App\API\Services\Logger::audit(
+                    'test_mfa_bypass',
+                    'user',
+                    (int)$parent['user_id'],
+                    'MFA was bypassed for an explicitly flagged test account in the Parent Portal.',
+                    ['username' => $parent['username'] ?? null]
+                );
+                $session = $this->createSession(
+                    (int)$parent['user_id'],
+                    (int)$parent['person_id'],
+                    (int)$parent['parent_id']
+                );
+                return $this->successResponse([
+                    'token'      => $session['token'],
+                    'expires_at' => $session['expires_at'],
+                    'csrf_token' => $session['csrf_token'],
+                    'parent'     => [
+                        'id'         => (int)$parent['parent_id'],
+                        'first_name' => $parent['first_name'],
+                        'last_name'  => $parent['last_name'],
+                        'email'      => $parent['email'],
+                    ],
+                ], 'Login successful');
+            }
+
+            $email = trim((string) ($parent['email'] ?? ''));
+            $phone = trim((string) ($parent['phone'] ?? ''));
+            $method = $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) ? 'email' : 'sms';
+            $destination = $method === 'email' ? $email : $phone;
+            if ($method === 'sms' && \App\API\Services\PhoneNumberNormalizer::normalize($phone) === null) {
+                return $this->errorResponse('No usable email address or phone number is recorded for this account. Contact the school office to update your details.', 422);
+            }
+            $otp = $this->sendParentLoginOtp((int)$parent['user_id'], $method, $destination);
+            if (!$otp) return $this->errorResponse('The verification code could not be delivered. Please try again later.', 503);
             return $this->successResponse([
                 'requires_otp' => true,
-                'otp_session_id' => $otpSessionId,
-                'masked_destination' => $this->maskEmail((string)$parent['email']),
+                'otp_session_id' => $otp['id'],
+                'otp_method' => $method,
+                'masked_destination' => $method === 'email' ? $this->maskEmail($destination) : $this->maskPhone($destination),
                 'expires_in' => 600,
-            ], 'Enter the verification code sent to your email.');
+            ], 'Enter the verification code sent to your ' . ($method === 'email' ? 'email address.' : 'phone.'));
         } catch (\RuntimeException $e) {
             if ($e->getCode() === 429) return $this->errorResponse($e->getMessage(), 429);
             \App\API\Services\Logger::legacyError('[ParentPortalManager] '.$e->getMessage());
@@ -329,6 +375,9 @@ class ParentPortalManager extends BaseAPI
         } elseif (str_starts_with($digits, '7')) {
             $variants[] = '2547' . substr($digits, 1);
             $variants[] = '07' . substr($digits, 1);
+        } elseif (str_starts_with($digits, '1')) {
+            $variants[] = '2541' . substr($digits, 1);
+            $variants[] = '01' . substr($digits, 1);
         }
 
         // The canonical form is preferred; it is matched first.
@@ -385,24 +434,36 @@ class ParentPortalManager extends BaseAPI
         return rtrim($baseUrl, '/') . '/index.php?route=r6d394ab20b0b';
     }
 
-    private function sendParentEmailOtp(int $userId, string $email): ?int
+    private function sendParentLoginOtp(int $userId, string $method, string $destination): ?array
     {
         try {
             $tfa = new \App\API\Services\TwoFactorService($this->db);
-            $code = $tfa->generateOTP($userId, 'email', 'login');
+            $code = $tfa->generateOTP($userId, $method, 'login');
             if (!$code) return null;
-            if (!(new OTPDeliveryService())->sendEmailOTP($email, $code, 'login')) {
-                $tfa->invalidateLatestOTP($userId, 'login', 'email');
+            $delivery = new OTPDeliveryService();
+            $sent = $method === 'email'
+                ? $delivery->sendEmailOTP($destination, $code, 'login')
+                : $delivery->sendSMSOTP($destination, $code, 'login');
+            if (!$sent) {
+                $tfa->invalidateLatestOTP($userId, 'login', $method);
                 return null;
             }
-            $stmt = $this->db->prepare("SELECT id FROM user_2fa_otp_sessions WHERE user_id=? AND otp_type='login' AND method='email' AND verified=0 ORDER BY id DESC LIMIT 1");
-            $stmt->execute([$userId]);
-            return (int)($stmt->fetchColumn() ?: 0) ?: null;
+            $stmt = $this->db->prepare("SELECT id FROM user_2fa_otp_sessions WHERE user_id=? AND otp_type='login' AND method=? AND verified=0 ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$userId, $method]);
+            $id = (int) ($stmt->fetchColumn() ?: 0);
+            return $id > 0 ? ['id' => $id, 'method' => $method] : null;
         } catch (\RuntimeException $error) {
             if ($error->getCode() === 429) throw $error;
-            \App\API\Services\Logger::legacyError('[ParentPortal] Email OTP failed: '.$error->getMessage());
+            \App\API\Services\Logger::legacyError('[ParentPortal] Login OTP failed: '.$error->getMessage());
             return null;
         }
+    }
+
+    private function maskPhone(string $phone): string
+    {
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+        if (strlen($digits) < 5) return 'the registered phone number';
+        return str_repeat('*', max(0, strlen($digits) - 4)) . substr($digits, -4);
     }
 
     private function maskEmail(string $email): string

@@ -28,6 +28,12 @@ const ManageHolidaysController = (() => {
         document.getElementById('searchInput')?.addEventListener('input', filterData);
         document.getElementById('typeFilter')?.addEventListener('change', filterData);
         document.getElementById('dateFilter')?.addEventListener('change', filterData);
+        document.getElementById('holidayTableBody')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-action]');
+            if (!button) return;
+            if (button.dataset.action === 'edit') editRecord(Number(button.dataset.index));
+            if (button.dataset.action === 'delete') deleteRecord(Number(button.dataset.id), button.dataset.name || '');
+        });
     }
 
     async function loadData() {
@@ -57,33 +63,59 @@ const ManageHolidaysController = (() => {
 
     function renderTable(items) {
         filtered = items;
-        const tbody = document.querySelector('#dataTable tbody');
+        const tbody = document.getElementById('holidayTableBody');
         if (!tbody) return;
+        const stateRow = document.getElementById('holidayTableState');
+        const stateCell = stateRow?.querySelector('td');
+        tbody.querySelectorAll('[data-holiday-row]').forEach((row) => row.remove());
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No holidays found</td></tr>';
+            if (stateCell) stateCell.textContent = 'No holidays found';
+            if (stateRow) stateRow.hidden = false;
             return;
         }
-        tbody.innerHTML = items
-            .map((h, i) => {
+        if (stateRow) stateRow.hidden = true;
+        const template = document.getElementById('holidayRowTemplate');
+        if (!template) return;
+        const typeColors = { national: 'warning', religious: 'info', inter_term: 'success', school: 'secondary' };
+        const fragment = document.createDocumentFragment();
+        items.forEach((h, i) => {
                 const type = h.holiday_type || 'school';
-                const typeColors = { national: 'warning', religious: 'info', inter_term: 'success', school: 'secondary' };
                 const days = daysBetween(h.start_date, h.end_date);
                 const active = String(h.is_active) === '1';
-                return `<tr class="${active ? '' : 'text-muted'}">
-                    <td>${i + 1}</td>
-                    <td><strong>${escapeHtml(h.name)}</strong>${h.description ? `<div class="small text-muted">${escapeHtml(h.description)}</div>` : ''}</td>
-                    <td><span class="badge bg-${typeColors[type] || 'secondary'}">${escapeHtml(TYPE_LABELS[type] || type)}</span></td>
-                    <td>${escapeHtml(h.start_date)}</td>
-                    <td>${escapeHtml(h.end_date || h.start_date)}</td>
-                    <td>${days}</td>
-                    <td><span class="badge bg-${active ? 'success' : 'secondary'}">${active ? 'Active' : 'Inactive'}</span></td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary me-1" onclick="ManageHolidaysController.editRecord(${i})" title="Edit / re-date"><i class="fas fa-edit"></i></button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="ManageHolidaysController.deleteRecord(${h.id}, '${escapeAttr(h.name)}')" title="Delete"><i class="fas fa-trash"></i></button>
-                    </td>
-                </tr>`;
-            })
-            .join('');
+                const row = template.content.firstElementChild.cloneNode(true);
+                const set = (field, value) => {
+                    const element = row.querySelector(`[data-field="${field}"]`);
+                    if (element) element.textContent = value ?? '—';
+                };
+                row.classList.toggle('text-muted', !active);
+                set('number', String(i + 1));
+                set('name', h.name || '—');
+                set('start', h.start_date || '—');
+                set('end', h.end_date || h.start_date || '—');
+                set('days', String(days));
+                const description = row.querySelector('[data-field="description"]');
+                if (description) {
+                    description.textContent = h.description || '';
+                    description.hidden = !h.description;
+                }
+                const typeBadge = row.querySelector('[data-field="type"]');
+                if (typeBadge) {
+                    typeBadge.textContent = TYPE_LABELS[type] || type;
+                    typeBadge.classList.add(`bg-${typeColors[type] || 'secondary'}`);
+                }
+                const activeBadge = row.querySelector('[data-field="active"]');
+                if (activeBadge) {
+                    activeBadge.textContent = active ? 'Active' : 'Inactive';
+                    activeBadge.classList.add(active ? 'bg-success' : 'bg-secondary');
+                }
+                row.querySelectorAll('[data-action]').forEach((button) => {
+                    button.dataset.index = String(allData.indexOf(h));
+                    button.dataset.id = String(h.id ?? '');
+                    if (button.dataset.action === 'delete') button.dataset.name = h.name || '';
+                });
+                fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow || null);
     }
 
     function filterData() {
@@ -98,7 +130,7 @@ const ManageHolidaysController = (() => {
     }
 
     function showAddModal() {
-        document.getElementById("formModalTitle").innerHTML = '<i class="fas fa-calendar-plus me-2"></i>Add Holiday';
+        document.querySelector("#formModalTitle [data-modal-title]").textContent = 'Add Holiday';
         document.getElementById('recordForm').reset();
         document.getElementById('recordId').value = '';
         document.getElementById("recordType").value = 'national';
@@ -108,7 +140,7 @@ const ManageHolidaysController = (() => {
 
     function editRecord(index) {
         const h = allData[index]; if (!h) return;
-        document.getElementById("formModalTitle").innerHTML = '<i class="fas fa-edit me-2"></i>Edit Holiday';
+        document.querySelector("#formModalTitle [data-modal-title]").textContent = 'Edit Holiday';
         document.getElementById('recordId').value = h.id;
         document.getElementById("recordName").value = h.name || '';
         document.getElementById("recordType").value = h.holiday_type || 'school';

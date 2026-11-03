@@ -126,6 +126,7 @@ const AuthenticationLogsController = {
         "refreshAuthenticationLogsBtn",
       ),
       tableBody: document.getElementById("authenticationLogsTableBody"),
+      tableState: document.getElementById("authenticationLogsTableState"),
       count: document.getElementById("authenticationLogsCount"),
       previousButton: document.getElementById(
         "authenticationLogsPreviousPage",
@@ -439,8 +440,13 @@ const AuthenticationLogsController = {
     }
 
     const template = document.getElementById("authenticationLogsRowTemplate");
+    this.elements.tableBody.querySelectorAll("[data-authentication-log-row]").forEach((row) => row.remove());
+    if (this.elements.tableState) this.elements.tableState.hidden = true;
     const rows = this.state.logs.map((log) => this.buildLogRow(template, log));
-    this.elements.tableBody.replaceChildren(...rows);
+    rows.forEach((row) => {
+      row.dataset.authenticationLogRow = "1";
+      this.elements.tableBody.insertBefore(row, this.elements.tableState || null);
+    });
   },
 
   buildLogRow(template, log) {
@@ -559,22 +565,18 @@ const AuthenticationLogsController = {
   },
 
   showTableLoading() {
-    this.showTableMessage(
-      '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading authentication logs...',
-      "text-primary",
-      true,
-    );
+    this.showTableMessage("Loading authentication logs...", "text-primary");
   },
 
-  showTableMessage(message, className = "text-muted", allowMarkup = false) {
+  showTableMessage(message, className = "text-muted") {
     if (!this.elements.tableBody) return;
-    const content = allowMarkup ? message : this.escapeHtml(message);
-    this.elements.tableBody.innerHTML = `
-      <tr>
-        <td colspan="6" class="text-center py-5 ${className}">
-          ${content}
-        </td>
-      </tr>`;
+    this.elements.tableBody.querySelectorAll("[data-authentication-log-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + className;
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   showState(message, type = "info") {
