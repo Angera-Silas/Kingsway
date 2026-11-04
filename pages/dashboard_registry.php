@@ -60,7 +60,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="dashboardRegistryTableBody">
-                    <tr>
+                    <tr id="dashboardRegistryTableState">
                         <td colspan="6" class="text-center py-5 text-muted">Loading dashboards...</td>
                     </tr>
                 </tbody>

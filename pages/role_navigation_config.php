@@ -55,7 +55,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="roleNavigationConfigTableBody">
-                    <tr>
+                    <tr id="roleNavigationConfigTableState">
                         <td colspan="5" class="text-center py-5 text-muted">Loading role navigation...</td>
                     </tr>
                 </tbody>

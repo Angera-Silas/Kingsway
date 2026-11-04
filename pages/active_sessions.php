@@ -128,7 +128,7 @@
                     </tr>
                 </thead>
                 <tbody id="activeSessionsTableBody">
-                    <tr>
+                    <tr id="activeSessionsTableState">
                         <td colspan="8" class="text-center py-5 text-muted">
                             Waiting for authentication...
                         </td>

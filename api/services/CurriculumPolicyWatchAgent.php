@@ -54,6 +54,9 @@ final class CurriculumPolicyWatchAgent
     /** @var callable(PDO,string,string,array,array):int */
     private $broadcaster;
 
+    /** @var callable(PDO,int):list<string>|null authoritative permission resolver seam */
+    private $permissionResolver;
+
     /** @var string absolute path of the baseline state file */
     private $stateFile;
 
@@ -65,12 +68,14 @@ final class CurriculumPolicyWatchAgent
      * @param string|null                  $stateFile override the baseline state file path (tests).
      * @param AiDraftService|null          $drafts override the draft service (tests).
      * @param callable|null                $broadcaster override the realtime dispatch (tests).
+     * @param callable(PDO,int):list<string>|null $permissionResolver authoritative worker permission resolver (tests).
      */
     public function __construct(
         ?callable $queuer = null,
         ?string $stateFile = null,
         ?AiDraftService $drafts = null,
-        ?callable $broadcaster = null
+        ?callable $broadcaster = null,
+        ?callable $permissionResolver = null
     ) {
         $this->queuer = $queuer ?? static function (string $type, array $payload): int {
             return JobQueue::push($type, $payload, 0, 3, 60);
@@ -86,6 +91,7 @@ final class CurriculumPolicyWatchAgent
         ): int {
             return EventBroadcaster::dispatch($pdo, $domain, $eventName, $payload, $targetScopes);
         };
+        $this->permissionResolver = $permissionResolver;
     }
 
     /**
@@ -244,7 +250,9 @@ final class CurriculumPolicyWatchAgent
         if ($userId < 1) {
             throw new DomainException('A valid operator is required for curriculum interpretation.', 422);
         }
-        $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
+        $permissions = $this->permissionResolver !== null
+            ? (array) call_user_func($this->permissionResolver, $pdo, $userId)
+            : (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
         if ($permissions === []) {
             throw new DomainException('Current operator permissions could not be resolved.', 403);
         }

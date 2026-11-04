@@ -56,7 +56,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="sidebarMenusTableBody">
-                    <tr>
+                    <tr id="sidebarMenusTableState">
                         <td colspan="5" class="text-center py-5 text-muted">Loading role navigation...</td>
                     </tr>
                 </tbody>

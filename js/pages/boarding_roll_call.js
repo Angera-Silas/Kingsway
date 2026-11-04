@@ -99,19 +99,42 @@ const boardingRollCallController = {
   },
   renderRoster() {
     const body = document.getElementById('studentsTableBody'); if (!body) return;
-    body.innerHTML = this.state.students.map((student, index) => {
+    const stateRow = document.getElementById('studentsTableState');
+    body.querySelectorAll('[data-boarding-student-row]').forEach((row) => row.remove());
+    if (!this.state.students.length) {
+      if (stateRow) { stateRow.hidden = false; stateRow.querySelector('td').textContent = 'No learners in this dormitory.'; }
+      this.renderStats();
+      return;
+    }
+    if (stateRow) stateRow.hidden = true;
+    const template = document.getElementById('boardingRollCallRowTemplate');
+    const fragment = document.createDocumentFragment();
+    this.state.students.forEach((student, index) => {
       const status = this.status(student);
-      const label = `${student.first_name || ''} ${student.last_name || ''}`.trim();
-      return `<tr class="student-row ${student.permission_id ? 'has-permission' : ''}">
-        <td>${index + 1}</td><td>${this.esc(student.admission_no || '—')}</td><td class="fw-semibold">${this.esc(label || student.student_name || '—')}</td>
-        <td>${this.esc(student.class_name || '—')}</td><td>${this.esc(student.bed_number || '—')}</td>
-        <td>${student.permission_id ? `<span class="badge bg-warning text-dark">${this.esc(student.permission_type || 'Approved leave')}${student.permission_until ? ` until ${this.esc(student.permission_until)}` : ''}</span>` : '—'}</td>
-        <td><select class="form-select form-select-sm" data-student-status="${Number(student.id)}" aria-label="Attendance status for ${this.esc(label)}">
-          ${[['unknown','Not marked'],['present','Present'],['absent','Absent'],['permission','On permission'],['sick_bay','Sick bay']].map(([value,text]) => `<option value="${value}" ${status === value ? 'selected' : ''}>${text}</option>`).join('')}
-        </select></td></tr>`;
-    }).join('');
+      const label = `${student.first_name || ''} ${student.last_name || ''}`.trim() || student.student_name || '—';
+      const row = template.content.cloneNode(true);
+      const tr = row.querySelector('tr');
+      tr.classList.toggle('has-permission', Boolean(student.permission_id));
+      row.querySelector('[data-fill="number"]').textContent = String(index + 1);
+      row.querySelector('[data-fill="admission"]').textContent = student.admission_no || '—';
+      row.querySelector('[data-fill="name"]').textContent = label;
+      row.querySelector('[data-fill="class"]').textContent = student.class_name || '—';
+      row.querySelector('[data-fill="bed"]').textContent = student.bed_number || '—';
+      const permission = row.querySelector('[data-fill="permission"]');
+      if (student.permission_id) {
+        permission.textContent = (student.permission_type || 'Approved leave') + (student.permission_until ? ` until ${student.permission_until}` : '');
+        permission.className = 'badge bg-warning text-dark';
+      } else permission.textContent = '—';
+      const select = row.querySelector('[data-student-status]');
+      select.value = status;
+      select.dataset.studentStatus = String(Number(student.id));
+      select.setAttribute('aria-label', `Attendance status for ${label}`);
+      fragment.appendChild(row);
+    });
+    body.insertBefore(fragment, stateRow || null);
     this.renderStats();
   },
+
   renderStats() {
     const count = (status) => [...document.querySelectorAll('[data-student-status]')].filter((el) => el.value === status).length;
     const values = { statTotal: this.state.students.length, statPresent: count('present'), statAbsent: count('absent'), statPermission: count('permission'), statSickBay: count('sick_bay') };

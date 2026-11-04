@@ -76,6 +76,7 @@ const ApiMetricsController = {
       search: document.getElementById("apiMetricsSearch"),
       count: document.getElementById("apiMetricsCount"),
       body: document.getElementById("apiMetricsTableBody"),
+      tableState: document.getElementById("apiMetricsTableState"),
       rowTemplate: document.getElementById("apiMetricsRowTemplate"),
       exportCsvBtn: document.getElementById("apiMetricsExportCsvBtn"),
       printBtn: document.getElementById("apiMetricsPrintBtn"),
@@ -85,6 +86,8 @@ const ApiMetricsController = {
       pageIndicator: document.getElementById("apiMetricsPageIndicator"),
       distribution: document.getElementById("apiMetricsDistribution"),
       trend: document.getElementById("apiMetricsTrend"),
+      distributionTemplate: document.getElementById("apiMetricsDistributionRowTemplate"),
+      trendTemplate: document.getElementById("apiMetricsTrendItemTemplate"),
     };
   },
 
@@ -110,12 +113,13 @@ const ApiMetricsController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="5" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-api-metrics-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.textContent = message;
+      cell.className = `text-center py-5 ${className || "text-muted"}`;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -235,10 +239,10 @@ const ApiMetricsController = {
   errorBadge(errors, calls) {
     const total = this.num(calls);
     const count = Math.max(0, Math.min(this.num(errors), total));
-    if (total <= 0) return `<span class="badge bg-secondary">0%</span>`;
+    if (total <= 0) return { label: "0%", tone: "bg-secondary" };
     const ratio = count / total;
     const tone = ratio === 0 ? "bg-success" : ratio < 0.05 ? "bg-warning text-dark" : "bg-danger";
-    return `<span class="badge ${tone}">${(ratio * 100).toFixed(1)}%</span>`;
+    return { label: `${(ratio * 100).toFixed(1)}%`, tone };
   },
 
   render() {
@@ -248,26 +252,31 @@ const ApiMetricsController = {
     if (!pageRows.length) {
       this.showTableMessage("No endpoints found." + (this.state.search ? " Adjust your search." : ""));
     } else {
+      this.elements.body.querySelectorAll("[data-api-metrics-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
       const maxCalls = Math.max(1, ...this.state.filtered.map((row) => this.rowCalls(row)));
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const calls = this.rowCalls(row);
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="path"]').textContent = row.path ?? row.endpoint ?? row.route ?? "—";
-          fragment.querySelector('[data-fill="calls"]').textContent = calls.toLocaleString();
-          const avg = this.rowAvg(row);
-          fragment.querySelector('[data-fill="avg"]').textContent = (Number(avg) || 0) + " ms";
-          const errors = this.rowErrors(row);
-          fragment.querySelector('[data-fill="errorRate"]').outerHTML = this.errorBadge(errors, calls);
-          const bar = fragment.querySelector('[data-fill="share"]');
-          const share = Math.round((calls / maxCalls) * 100);
-          bar.style.width = share + "%";
-          bar.classList.add("bg-primary");
-          bar.setAttribute("aria-valuenow", String(share));
-          bar.textContent = "";
-          return fragment.querySelector("tr").outerHTML;
-        })
-        .join("");
+      const fragment = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const calls = this.rowCalls(row);
+        const rowFragment = this.elements.rowTemplate.content.cloneNode(true);
+        rowFragment.querySelector('[data-fill="path"]').textContent = row.path ?? row.endpoint ?? row.route ?? "—";
+        rowFragment.querySelector('[data-fill="calls"]').textContent = calls.toLocaleString();
+        const avg = this.rowAvg(row);
+        rowFragment.querySelector('[data-fill="avg"]').textContent = (Number(avg) || 0) + " ms";
+        const errors = this.rowErrors(row);
+        const badge = rowFragment.querySelector('[data-fill="errorRate"]');
+        const badgeData = this.errorBadge(errors, calls);
+        badge.textContent = badgeData.label;
+        badgeData.tone.split(" ").forEach((className) => badge.classList.add(className));
+        const bar = rowFragment.querySelector('[data-fill="share"]');
+        const share = Math.round((calls / maxCalls) * 100);
+        bar.style.width = share + "%";
+        bar.classList.add("bg-primary");
+        bar.setAttribute("aria-valuenow", String(share));
+        rowFragment.querySelector("tr").dataset.apiMetricsRow = "1";
+        fragment.appendChild(rowFragment);
+      });
+      this.elements.body.insertBefore(fragment, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;
@@ -283,24 +292,24 @@ const ApiMetricsController = {
 
   renderDistribution(payload) {
     const dist = payload?.distribution || payload?.response_distribution || this.state.summary.distribution;
-    if (dist && typeof dist === "object") {
-      this.elements.distribution.innerHTML = Object.entries(dist)
-        .map(([key, value]) => {
-          const cls = ["5xx", "4xx", "error"].includes(String(key)) ? "text-danger" : "text-muted";
-          return (
-            '<div class="d-flex justify-content-between align-items-center py-1 border-bottom">' +
-            '<span class="' + cls + '">' + this.escapeHtml(key) + "</span>" +
-            '<strong>' + this.escapeHtml(String(value)) + "</strong>" +
-            "</div>"
-          );
-        })
-        .join("");
-      if (!Object.keys(dist).length) this.elements.distribution.textContent = "No response data.";
-    } else {
-      this.elements.distribution.textContent = this.state.rows.length
-        ? this.errorClassTotals()
-        : "No response data.";
+    const entries = dist && typeof dist === "object"
+      ? Object.entries(dist).map(([label, value]) => ({ label, value }))
+      : (this.state.rows.length ? this.errorClassTotals() : []);
+    this.elements.distribution.replaceChildren();
+    if (!entries.length) {
+      this.elements.distribution.textContent = "No response data.";
+      return;
     }
+    const fragment = document.createDocumentFragment();
+    entries.forEach(({ label, value }) => {
+      const item = this.elements.distributionTemplate.content.cloneNode(true);
+      const labelNode = item.querySelector('[data-fill="label"]');
+      labelNode.textContent = label;
+      if (["5xx", "4xx", "error"].includes(String(label))) labelNode.classList.add("text-danger");
+      item.querySelector('[data-fill="value"]').textContent = String(value);
+      fragment.appendChild(item);
+    });
+    this.elements.distribution.appendChild(fragment);
   },
 
   errorClassTotals() {
@@ -313,14 +322,8 @@ const ApiMetricsController = {
       else if (code.startsWith("5")) classes["5xx"] += this.rowErrors(row);
     });
     const any = Object.values(classes).some((value) => value > 0);
-    if (!any) return "No response classes reported.";
-    return Object.entries(classes)
-      .map(
-        ([key, value]) =>
-          '<div class="d-flex justify-content-between align-items-center py-1 border-bottom">' +
-          '<span class="text-muted">' + key + "</span><strong>" + Math.round(value).toLocaleString() + "</strong></div>",
-      )
-      .join("");
+    if (!any) return [];
+    return Object.entries(classes).map(([label, value]) => ({ label, value: Math.round(value).toLocaleString() }));
   },
 
   renderTrend(payload) {
@@ -328,20 +331,19 @@ const ApiMetricsController = {
     if (Array.isArray(trend) && trend.length) {
       const entries = trend.slice(-24);
       const maxValue = Math.max(1, ...entries.map((entry) => this.num(entry.calls ?? entry.count ?? entry.requests ?? entry)));
-      this.elements.trend.innerHTML = entries
-        .map((entry) => {
-          const label = entry.hour ?? entry.label ?? "";
-          const value = this.num(entry.calls ?? entry.count ?? entry.requests ?? entry);
-          const height = Math.max(4, Math.round((value / maxValue) * 100));
-          return (
-            '<div class="d-flex flex-column align-items-center gap-1 flex-fill" title="' +
-            this.escapeHtml(String(label)) + ": " + value.toLocaleString() + '">' +
-            '<div class="bg-primary rounded" style="height:' + height + "%;width:12px;min-height:4px\"></div>" +
-            '<span class="tiny text-muted">' + this.escapeHtml(String(label)) + "</span>" +
-            "</div>"
-          );
-        })
-        .join("");
+      this.elements.trend.replaceChildren();
+      const fragment = document.createDocumentFragment();
+      entries.forEach((entry) => {
+        const label = entry.hour ?? entry.label ?? "";
+        const value = this.num(entry.calls ?? entry.count ?? entry.requests ?? entry);
+        const height = Math.max(4, Math.round((value / maxValue) * 100));
+        const item = this.elements.trendTemplate.content.cloneNode(true);
+        item.querySelector('[data-fill="bar"]').style.height = height + "%";
+        item.querySelector('[data-fill="label"]').textContent = String(label);
+        item.querySelector("div").title = String(label) + ": " + value.toLocaleString();
+        fragment.appendChild(item);
+      });
+      this.elements.trend.appendChild(fragment);
     } else {
       this.elements.trend.textContent = "No hourly trend data.";
     }

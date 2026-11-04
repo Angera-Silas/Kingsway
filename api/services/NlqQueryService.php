@@ -341,6 +341,7 @@ class NlqQueryService
                 'row_count' => $rowCount,
                 'aggregation' => $aggregation,
                 'as_of' => gmdate('c'),
+                'effective_scope' => $this->effectiveScope($result['effective_scope'] ?? []),
             ],
         ];
     }
@@ -452,9 +453,12 @@ class NlqQueryService
             ];
         }
 
-        // Build chart spec from result rows
-        $rows = $result['rows'] ?? [];
-        $chartSpec = $this->buildChartSpec($rows, $chartType, $validation['filters']);
+        // A chart only needs a small preview. Reports may contain many rows;
+        // never return every label/value through the assistant response.
+        $rows = is_array($result['rows'] ?? null) ? array_values($result['rows']) : [];
+        $rowCount = (int) ($result['row_count'] ?? count($rows));
+        $previewRows = array_slice($rows, 0, self::MAX_ROWS);
+        $chartSpec = $this->buildChartSpec($previewRows, $chartType, $validation['filters']);
 
         return [
             'status' => 'answered',
@@ -468,9 +472,11 @@ class NlqQueryService
             'explanation' => $this->boundedText((string) ($intent['explanation'] ?? ''), 600),
             'answer' => [
                 'report_code' => $code,
-                'row_count' => count($rows),
+                'row_count' => $rowCount,
+                'preview_limited' => $rowCount > count($previewRows),
                 'chart' => $chartSpec,
                 'as_of' => gmdate('c'),
+                'effective_scope' => $this->effectiveScope($result['effective_scope'] ?? []),
             ],
         ];
     }
@@ -621,7 +627,7 @@ class NlqQueryService
     {
         // Keyed by operator: an intent is only ever reused for the same
         // authorized principal, never across staff.
-        return 'nlq_intent:v1:' . (int) ($user['user_id'] ?? 0) . ':' . $fingerprint;
+        return 'nlq_intent:v2:' . (int) ($user['user_id'] ?? 0) . ':' . $fingerprint;
     }
 
     /**
@@ -632,12 +638,21 @@ class NlqQueryService
      */
     private function catalogueFingerprint(array $catalogue): string
     {
-        $codes = [];
+        $definitions = [];
         foreach ($catalogue as $report) {
-            $codes[] = (string) ($report['code'] ?? '');
+            $definitions[] = [
+                'code' => (string) ($report['code'] ?? ''),
+                'title' => (string) ($report['title'] ?? ''),
+                'description' => (string) ($report['description'] ?? ''),
+                'domain' => (string) ($report['domain'] ?? ''),
+                'grain' => (string) ($report['grain'] ?? ''),
+                'allowed_filters' => array_values($report['allowed_filters'] ?? []),
+                'required_filters' => array_values($report['required_filters'] ?? []),
+                'default_filters' => $report['default_filters'] ?? [],
+            ];
         }
-        sort($codes);
-        return substr(hash('sha256', implode('|', $codes)), 0, 16);
+        usort($definitions, static fn(array $left, array $right): int => strcmp($left['code'], $right['code']));
+        return substr(hash('sha256', (string) json_encode($definitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)), 0, 16);
     }
 
     private function intentCache(): ?SharedCache
@@ -661,7 +676,25 @@ class NlqQueryService
         // This avoids model hallucinations on high-frequency questions.
         $deterministic = $this->resolveIntentDeterministic($question, $catalogue);
         if ($deterministic !== null) {
-            return $deterministic;
+            $reportCode = strtoupper((string) ($deterministic['report_code'] ?? ''));
+            $report = null;
+            foreach ($catalogue as $candidate) {
+                if (strtoupper((string) ($candidate['code'] ?? '')) === $reportCode) {
+                    $report = $candidate;
+                    break;
+                }
+            }
+            $allowed = (array) ($report['allowed_filters'] ?? []);
+            $filters = (array) ($deterministic['filters'] ?? []);
+            $mentionsUnresolvedTerm = in_array('term_id', $allowed, true)
+                && preg_match('/\bterm\b/i', $question) === 1
+                && !array_key_exists('term_id', $filters);
+            if (!$mentionsUnresolvedTerm) {
+                return $deterministic;
+            }
+            // “Term 1” is an ordinal while term_id is a database identifier.
+            // Never guess that the ordinal equals the identifier; let the
+            // constrained intent parser resolve it against the allowed report.
         }
 
         $prompt = $this->templates->resolve(self::WORKFLOW);
@@ -924,12 +957,6 @@ class NlqQueryService
             }
         }
 
-        // Academic term: "term 1", "term 2", "term 3", "first term", "second term", "third term"
-        if (preg_match('/\bterm\s*([123])\b|\b(first|second|third)\s*term\b/', $q, $m)) {
-            $termMap = ['1' => 1, '2' => 2, '3' => 3, 'first' => 1, 'second' => 2, 'third' => 3];
-            $filters['term_id'] = $termMap[strtolower($m[1])] ?? null;
-        }
-
         // Class/Grade: "grade 1", "grade 2", "class 3", "pp1", "pp2", "playgroup"
         if (preg_match('/\b(grade|class|pp|playgroup)\s*(\d+|1|2|3|4|5|6|7|8|9)\b/i', $q, $m)) {
             $gradeMap = ['pp1' => 'PP1', 'pp2' => 'PP2', 'playgroup' => 'Playgroup'];
@@ -1022,7 +1049,44 @@ class NlqQueryService
             'preview_limited' => count($rows) > self::MAX_ROWS,
             'warnings' => array_slice($this->stringList($result['warnings'] ?? [], 10), 0, 10),
             'run_id' => isset($result['run']['id']) ? (int) $result['run']['id'] : null,
+            // Preserve the server-resolved scope as provenance. The report
+            // executor is authoritative; requested filters alone do not tell
+            // the caller which rows were actually in scope.
+            'effective_scope' => $this->effectiveScope($result['effective_scope'] ?? []),
         ];
+    }
+
+    /** Keep only the stable, non-sensitive identifiers in the scope contract. */
+    private function effectiveScope($scope): array
+    {
+        if (!is_array($scope)) {
+            return [];
+        }
+        $allowed = [
+            'type',
+            'academic_year_id',
+            'academic_year_term_id',
+            'class_id',
+            'stream_id',
+            'learning_area_id',
+            'user_id',
+        ];
+        $clean = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $scope)) {
+                continue;
+            }
+            $value = $scope[$key];
+            if ($key === 'type' && is_string($value)) {
+                $value = mb_substr(trim($value), 0, 40);
+            } elseif (is_numeric($value) && (int) $value > 0) {
+                $value = (int) $value;
+            } else {
+                continue;
+            }
+            $clean[$key] = $value;
+        }
+        return $clean;
     }
 
     private function boundSummary($summary): array
@@ -1210,8 +1274,10 @@ class NlqQueryService
         $labels = [];
         $data = [];
         foreach ($rows as $row) {
-            $labels[] = (string) ($row[$labelKey] ?? '');
-            $data[] = is_numeric($row[$valueKey] ?? 0) ? (float) $row[$valueKey] : 0;
+            $labels[] = $this->boundedText((string) ($row[$labelKey] ?? ''), 120);
+            $numericValue = $row[$valueKey] ?? 0;
+            $number = is_numeric($numericValue) ? (float) $numericValue : 0.0;
+            $data[] = is_finite($number) ? $number : null;
         }
 
         $dataset = [

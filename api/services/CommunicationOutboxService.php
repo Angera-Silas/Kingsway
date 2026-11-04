@@ -171,7 +171,7 @@ class CommunicationOutboxService
                 $attachments = array_values(array_filter($attachmentStmt->fetchAll(PDO::FETCH_COLUMN)));
             }
             $attempts = ((int) ($endpoint['attempt_count'] ?? 0)) + 1;
-            if (!$service->sendEmail([$endpoint['address'] => ''], $subject, $body, $attachments, (bool) ($communication['audit_bcc'] ?? 0))) {
+            if (!$service->sendEmail([$endpoint['address'] => ''], $subject, $body, $attachments, (bool) ($communication['audit_bcc'] ?? 0), false)) {
                 // After the PHP SMTP attempts are exhausted, one Python
                 // smtplib fallback is attempted before the endpoint is
                 // marked permanently failed by markEndpointFailure().

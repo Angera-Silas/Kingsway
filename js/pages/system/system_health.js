@@ -66,6 +66,7 @@ const SystemHealthController = {
       kpis: document.getElementById("systemHealthKpis"),
       asOf: document.getElementById("systemHealthAsOf"),
       body: document.getElementById("systemHealthTableBody"),
+      tableState: document.getElementById("systemHealthTableState"),
       rowTemplate: document.getElementById("systemHealthRowTemplate"),
       exportCsvBtn: document.getElementById("systemHealthExportCsvBtn"),
       printBtn: document.getElementById("systemHealthPrintBtn"),
@@ -95,12 +96,10 @@ const SystemHealthController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="3" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-system-health-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + (className || "text-muted"); cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -209,24 +208,30 @@ const SystemHealthController = {
       .join("");
   },
 
-  statusBadge(status) {
+  statusTone(status) {
     const map = { ok: "bg-success", healthy: "bg-success", pass: "bg-success", up: "bg-success", warn: "bg-warning text-dark", warning: "bg-warning text-dark", degraded: "bg-warning text-dark", error: "bg-danger", critical: "bg-danger", down: "bg-danger", fail: "bg-danger" };
-    return `<span class="badge ${map[String(status).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(status || "—")}</span>`;
+    return map[String(status).toLowerCase()] || "bg-secondary";
   },
 
   render() {
     if (!this.state.rows.length) {
       this.showTableMessage("No health checks reported. Refresh to re-run the probe.");
     } else {
-      this.elements.body.innerHTML = this.state.rows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="key"]').textContent = row.key ?? row.check ?? "—";
-          fragment.querySelector('[data-fill="value"]').textContent = this.stringify(row.value ?? row.detail ?? "");
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(this.statusOf(row));
-          return fragment.querySelector("tr").outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-system-health-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      this.state.rows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="key"]').textContent = row.key ?? row.check ?? "—";
+        fragment.querySelector('[data-fill="value"]').textContent = this.stringify(row.value ?? row.detail ?? "");
+        const statusValue = this.statusOf(row);
+        const badge = fragment.querySelector('[data-fill="status"]');
+        badge.textContent = statusValue || "—";
+        this.statusTone(statusValue).split(" ").forEach((name) => badge.classList.add(name));
+        fragment.querySelector("tr").dataset.systemHealthRow = "1";
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
   },
 

@@ -871,9 +871,26 @@ class SchedulesController extends BaseController
     {
         if ($guard = $this->guardSchedules()) return $guard;
         $ownerId = $this->currentUserId();
+        $permissions = array_values(array_unique((array) (
+            $this->user['effective_permissions'] ?? $this->user['permissions'] ?? $this->user['permission_codes'] ?? []
+        )));
+        try {
+            // Authorize before opening a conversation or writing any user input.
+            // The workflow remains unavailable until its server-owned timetable
+            // candidate scope and end-to-end lifecycle gates are complete.
+            $this->contract('App\\API\\Services\\AiWorkflowService')->authorize(
+                'academics.timetable_planning',
+                ['user_id' => $ownerId, 'effective_permissions' => $permissions]
+            );
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) $e->getCode(), false);
+        }
+        if (array_key_exists('assignment_candidates', $data)) {
+            return $this->respond(null, 'Timetable assignment candidates are resolved by the server.', 422, false);
+        }
         $context = [
             'user_id' => $ownerId,
-            'permissions' => array_values(array_unique(array_merge((array)($this->user['permissions'] ?? []), (array)($this->user['permission_codes'] ?? [])))),
+            'permissions' => $permissions,
             'request_id' => $_SERVER['REQUEST_ID'] ?? '',
         ];
         try {
@@ -896,16 +913,6 @@ class SchedulesController extends BaseController
             'class_count' => (string)max(0, min(200, (int)($data['class_count'] ?? 0))),
             'learning_areas' => array_slice(array_map('strval', (array)($data['learning_areas'] ?? [])), 0, 100),
             'candidate_counts' => array_slice(array_map('strval', (array)($data['candidate_counts'] ?? [])), 0, 100),
-            'assignment_candidates' => array_values(array_filter(array_map(static function ($candidate): ?array {
-                if (!is_array($candidate)) return null;
-                return [
-                    'academic_year_class_stream_id' => max(0, (int) ($candidate['academic_year_class_stream_id'] ?? 0)),
-                    'learning_area_id' => max(0, (int) ($candidate['learning_area_id'] ?? 0)),
-                    'teacher_id' => max(0, (int) ($candidate['teacher_id'] ?? 0)),
-                    'day_of_week' => max(0, (int) ($candidate['day_of_week'] ?? 0)),
-                    'time_slot_id' => max(0, (int) ($candidate['time_slot_id'] ?? 0)),
-                ];
-            }, array_slice((array) ($data['assignment_candidates'] ?? []), 0, 60)), static fn (?array $candidate): bool => $candidate !== null)),
             'period_count' => (string)max(0, min(200, (int)($data['period_count'] ?? 0))),
             'availability_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['availability_constraints'] ?? [])), 0, 20),
             'workload_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['workload_constraints'] ?? [])), 0, 20),
@@ -914,7 +921,9 @@ class SchedulesController extends BaseController
             'user_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['user_constraints'] ?? [])), 0, 20),
             ];
             $conversation->appendUserMessage($sessionId, $ownerId, $message, $constraints);
-            [, $input] = $conversation->input($sessionId, $ownerId, $message);
+            // No candidate tuples are accepted from this request. The server
+            // resolver will supply verified tuples when this workflow is enabled.
+            [, $input] = $conversation->input($sessionId, $ownerId, $message, []);
             $queued = $this->contract('App\\API\\Services\\AiDraftService')->queue(
                     'academics.timetable_planning',
                     $context,

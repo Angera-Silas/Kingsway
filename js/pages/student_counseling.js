@@ -38,22 +38,47 @@ const studentCounselingController = {
     } catch (error) {
       if (request !== this.state.request) return;
       const box = document.getElementById('casesError'); if (box) { box.textContent = error?.message || 'Could not load counseling cases. Please refresh and try again.'; box.classList.remove('d-none'); }
-      const body = document.getElementById('casesTableBody'); if (body) body.innerHTML = '<tr><td colspan="12" class="text-center text-danger py-4">Counseling cases could not be loaded.</td></tr>';
+      this.showTableState('Counseling cases could not be loaded.', 'text-danger');
     } finally { if (request === this.state.request) this.show('casesLoading', false); }
+  },
+  showTableState(message, tone = 'text-muted') {
+    const body = document.getElementById('casesTableBody');
+    const stateRow = document.getElementById('casesTableState');
+    body?.querySelectorAll('[data-counseling-case-row]').forEach((row) => row.remove());
+    const cell = stateRow?.querySelector('td');
+    if (cell) { cell.className = 'text-center py-4 ' + tone; cell.textContent = message; }
+    if (stateRow) stateRow.hidden = false;
   },
   render() {
     const rows = this.state.cases; const body = document.getElementById('casesTableBody');
     if (!body) return;
-    if (!rows.length) { body.innerHTML = ''; this.show('casesEmpty', true); }
+    if (!rows.length) { this.showTableState('No counseling cases found.'); this.show('casesEmpty', true); }
     else {
       this.show('casesEmpty', false);
-      body.innerHTML = rows.map((item) => `<tr>
-        <td>${this.esc(item.case_code || item.id)}</td><td class="fw-semibold">${this.esc(item.student_name || '—')}</td><td>${this.esc(item.admission_no || '—')}</td>
-        <td>${this.esc(item.class_name || '—')}</td><td>${this.esc(item.stream_name || '—')}</td><td>${this.esc(item.case_type || '—')}</td>
-        <td>${this.esc(item.priority || '—')}</td><td>${this.esc(item.status || '—')}</td><td>${this.esc(item.counselor_name || '—')}</td>
-        <td>${this.date(item.last_session)}</td><td>${this.date(item.next_follow_up_at)}</td><td><button type="button" class="btn btn-sm btn-outline-primary" data-case-id="${Number(item.id)}">View</button></td>
-      </tr>`).join('');
+      const stateRow = document.getElementById('casesTableState');
+      if (stateRow) stateRow.hidden = true;
+      body.querySelectorAll('[data-counseling-case-row]').forEach((row) => row.remove());
+      const template = document.getElementById('counselingCaseRowTemplate');
+      const fragment = document.createDocumentFragment();
+      rows.forEach((item) => {
+        const row = template.content.cloneNode(true);
+        row.querySelector('[data-fill="code"]').textContent = item.case_code || item.id || '—';
+        row.querySelector('[data-fill="student"]').textContent = item.student_name || '—';
+        row.querySelector('[data-fill="admission"]').textContent = item.admission_no || '—';
+        row.querySelector('[data-fill="class"]').textContent = item.class_name || '—';
+        row.querySelector('[data-fill="stream"]').textContent = item.stream_name || '—';
+        row.querySelector('[data-fill="type"]').textContent = item.case_type || '—';
+        row.querySelector('[data-fill="priority"]').textContent = item.priority || '—';
+        row.querySelector('[data-fill="status"]').textContent = item.status || '—';
+        row.querySelector('[data-fill="counselor"]').textContent = item.counselor_name || '—';
+        row.querySelector('[data-fill="last-session"]').textContent = this.date(item.last_session);
+        row.querySelector('[data-fill="next-follow-up"]').textContent = this.date(item.next_follow_up_at);
+        row.querySelector('[data-action="view"]').dataset.caseId = String(Number(item.id));
+        fragment.appendChild(row);
+      });
+      body.insertBefore(fragment, stateRow || null);
     }
+
     const n = (fn) => rows.filter(fn).length;
     this.text('totalCases', rows.length); this.text('openCases', n((x) => ['open', 'in_progress'].includes(String(x.status).toLowerCase())));
     this.text('followUpsDue', n((x) => x.next_follow_up_at && new Date(x.next_follow_up_at) <= new Date()));
@@ -61,7 +86,7 @@ const studentCounselingController = {
     this.text('highPriorityCases', n((x) => ['high', 'urgent'].includes(String(x.priority).toLowerCase())));
     this.text('thisTermCases', '—');
   },
-  date(value) { if (!value) return '—'; const date = new Date(String(value).replace(' ', 'T')); return Number.isNaN(date.getTime()) ? this.esc(value) : date.toLocaleDateString(); },
+  date(value) { if (!value) return '—'; const date = new Date(String(value).replace(' ', 'T')); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString(); },
   exportCSV() {
     if (window.AuthContext?.canExport && !window.AuthContext.canExport('counseling')) return window.showNotification?.('You do not have permission to export counseling data.', 'error');
     const columns = ['case_code', 'student_name', 'admission_no', 'class_name', 'stream_name', 'case_type', 'priority', 'status', 'counselor_name', 'last_session', 'next_follow_up_at'];

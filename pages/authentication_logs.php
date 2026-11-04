@@ -157,7 +157,7 @@
                     </tr>
                 </thead>
                 <tbody id="authenticationLogsTableBody">
-                    <tr>
+                    <tr id="authenticationLogsTableState">
                         <td colspan="6" class="text-center py-5 text-muted">
                             Waiting for authentication...
                         </td>

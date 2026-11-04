@@ -394,6 +394,17 @@
                             <button type="button" class="btn btn-link btn-sm p-0" id="composeCcBccToggle">Show Cc / Bcc</button>
                         </div>
                         <div class="col-12">
+                            <label class="form-label fw-semibold" for="emailStaffTagSearch">Staff copied on this message</label>
+                            <input type="search" class="form-control" id="emailStaffTagSearch" placeholder="Find staff by name or email" autocomplete="off">
+                            <div class="form-text">Selected staff are added as email recipients using the copy type below.</div>
+                            <div class="d-flex gap-2 mt-2">
+                                <select class="form-select" id="emailStaffTagMode" aria-label="Staff copy type" style="max-width:130px">
+                                    <option value="cc">Cc</option><option value="bcc">Bcc</option>
+                                </select>
+                                <select class="form-select" id="emailStaffTags" multiple size="4" aria-label="Staff copied on email"></select>
+                            </div>
+                        </div>
+                        <div class="col-12">
                             <label class="form-label fw-semibold">Subject <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="composeSubject" required>
                         </div>

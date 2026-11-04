@@ -12,7 +12,7 @@ final class AiCapabilityMatrix
     {
         $rows = [
             ['id'=>'academics.cbc_planning','domain'=>'academics','capabilities'=>['scheme drafts','lesson plans','assessment drafts','rubrics','coverage and learning gaps'],'audiences'=>['staff'],'action_level'=>'prepare','permission'=>'academic_view','source_of_truth'=>'governed CBC curriculum and academic records','status'=>'partial'],
-            ['id'=>'learners.support_planning','domain'=>'learners','capabilities'=>['learner summaries','missing-data prompts','support-plan drafts','parent-meeting briefs'],'audiences'=>['staff'],'action_level'=>'prepare','permission'=>'student_view','source_of_truth'=>'scoped learner and welfare services','status'=>'partial'],
+            ['id'=>'learners.support_planning','domain'=>'learners','capabilities'=>['learner summaries','missing-data prompts','support-plan drafts','parent-meeting briefs'],'audiences'=>['staff'],'action_level'=>'prepare','permission'=>'students_view','source_of_truth'=>'scoped learner and welfare services','status'=>'partial'],
             ['id'=>'admissions.enrollment_assistance','domain'=>'admissions','capabilities'=>['application completeness','interview drafts','follow-up drafts','bottleneck summaries','placement preparation'],'audiences'=>['staff'],'action_level'=>'prepare','permission'=>'admission_view','source_of_truth'=>'admissions workflow and policy services','status'=>'partial'],
             ['id'=>'attendance.boarding_patterns','domain'=>'attendance','capabilities'=>['absence/late patterns','register exceptions','boarding roll-call summaries','welfare follow-up drafts'],'audiences'=>['staff'],'action_level'=>'recommend','permission'=>'attendance_view','source_of_truth'=>'attendance and boarding services','status'=>'partial'],
             ['id'=>'finance.reconciliation_and_planning','domain'=>'finance','capabilities'=>['reconciliation review','KPI explanations','arrears summaries','reminder drafts','budget narratives'],'audiences'=>['staff'],'action_level'=>'prepare','permission'=>'finance_view','source_of_truth'=>'posted accounting and reconciliation services','status'=>'partial'],
@@ -33,7 +33,13 @@ final class AiCapabilityMatrix
             ['id'=>'platform.provider_gateway','domain'=>'platform','capabilities'=>['NVIDIA','OpenAI','Moonshot','Anthropic','Google','local models','routing/fallback','health checks'],'audiences'=>['staff','parent','public'],'action_level'=>'assist','permission'=>'system_view','source_of_truth'=>'provider contracts and application response schemas','status'=>'partial'],
         ];
         foreach ($rows as &$row) {
-            $row['workflow_ids'] = array_values(array_map(static fn(array $workflow): string => (string)$workflow['id'], array_filter(AiWorkflowRegistry::all(), static fn(array $workflow): bool => (string)($workflow['domain'] ?? '') === $row['domain'])));
+            $row['workflow_ids'] = array_values(array_map(static fn(array $workflow): string => (string)$workflow['id'], array_filter(AiWorkflowRegistry::all(), static function (array $workflow) use ($row): bool {
+                if ((string)($workflow['domain'] ?? '') === $row['domain']) return true;
+                // Parent-facing workflows live in communications because they
+                // share the messaging platform, while the capability is owned
+                // by the parent audience and linked-child data boundary.
+                return $row['domain'] === 'parent' && (string)($workflow['id'] ?? '') === 'communications.parent_portal_assistant';
+            })));
             $row = $this->contract($row);
         }
         unset($row);
@@ -45,7 +51,7 @@ final class AiCapabilityMatrix
     {
         $domain = (string) $row['domain'];
         $row['adapter_contract_version'] = 1;
-        $row['supported_roles'] = $row['supported_roles'] ?? ($domain === 'public' ? ['public_visitor'] : ($domain === 'parent' ? ['parent_guardian'] : ['teacher','hod','school_administrator','system_administrator','domain_officer']));
+        $row['supported_roles'] = $row['supported_roles'] ?? ($domain === 'public' ? ['public_visitor'] : ($domain === 'parent' ? ['parent_guardian'] : ['teacher','hod','school_administrator','director','system_administrator','domain_officer']));
         $row['row_scope'] = $row['row_scope'] ?? ($domain === 'public' ? 'published_public_content_only' : ($domain === 'parent' ? 'guardian_linked_children_only' : 'resolved_by_existing_domain_authorization'));
         $row['allowed_data_fields'] = $row['allowed_data_fields'] ?? array_values(array_map(static fn(string $capability): string => preg_replace('/[^a-z0-9]+/i', '_', strtolower($capability)), $row['capabilities']));
         $row['human_approval_required'] = $row['human_approval_required'] ?? in_array($row['action_level'], ['prepare','recommend','execute'], true);

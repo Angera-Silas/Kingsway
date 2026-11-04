@@ -164,13 +164,33 @@ final class ReportCardReleaseService
         }
     }
 
-    public function release(int $releaseId, int $actorUserId, array $channels = ['sms', 'email', 'whatsapp']): array
+    public function parents(int $releaseId): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT pr.id AS parent_id, p.first_name, p.last_name, p.email, p.phone
+             FROM report_card_releases r
+             JOIN student_parents sp ON sp.student_id = r.student_id
+             JOIN parents pr ON pr.id = sp.parent_id AND pr.status = \'active\'
+             JOIN persons p ON p.id = pr.person_id
+             WHERE r.id = ? ORDER BY sp.is_primary_contact DESC, p.first_name, p.last_name'
+        );
+        $stmt->execute([$releaseId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function release(int $releaseId, int $actorUserId, array $channels = ['sms', 'email', 'whatsapp'], array $parentIds = []): array
     {
         $stmt = $this->db->prepare('SELECT * FROM report_card_releases WHERE id = ? LIMIT 1');
         $stmt->execute([$releaseId]);
         $release = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$release) throw new RuntimeException('Report card release not found', 404);
         if ($release['status'] !== 'approved') throw new RuntimeException('Approve the report card before releasing it', 409);
+        $eligibleParents = $this->parents($releaseId);
+        $eligibleIds = array_map(static fn(array $row): int => (int) $row['parent_id'], $eligibleParents);
+        $selectedIds = $parentIds ? array_values(array_unique(array_map('intval', $parentIds))) : $eligibleIds;
+        if (!$selectedIds || array_diff($selectedIds, $eligibleIds)) throw new RuntimeException('Select one or more guardians linked to this learner', 422);
+        $channels = array_values(array_unique(array_filter(array_map('strtolower', $channels), static fn(string $channel): bool => in_array($channel, ['sms', 'email', 'whatsapp'], true))));
+        if (!$channels) throw new RuntimeException('Select at least one supported notification channel', 422);
         if (!is_file((string) $release['pdf_path']) || hash_file('sha256', $release['pdf_path']) !== $release['pdf_sha256']) {
             throw new RuntimeException('The approved report PDF is missing or has changed', 409);
         }
@@ -187,14 +207,14 @@ final class ReportCardReleaseService
         $publicUrl = $this->publicUrl((string) $release['pdf_path']);
         $platform = new CommunicationPlatformService($this->db);
         $outcomes = [];
-        foreach (array_values(array_unique($channels)) as $channel) {
-            if (!in_array($channel, ['sms', 'email', 'whatsapp'], true)) continue;
+        foreach ($channels as $channel) {
             try {
                 $options = [
                     'sender_id' => $actorUserId,
                     'purpose' => 'results',
                     'academic_year_id' => $term['academic_year_id'] ?? null,
                     'academic_year_term_id' => (int) $release['academic_year_term_id'],
+                    'parent_ids' => $selectedIds,
                 ];
                 if ($channel !== 'sms') {
                     $options['attachments'] = [[
@@ -219,7 +239,7 @@ final class ReportCardReleaseService
                 $this->recordDeliveries($releaseId, (int) $release['student_id'], $channel, null, $e->getMessage());
             }
         }
-        $this->recordPortalAvailability($releaseId, (int) $release['student_id']);
+        $this->recordPortalAvailability($releaseId, (int) $release['student_id'], $selectedIds);
         $this->db->beginTransaction();
         try {
             $lock = $this->db->prepare('SELECT status FROM report_card_releases WHERE id = ? FOR UPDATE');
@@ -244,17 +264,17 @@ final class ReportCardReleaseService
         return ['release_id' => $releaseId, 'status' => 'released', 'channels' => $outcomes];
     }
 
-    private function recordPortalAvailability(int $releaseId, int $studentId): void
+    private function recordPortalAvailability(int $releaseId, int $studentId, array $parentIds): void
     {
         $stmt = $this->db->prepare(
             "INSERT INTO report_card_deliveries
                 (report_card_release_id, parent_id, channel, status, failure_reason)
              SELECT ?, sp.parent_id, 'portal', 'sent', NULL
              FROM student_parents sp
-             WHERE sp.student_id = ?
+             WHERE sp.student_id = ? AND sp.parent_id IN (' . implode(',', array_fill(0, count($parentIds), '?')) . ')
              ON DUPLICATE KEY UPDATE status='sent', failure_reason=NULL"
         );
-        $stmt->execute([$releaseId, $studentId]);
+        $stmt->execute(array_merge([$releaseId, $studentId], $parentIds));
     }
 
     private function recordDeliveries(int $releaseId, int $studentId, string $channel, ?array $outcome, ?string $error = null): void

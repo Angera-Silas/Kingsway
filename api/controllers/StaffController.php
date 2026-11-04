@@ -214,7 +214,7 @@ class StaffController extends BaseController
         try { $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'staff.hr_review'); return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Staff HR review approved for guidance'); } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
     }
 
-    private function aiHrContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
+    private function aiHrContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
 
     /**
      * POST /api/staff - Create new staff member

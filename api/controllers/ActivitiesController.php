@@ -65,7 +65,7 @@ class ActivitiesController extends BaseController
         catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
     }
 
-    private function aiResourceContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
+    private function aiResourceContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
     private function canUseAiResourceReview(): bool { try { $this->contract(AiWorkflowService::class)->authorize('activities.resource_review', $this->aiResourceContext()); return true; } catch (DomainException $e) { return false; } }
     private function canApproveAiResourceReview(): bool { return $this->userHasAny(['activities_manage', 'activities_view'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'activities coordinator', 'admin']); }
 

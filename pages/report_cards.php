@@ -256,6 +256,19 @@
     </div>
 </div>
 
+<div class="modal fade" id="releaseParentsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Approve report card delivery</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <p class="small text-muted">Choose the guardians and channels for this learner. The released report also becomes available in the parent portal.</p>
+      <div class="d-flex gap-3 mb-3" id="releaseChannels"><label><input type="checkbox" value="sms" checked> SMS</label><label><input type="checkbox" value="email" checked> Email</label><label><input type="checkbox" value="whatsapp"> WhatsApp</label></div>
+      <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2"><strong>Linked parents / guardians</strong><button class="btn btn-sm btn-link" type="button" id="toggleReleaseParents">Select none</button></div>
+      <div id="releaseParentsList" class="list-group"><div class="text-muted small">Loading linked guardians…</div></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="confirmReleaseBtn">Release report card</button></div>
+  </div></div>
+</div>
+
 <!-- Toast -->
 <div class="position-fixed top-0 end-0 p-3" style="z-index:11000">
     <div id="rcToast" class="toast align-items-center border-0" role="alert">

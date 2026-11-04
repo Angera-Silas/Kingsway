@@ -4,6 +4,24 @@
 
   const esc = (value) => { const node = document.createElement('span'); node.textContent = String(value ?? ''); return node.innerHTML; };
   const host = () => document.getElementById('aiTransportSummaries');
+  let activeJobId = null;
+  let pollTimer = null;
+  let pollAttempts = 0;
+
+  function setState(message, kind = 'info') {
+    const target = host();
+    if (!target) return;
+    let state = document.getElementById('aiTransportSummaryState');
+    if (!state) {
+      state = document.createElement('div');
+      state.id = 'aiTransportSummaryState';
+      state.className = 'col-12 small';
+      state.setAttribute('role', 'status');
+      target.before(state);
+    }
+    state.className = `small mb-2 ${kind === 'danger' ? 'text-danger' : kind === 'success' ? 'text-success' : 'text-muted'}`;
+    state.textContent = message;
+  }
 
   async function load() {
     const target = host();
@@ -16,6 +34,20 @@
         ...(own?.data?.drafts || own?.drafts || []).map((item) => ({ ...item, canReview: false })),
         ...(review?.data?.drafts || review?.drafts || []).map((item) => ({ ...item, canReview: true })),
       ].filter((item) => item.metadata?.subject_type === 'transport_operations_summary');
+      const finishedDraft = activeJobId && drafts.find((item) =>
+        Number(item.metadata?.queue_job_id) === activeJobId
+        && ['pending_approval', 'approved', 'failed'].includes(item.status)
+      );
+      if (finishedDraft) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+        pollAttempts = 0;
+        activeJobId = null;
+        setState(
+          finishedDraft.status === 'failed' ? 'The transport summary could not be prepared. Check the job status or try again.' : 'The transport summary is ready for review.',
+          finishedDraft.status === 'failed' ? 'danger' : 'success'
+        );
+      }
       target.innerHTML = drafts.length ? drafts.map((item) => {
         const content = item.draft || {};
         const canApprove = item.canReview && item.status === 'pending_approval';
@@ -43,13 +75,57 @@
     }
   }
 
+  function watchJob(jobId) {
+    clearTimeout(pollTimer);
+    activeJobId = Number(jobId) || null;
+    pollAttempts = 0;
+    if (!activeJobId) {
+      setState('The transport summary was queued. Refresh this panel to check its status.');
+      return;
+    }
+    setState('Transport summary queued. Checking for progress…');
+    const poll = async () => {
+      pollAttempts += 1;
+      let job = null;
+      try { job = await window.API.nodeJobs?.status?.(activeJobId); } catch (_) { /* Draft list remains available if status polling is temporarily unavailable. */ }
+      const status = String(job?.status || '');
+      if (['failed', 'cancelled'].includes(status)) {
+        activeJobId = null;
+        pollTimer = null;
+        pollAttempts = 0;
+        setState(status === 'failed' ? 'The transport summary could not be prepared. Try again or contact support if it repeats.' : 'The transport summary was cancelled.', status === 'failed' ? 'danger' : 'info');
+        await load();
+        return;
+      }
+      setState(status === 'running' || status === 'processing' ? 'Transport summary is being prepared…' : 'Transport summary queued. Checking for progress…');
+      await load();
+      if (!activeJobId) return;
+      if (status === 'done') {
+        activeJobId = null;
+        pollTimer = null;
+        pollAttempts = 0;
+        setState('The job completed, but its review draft was not returned. Refresh the page or contact support.', 'danger');
+        return;
+      }
+      if (pollAttempts < 12) pollTimer = setTimeout(poll, 5000);
+      else {
+        activeJobId = null;
+        pollTimer = null;
+        pollAttempts = 0;
+        setState(`Transport summary status: ${status || 'unknown'}. Refresh this panel to check again.`);
+      }
+    };
+    pollTimer = setTimeout(poll, 1500);
+  }
+
   async function init() {
     const button = document.getElementById('queueAiTransportSummary');
     button?.addEventListener('click', async () => {
       button.disabled = true;
       try {
-        await window.API.transport.queueAiOperationsSummary();
+        const result = await window.API.transport.queueAiOperationsSummary();
         window.showNotification?.('Transport operations summary queued for review.', 'success');
+        watchJob(result?.data?.job_id ?? result?.job_id);
         await load();
       } catch (error) {
         window.showNotification?.(error.message || 'Unable to queue the transport summary.', 'danger');

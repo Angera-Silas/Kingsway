@@ -21,7 +21,7 @@ use App\API\Services\PhoneNumberNormalizer;
  *                    (organizational names are only whitespace-collapsed to
  *                    avoid mangling brand labels such as "KCB").
  *   - emails       : trimmed + lowercased for case-insensitive identity/dedupe.
- *   - phones       : canonical E.164-without-plus 2547XXXXXXXX via the shared
+ *   - phones       : canonical E.164-without-plus 254[71]XXXXXXXX via the shared
  *                    PhoneNumberNormalizer.
  *   - national ids : digits-only 5-12 character canonical form.
  *   - dedupe       : persons grouped by normalized email, phone match-key and
@@ -482,7 +482,7 @@ final class DataQualityService
         return match ($kind) {
             'name', 'org_name' => 'Name contains characters that cannot be stored as-is (letters/spaces only for persons)',
             'email' => 'Malformed email (cannot be safely lowercased for identity)',
-            'phone' => 'Unresolvable phone (not a canonical 2547XXXXXXXX Kenyan mobile)',
+            'phone' => 'Unresolvable phone (not a canonical 2547 or 2541 Kenyan mobile)',
             'national_id' => 'Invalid national ID / passport number (digits only, 5-12 characters)',
             default => 'Value does not match the canonical rule',
         };

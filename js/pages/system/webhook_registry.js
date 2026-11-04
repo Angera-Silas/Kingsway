@@ -71,6 +71,7 @@ const WebhookRegistryController = {
       search: document.getElementById("webhookRegistrySearch"),
       count: document.getElementById("webhookRegistryCount"),
       body: document.getElementById("webhookRegistryTableBody"),
+      tableState: document.getElementById("webhookRegistryTableState"),
       rowTemplate: document.getElementById("webhookRegistryRowTemplate"),
       exportCsvBtn: document.getElementById("webhookRegistryExportCsvBtn"),
       printBtn: document.getElementById("webhookRegistryPrintBtn"),
@@ -114,12 +115,13 @@ const WebhookRegistryController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="7" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-webhook-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -197,9 +199,9 @@ const WebhookRegistryController = {
     this.render();
   },
 
-  statusBadge(status) {
+  statusTone(status) {
     const map = { active: "bg-success", enabled: "bg-success", inactive: "bg-secondary", disabled: "bg-secondary" };
-    return `<span class="badge ${map[String(status).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(status || "—")}</span>`;
+    return map[String(status).toLowerCase()] || "bg-secondary";
   },
 
   formatEvents(events) {
@@ -225,22 +227,26 @@ const WebhookRegistryController = {
     if (!pageRows.length) {
       this.showTableMessage("No webhooks found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
-          fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
-          fragment.querySelector('[data-fill="url"]').textContent = row.url ?? "—";
-          fragment.querySelector('[data-fill="events"]').textContent = this.formatEvents(row.events);
-          fragment.querySelector('[data-fill="secret"]').textContent = this.maskSecret(row.secret);
-          fragment.querySelector('[data-fill="is_active"]').outerHTML = this.statusBadge(
-            row.is_active === true || row.is_active === 1 || row.is_active === "1" || row.status ? (row.is_active === true || row.is_active === 1 || row.is_active === "1" ? "active" : "inactive") : row.status,
-          );
-          const tr = fragment.querySelector("tr");
-          tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-webhook-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
+        fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
+        fragment.querySelector('[data-fill="url"]').textContent = row.url ?? "—";
+        fragment.querySelector('[data-fill="events"]').textContent = this.formatEvents(row.events);
+        fragment.querySelector('[data-fill="secret"]').textContent = this.maskSecret(row.secret);
+        const status = row.is_active === true || row.is_active === 1 || row.is_active === "1" ? "active" : (row.status || "inactive");
+        const badge = fragment.querySelector('[data-fill="is_active"]');
+        badge.classList.add(this.statusTone(status));
+        badge.textContent = status;
+        const tr = fragment.querySelector("tr");
+        tr.dataset.webhookRow = "1";
+        tr.dataset.id = row.id;
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

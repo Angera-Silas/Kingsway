@@ -80,7 +80,8 @@ _CONFIDENTIAL_NEXT_STEPS = [
 _GREETINGS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
-        r"^\s*(hi|hey|hello|hola|hallo|good\s+(morning|afternoon|evening|day)|"
+        r"^\s*(hi|hey|hello|hola|hallo)(?:\s+there)?\b[\s!.?]*$",
+        r"^\s*(good\s+(morning|afternoon|evening|day)|"
         r"greetings|morning|afternoon|evening)\b[\s!.?]*$",
         r"^\s*(hi|hey|hello)\b[\s!.?]*$",
     )

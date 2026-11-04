@@ -79,7 +79,8 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Class (Grade)</th><th scope="col">Stream Name</th><th scope="col">Class Teacher</th><th scope="col">Students</th><th scope="col">Capacity</th><th scope="col">Utilization %</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-                    <tbody id="csStreamsBody"><tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="csStreamsBody"><tr id="csStreamsState"><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <template id="csStreamRowTemplate"><tr data-stream-row><td data-fill="number"></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="teacher"></td><td data-fill="students"></td><td data-fill="capacity"></td><td data-fill="utilization"></td><td><span class="badge" data-fill="status"></span></td><td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit stream" data-action="edit"><i class="bi bi-pencil"></i></button></td></tr></template>
                 </table>
             </div>
         </div>

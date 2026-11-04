@@ -77,13 +77,13 @@ require_once __DIR__ . '/public/layout/public_data.php';
       </div>
       <div class="p-4 p-md-5">
 
-        <div class="text-center mb-4"><span class="badge rounded-pill text-bg-success"><i class="bi bi-shield-lock me-1"></i>Password + email verification</span></div>
+        <div class="text-center mb-4"><span class="badge rounded-pill text-bg-success"><i class="bi bi-shield-lock me-1"></i>Password + verification code</span></div>
 
         <!-- Email Login Form -->
         <div id="tab-email">
           <div class="mb-3">
-            <label class="form-label fw-semibold">Email or Phone Number</label>
-            <input type="text" id="loginEmail" class="form-control" placeholder="Email or 2547XXXXXXXX" autocomplete="username" autocapitalize="none" data-phone-canonical>
+            <label class="form-label fw-semibold">Phone, email, or username</label>
+            <input type="text" id="loginEmail" class="form-control" placeholder="Phone, email, or username" autocomplete="username" autocapitalize="none" data-phone-canonical>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Password</label>
@@ -102,18 +102,18 @@ require_once __DIR__ . '/public/layout/public_data.php';
           </button>
         </div>
 
-        <!-- Email OTP Form -->
+        <!-- Verification code form -->
         <div id="tab-otp" style="display:none">
           <div id="otp-step-1" style="display:none">
             <div class="mb-3">
-              <label class="form-label fw-semibold">Email Address</label>
-              <input type="email" id="otpEmail" class="form-control" autocomplete="email" placeholder="parent@example.com">
+              <label class="form-label fw-semibold">Email or phone number</label>
+              <input type="text" id="otpEmail" class="form-control" autocomplete="username" placeholder="Your registered contact">
             </div>
             <div id="otpRequestError" class="alert alert-danger d-none"></div>
             <button class="btn btn-primary w-100 py-2 fw-semibold" type="button" id="btnRequestOtp">Send OTP</button>
           </div>
           <div id="otp-step-2" style="display:none">
-            <p class="text-muted small">Enter the 6-digit code sent to your email.</p>
+            <p id="otpInstruction" class="text-muted small">Enter the 6-digit verification code sent to your registered contact.</p>
             <div class="mb-3">
               <label class="form-label fw-semibold">OTP Code</label>
               <input type="text" id="otpCode" class="form-control text-center fw-bold fs-4" maxlength="6" placeholder="------" inputmode="numeric">

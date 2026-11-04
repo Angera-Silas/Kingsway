@@ -529,7 +529,9 @@ export function registerAgentRoutes(app) {
           lastStatus = status;
         }
         if (['completed', 'failed', 'cancelled'].includes(status)) {
-          if (status === 'completed') sendEvent('final', { result: task.result });
+          if (status === 'completed' && task.result_available === false) {
+            sendEvent('error', { message: task.message || 'Your access changed. Start a new task to get a current answer.', terminal: true });
+          } else if (status === 'completed') sendEvent('final', { result: task.result });
           else if (status === 'failed') sendEvent('error', { message: task?.error || 'The assistant could not complete this task.' });
           else sendEvent('error', { message: 'Task was cancelled.', terminal: true });
           break;

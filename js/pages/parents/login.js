@@ -1,7 +1,7 @@
 /**
  * js/pages/parents/login.js — standalone parent sign-in entry.
  *
- * Handles email+password and email-OTP authentication. A successful sign in
+ * Handles phone/email/username + password and contact-prioritized OTP. A successful sign in
  * stores the pp_token (via ParentCommon) and forwards to the multi-page
  * cpanel at parents/dashboard.php.
  */
@@ -9,7 +9,7 @@
   'use strict';
 
   var P = window.ParentCommon;
-  var state = { otpSessionId: null };
+  var state = { otpSessionId: null, otpMethod: null };
   var _submitting = false;
   var _redirecting = false;
 
@@ -80,13 +80,13 @@
     var spinner = document.getElementById('loginSpinner');
     errEl.classList.add('d-none');
     if (!email || !password) {
-      showErr(errEl, 'Email or phone number and password are required');
+      showErr(errEl, 'Phone, email, or username and password are required');
       return;
     }
     var btn = document.getElementById('btnEmailLogin');
     spinner.classList.remove('d-none');
     btn.disabled = true;
-    P.apiFetch('/login', 'POST', { email: email, password: password })
+    P.apiFetch('/login', 'POST', { identifier: email, username: email, email: email, password: password })
       .then(function (resp) {
         var d = resp.data !== undefined ? resp.data : resp;
         if (d.portal_mismatch === 'staff') {
@@ -101,6 +101,11 @@
         }
         if (d.requires_otp) {
           state.otpSessionId = d.otp_session_id;
+          state.otpMethod = d.otp_method || 'email';
+          var instruction = document.getElementById('otpInstruction');
+          if (instruction) instruction.textContent = state.otpMethod === 'sms'
+            ? 'Enter the 6-digit code sent to your phone ' + (d.masked_destination || '') + '.'
+            : 'Enter the 6-digit code sent to your email ' + (d.masked_destination || '') + '.';
           var otpEmail = document.getElementById('otpEmail');
           if (otpEmail) otpEmail.value = email;
           setView('tab-email', false);
@@ -188,6 +193,7 @@
 
   function resetOtp() {
     state.otpSessionId = null;
+    state.otpMethod = null;
     setView('tab-otp', false);
     setView('tab-email', true);
     var pwd = document.getElementById('loginPassword');

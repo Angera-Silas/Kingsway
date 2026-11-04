@@ -1392,7 +1392,28 @@ return $this->serverError('An internal error occurred.');
     public function postExamPeriodsPublishResults($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny([], [1,4], ['system administrator','school administrator'])) return $this->forbidden('Only the School Administrator can publish official summative results.');
-        return $this->examPeriodCall(fn($service) => $service->publishResults((int)$id), 'Official summative results published.');
+        $recipients = $data['notification_recipients'] ?? [];
+        $channels = $data['notification_channels'] ?? [];
+        if (!is_array($recipients) || !is_array($channels) || count($recipients) > 5000) return $this->badRequest('Invalid parent notification selection.');
+        return $this->examPeriodCall(fn($service) => $service->publishResults((int)$id, $recipients, $channels), 'Official summative results published.');
+    }
+
+    /** GET /api/academic/exam-periods/{id}/publication-recipients — parents linked to learners with submitted results. */
+    public function getExamPeriodsPublicationRecipients($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny([], [1, 4], ['system administrator', 'school administrator'])) return $this->forbidden('Only the School Administrator can select result-notification recipients.');
+        if ((int) $id < 1) return $this->badRequest('Exam period ID is required.');
+        try {
+            $service = $this->contract(\App\API\Services\ExamPeriodService::class, $this->db->getConnection(), (int) ($this->getUserId() ?? 0));
+            return $this->success($service->publicationNotificationRecipients((int) $id));
+        } catch (\PDOException $e) {
+            return $this->databaseFailure($e, 'result notification recipients', 'Unable to load result notification recipients.');
+        } catch (RuntimeException $e) {
+            return $this->respond(null, $e->getMessage(), in_array((int) $e->getCode(), [403, 404, 409, 422], true) ? (int) $e->getCode() : 422, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] result notification recipients lookup failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load result notification recipients.');
+        }
     }
 
     public function getExamPeriodsResults($id = null, $data = [], $segments = [])
@@ -1952,11 +1973,13 @@ return $this->serverError('An internal error occurred.');
 
         if (!empty($data['release_id'])) {
             try {
+                if (empty($data['parent_ids']) || empty($data['channels']) || !is_array($data['parent_ids']) || !is_array($data['channels'])) {
+                    return $this->badRequest('Choose at least one linked parent and notification channel before release.');
+                }
                 $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
                 $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
-                $channels = $data['channels'] ?? ['sms', 'email', 'whatsapp'];
                 return $this->success(
-                    $service->release((int) $data['release_id'], $actor, is_array($channels) ? $channels : [$channels]),
+                    $service->release((int) $data['release_id'], $actor, $data['channels'], $data['parent_ids']),
                     'Report card released to parents and guardians'
                 );
             } catch (RuntimeException $e) {
@@ -1978,6 +2001,20 @@ return $this->serverError('An internal error occurred.');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AcademicController] report card releases: ' . $e->getMessage());
             return $this->serverError('Unable to load report card releases');
+        }
+    }
+
+    /** GET /api/academic/report-card-releases/{id}/parents — linked guardians for selective delivery. */
+    public function getReportCardReleasesParents($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
+        $releaseId = (int) ($id ?? ($segments[0] ?? 0));
+        if ($releaseId < 1) return $this->badRequest('A report card release ID is required');
+        try {
+            $service = $this->contract('App\\API\\Services\\ReportCardReleaseService', $this->db->getConnection());
+            return $this->success($service->parents($releaseId));
+        } catch (\Throwable $e) {
+            return $this->serverError('Unable to load linked guardians');
         }
     }
 
@@ -3263,7 +3300,12 @@ return $this->serverError('An internal error occurred.');
             $input = $this->buildAiSchemeInput($data);
             $queued = $this->contract(AiDraftService::class)->queue(
                 'academics.scheme_draft', $this->aiAcademicContext(), $input,
-                ['subject_type' => 'academic_scheme_draft', 'subject_id' => 0, 'scope' => 'authorized_teacher_curriculum']
+                [
+                    'subject_type' => 'academic_scheme_draft', 'subject_id' => 0,
+                    'scope' => 'authorized_teacher_curriculum',
+                    'learning_area_id' => (int) ($data['learning_area_id'] ?? 0),
+                    'grade_level' => (string) ($input['grade_level'] ?? ''),
+                ]
             );
             return $this->accepted($queued, 'CBC scheme draft queued for academic review');
         } catch (DomainException $e) {
@@ -3475,15 +3517,20 @@ return $this->serverError('An internal error occurred.');
         $classId = (int) ($data['academic_year_class_id'] ?? $id ?? 0);
         if ($classId < 1) return $this->badRequest('academic_year_class_id is required');
         try {
+            if (!$this->curriculumScopeService->canAccessAcademicYearClass(
+                (int) ($this->getUserId() ?? 0),
+                $this->getUserRoleIds(),
+                $classId
+            )) {
+                return $this->notFound('Academic class not found');
+            }
             $raw = $this->api->getClassLearningAreaCoverage(['academic_year_class_id' => $classId]);
-            $rows = is_array($raw) ? ($raw['data']['learning_areas'] ?? $raw['learning_areas'] ?? []) : [];
-            $planned = count($rows); $withCurriculum = 0;
-            foreach ($rows as $row) if ((int) ($row['strand_count'] ?? 0) > 0 || (int) ($row['sub_strand_count'] ?? 0) > 0) $withCurriculum++;
-            $input = ['report_date' => date('Y-m-d'), 'grade_level' => mb_substr(trim((string) ($data['grade_level'] ?? '')), 0, 100), 'learning_area' => mb_substr(trim((string) ($data['learning_area'] ?? 'All learning areas')), 0, 100), 'planned_count' => (string) $planned, 'completed_count' => (string) $withCurriculum, 'overdue_count' => '0', 'coverage_rate' => $planned > 0 ? (string) round(($withCurriculum / $planned) * 100, 2) : '0', 'unmapped_count' => (string) max(0, $planned - $withCurriculum), 'follow_up_intent' => 'Verify curriculum mapping and delivery records before taking action.'];
+            if (!is_array($raw)) throw new DomainException('Curriculum mapping data is unavailable for this class.', 422);
+            $input = $this->contract('App\\API\\Services\\CurriculumMappingSummaryService')->aiPayloadFromResponse($raw);
             $queued = $this->contract(AiDraftService::class)->queue('academics.coverage_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_coverage_review', 'subject_id' => $classId, 'scope' => 'authorized_class_curriculum_aggregate']);
-            return $this->accepted($queued, 'Curriculum coverage review queued');
+            return $this->accepted($queued, 'Curriculum mapping completeness review queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
-        catch (Exception $e) { return $this->serverError('Unable to queue curriculum coverage review'); }
+        catch (Exception $e) { return $this->serverError('Unable to queue curriculum mapping review'); }
     }
 
     /** POST /api/academic/ai-rubric-draft-queue */
@@ -3508,15 +3555,57 @@ return $this->serverError('An internal error occurred.');
     {
         if (!$this->canUseAcademicAi('academics.learning_gap_review')) return $this->forbidden('Academic learning-gap permission is required');
         try {
-            // Request only the aggregate school/class view from the academic
-            // source service; learner rows never enter the AI payload.
-            $overview = $this->api->getPerformanceOverview(array_merge(['view_mode' => 'school'], $_GET, $data));
-            $rows = (array) ($overview['rows'] ?? $overview['data'] ?? []); $below = 0; $missing = 0; $bands = ['below_50' => 0, '50_to_74' => 0, '75_plus' => 0];
-            foreach ($rows as $row) { $score = $row['average_score'] ?? null; if ($score === null) { $missing++; continue; } $score = (float) $score; if ($score < 50) { $below++; $bands['below_50']++; } elseif ($score < 75) { $bands['50_to_74']++; } else $bands['75_plus']++; }
-            $input = ['report_date' => date('Y-m-d'), 'grade_level' => mb_substr((string) ($data['grade_level'] ?? ''), 0, 100), 'learning_area' => mb_substr((string) ($data['learning_area'] ?? 'All learning areas'), 0, 100), 'learner_count' => (string) count($rows), 'assessment_count' => (string) count($rows), 'below_threshold_count' => (string) $below, 'missing_evidence_count' => (string) $missing, 'gap_bands' => json_encode($bands), 'follow_up_intent' => 'Verify authorized assessment evidence and provide teacher-led support; do not identify learners in the AI response.'];
-            return $this->accepted($this->contract(AiDraftService::class)->queue('academics.learning_gap_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_learning_gap_review', 'scope' => 'authorized_aggregate_performance']), 'Learning-gap review queued');
+            $aycId = (int) ($data['academic_year_class_id'] ?? $id ?? 0);
+            if ($aycId < 1) return $this->badRequest('academic_year_class_id is required');
+            $userId = (int) ($this->getUserId() ?? 0);
+            $roleIds = $this->getUserRoleIds();
+            if (!$this->curriculumScopeService->canAccessAcademicYearClass($userId, $roleIds, $aycId)) {
+                return $this->notFound('Academic class not found');
+            }
+            $classYear = $this->curriculumScopeService->getAcademicYearClass($aycId);
+            $classId = (int) ($classYear['class_id'] ?? 0);
+            $yearId = (int) ($classYear['academic_year_id'] ?? 0);
+            if ($classId < 1 || $yearId < 1) return $this->notFound('Academic class not found');
+
+            // Source rows are consumed only inside the server. The provider
+            // receives bounded aggregate counts, never learner identifiers.
+            $rows = [];
+            for ($page = 1; $page <= 20; $page++) {
+                $overview = $this->api->getPerformanceOverview([
+                    'view_mode' => 'students', 'class_id' => $classId, 'academic_year_id' => $yearId,
+                    'page' => $page, 'limit' => 500,
+                ]);
+                if (!is_array($overview) || (int) ($overview['code'] ?? 200) >= 400 || ($overview['status'] ?? '') === 'error') {
+                    throw new DomainException('Academic results are unavailable for this class and year.', 422);
+                }
+                $pageRows = (array) ($overview['data']['rows'] ?? $overview['rows'] ?? []);
+                $rows = array_merge($rows, $pageRows);
+                if (count($pageRows) < 500) break;
+                if ($page === 20) throw new DomainException('The selected class is too large to summarize safely.', 422);
+            }
+            $draftService = $this->contract(AiDraftService::class);
+            $input = $draftService->buildLearningGapReviewInput($rows, (string) ($classYear['grade_level'] ?? ''));
+            return $this->accepted($draftService->queue(
+                'academics.learning_gap_review', $this->aiAcademicContext(), $input,
+                ['subject_type' => 'academic_learning_gap_review', 'subject_id' => $aycId, 'scope' => 'authorized_class_year_aggregate']
+            ), 'Learning-gap review queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (Exception $e) { return $this->serverError('Unable to queue learning-gap review'); }
+    }
+
+    /** GET /api/academic/ai-academic-class-options */
+    public function getAiAcademicClassOptions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAcademicAi('academics.coverage_review')) {
+            return $this->forbidden('Academic curriculum permission is required');
+        }
+        try {
+            return $this->success($this->curriculumScopeService->listAccessibleAcademicYearClasses(
+                (int) ($this->getUserId() ?? 0), $this->getUserRoleIds()
+            ));
+        } catch (Exception $e) {
+            return $this->serverError('Unable to load your academic class options');
+        }
     }
 
     private function canUseAcademicAi(string $workflow): bool
@@ -3562,7 +3651,7 @@ return $this->serverError('An internal error occurred.');
 
     private function aiAcademicContext(): array
     {
-        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
     }
 
     private function canUseAiSchemeDraft(): bool

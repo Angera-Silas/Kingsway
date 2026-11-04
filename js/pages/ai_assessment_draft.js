@@ -1,5 +1,8 @@
 (function(){
   const esc=(v)=>{const d=document.createElement('div');d.textContent=String(v??'');return d.innerHTML;};
+  let activeJobId=null, pollTimer=null, pollAttempts=0;
+  const setJobState=(message,kind='info')=>{const host=document.getElementById('aiAssessmentDrafts');if(!host)return;let state=document.getElementById('aiAssessmentDraftsJobState');if(!state){state=document.createElement('div');state.id='aiAssessmentDraftsJobState';state.className='small mb-2';state.setAttribute('role','status');host.before(state);}state.className=`small mb-2 ${kind==='danger'?'text-danger':kind==='success'?'text-success':'text-muted'}`;state.textContent=message;};
+  const watchJob=(jobId)=>{clearTimeout(pollTimer);activeJobId=Number(jobId)||null;pollAttempts=0;if(!activeJobId){setJobState('Assessment draft queued. Refresh this panel to check its status.');return;}setJobState('Assessment draft queued. Checking for progress…');const poll=async()=>{pollAttempts+=1;let job=null;try{job=await window.API.nodeJobs?.status?.(activeJobId);}catch(_){}const status=String(job?.status||'').toLowerCase();if(['failed','cancelled','dead_letter'].includes(status)){activeJobId=null;pollTimer=null;pollAttempts=0;setJobState(status==='failed'?'Assessment draft could not be prepared. Try again or contact support if it repeats.':'Assessment draft was cancelled.',status==='failed'?'danger':'info');await load();return;}setJobState(['running','processing'].includes(status)?'Assessment draft is being prepared…':'Assessment draft queued. Checking for progress…');const rows=await load();if(!activeJobId)return;const draft=rows.find(row=>Number(row.metadata?.queue_job_id)===activeJobId);if(draft&&['pending_approval','approved'].includes(draft.status)){activeJobId=null;pollTimer=null;pollAttempts=0;setJobState('Assessment draft is ready for staff review.','success');return;}if(draft?.status==='failed'){activeJobId=null;pollTimer=null;pollAttempts=0;setJobState('Assessment draft could not be prepared. Try again or contact support if it repeats.','danger');return;}if(['done','completed'].includes(status)){activeJobId=null;pollTimer=null;pollAttempts=0;setJobState('The job completed, but its matching Assessment draft was not returned. Refresh the panel or contact support.','danger');return;}if(pollAttempts<12)pollTimer=setTimeout(poll,5000);else{activeJobId=null;pollTimer=null;pollAttempts=0;setJobState(`Job status: ${status||'unknown'}. Refresh this panel to check again.`);}};pollTimer=setTimeout(poll,1500);};
   let aiDraftCache=null;
   let assessmentDraftPanel = null;
   const loadReferencesComposed=async()=>{try{const r=await window.API.nodeViews.resolve('academic','ai-assessment-draft-references');aiDraftCache=r?.data?.sources||r?.sources||{};}catch(e){console.warn('AI assessment draft Node view failed; using direct reads:',e);aiDraftCache=null;}};
@@ -12,7 +15,7 @@
       let review={drafts:[]};
       try{review=aiDraftCache?.review!==undefined?aiDraftCache.review:await window.API.academic.getAiAssessmentDrafts('review');}catch(_){}
       const all=[...(own?.data?.drafts||own?.drafts||[]).map(x=>({...x,__review:false})),...(review?.data?.drafts||review?.drafts||[]).map(x=>({...x,__review:true}))];
-      const rows=all.filter(x=>x.metadata?.subject_type==='academic_assessment_draft'&&(!outcomeId||Number(x.subject_id)===outcomeId));
+      const rows=all.filter(x=>x.metadata?.subject_type==='academic_assessment_draft'&&(Number(x.metadata?.queue_job_id)===activeJobId||!outcomeId||Number(x.subject_id)===outcomeId));
       el.innerHTML=rows.length?rows.map(d=>{
         const x=d.draft||{};
         const approve=d.__review&&d.status==='pending_approval';
@@ -22,8 +25,10 @@
         try{await window.API.academic.approveAiAssessmentDraft(b.dataset.aiApprove);window.showNotification?.('Assessment draft approved for teacher editing','success');await load();}
         catch(e){window.showNotification?.(e.message||'Unable to approve assessment draft','danger');}
       }));
+      return rows;
     }catch(e){
       el.innerHTML='<div class="small text-warning">Assistant assessment drafts are temporarily unavailable.</div>';
+      return [];
     }
   };
 
@@ -56,7 +61,7 @@
           targetComponent: '#assessmentDraftEditor',
           componentId: 'assessment-draft',
           onComplete: (result) => {
-            const body = result?.answer?.body || result?.body || result?.draft || '';
+            const body = result?.answer?.body || result?.body || result?.draft?.body || (typeof result?.draft === 'string' ? result.draft : '');
             const editor = document.getElementById('assessmentDraftEditor');
             if (editor) {
               editor.value = body;
@@ -80,12 +85,11 @@
           max_marks:Number(document.getElementById('faMaxMarks')?.value||100),
           teacher_intent:intent
         });
-        window.showNotification?.(`Assessment draft queued${r?.job_id?` (job ${r.job_id})`:''}`,'info');
+        const jobId=r?.data?.job_id??r?.job_id;
+        window.showNotification?.(`Assessment draft queued${jobId?` (job ${jobId})`:''}`,'info');
         aiDraftCache=null;
-        for(let i=0;i<8;i+=1){
-          await new Promise(resolve=>setTimeout(resolve,i===0?1000:2500));
-          await load();
-        }
+        watchJob(jobId);
+        await load();
       }
     }catch(e){
       window.showNotification?.(e.message||'Unable to queue assessment draft','danger');

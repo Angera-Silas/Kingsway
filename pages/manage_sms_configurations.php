@@ -4,6 +4,7 @@ if (!isset($appBase)) {
     $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
     if ($appBase === '.') { $appBase = ''; }
 }
+$smsFieldDefinitions = \App\API\Services\SystemCommsConfigService::fieldDefinitions('sms');
 ?>
 <div class="container-fluid py-4">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -17,7 +18,7 @@ if (!isset($appBase)) {
             <button class="btn btn-primary btn-sm" id="smsRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
         </div>
     </div>
-    <div id="smsState" class="alert alert-info" role="status"><i class="bi bi-hourglass-split me-1"></i>Loading SMS configuration...</div>
+    <div id="smsState" class="alert alert-info" role="status">Loading SMS configuration...</div>
     <div class="mt-4">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
@@ -26,7 +27,36 @@ if (!isset($appBase)) {
             <div class="card-body">
                 <div class="table-responsive"><table class="table table-sm mb-0" id="smsFieldsTable">
                     <thead><tr><th>Setting</th><th>Value</th><th>Source</th><th>Actions</th></tr></thead>
-                    <tbody id="smsFieldsBody"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+                    <tbody id="smsFieldsBody">
+                        <?php foreach ($smsFieldDefinitions as $field): ?>
+                            <tr data-sms-field="<?= htmlspecialchars($field['key'], ENT_QUOTES, 'UTF-8') ?>">
+                                <td>
+                                    <strong data-field-label><?= htmlspecialchars($field['label'], ENT_QUOTES, 'UTF-8') ?></strong><br>
+                                    <small class="text-muted" data-field-key><?= htmlspecialchars($field['key'], ENT_QUOTES, 'UTF-8') ?></small>
+                                </td>
+                                <td>
+                                    <?php if ($field['is_secret']): ?>
+                                        <span class="badge bg-secondary" data-secret-status>Not set</span>
+                                    <?php else: ?>
+                                        <code data-field-value>—</code>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary" data-field-source>Environment</span>
+                                </td>
+                                <td>
+                                    <?php if (!$field['is_secret']): ?>
+                                        <input type="text" class="form-control form-control-sm sms-field-input"
+                                               data-key="<?= htmlspecialchars($field['key'], ENT_QUOTES, 'UTF-8') ?>"
+                                               aria-label="<?= htmlspecialchars($field['label'], ENT_QUOTES, 'UTF-8') ?>"
+                                               value="">
+                                    <?php else: ?>
+                                        <span class="text-muted small">Managed securely</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
                 </table></div>
             </div>
         </div>
@@ -39,7 +69,7 @@ if (!isset($appBase)) {
             <div class="row g-3 align-items-end">
                 <div class="col-md-4"><label class="form-label fw-semibold">Test Phone Number</label><input type="text" class="form-control" id="smsTestPhone" placeholder="2547XXXXXXXX" value=""></div>
                 <div class="col-md-3"><button class="btn btn-outline-primary" id="smsTestBtn"><i class="bi bi-lightning me-1"></i>Test SMS (Balance Check)</button></div>
-                <div class="col-md-5"><div id="smsTestResult" class="text-muted small"></div></div>
+                <div class="col-md-5"><div id="smsTestResult" class="text-muted small" role="status"></div></div>
             </div>
         </div>
     </div>

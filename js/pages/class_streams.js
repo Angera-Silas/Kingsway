@@ -13,7 +13,7 @@ const classStreamsController = (() => {
   async function load() {
     const body = document.querySelector('#dataTable tbody');
     if (!body) return;
-    body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">Loading streams…</td></tr>';
+    setTableState('Loading streams…');
     try {
       const [streamsResponse, classesResponse, teachersResponse] = await Promise.all([
         window.API.apiCall('/academic/streams-list', 'GET', null, {}, { checkPermission: false }),
@@ -27,9 +27,21 @@ const classStreamsController = (() => {
       render();
     } catch (error) {
       console.error('Class streams failed to load:', error);
-      body.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">${escapeHtml(error.message || 'Could not load class streams.')}</td></tr>`;
+      setTableState(error.message || 'Could not load class streams.', 'text-danger');
       ['statClasses', 'statStreams', 'statAvg', 'statCapacity'].forEach((id) => setText(id, '—'));
     }
+  }
+
+  function setTableState(message, tone = 'text-muted') {
+    const body = document.getElementById('csStreamsBody');
+    const stateRow = document.getElementById('csStreamsState');
+    body?.querySelectorAll('[data-stream-row]').forEach((row) => row.remove());
+    const cell = stateRow?.querySelector('td');
+    if (cell) {
+      cell.className = 'text-center py-4 ' + tone;
+      cell.textContent = message;
+    }
+    if (stateRow) stateRow.hidden = false;
   }
 
   function visibleStreams() {
@@ -46,20 +58,33 @@ const classStreamsController = (() => {
     if (!body) return;
     const streams = visibleStreams();
     if (!streams.length) {
-      body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No class streams found.</td></tr>';
+      setTableState('No class streams found.');
     } else {
-      body.innerHTML = streams.map((stream, index) => {
+      const stateRow = document.getElementById('csStreamsState');
+      if (stateRow) stateRow.hidden = true;
+      body.querySelectorAll('[data-stream-row]').forEach((row) => row.remove());
+      const template = document.getElementById('csStreamRowTemplate');
+      const fragment = document.createDocumentFragment();
+      streams.forEach((stream, index) => {
         const capacity = Number(stream.capacity || 0);
         const count = Number(stream.student_count || 0);
         const utilization = capacity > 0 ? `${Math.round(count * 100 / capacity)}%` : '—';
         const active = String(stream.status || '').toLowerCase() === 'active';
-        return `<tr><td>${index + 1}</td><td>${escapeHtml(stream.class_name || stream.level_name || '—')}</td>
-          <td>${escapeHtml(stream.stream_name || '—')}</td><td>${escapeHtml(stream.teacher_name || '—')}</td>
-          <td>${count}</td><td>${capacity || '—'}</td><td>${utilization}</td>
-          <td><span class="badge bg-${active ? 'success' : 'secondary'}">${escapeHtml(stream.status || '—')}</span></td>
-          <td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit stream" data-edit-stream="${Number(stream.id)}"><i class="bi bi-pencil"></i></button></td></tr>`;
-      }).join('');
-      body.querySelectorAll('[data-edit-stream]').forEach((button) => button.addEventListener('click', () => editStream(button.dataset.editStream)));
+        const row = template.content.cloneNode(true);
+        row.querySelector('[data-fill="number"]').textContent = String(index + 1);
+        row.querySelector('[data-fill="class"]').textContent = stream.class_name || stream.level_name || '—';
+        row.querySelector('[data-fill="stream"]').textContent = stream.stream_name || '—';
+        row.querySelector('[data-fill="teacher"]').textContent = stream.teacher_name || '—';
+        row.querySelector('[data-fill="students"]').textContent = String(count);
+        row.querySelector('[data-fill="capacity"]').textContent = String(capacity || '—');
+        row.querySelector('[data-fill="utilization"]').textContent = utilization;
+        const badge = row.querySelector('[data-fill="status"]');
+        badge.textContent = stream.status || '—';
+        badge.classList.add(active ? 'bg-success' : 'bg-secondary');
+        row.querySelector('[data-action="edit"]').dataset.editStream = String(stream.id);
+        fragment.appendChild(row);
+      });
+      body.insertBefore(fragment, stateRow || null);
     }
     const totalCapacity = state.streams.reduce((sum, stream) => sum + Number(stream.capacity || 0), 0);
     const totalStudents = state.streams.reduce((sum, stream) => sum + Number(stream.student_count || 0), 0);
@@ -144,6 +169,10 @@ const classStreamsController = (() => {
   function bind() {
     ['filterSelect', 'statusFilter'].forEach((id) => document.getElementById(id)?.addEventListener('change', render));
     document.getElementById('searchInput')?.addEventListener('input', render);
+    document.getElementById('csStreamsBody')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-edit-stream]');
+      if (button) editStream(button.dataset.editStream);
+    });
   }
 
   async function init() {

@@ -20,6 +20,8 @@
 
   let initialized = false;
   let resizeTimer = null;
+  let aiChartSequence = 0;
+  const aiChartInstances = new Map();
 
   const $ = (selector, root = document) =>
     root.querySelector(selector);
@@ -895,6 +897,10 @@
     if (!host || !task) return;
     const status = String(task.status || "queued");
     const result = task.result;
+    if (status === "completed" && task.result_available === false) {
+      host.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(task.message || "Your access changed while this task was processing. Start a new task to get a current answer.")}</div>`;
+      return;
+    }
     if (status === "completed" && result) {
       const answer = result.answer?.body || result.answer?.title || "The assistant completed this request.";
       host.innerHTML = `<div class="card border-primary-subtle shadow-sm">
@@ -1415,19 +1421,17 @@
   function getGreetingHtml() {
     const user = window.AuthContext?.getUser?.();
     const displayName = user?.first_name || "there";
+    const profileCopy = getAssistantProfileCopy();
     return `
       <div class="assistant-empty-state" id="global-ai-assistant-empty-state">
         <div class="d-flex gap-3 mb-3">
           <span class="assistant-avatar assistant-avatar-sm" aria-hidden="true"><i class="bi bi-robot"></i></span>
           <div>
-            <p class="small mb-1">Hi <strong>${escapeHtml(displayName)}</strong>, I'm your Kingsway staff assistant. How can I help with your dashboard tasks today?</p>
+            <p class="small mb-1">Hi <strong>${escapeHtml(displayName)}</strong>, ${escapeHtml(profileCopy.greeting)}</p>
           </div>
         </div>
         <div class="assistant-prompt-chips d-flex flex-wrap gap-2" id="global-ai-assistant-prompt-chips">
-          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="What are the key trends in my authorized school reports?"><i class="bi bi-graph-up me-1"></i>Key trends in reports</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="Show me admissions status"><i class="bi bi-person-plus me-1"></i>Admissions status</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="What is the fee status for this term?"><i class="bi bi-currency-dollar me-1"></i>Fees status</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="Summarize my workspace"><i class="bi bi-layout-sidebar me-1"></i>Workspace summary</button>
+          ${profileCopy.prompts.map(([label, prompt]) => `<button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="${escapeHtml(prompt)}">${escapeHtml(label)}</button>`).join("")}
         </div>
       </div>
     `;
@@ -1474,6 +1478,9 @@
 
     const user = window.AuthContext?.getUser?.();
     const displayName = resolveDisplayName(user);
+    const profileCopy = getAssistantProfileCopy();
+    setText("#globalAiAssistantPanelLabel", profileCopy.title);
+    setText(".assistant-sidebar-brand-copy small", profileCopy.title);
     setText(
       "#assistant-greeting-name",
       (user?.first_name || displayName.split(" ")[0] || "there").trim()
@@ -1722,21 +1729,13 @@
       return "public";
     }
 
-    // SYSTEM domain / system_admin permission / System admin role → watchman assistant
-    const domain = String(user.domain || "").toUpperCase();
-    if (domain === "SYSTEM") {
-      return "system_admin";
-    }
-    const role = String(user.role_name || user.role || "").toLowerCase();
-    if (role === "system admin") {
-      return "system_admin";
-    }
     const permissions = window.AuthContext?.getPermissions?.() || [];
     if (permissions.includes("system_admin")) {
       return "system_admin";
     }
 
     // Parent account → parent assistant (parent/guardian focused)
+    const role = String(user.role_name || user.role || "").toLowerCase();
     if (String(user.account_type || "").toLowerCase() === "parent") {
       return "parent";
     }
@@ -1746,6 +1745,71 @@
 
     // SCHOOL domain staff → staff assistant (educational/operational)
     return "staff";
+  }
+
+  function getAssistantRoleProfile() {
+    if (getAssistantDomain() === "system_admin") return "system_admin";
+    const user = window.AuthContext?.getUser?.() || {};
+    const roleValues = [
+      ...(window.AuthContext?.getRoles?.() || []),
+      ...(Array.isArray(user.roles) ? user.roles : []),
+      ...(Array.isArray(user.role_names) ? user.role_names : []),
+      user.role_name,
+      user.role,
+    ];
+    const roles = roleValues.map((role) => {
+      const label = typeof role === "object" && role
+        ? role.name || role.role_name || role.label || role.slug || ""
+        : role;
+      return String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    });
+    if (roles.some((role) => ["director", "director owner"].includes(role))) return "director";
+    if (roles.some((role) => ["school administrator", "school admin"].includes(role))) {
+      return "school_administrator";
+    }
+    return "staff";
+  }
+
+  function getAssistantProfileCopy() {
+    const profiles = {
+      system_admin: {
+        title: "System Operations Assistant",
+        greeting: "I can help review operational health, error signals, and safe fixes.",
+        prompts: [
+          ["System health", "Summarize the current authorized system health signals."],
+          ["Recent errors", "Group the recent authorized error signals and suggest safe next steps."],
+          ["Queue health", "Summarize queue health and any jobs needing administrator review."],
+        ],
+      },
+      school_administrator: {
+        title: "School Operations Assistant",
+        greeting: "I can help coordinate school operations, review reports, and prepare work for your approval.",
+        prompts: [
+          ["Operations brief", "Summarize the key school operations items needing follow-up."],
+          ["Admissions review", "Summarize the authorized admissions items that need review."],
+          ["Plan a timetable", "Help me prepare a timetable plan and ask for any missing constraints."],
+        ],
+      },
+      director: {
+        title: "Director’s Briefing Assistant",
+        greeting: "I can prepare concise, evidence-based school briefings and highlight changes that may need your attention.",
+        prompts: [
+          ["Executive brief", "Prepare an executive briefing from my authorized school reports."],
+          ["Changes and risks", "Highlight the material changes and risks in my authorized reports."],
+          ["Compare periods", "Compare available authorized school indicators across reporting periods."],
+        ],
+      },
+      staff: {
+        title: "Staff Assistant",
+        greeting: "How can I help with your school work today?",
+        prompts: [
+          ["Key trends in reports", "What are the key trends in my authorized school reports?"],
+          ["Admissions status", "Show me admissions status"],
+          ["Workspace summary", "Summarize my workspace"],
+        ],
+      },
+    };
+    return profiles[getAssistantRoleProfile()] || profiles.staff;
   }
 
   // Backward-compatible shim: system admin assistant check
@@ -2151,6 +2215,7 @@
               const answerHtml = renderAiAgentAnswer(result);
               assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
               thread.appendChild(assistantMsg);
+              hydrateAiCharts(assistantMsg, result?.charts);
               // Track assistant message in history
               const assistantBody = result?.answer?.body || result?.message || "";
             if (assistantBody) {
@@ -2205,6 +2270,7 @@
         const answerHtml = renderAiAgentAnswer(result);
         assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
         thread.appendChild(assistantMsg);
+        hydrateAiCharts(assistantMsg, result?.charts);
         const assistantBody = result?.answer?.body || result?.message || "";
         if (assistantBody) {
           currentSessionMessages.push({
@@ -2327,9 +2393,7 @@
       : "";
 
     const tools = toolsUsed.length
-      ? `<span class="small text-muted">Grounded via: ${toolsUsed
-          .map((tool) => escapeHtml(String(tool)))
-          .join(", ")}</span>`
+      ? '<span class="small text-muted">Grounded in authorized school information</span>'
       : "";
 
     const citationsHtml = citations.length
@@ -2340,6 +2404,7 @@
           </ul>
         </div>`
       : "";
+    const chartsHtml = renderAiCharts(result);
 
     const insufficientHtml = isInsufficient
       ? `<div class="alert alert-info small mb-2">
@@ -2417,6 +2482,7 @@
       ${nextSteps}
       ${tools}
       ${citationsHtml}
+      ${chartsHtml}
       ${escalation}
       ${followUps}
       ${actionButtons}
@@ -2469,6 +2535,51 @@
         );
     });
     return rendered;
+  }
+
+  function renderAiCharts(result) {
+    const charts = Array.isArray(result?.charts) ? result.charts.slice(0, 3) : [];
+    if (!charts.length) return "";
+    return charts.map((item) => {
+      const spec = item?.chart;
+      if (!spec || !["bar", "line", "pie", "doughnut", "area"].includes(spec.type)) return "";
+      const id = `ai-chart-${++aiChartSequence}`;
+      const label = String(spec.title || "Governed report chart").slice(0, 120);
+      const shown = Array.isArray(spec.labels) ? Math.min(spec.labels.length, 25) : 0;
+      const note = item.preview_limited
+        ? `<p class="small text-muted mb-1">Showing ${shown} of ${escapeHtml(String(item.row_count ?? shown))} rows. Open the report for the full result.</p>`
+        : "";
+      return `<figure class="ai-chart-panel mb-3"><figcaption class="small fw-semibold mb-1">${escapeHtml(label)}</figcaption>${note}<div style="height:240px;position:relative"><canvas id="${id}" role="img" aria-label="${escapeHtml(label)}"></canvas></div></figure>`;
+    }).join("");
+  }
+
+  function hydrateAiCharts(root, chartSpecs) {
+    const canvases = $$('canvas[id^="ai-chart-"]', root);
+    if (!canvases.length || typeof window.Chart !== "function") return;
+    const charts = Array.isArray(chartSpecs) ? chartSpecs.slice(0, 3) : [];
+    canvases.forEach((canvas, index) => {
+      const item = charts[index];
+      const spec = item?.chart;
+      if (!spec || !Array.isArray(spec.labels) || !Array.isArray(spec.datasets)) return;
+      const datasets = spec.datasets.slice(0, 4).map((dataset) => ({
+        label: String(dataset?.label || "Values").slice(0, 80),
+        data: (Array.isArray(dataset?.data) ? dataset.data : []).slice(0, 25).map((value) => value !== null && Number.isFinite(Number(value)) ? Number(value) : null),
+        backgroundColor: dataset?.backgroundColor || undefined,
+        borderColor: dataset?.borderColor || undefined,
+      }));
+      const type = spec.type === "area" ? "line" : spec.type;
+      const chart = new window.Chart(canvas, {
+        type,
+        data: { labels: spec.labels.slice(0, 25).map((value) => String(value).slice(0, 120)), datasets },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: String(spec.title || "Report chart").slice(0, 120) } } },
+      });
+      aiChartInstances.set(canvas.id, chart);
+      while (aiChartInstances.size > 10) {
+        const oldest = aiChartInstances.keys().next().value;
+        aiChartInstances.get(oldest)?.destroy?.();
+        aiChartInstances.delete(oldest);
+      }
+    });
   }
 
   function renderAiAnswer(result) {

@@ -78,7 +78,7 @@
 
         async load() {
             this.setState("Loading email profiles...", "info");
-            this.setBody('<tr><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr>');
+            this.showTableState("Loading...");
             try {
                 const res = await window.API.system.getEmailProfiles();
                 this.profiles = Array.isArray(res?.profiles) ? res.profiles : [];
@@ -90,49 +90,55 @@
             } catch (e) {
                 console.error("[EmailConfig] load failed", e);
                 this.setState("Failed to load email profiles.", "danger");
-                this.setBody('<tr><td colspan="7" class="text-danger text-center py-3">Load failed.</td></tr>');
+                this.showTableState("Load failed.", "text-danger");
             }
         },
 
         render() {
             const body = document.getElementById("emailProfilesBody");
-            if (!body) return;
+            const state = document.getElementById("emailProfilesState");
+            const template = document.getElementById("emailProfileRowTemplate");
+            if (!body || !state || !template) return;
+            body.querySelectorAll("[data-email-profile-row]").forEach((row) => row.remove());
             if (!this.profiles.length) {
-                body.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No email mailbox profiles configured yet.</td></tr>';
+                this.showTableState("No email mailbox profiles configured yet.");
                 return;
             }
-            body.innerHTML = this.profiles.map((p) => this.rowHtml(p)).join("");
+            state.hidden = true;
+            const fragment = document.createDocumentFragment();
+            this.profiles.forEach((profile) => {
+                const id = Number(profile.id);
+                const active = Number(profile.is_active) === 1;
+                const isDefault = Number(profile.is_default) === 1;
+                const row = template.content.cloneNode(true);
+                row.querySelector('[data-fill="label"]').textContent = profile.label || "—";
+                const email = row.querySelector('[data-fill="email"]');
+                email.textContent = profile.email_address || "—";
+                email.href = profile.email_address ? "mailto:" + profile.email_address : "#";
+                row.querySelector('[data-fill="display-name"]').textContent = profile.display_name || "—";
+                const status = row.querySelector('[data-fill="status"]');
+                status.textContent = active ? "Active" : "Inactive";
+                status.classList.add(active ? "bg-success" : "bg-secondary");
+                const defaultBadge = row.querySelector('[data-fill="default"]');
+                defaultBadge.textContent = isDefault ? "★ Default" : "—";
+                defaultBadge.classList.add(isDefault ? "badge" : "text-muted");
+                if (isDefault) defaultBadge.classList.add("bg-warning", "text-dark");
+                row.querySelectorAll("[data-action]").forEach((button) => {
+                    button.dataset.id = String(id);
+                    if (button.dataset.action === "set_default") button.hidden = isDefault;
+                });
+                fragment.appendChild(row);
+            });
+            body.insertBefore(fragment, state);
         },
 
-        rowHtml(p) {
-            const id = Number(p.id);
-            const active = Number(p.is_active) === 1;
-            const def = Number(p.is_default) === 1;
-            const rolesBadge = '<span class="badge bg-info text-dark">Per-mailbox</span>';
-            const statusBadge = active
-                ? '<span class="badge bg-success">Active</span>'
-                : '<span class="badge bg-secondary">Inactive</span>';
-            const defaultBadge = def
-                ? '<span class="badge bg-warning text-dark">★ Default</span>'
-                : '<span class="text-muted">—</span>';
-            const defReset = def ? "" : `<button class="btn btn-sm btn-outline-warning" data-action="set_default" data-id="${id}" title="Set as default"><i class="bi bi-star"></i></button>`;
-            const actions = [
-                `<button class="btn btn-sm btn-outline-primary" data-action="view" data-id="${id}" title="View inbox"><i class="bi bi-envelope-open"></i></button>`,
-                `<button class="btn btn-sm btn-outline-success" data-action="edit" data-id="${id}" title="Edit mailbox"><i class="bi bi-pencil"></i></button>`,
-                defReset,
-                `<button class="btn btn-sm btn-outline-info" data-action="test_smtp" data-id="${id}" title="Test SMTP"><i class="bi bi-lightning"></i></button>`,
-                `<button class="btn btn-sm btn-outline-info" data-action="test_imap" data-id="${id}" title="Test IMAP"><i class="bi bi-inbox"></i></button>`,
-                `<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${id}" title="Delete mailbox"><i class="bi bi-trash"></i></button>`,
-            ].join(" ");
-            return `<tr data-id="${id}">
-                <td class="align-middle"><strong>${this.esc(p.label)}</strong></td>
-                <td class="align-middle"><a href="mailto:${this.esc(p.email_address)}">${this.esc(p.email_address)}</a></td>
-                <td class="align-middle">${this.esc(p.display_name)}</td>
-                <td class="align-middle">${statusBadge}</td>
-                <td class="align-middle">${defaultBadge}</td>
-                <td class="align-middle">${rolesBadge}</td>
-                <td class="align-middle"><div class="d-flex flex-wrap gap-1">${actions}</div></td>
-            </tr>`;
+        showTableState(message, tone = "text-center text-muted py-3") {
+            const body = document.getElementById("emailProfilesBody");
+            const state = document.getElementById("emailProfilesState");
+            body?.querySelectorAll("[data-email-profile-row]").forEach((row) => row.remove());
+            const cell = state?.querySelector("td");
+            if (cell) { cell.className = tone; cell.textContent = message; }
+            if (state) state.hidden = false;
         },
 
         async openModal(id) {
@@ -383,10 +389,6 @@
             state.innerHTML = `<i class="bi bi-${icon} me-1"></i>${this.esc(message)}`;
         },
 
-        setBody(html) {
-            const body = document.getElementById("emailProfilesBody");
-            if (body) body.innerHTML = html;
-        },
 
         notify(message, type) {
             if (typeof window.showNotification === "function") {

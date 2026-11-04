@@ -670,9 +670,8 @@ class AdmissionController extends BaseController
 
         $workflowContext = [
             'user_id' => (int) ($context['user_id'] ?? 0),
-            'permissions' => array_values(array_unique(array_merge(
-                (array) ($context['effective_permissions'] ?? []),
-                (array) ($context['permission_codes'] ?? [])
+            'permissions' => array_values(array_unique((array) (
+                $context['effective_permissions'] ?? $context['permission_codes'] ?? []
             ))),
             'request_id' => $_SERVER['REQUEST_ID'] ?? '',
         ];
@@ -700,17 +699,32 @@ class AdmissionController extends BaseController
     /** POST /api/admission/ai-interview-preparation-queue */
     public function postAiInterviewPreparationQueue($id = null, $data = [], $segments = [])
     {
-        return $this->queueAdmissionsAi($id, $data, 'admissions.interview_preparation', 'admission_interview_preparation', function (array $application, array $data): array {
-            return ['stage' => (string) ($application['current_stage'] ?? $application['stage'] ?? ''), 'grade_band' => (string) ($application['grade_applying'] ?? $application['grade'] ?? ''), 'days_waiting' => (string) max(0, (int) ($application['days_waiting'] ?? 0)), 'missing_items' => array_values(array_map('strval', (array) ($application['missing_items'] ?? []))), 'interview_focus' => mb_substr(trim((string) ($data['interview_focus'] ?? 'Verify readiness, communication, and age-appropriate learning context.')), 0, 500)];
+        return $this->queueAdmissionsAi($id, $data, 'admissions.interview_preparation', 'admission_interview_preparation', function (array $application, array $data, array $context, int $applicationId): array {
+            $prepared = $this->admin->getAiInterviewPreparationContext(
+                $applicationId,
+                $context,
+                (string) ($data['interview_focus'] ?? '')
+            );
+            if (($prepared['success'] ?? false) !== true) {
+                throw new DomainException((string) ($prepared['message'] ?? 'Unable to prepare interview context'), (int) ($prepared['code'] ?? 422));
+            }
+            return (array) ($prepared['data']['input'] ?? []);
         });
     }
 
     /** POST /api/admission/ai-placement-review-queue */
     public function postAiPlacementReviewQueue($id = null, $data = [], $segments = [])
     {
-        return $this->queueAdmissionsAi($id, $data, 'admissions.placement_review', 'admission_placement_review', function (array $application, array $data): array {
-            $score = isset($application['interview_score']) ? (float) $application['interview_score'] : null;
-            return ['stage' => (string) ($application['current_stage'] ?? $application['stage'] ?? ''), 'grade_band' => (string) ($application['grade_applying'] ?? $application['grade'] ?? ''), 'interview_status' => (string) ($application['interview_status'] ?? 'not_available'), 'placement_signal_band' => $score === null ? 'not_available' : ($score >= 75 ? 'strong' : ($score >= 50 ? 'review' : 'needs_review')), 'capacity_signal' => mb_substr(trim((string) ($data['capacity_signal'] ?? 'verify_with_authorized_capacity_service')), 0, 100), 'follow_up_intent' => 'Verify policy, assessment evidence, and class capacity before any official placement decision.'];
+        return $this->queueAdmissionsAi($id, $data, 'admissions.placement_review', 'admission_placement_review', function (array $application, array $data, array $context, int $applicationId): array {
+            $prepared = $this->admin->getAiPlacementReviewContext(
+                $applicationId,
+                $context,
+                (string) ($data['capacity_signal'] ?? 'unknown')
+            );
+            if (($prepared['success'] ?? false) !== true) {
+                throw new DomainException((string) ($prepared['message'] ?? 'Unable to prepare placement context'), (int) ($prepared['code'] ?? 422));
+            }
+            return (array) ($prepared['data']['input'] ?? []);
         });
     }
 
@@ -721,13 +735,13 @@ class AdmissionController extends BaseController
         if ($applicationId < 1) return $this->badRequest('application_id is required');
         $context = $this->buildAdmissionContext(); $application = $this->admin->getApplicationScopeRecord($applicationId);
         if (!$application || !$this->admin->canViewApplicationRecord($application, $context)) return $this->notFound('Application not found');
-        $workflowContext = ['user_id' => (int) ($context['user_id'] ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($context['effective_permissions'] ?? []), (array) ($context['permission_codes'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
-        try { return $this->accepted($this->contract(AiDraftService::class)->queue($workflow, $workflowContext, $builder($application, $data), ['subject_type' => $subjectType, 'subject_id' => $applicationId, 'scope' => 'authorized_admission_application']), 'Admissions AI review queued'); }
+        $workflowContext = ['user_id' => (int) ($context['user_id'] ?? 0), 'permissions' => array_values(array_unique((array) ($context['effective_permissions'] ?? $context['permission_codes'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+        try { return $this->accepted($this->contract(AiDraftService::class)->queue($workflow, $workflowContext, $builder($application, $data, $context, $applicationId), ['subject_type' => $subjectType, 'subject_id' => $applicationId, 'scope' => 'authorized_admission_application']), 'Admissions AI review queued'); }
         catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (Exception $e) { return $this->serverError('Unable to queue admissions AI review'); }
     }
 
-    /** GET /api/admission/ai-drafts?scope=own|review */
+    /** GET /api/admission/ai-drafts?scope=own|review&application_id=... */
     public function getAiDrafts($id = null, $data = [], $segments = [])
     {
         if (!$this->hasAdmissionPermission('view_any')) {
@@ -739,6 +753,13 @@ class AdmissionController extends BaseController
         if ($review && !$this->hasAdmissionPermission('review_application')) {
             return $this->forbidden('Admissions approval permission is required to review AI drafts');
         }
+        $applicationId = (int) ($_GET['application_id'] ?? $data['application_id'] ?? 0);
+        if ($applicationId < 1) return $this->badRequest('application_id is required');
+        $context = $this->buildAdmissionContext();
+        $application = $this->admin->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->admin->canViewApplicationRecord($application, $context)) {
+            return $this->notFound('Application not found');
+        }
 
         try {
             $service = $this->contract(AiDraftService::class);
@@ -747,7 +768,8 @@ class AdmissionController extends BaseController
                     $this->getDb()->getConnection(),
                     (int) ($this->getUserId() ?? 0),
                     $review,
-                    'admissions'
+                    'admissions',
+                    $applicationId
                 ),
                 'scope' => $review ? 'review' : 'own',
             ], 'Admissions AI drafts retrieved');
@@ -805,12 +827,24 @@ class AdmissionController extends BaseController
     private function approveAdmissionsAiDraft(int $draftId, string $workflow): array
     {
         try {
-            $approved = $this->contract(AiDraftService::class)->approve(
-                $this->getDb()->getConnection(),
-                $draftId,
-                (int) ($this->getUserId() ?? 0),
-                $workflow
-            );
+            $service = $this->contract(AiDraftService::class);
+            $pdo = $this->getDb()->getConnection();
+            $reference = $service->getDraftReference($pdo, $draftId);
+            $expectedSubjectType = [
+                'admissions.application_followup_draft' => 'admission_application',
+                'admissions.interview_preparation' => 'admission_interview_preparation',
+                'admissions.placement_review' => 'admission_placement_review',
+            ][$workflow] ?? '';
+            if (!$reference || ($reference['workflow_id'] ?? '') !== $workflow || ($reference['subject_type'] ?? '') !== $expectedSubjectType) {
+                return $this->notFound('Admissions draft not found');
+            }
+            $applicationId = (int) ($reference['subject_id'] ?? 0);
+            $context = $this->buildAdmissionContext();
+            $application = $applicationId > 0 ? $this->admin->getApplicationScopeRecord($applicationId) : null;
+            if (!$application || !$this->admin->canViewApplicationRecord($application, $context)) {
+                return $this->notFound('Admissions draft not found');
+            }
+            $approved = $service->approve($pdo, $draftId, (int) ($this->getUserId() ?? 0), $workflow);
             return $this->success([
                 'draft_id' => $draftId,
                 'workflow_id' => $workflow,
@@ -1122,12 +1156,10 @@ class AdmissionController extends BaseController
     private function getCurrentUserPermissionCodes(): array
     {
         $permissions = [];
-        foreach (['permissions', 'effective_permissions'] as $key) {
-            $source = $this->user[$key] ?? [];
-            if (is_array($source)) {
-                foreach ($source as $permission) {
-                    $permissions[] = is_array($permission) ? (string) ($permission['code'] ?? $permission['name'] ?? '') : (string) $permission;
-                }
+        $source = $this->user['effective_permissions'] ?? $this->user['permissions'] ?? [];
+        if (is_array($source)) {
+            foreach ($source as $permission) {
+                $permissions[] = is_array($permission) ? (string) ($permission['code'] ?? $permission['name'] ?? '') : (string) $permission;
             }
         }
 

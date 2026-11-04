@@ -11,6 +11,7 @@ use App\API\Services\AnnouncementBulletinService;
 use App\API\Services\EmailProfileService;
 use App\API\Services\EmailInboxService;
 use App\API\Services\SystemAdminAnalyticsService;
+use App\API\Services\AiOutputGuard;
 use App\API\Services\OperatingModeService;
 use App\API\Services\EnvironmentPhaseService;
 use App\API\Services\TestDataManagementService;
@@ -335,9 +336,11 @@ class SystemController extends BaseController
         if (!$this->canUseAiOperations()) {
             return $this->forbidden('Operations AI assistance is not available for your account');
         }
+        $phase = 'summary';
         try {
             $service = $this->contract('App\API\Services\SystemOperationsReviewService');
             $input = $service->aiPayload($service->summary($this->db->getConnection()));
+            $phase = 'enqueue';
             $queued = $this->contract('App\API\Services\AiDraftService')->queue(
                 'system.operations_brief', $this->aiOperationsContext(), $input,
                 ['subject_type' => 'system_operations_review', 'scope' => 'authorized_system_aggregates']
@@ -346,9 +349,14 @@ class SystemController extends BaseController
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
         } catch (\Throwable $e) {
+            $safeMessage = AiOutputGuard::scrubText($e->getMessage());
             Logger::error('errors', 'AI operations review could not be queued', [
                 'exception_class' => get_class($e),
-                'exception_message' => $e->getMessage(),
+                'phase' => $phase,
+                // Keep diagnostics correlatable without copying SQL, paths,
+                // credentials, or provider details into the operations log.
+                'exception_fingerprint' => hash('sha256', get_class($e) . ':' . $safeMessage),
+                'exception_summary' => mb_substr($safeMessage, 0, 240),
                 'workflow_id' => 'system.operations_brief',
                 'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
             ]);
@@ -395,7 +403,7 @@ class SystemController extends BaseController
     {
         return [
             'user_id' => (int) ($this->getUserId() ?? 0),
-            'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))),
+            'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))),
             'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId,
         ];
     }

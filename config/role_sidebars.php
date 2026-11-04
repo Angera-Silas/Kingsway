@@ -360,21 +360,18 @@ return [
             ]
         ],
 
-        [
-            'label' => 'Website Management',
+       [
+            'label' => 'Staff',
             'url' => null,
-            'icon' => 'fas fa-globe',
+            'icon' => 'fas fa-chalkboard-teacher',
             'subitems' => [
-                ['label' => 'News & Stories', 'url' => 'manage_articles'],
-                ['label' => 'Public Events', 'url' => 'manage_public_events'],
-                ['label' => 'School Gallery', 'url' => 'manage_school_gallery'],
-                ['label' => 'Job Vacancies', 'url' => 'manage_job_vacancies'],
-                ['label' => 'Job Applications', 'url' => 'manage_job_applications'],
-                ['label' => 'Page Content', 'url' => 'manage_page_content'],
-                ['label' => 'Public Downloads', 'url' => 'manage_public_downloads'],
-                ['label' => 'Contact Inquiries', 'url' => 'manage_inquiries'],
-                ['label' => 'Website Overview', 'url' => 'manage_website'],
-            ],
+                ['label' => 'Staff Management', 'url' => 'manage_staff'],
+                ['label' => 'Staff Appointments', 'url' => 'staff_appointments'],
+                ['label' => 'Teachers', 'url' => 'all_teachers'],
+                ['label' => 'Staff Attendance', 'url' => 'staff_attendance'],
+                ['label' => 'Leave Management', 'url' => 'staff_leave'],
+                ['label' => 'Performance Overview', 'url' => 'staff_performance'],
+            ]
         ],
 
         // Activities — oversight, not operational and make recommendations to school admin

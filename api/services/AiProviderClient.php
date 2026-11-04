@@ -54,6 +54,7 @@ class AiProviderClient implements AiCompletionProvider
 
     public const DEFAULT_MAX_TOKENS = 600;
     public const DEFAULT_TIMEOUT = 20;
+    public const MAX_RESPONSE_BYTES = 1048576;
 
     /** @return array{0:int,1:int} */
     public static function budgetFor(string $task): array
@@ -145,14 +146,15 @@ class AiProviderClient implements AiCompletionProvider
         ]);
 
         if ($raw === false || $curlError !== '') {
-            throw new AiProviderException('AI provider request failed.');
+            throw new AiProviderException('AI provider request failed.', 0, null, true);
         }
         if ($status < 200 || $status >= 300 || !is_array($decoded)) {
-            throw new AiProviderException('AI provider returned an invalid response.');
+            $fallbackAllowed = in_array($status, [408, 425, 429], true) || $status >= 500;
+            throw new AiProviderException('AI provider returned an invalid response.', $status, null, $fallbackAllowed);
         }
         $content = $this->responseContent($providerKind, $decoded);
         if (!is_string($content) || trim($content) === '') {
-            throw new AiProviderException('AI provider returned no usable content.');
+            throw new AiProviderException('AI provider returned no usable content.', 0, null, true);
         }
         $json = $this->decodeJsonContent($content);
         if (!is_array($json) && empty($options['_json_repair'])) {
@@ -168,7 +170,7 @@ class AiProviderClient implements AiCompletionProvider
             return $this->complete($messages, $options);
         }
         if (!is_array($json)) {
-            throw new AiProviderException('AI provider returned non-JSON content.');
+            throw new AiProviderException('AI provider returned non-JSON content.', 0, null, true);
         }
 
         // Response-side confidentiality choke point. A model can be induced to
@@ -419,7 +421,11 @@ class AiProviderClient implements AiCompletionProvider
     {
         if ($this->transport !== null) {
             $result = call_user_func($this->transport, $url, $method, $headers, $body, $timeout);
-            return [is_string($result[0] ?? null) ? $result[0] : false, (int) ($result[1] ?? 0), (string) ($result[2] ?? '')];
+            $raw = is_string($result[0] ?? null) ? $result[0] : false;
+            if (is_string($raw) && strlen($raw) > self::MAX_RESPONSE_BYTES) {
+                return [false, (int) ($result[1] ?? 0), 'provider response exceeded configured size limit'];
+            }
+            return [$raw, (int) ($result[1] ?? 0), (string) ($result[2] ?? '')];
         }
         // HostAfrica/shared-hosting PHP builds may omit ext-curl even when
         // outbound HTTPS is available. Keep the provider contract usable with
@@ -440,7 +446,9 @@ class AiProviderClient implements AiCompletionProvider
                     'allow_self_signed' => false,
                 ],
             ]);
-            $raw = @file_get_contents($url, false, $context);
+            $stream = @fopen($url, 'rb', false, $context);
+            $raw = is_resource($stream) ? stream_get_contents($stream, self::MAX_RESPONSE_BYTES + 1) : false;
+            if (is_resource($stream)) fclose($stream);
             $status = 0;
             foreach (($http_response_header ?? []) as $responseHeader) {
                 if (preg_match('/^HTTP\/\S+\s+(\d{3})/', (string) $responseHeader, $match)) {
@@ -448,15 +456,30 @@ class AiProviderClient implements AiCompletionProvider
                     break;
                 }
             }
+            if (is_string($raw) && strlen($raw) > self::MAX_RESPONSE_BYTES) {
+                return [false, $status, 'provider response exceeded configured size limit'];
+            }
             return [$raw === false ? false : $raw, $status, $raw === false ? 'stream HTTPS request failed' : ''];
         }
         $ch = curl_init($url);
         if ($ch === false) return [false, 0, 'curl unavailable'];
+        $responseBody = '';
+        $responseTooLarge = false;
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_POSTFIELDS => $body,
             CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$responseBody, &$responseTooLarge): int {
+                $chunkLength = strlen($chunk);
+                $remaining = self::MAX_RESPONSE_BYTES - strlen($responseBody);
+                if ($chunkLength > $remaining) {
+                    if ($remaining > 0) $responseBody .= substr($chunk, 0, $remaining);
+                    $responseTooLarge = true;
+                    return 0;
+                }
+                $responseBody .= $chunk;
+                return $chunkLength;
+            },
             CURLOPT_CONNECTTIMEOUT => min(10, max(1, (int) Config::get('AI_CONNECT_TIMEOUT', 5))),
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_SSL_VERIFYPEER => true,
@@ -473,6 +496,7 @@ class AiProviderClient implements AiCompletionProvider
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5; the
         // handle is released when $ch goes out of scope.
-        return [$raw, $status, $error];
+        if ($responseTooLarge) return [false, $status, 'provider response exceeded configured size limit'];
+        return [$raw === false ? false : $responseBody, $status, $error];
     }
 }

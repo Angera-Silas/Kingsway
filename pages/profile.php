@@ -141,10 +141,9 @@ window.location.replace((window.APP_BASE || '') + '/home.php?route=account_setti
                                 <th>Status</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <tr><td colspan="5" class="text-center text-muted py-3">Loading...</td></tr>
-                        </tbody>
+                        <tbody id="loginHistoryBody"><tr id="loginHistoryState"><td colspan="5" class="text-center text-muted py-3">Loading...</td></tr></tbody>
                     </table>
+<template id="loginHistoryRowTemplate"><tr data-login-history-row><td data-fill="created"></td><td data-fill="ip"></td><td data-fill="device"></td><td data-fill="browser"></td><td><span class="badge" data-fill="status"></span></td></tr></template>
                 </div>
             </div>
         </div>

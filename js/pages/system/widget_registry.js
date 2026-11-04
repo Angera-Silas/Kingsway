@@ -71,6 +71,7 @@ const WidgetRegistryController = {
       search: document.getElementById("widgetRegistrySearch"),
       count: document.getElementById("widgetRegistryCount"),
       body: document.getElementById("widgetRegistryTableBody"),
+      tableState: document.getElementById("widgetRegistryTableState"),
       rowTemplate: document.getElementById("widgetRegistryRowTemplate"),
       exportCsvBtn: document.getElementById("widgetRegistryExportCsvBtn"),
       printBtn: document.getElementById("widgetRegistryPrintBtn"),
@@ -115,12 +116,13 @@ const WidgetRegistryController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="7" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-widget-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -215,22 +217,28 @@ const WidgetRegistryController = {
     if (!pageRows.length) {
       this.showTableMessage("No widgets found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
-          fragment.querySelector('[data-fill="key"]').textContent = row.key ?? row.widget_key ?? "—";
-          fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
-          fragment.querySelector('[data-fill="type"]').outerHTML = this.typeBadge(row.type);
-          fragment.querySelector('[data-fill="permission"]').textContent = row.permission || "—";
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(
-            row.status ?? (row.is_active === true || row.is_active === 1 ? "active" : "inactive"),
-          );
-          const tr = fragment.querySelector("tr");
-          tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-widget-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
+        fragment.querySelector('[data-fill="key"]').textContent = row.key ?? row.widget_key ?? "—";
+        fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
+        const type = fragment.querySelector('[data-fill="type"]');
+        type.textContent = row.type ?? "—";
+        (({ chart: "bg-primary", stat: "bg-success", table: "bg-info", list: "bg-warning text-dark", custom: "bg-dark" })[String(row.type).toLowerCase()] || "bg-secondary").split(" ").forEach((className) => type.classList.add(className));
+        fragment.querySelector('[data-fill="permission"]').textContent = row.permission || "—";
+        const status = fragment.querySelector('[data-fill="status"]');
+        const label = row.status ?? (row.is_active === true || row.is_active === 1 ? "active" : "inactive");
+        status.textContent = label;
+        status.classList.add(["active", "enabled"].includes(String(label).toLowerCase()) ? "bg-success" : "bg-secondary");
+        const tr = fragment.querySelector("tr");
+        tr.dataset.widgetRow = "1";
+        tr.dataset.id = row.id;
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

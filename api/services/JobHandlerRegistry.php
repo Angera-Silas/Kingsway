@@ -149,12 +149,12 @@ class JobHandlerRegistry
                 if ($operatorId < 1) {
                     throw new RuntimeException('ai.workflow.draft: missing operator');
                 }
-                // Permissions in the queue payload are only an audit hint. A
-                // user's role may have changed while the job waited, so resolve
-                // the authoritative grants again immediately before generation.
+                // The queued permission fingerprint is for audit correlation
+                // only. A user's role may have changed while the job waited, so
+                // resolve authoritative grants immediately before generation.
                 $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $operatorId);
                 if ($permissions === []) {
-                    throw new RuntimeException('ai.workflow.draft: operator permissions could not be resolved');
+                    throw new \DomainException('ai.workflow.draft: operator permissions could not be resolved', 403);
                 }
                 $metadata = isset($payload['metadata']) && is_array($payload['metadata'])
                     ? $payload['metadata'] : [];
@@ -191,7 +191,7 @@ class JobHandlerRegistry
             'ai.agent.run' => static function (array $payload, PDO $pdo): void {
                 $bridge = new AiPythonBridge();
                 if ($bridge->available()) {
-                    $bridge->runJob($payload);
+                    $bridge->runJob($payload, $pdo);
                     return;
                 }
                 (new AiAgentService())->runBackground($pdo, $payload);
