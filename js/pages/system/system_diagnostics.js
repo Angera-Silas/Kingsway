@@ -67,6 +67,7 @@ const SystemDiagnosticsController = {
       search: document.getElementById("systemDiagnosticsSearch"),
       count: document.getElementById("systemDiagnosticsCount"),
       body: document.getElementById("systemDiagnosticsTableBody"),
+      tableState: document.getElementById("systemDiagnosticsTableState"),
       rowTemplate: document.getElementById("systemDiagnosticsRowTemplate"),
       exportCsvBtn: document.getElementById("systemDiagnosticsExportCsvBtn"),
       printBtn: document.getElementById("systemDiagnosticsPrintBtn"),
@@ -96,12 +97,10 @@ const SystemDiagnosticsController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="3" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-system-diagnostic-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + (className || "text-muted"); cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -176,28 +175,33 @@ const SystemDiagnosticsController = {
     return "";
   },
 
-  stateBadge(state) {
+  stateTone(state) {
     const map = { ok: "bg-success", normal: "bg-success", healthy: "bg-success", pass: "bg-success", warn: "bg-warning text-dark", warning: "bg-warning text-dark", low: "bg-warning text-dark", error: "bg-danger", failed: "bg-danger", critical: "bg-danger" };
-    return `<span class="badge ${map[String(state).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(state || "—")}</span>`;
+    return map[String(state).toLowerCase()] || "bg-secondary";
   },
 
   render() {
     if (!this.state.filtered.length) {
       this.showTableMessage("No diagnostics found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = this.state.filtered
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="key"]').textContent = row.key ?? "—";
-          fragment.querySelector('[data-fill="value"]').textContent = this.stringify(row.value ?? row.detail ?? "");
-          fragment.querySelector('[data-fill="state"]').outerHTML = this.stateBadge(this.stateOf(row));
-          return fragment.querySelector("tr").outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-system-diagnostic-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      this.state.filtered.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="key"]').textContent = row.key ?? "—";
+        fragment.querySelector('[data-fill="value"]').textContent = this.stringify(row.value ?? row.detail ?? "");
+        const state = this.stateOf(row);
+        const badge = fragment.querySelector('[data-fill="state"]');
+        badge.textContent = state || "—";
+        this.stateTone(state).split(" ").forEach((name) => badge.classList.add(name));
+        fragment.querySelector("tr").dataset.systemDiagnosticRow = "1";
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
     const total = this.state.filtered.length;
-    this.elements.count.textContent =
-      total + " diagnost" + (total === 1 ? "ic" : "ics") + (this.state.search ? " (filtered)" : "");
+    this.elements.count.textContent = total + " diagnost" + (total === 1 ? "ic" : "ics") + (this.state.search ? " (filtered)" : "");
   },
 
   buildCsv() {

@@ -152,51 +152,41 @@ const ResultsAnalysisController = (() => {
 
   function renderTable(items) {
     const tbody = document.getElementById("resultsTableBody");
-    if (!tbody) return;
-
+    const stateRow = document.getElementById("resultsTableState");
+    const template = document.getElementById("resultsAnalysisRowTemplate");
+    if (!tbody || !stateRow || !template) return;
+    tbody.querySelectorAll("[data-results-row]").forEach((row) => row.remove());
     if (!items.length) {
-      tbody.innerHTML =
-        '<tr><td colspan="8" class="text-center py-4 text-muted">No results data found</td></tr>';
+      stateRow.querySelector("td").textContent = "No results data found";
+      stateRow.hidden = false;
       return;
     }
-
-    tbody.innerHTML = items
-      .map((r, i) => {
-        const mean = parseFloat(r.mean_score || r.mean || 0);
-        const passRate = parseFloat(r.pass_rate || 0);
-        const meanColor =
-          mean >= 70 ? "success" : mean >= 50 ? "warning" : "danger";
-        const passColor =
-          passRate >= 80 ? "success" : passRate >= 50 ? "warning" : "danger";
-
-        const gradeA = r.grade_a || r.grades?.A || 0;
-        const gradeB = r.grade_b || r.grades?.B || 0;
-        const gradeC = r.grade_c || r.grades?.C || 0;
-        const gradeD = r.grade_d || r.grades?.D || 0;
-        const gradeE = r.grade_e || r.grades?.E || 0;
-
-        return `
-                <tr>
-                    <td>${(pagination.page - 1) * pagination.limit + i + 1}</td>
-                    <td><strong>${r.subject_name || r.subject || "-"}</strong></td>
-                    <td>${r.teacher_name || "-"}</td>
-                    <td><span class="badge bg-${meanColor}">${mean.toFixed(1)}%</span></td>
-                    <td>${r.highest_score || r.highest || "-"}</td>
-                    <td>${r.lowest_score || r.lowest || "-"}</td>
-                    <td><span class="text-${passColor} fw-bold">${passRate.toFixed(1)}%</span></td>
-                    <td>
-                        <small>
-                            <span class="badge bg-success">A:${gradeA}</span>
-                            <span class="badge bg-primary">B:${gradeB}</span>
-                            <span class="badge bg-info">C:${gradeC}</span>
-                            <span class="badge bg-warning text-dark">D:${gradeD}</span>
-                            <span class="badge bg-danger">E:${gradeE}</span>
-                        </small>
-                    </td>
-                </tr>
-            `;
-      })
-      .join("");
+    stateRow.hidden = true;
+    const fragment = document.createDocumentFragment();
+    items.forEach((record, index) => {
+      const mean = parseFloat(record.mean_score || record.mean || 0);
+      const passRate = parseFloat(record.pass_rate || 0);
+      const row = template.content.cloneNode(true);
+      const fill = (name, value) => { row.querySelector(`[data-fill="${name}"]`).textContent = String(value ?? "-"); };
+      fill("number", (pagination.page - 1) * pagination.limit + index + 1);
+      fill("subject", record.subject_name || record.subject || "-");
+      fill("teacher", record.teacher_name || "-");
+      fill("highest", record.highest_score || record.highest || "-");
+      fill("lowest", record.lowest_score || record.lowest || "-");
+      const meanBadge = row.querySelector('[data-fill="mean"]');
+      meanBadge.textContent = mean.toFixed(1) + "%";
+      meanBadge.classList.add(mean >= 70 ? "bg-success" : mean >= 50 ? "bg-warning" : "bg-danger");
+      const passNode = row.querySelector('[data-fill="pass-rate"]');
+      passNode.textContent = passRate.toFixed(1) + "%";
+      passNode.classList.add(passRate >= 80 ? "text-success" : passRate >= 50 ? "text-warning" : "text-danger");
+      fill("grade-a", "A:" + (record.grade_a || record.grades?.A || 0));
+      fill("grade-b", "B:" + (record.grade_b || record.grades?.B || 0));
+      fill("grade-c", "C:" + (record.grade_c || record.grades?.C || 0));
+      fill("grade-d", "D:" + (record.grade_d || record.grades?.D || 0));
+      fill("grade-e", "E:" + (record.grade_e || record.grades?.E || 0));
+      fragment.appendChild(row);
+    });
+    tbody.insertBefore(fragment, stateRow);
   }
 
   function renderPagination() {

@@ -27,8 +27,9 @@ if (!isset($appBase)) {
         <div class="card-body">
             <div class="table-responsive"><table class="table table-hover table-sm mb-0" id="emailProfilesTable">
                 <thead class="table-light"><tr><th>Label</th><th>Email Address</th><th>Display Name</th><th>Status</th><th>Default</th><th>Staff access</th><th>Actions</th></tr></thead>
-                <tbody id="emailProfilesBody"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
+                <tbody id="emailProfilesBody"><tr id="emailProfilesState"><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr></tbody>
             </table></div>
+            <template id="emailProfileRowTemplate"><tr data-email-profile-row><td class="align-middle"><strong data-fill="label"></strong></td><td class="align-middle"><a data-fill="email"></a></td><td class="align-middle" data-fill="display-name"></td><td class="align-middle"><span class="badge" data-fill="status"></span></td><td class="align-middle"><span data-fill="default"></span></td><td class="align-middle"><span class="badge bg-info text-dark">Per-mailbox</span></td><td class="align-middle"><div class="d-flex flex-wrap gap-1"><button class="btn btn-sm btn-outline-primary" data-action="view" type="button" title="View inbox"><i class="bi bi-envelope-open"></i></button><button class="btn btn-sm btn-outline-success" data-action="edit" type="button" title="Edit mailbox"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-warning" data-action="set_default" type="button" title="Set as default"><i class="bi bi-star"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_smtp" type="button" title="Test SMTP"><i class="bi bi-lightning"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_imap" type="button" title="Test IMAP"><i class="bi bi-inbox"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete" type="button" title="Delete mailbox"><i class="bi bi-trash"></i></button></div></td></tr></template>
         </div>
     </div>
 

@@ -7,6 +7,7 @@
  */
 
 const timetableController = (() => {
+  const esc = (value) => { const node = document.createElement('span'); node.textContent = String(value ?? ''); return node.innerHTML; };
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
   let timeSlots = []; // loaded from DB
   let timetableData = [];
@@ -1092,6 +1093,34 @@ const timetableController = (() => {
 
   function showNotification(message, type) { window.showNotification(message, type); }
 
+  function renderAiTimetableProposal(container, result) {
+    if (!container) return;
+    const draft = result?.draft && typeof result.draft === 'object' ? result.draft : {};
+    const body = result?.answer?.body || result?.body || draft.body || '';
+    const nextSteps = result?.next_steps || draft.next_steps || [];
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-info py-2 mb-0';
+    const title = document.createElement('strong');
+    title.textContent = result?.answer?.title || result?.title || draft.title || 'AI timetable proposal';
+    alert.appendChild(title);
+    if (body) {
+      const content = document.createElement('div');
+      content.textContent = body;
+      alert.appendChild(content);
+    }
+    if (Array.isArray(nextSteps) && nextSteps.length) {
+      const list = document.createElement('ul');
+      list.className = 'mb-0 mt-1';
+      nextSteps.forEach((step) => {
+        const item = document.createElement('li');
+        item.textContent = String(step ?? '');
+        list.appendChild(item);
+      });
+      alert.appendChild(list);
+    }
+    container.replaceChildren(alert);
+  }
+
   // ── AI Timetable Draft via AgentTaskPanel ──────────────────────────────────────
   async function queueAiTimetableDraft(periodId, period, constraints) {
     if (window.AI_FEATURES.shouldUseAgentTaskPanel('manage_timetable')) {
@@ -1112,7 +1141,7 @@ const timetableController = (() => {
             const statusEl = document.getElementById('examAiDraftStatus');
             const notesEl = document.getElementById('examAiDraftNotes');
             if (statusEl) statusEl.textContent = 'Draft loaded into the timetable for your review. Nothing has been saved.';
-            if (notesEl) notesEl.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>AI timetable proposal</strong>${result.body ? `<div>${result.body}</div>` : ''}${(result.next_steps || []).length ? `<ul class="mb-0 mt-1">${result.next_steps.map((item) => `<li>${item}</li>`).join('')}</ul>` : ''}</div>`;
+            renderAiTimetableProposal(notesEl, result);
             notesEl.classList.remove('d-none');
             document.getElementById('draftExamPeriodTimetable').disabled = false;
             notify('AI timetable draft ready!', 'success');
@@ -1209,7 +1238,7 @@ const timetableController = (() => {
         row.querySelector('.slot-end').value = String(entry.end_time).slice(0, 5);
       });
       if (status) status.textContent = 'Draft loaded into the timetable for your review. Nothing has been saved.';
-      if (notes) notes.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>${esc(result.title || 'AI timetable proposal')}</strong>${result.body ? `<div>${esc(result.body)}</div>` : ''}${(result.next_steps || []).length ? `<ul class="mb-0 mt-1">${result.next_steps.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>`;
+      renderAiTimetableProposal(notes, result);
       notes.classList.remove('d-none');
       if (button) button.disabled = false;
       notify('AI draft loaded. Review the timetable and save it when ready.', 'success');

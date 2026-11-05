@@ -25,6 +25,26 @@ class AttendanceRegisterService
         date_default_timezone_set('Africa/Nairobi');
     }
 
+    /** Validate the bounded date window accepted by attendance AI reviews. */
+    public static function isValidAiDateRange(string $from, string $to): bool
+    {
+        $fromDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $from);
+        $fromErrors = \DateTimeImmutable::getLastErrors();
+        $toDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $to);
+        $toErrors = \DateTimeImmutable::getLastErrors();
+        if (
+            !$fromDate || !$toDate
+            || $fromDate->format('Y-m-d') !== $from
+            || $toDate->format('Y-m-d') !== $to
+            || ($fromErrors !== false && ($fromErrors['warning_count'] > 0 || $fromErrors['error_count'] > 0))
+            || ($toErrors !== false && ($toErrors['warning_count'] > 0 || $toErrors['error_count'] > 0))
+            || $fromDate > $toDate
+        ) {
+            return false;
+        }
+        return $fromDate->diff($toDate)->days <= 366;
+    }
+
     public function process(?string $date = null, ?string $now = null): array
     {
         $date = $date ?: date('Y-m-d');
@@ -88,6 +108,78 @@ class AttendanceRegisterService
         return ['date'=>$date, 'registers'=>$stmt->fetchAll(PDO::FETCH_ASSOC)];
     }
 
+    /** Build a minimized deterministic input for attendance exception review. */
+    public function buildAiExceptionSummaryInput(string $date, array $registers): array
+    {
+        $counts = ['completed' => 0, 'open' => 0, 'overdue' => 0, 'not_marked' => 0];
+        $types = [];
+        $streams = [];
+        foreach ($registers as $register) {
+            if (!is_array($register)) continue;
+            $status = (string) ($register['status'] ?? '');
+            if (array_key_exists($status, $counts)) $counts[$status]++;
+            if ($status !== '' && $status !== 'completed') $types[$status] = true;
+            $streamId = (int) ($register['stream_id'] ?? 0);
+            if ($streamId > 0) $streams[$streamId] = true;
+        }
+
+        return [
+            'report_date' => $date,
+            'register_count' => (string) count($registers),
+            'completed_count' => (string) $counts['completed'],
+            'open_count' => (string) $counts['open'],
+            'overdue_count' => (string) $counts['overdue'],
+            'not_marked_count' => (string) $counts['not_marked'],
+            'scope_stream_count' => (string) count($streams),
+            'exception_types' => array_keys($types),
+            'follow_up_intent' => 'Prepare register-review follow-up for authorized staff; do not alter attendance records.',
+        ];
+    }
+
+    /** Build aggregate-only lateness evidence from the already scoped report. */
+    public function buildAiLatenessPatternInput(string $from, string $to, array $students, string $className = ''): array
+    {
+        $present = 0;
+        $absent = 0;
+        $late = 0;
+        $permission = 0;
+        $unmarked = 0;
+        $expected = 0;
+        $hasExpectedCounts = false;
+        foreach ($students as $student) {
+            if (!is_array($student)) continue;
+            if ($className !== '' && (string) ($student['class_name'] ?? '') !== $className) continue;
+            $present += max(0, (int) ($student['present'] ?? 0));
+            $absent += max(0, (int) ($student['absent'] ?? 0));
+            $late += max(0, (int) ($student['late'] ?? 0));
+            $permission += max(0, (int) ($student['permission'] ?? 0));
+            $unmarked += max(0, (int) ($student['unmarked'] ?? 0));
+            if (array_key_exists('total_days', $student)) {
+                $hasExpectedCounts = true;
+                $expected += max(0, (int) $student['total_days']);
+            }
+        }
+        $latenessDenominator = $present + $absent + $late;
+        $recorded = $latenessDenominator + $permission;
+        return [
+            'date_from' => $from,
+            'date_to' => $to,
+            'present_count' => (string) $present,
+            'absent_count' => (string) $absent,
+            'late_count' => (string) $late,
+            'permission_count' => (string) $permission,
+            'unmarked_count' => (string) $unmarked,
+            'recorded_count' => (string) $recorded,
+            'lateness_denominator_count' => (string) $latenessDenominator,
+            'expected_count' => (string) $expected,
+            'coverage_rate' => $hasExpectedCounts && $expected > 0
+                ? (string) round($recorded / $expected * 100, 2)
+                : 'not_available',
+            'late_rate' => $latenessDenominator > 0 ? (string) round($late / $latenessDenominator * 100, 2) : '0',
+            'follow_up_intent' => 'Verify authorized register details and speak with responsible staff before action.',
+        ];
+    }
+
     /**
      * List the registers that should exist across a date range without
      * creating or changing any register/attendance rows.  Reports must be
@@ -140,7 +232,7 @@ $existingSql = "SELECT ar.*, ass.code AS session_code,
         $end = new \DateTimeImmutable($to);
         for (; $date <= $end; $date = $date->modify('+1 day')) {
             $dateString = $date->format('Y-m-d');
-            $context = $this->context($dateString);
+            $context = $this->context($dateString, true);
             if (!$context || !$context['class_day']) continue;
             $streams = $this->streams((int) $context['year_id']);
             if ($streamIds) $streams = array_values(array_filter($streams, static fn(array $s): bool => in_array((int) $s['id'], $streamIds, true)));
@@ -291,8 +383,14 @@ $existingSql = "SELECT ar.*, ass.code AS session_code,
         );
     }
 
-    private function context(string $date): ?array
+    private function context(string $date, bool $includeClosedYears = false): ?array
     {
+        // Reports resolve by the term containing the requested date, including
+        // closed years. Reconciliation stays limited to the active year so a
+        // historical request cannot create or change old register records.
+        $activeYearFilter = $includeClosedYears
+            ? ''
+            : "WHERE (ay.is_current = 1 OR ay.status = 'active')";
         $stmt = $this->db->prepare(
             "SELECT ay.id AS year_id, ayt.id AS term_id, acd.id AS calendar_day_id,
                     DAYNAME(?) AS day_name,                     COALESCE(acd.type, 'school_day') AS day_type,
@@ -307,8 +405,8 @@ $existingSql = "SELECT ar.*, ass.code AS session_code,
                 AND ? BETWEEN ac.week_start AND ac.week_end
                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " acd ON acd.academic_year_calendar_id = ac.id
                 AND acd.date = ?
-              WHERE (ay.is_current = 1 OR ay.status = 'active')
-              ORDER BY ay.is_current DESC, ay.id DESC LIMIT 1"
+              {$activeYearFilter}
+              ORDER BY ayt.opening_date DESC, ay.id DESC LIMIT 1"
         );
         $stmt->execute([$date, $date, $date, $date]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -71,6 +71,7 @@ const RouteAccessRulesController = {
       search: document.getElementById("routeAccessRulesSearch"),
       count: document.getElementById("routeAccessRulesCount"),
       body: document.getElementById("routeAccessRulesTableBody"),
+      tableState: document.getElementById("routeAccessRulesTableState"),
       rowTemplate: document.getElementById("routeAccessRulesRowTemplate"),
       exportCsvBtn: document.getElementById("routeAccessRulesExportCsvBtn"),
       printBtn: document.getElementById("routeAccessRulesPrintBtn"),
@@ -114,12 +115,13 @@ const RouteAccessRulesController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="7" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-route-access-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -197,14 +199,23 @@ const RouteAccessRulesController = {
     this.render();
   },
 
-  policyBadge(policy) {
+  policyTone(policy) {
     const map = { allow: "bg-success", role_only: "bg-info", deny: "bg-danger" };
-    return `<span class="badge ${map[String(policy).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(policy || "—")}</span>`;
+    return map[String(policy).toLowerCase()] || "bg-secondary";
   },
 
-  activeBadge(isActive) {
+  policyLabel(policy) {
+    return String(policy || "—");
+  },
+
+  activeTone(isActive) {
     const active = isActive === true || isActive === 1 || isActive === "1" || isActive === "true";
-    return `<span class="badge ${active ? "bg-success" : "bg-secondary"}">${active ? "Active" : "Inactive"}</span>`;
+    return active ? "bg-success" : "bg-secondary";
+  },
+
+  activeLabel(isActive) {
+    const active = isActive === true || isActive === 1 || isActive === "1" || isActive === "true";
+    return active ? "Active" : "Inactive";
   },
 
   render() {
@@ -214,20 +225,27 @@ const RouteAccessRulesController = {
     if (!pageRows.length) {
       this.showTableMessage("No rules found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
+      this.elements.body.querySelectorAll("[data-route-access-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
           const fragment = this.elements.rowTemplate.content.cloneNode(true);
           fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
           fragment.querySelector('[data-fill="route"]').textContent = row.route ?? "—";
           fragment.querySelector('[data-fill="role_name"]').textContent = row.role_name ?? "—";
-          fragment.querySelector('[data-fill="policy"]').outerHTML = this.policyBadge(row.policy);
+          const policy = fragment.querySelector('[data-fill="policy"]');
+          policy.classList.add(...this.policyTone(row.policy).split(" "));
+          policy.textContent = this.policyLabel(row.policy);
           fragment.querySelector('[data-fill="method"]').textContent = row.method || "ALL";
-          fragment.querySelector('[data-fill="is_active"]').outerHTML = this.activeBadge(row.is_active);
+          const active = fragment.querySelector('[data-fill="is_active"]');
+          active.classList.add(...this.activeTone(row.is_active).split(" "));
+          active.textContent = this.activeLabel(row.is_active);
           const tr = fragment.querySelector("tr");
+          tr.dataset.routeAccessRow = "1";
           tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+          rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

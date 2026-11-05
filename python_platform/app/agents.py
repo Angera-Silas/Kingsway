@@ -414,8 +414,11 @@ PROMPT_TEMPLATES: dict[str, str] = {
         '{"action":"tool","tools":[{"tool":"<exact tool id>","tool_input":{...}},...]} (max 3); '
         "independent tools run at the same time, so batching is faster. Use each tool at most "
         "once; you have at most two tool steps. Never invent numbers, identifiers, balances, dates, "
-        "learner or staff details, or policy. Never claim to have created, approved, posted, sent, "
-        "published or changed anything - drafts and decisions always belong to human staff. If a tool "
+        "learner or staff details, or policy. If a tool confirms status pending_approval and returns "
+        "a draft_id, you may say that a reviewable draft was prepared and is awaiting approval, and "
+        "include its reference; never say it was approved, posted, sent, published or delivered. Never "
+        "claim another change without a confirming tool result. Drafts and decisions remain under "
+        "human staff control. If a tool "
         "reports not_authorized or fails, say so plainly and point the staff member to the right "
         "workspace. Write the answer body as a natural, direct conversation; use Markdown when it "
         "helps, preserve follow-up context, and never substitute unrelated briefing or assistant-usage "
@@ -674,16 +677,6 @@ _ROUTE_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "statistic",
             "trend",
             "chart",
-            "enrollment",
-            "enrolment",
-            "learner",
-            "student",
-            "pupil",
-            "admission",
-            "admissions",
-            "fee",
-            "attendance",
-            "finance",
         ),
         (
             "summary",
@@ -692,6 +685,15 @@ _ROUTE_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "how many",
             "average",
             "total",
+            "enrollment",
+            "enrolment",
+            "learner",
+            "pupil",
+            "admission",
+            "admissions",
+            "fee",
+            "attendance",
+            "finance",
             "boarder",
             "boarding",
         ),

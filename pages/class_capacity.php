@@ -75,8 +75,22 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Class</th><th scope="col">Stream</th><th scope="col">Capacity</th><th scope="col">Enrolled</th><th scope="col">Available</th><th scope="col">Utilization</th><th scope="col">Status</th></tr></thead>
-                    <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="classCapacityTableBody">
+                        <tr id="classCapacityTableState"><td colspan="8" class="text-center text-muted py-4">Loading class data...</td></tr>
+                    </tbody>
                 </table>
+                <template id="classCapacityRowTemplate">
+                    <tr data-capacity-row>
+                        <td data-field="number"></td>
+                        <td><strong data-field="class"></strong></td>
+                        <td data-field="stream"></td>
+                        <td data-field="capacity"></td>
+                        <td data-field="enrolled"></td>
+                        <td data-field="available"></td>
+                        <td><div class="d-flex align-items-center"><div class="progress flex-fill me-2" style="height:6px"><div class="progress-bar" data-field="bar"></div></div><small data-field="utilization"></small></div></td>
+                        <td><span class="badge" data-field="status"></span></td>
+                    </tr>
+                </template>
             </div>
         </div>
     </div>

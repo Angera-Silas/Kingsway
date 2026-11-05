@@ -553,39 +553,36 @@ class TwoFactorService
     // ========================================================================
 
     /**
-     * Determine if a user needs 2FA verification after password login.
-     * Returns the method or null if 2FA is not required.
+     * Determine the default login method after password login.
+     * Honor a verified account preference; otherwise prefer SMS, then email,
+     * authenticator app, and passkey when each factor is usable.
      */
     public function getRequiredMethod(int $userId): ?string
     {
         $stmt = $this->db->prepare(
-            "SELECT two_factor_enabled, two_factor_method
+            "SELECT two_factor_enabled, two_factor_method, two_factor_verified_at
              FROM users WHERE id = ? AND status = 'active'"
         );
         $stmt->execute([$userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$row || !$row['two_factor_enabled']) return null;
+        if (!$row) return null;
 
-        // 'none' is the catalogued "no method" sentinel, and any value outside
-        // the deliverable set cannot produce a code. Returning it would gate
-        // the login on a challenge that can never be stored or delivered.
-        $method = strtolower(trim((string)($row['two_factor_method'] ?? '')));
-        if ($method !== '' && in_array($method, self::DELIVERABLE_METHODS, true)) return $method;
+        $available = $this->getAvailableLoginMethods($userId);
+        if ($available === []) return null;
 
-        // The stored method is unusable, but the account may still have a
-        // factor enrolled. Prefer a real enrolled channel over forcing the
-        // account back through setup. The flag above remains the only thing
-        // that switches the second factor off.
-        $enrolled = $this->db->prepare(
-            "SELECT method FROM user_two_factor_methods
-             WHERE user_id = ? AND is_enabled = 1
-               AND method IN ('" . implode("','", self::DELIVERABLE_METHODS) . "')
-             ORDER BY is_primary DESC, id ASC LIMIT 1"
-        );
-        $enrolled->execute([$userId]);
-        $fallback = strtolower(trim((string)($enrolled->fetchColumn() ?: '')));
-        return in_array($fallback, self::DELIVERABLE_METHODS, true) ? $fallback : null;
+        // A timestamp is set only when a factor is verified or the user
+        // explicitly changes their primary preference. The database's legacy
+        // DEFAULT 'email' therefore does not override the new SMS default.
+        $preferred = strtolower(trim((string) ($row['two_factor_method'] ?? '')));
+        if (!empty($row['two_factor_verified_at']) && in_array($preferred, $available, true)) {
+            return $preferred;
+        }
+
+        foreach (['sms', 'email', 'totp', 'passkey', 'whatsapp'] as $defaultMethod) {
+            if (in_array($defaultMethod, $available, true)) return $defaultMethod;
+        }
+        return null;
     }
 
     /**
@@ -609,10 +606,47 @@ class TwoFactorService
         $stmt = $this->db->prepare("SELECT method FROM user_two_factor_methods WHERE user_id=? AND is_enabled=1 ORDER BY is_primary DESC, id ASC");
         $stmt->execute([$userId]);
         $methods = array_values(array_unique(array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'method')));
-        if (!$methods) { $primary = $this->getRequiredMethod($userId); if ($primary) $methods[] = $primary; }
         $passkeys = $this->db->prepare("SELECT COUNT(*) FROM user_passkeys WHERE user_id=?"); $passkeys->execute([$userId]);
         if ((int) $passkeys->fetchColumn() > 0) $methods[] = 'passkey';
         return $methods;
+    }
+
+    /** Return only enrolled verification methods that can be used for login. */
+    public function getAvailableLoginMethods(int $userId): array
+    {
+        $enabled = $this->getEnabledMethods($userId);
+        $contact = $this->getUserContact($userId);
+        $email = trim((string)($contact['email'] ?? ''));
+        $phone = trim((string)($contact['phone_1'] ?? ''));
+        $isParent = \App\API\Modules\parent\ParentPortalManager::isParentAccount($this->db, $userId);
+        $available = [];
+
+        foreach (['sms', 'email', 'totp', 'passkey', 'whatsapp'] as $method) {
+            $contactChannel = in_array($method, ['email', 'sms'], true);
+            if ($method === 'totp') {
+                $totp = $this->db->prepare(
+                    "SELECT secret_ciphertext FROM user_two_factor_methods
+                     WHERE user_id = ? AND method = 'totp' AND is_enabled = 1 LIMIT 1"
+                );
+                $totp->execute([$userId]);
+                $ciphertext = $totp->fetchColumn();
+                if ((!$ciphertext || !$this->decryptSecret((string) $ciphertext)) && !$this->getSecret($userId)) continue;
+            } elseif ($method === 'passkey') {
+                $passkeys = $this->db->prepare('SELECT COUNT(*) FROM user_passkeys WHERE user_id = ?');
+                $passkeys->execute([$userId]);
+                if ((int) $passkeys->fetchColumn() < 1) continue;
+            } elseif (!$contactChannel && !in_array($method, $enabled, true)) {
+                continue;
+            }
+            if ($method === 'email' && ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL))) continue;
+            if (in_array($method, ['sms', 'whatsapp'], true)
+                && ($phone === '' || \App\API\Services\PhoneNumberNormalizer::normalize($phone) === null)) continue;
+            if ($isParent && in_array($method, ['sms', 'whatsapp'], true)) continue;
+            if ($method === 'whatsapp' && !\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) continue;
+            $available[] = $method;
+        }
+
+        return $available;
     }
 
     public function setPrimaryMethod(int $userId, string $method): bool
@@ -682,7 +716,7 @@ class TwoFactorService
 
     public function setChallengeMethod(string $raw, int $userId, string $method): bool
     {
-        if (!in_array($method, $this->getEnabledMethods($userId), true)) return false;
+        if (!in_array($method, $this->getAvailableLoginMethods($userId), true)) return false;
         $row = $this->challenge($raw, $userId); if (!$row) return false;
         return $this->db->prepare("UPDATE user_two_factor_challenges SET method=? WHERE id=? AND status='pending'")->execute([$method, $row['id']]);
     }
@@ -751,14 +785,20 @@ class TwoFactorService
      */
     public function getUserContact(int $userId): array
     {
-        $stmt = $this->db->prepare("SELECT email, phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE user_id = ?");
-        $stmt->execute([$userId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $stmt = $this->db->prepare("SELECT email, phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        return [
-            'email'   => $row['email'] ?? null,
-            'phone_1' => $row['phone_1'] ?? null,
-        ];
+            return [
+                'email'   => $row['email'] ?? null,
+                'phone_1' => $row['phone_1'] ?? null,
+            ];
+        } catch (\PDOException $e) {
+            // Users table may lack email/phone columns (e.g., test env SQLite).
+            // Return empty contact info and let the caller handle it.
+            return ['email' => null, 'phone_1' => null];
+        }
     }
 
     /** Store an encrypted pending TOTP setup secret with a 15-minute TTL. */

@@ -362,6 +362,9 @@ class TwoFactorController extends BaseController
         $method = (string) $challenge['method'];
         $requestedMethod = trim((string) ($data['method'] ?? ''));
         if ($requestedMethod !== '') {
+            if (!in_array($requestedMethod, $this->tfa->getAvailableLoginMethods($targetUserId), true)) {
+                return $this->forbidden('That verification method is not enrolled or available for this account.');
+            }
             if (!$this->tfa->setChallengeMethod($challengeToken, $targetUserId, $requestedMethod)) return $this->badRequest('That 2FA method is not enrolled');
             $method = $requestedMethod;
         }
@@ -374,8 +377,17 @@ class TwoFactorController extends BaseController
                 'Enter the code from your authenticator app.');
         }
 
-        if (in_array($method, ['sms', 'whatsapp'], true) && $this->isParentAccount($targetUserId)) {
-            return $this->forbidden('SMS/WhatsApp verification is not available to Parent Portal accounts. Use an authenticator app, a passkey, or email.');
+        if ($method === 'passkey') {
+            try {
+                return $this->success([
+                    'method' => 'passkey',
+                    'challenge_sent' => false,
+                    'public_key' => $this->passkeys->startAuthentication($targetUserId),
+                ], 'Verify with an enrolled passkey.');
+            } catch (\Throwable $e) {
+                \App\API\Services\Logger::legacyError('Passkey challenge failed: ' . $e->getMessage());
+                return $this->badRequest('A passkey is not available for this account.');
+            }
         }
 
         $contact = $this->tfa->getUserContact($targetUserId);

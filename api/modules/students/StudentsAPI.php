@@ -815,8 +815,8 @@ class StudentsAPI extends BaseAPI
         $stmt = $this->db->query("
             SELECT id
             FROM academic_years
-            WHERE is_current = 1 OR status = 'active'
-            ORDER BY is_current DESC, id DESC
+            WHERE is_current = 1
+            ORDER BY id DESC
             LIMIT 1
         ");
         $yearId = $stmt->fetchColumn();
@@ -1214,8 +1214,8 @@ private function getCurrentStudentTransport(int $studentId): array
         $stmt = $this->db->query("
             SELECT id, year_code, year_name, start_date, end_date
             FROM academic_years
-            WHERE is_current = 1 OR status = 'active'
-            ORDER BY is_current DESC, start_date DESC, id DESC
+            WHERE is_current = 1
+            ORDER BY start_date DESC, id DESC
             LIMIT 1
         ");
 
@@ -1346,6 +1346,19 @@ private function getCurrentStudentTransport(int $studentId): array
         ");
         $existingStmt->execute([$studentId, $academicYearId]);
         $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+
+        $existingClassId = 0;
+        if ($existing && !empty($existing['academic_year_class_stream_id'])) {
+            $existingStream = $this->resolveClassFromStream((int) $existing['academic_year_class_stream_id']);
+            $existingClassId = (int) ($existingStream['class_id'] ?? 0);
+        }
+        if (!$existing || $existingClassId !== $classId) {
+            $studentTypeStmt = $this->db->prepare("SELECT student_type_id FROM students WHERE id = ? LIMIT 1");
+            $studentTypeStmt->execute([$studentId]);
+            $studentTypeId = (int) ($studentTypeStmt->fetchColumn() ?: 0);
+            (new \App\API\Services\AcademicYearLearnerTypeAvailabilityService($this->db))
+                ->assertAvailable($academicYearId, $classId, $studentTypeId);
+        }
 
         if ($existing) {
             $updateStmt = $this->db->prepare("
@@ -1889,6 +1902,25 @@ private function getCurrentStudentTransport(int $studentId): array
                 ], 400);
             }
 
+            if (isset($data['student_type_id']) && (int) $data['student_type_id'] !== (int) $existingStudent['student_type_id']) {
+                $placementStreamId = (int) ($data['stream_id'] ?? $this->getActiveEnrollmentStreamId((int) $id));
+                $placement = $this->db->prepare(
+                    "SELECT academic_year_id FROM student_academic_enrollments
+                     WHERE student_id = ? AND enrollment_status = 'active'
+                     ORDER BY academic_year_id DESC, id DESC LIMIT 1"
+                );
+                $placement->execute([(int) $id]);
+                $placementYearId = (int) ($placement->fetchColumn() ?: 0);
+                $placementClass = $placementStreamId > 0 ? $this->resolveClassFromStream($placementStreamId) : null;
+                if ($placementYearId > 0 && $placementClass) {
+                    (new \App\API\Services\AcademicYearLearnerTypeAvailabilityService($this->db))->assertAvailable(
+                        $placementYearId,
+                        (int) $placementClass['class_id'],
+                        (int) $data['student_type_id']
+                    );
+                }
+            }
+
             // BUSINESS RULE: Student must be either sponsored OR have initial payment
             // If not sponsored and no initial_payment_amount provided, reject
             $isSponsored = !empty($data['is_sponsored']) && $data['is_sponsored'] == 1;
@@ -2114,7 +2146,7 @@ private function getCurrentStudentTransport(int $studentId): array
     public function update($id, $data)
     {
         try {
-            $stmt = $this->db->prepare("SELECT id, status FROM students WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT id, status, student_type_id FROM students WHERE id = ?");
             $stmt->execute([$id]);
             $existingStudent = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$existingStudent) {
@@ -3481,6 +3513,15 @@ private function getCurrentStudentTransport(int $studentId): array
                     'message' => 'No active enrollment found for student'
                 ], 400);
             }
+
+            $targetStream = $this->resolveClassFromStream((int) $data['new_stream_id']);
+            $studentTypeStmt = $this->db->prepare("SELECT student_type_id FROM students WHERE id = ? LIMIT 1");
+            $studentTypeStmt->execute([(int) $id]);
+            (new \App\API\Services\AcademicYearLearnerTypeAvailabilityService($this->db))->assertAvailable(
+                (int) $currentEnrollment['academic_year_id'],
+                (int) ($targetStream['class_id'] ?? 0),
+                (int) ($studentTypeStmt->fetchColumn() ?: 0)
+            );
 
             // Record transfer history
             $stmt = $this->db->prepare("
@@ -6993,8 +7034,8 @@ private function getCurrentStudentTransport(int $studentId): array
     {
         $year = $this->db->query(
             "SELECT id FROM academic_years
-             WHERE is_current = 1 OR status = 'active'
-             ORDER BY is_current DESC, start_date DESC, id DESC LIMIT 1"
+             WHERE is_current = 1
+             ORDER BY start_date DESC, id DESC LIMIT 1"
         )->fetchColumn();
         if (!$year) return 0;
 
@@ -7380,8 +7421,8 @@ private function getCurrentStudentTransport(int $studentId): array
         // Get the current academic year
         $ayStmt = $this->db->query(
             "SELECT id FROM academic_years
-             WHERE is_current = 1 OR status = 'active'
-             ORDER BY is_current DESC, start_date DESC, id DESC
+             WHERE is_current = 1
+             ORDER BY start_date DESC, id DESC
              LIMIT 1"
         );
         $currentYearId = $ayStmt ? (int) $ayStmt->fetchColumn() : 0;
@@ -7836,11 +7877,15 @@ private function getCurrentStudentTransport(int $studentId): array
     }
 
     /**
-     * Update academic year status
+     * Update a year's lifecycle sub-state (upcoming / current / completed).
+     *
+     * `status` is not accepted here: every non-archived year is 'active', and
+     * the lifecycle lives in `state`. Archiving is a separate system-admin
+     * action.
      */
-    public function updateAcademicYearStatus($yearId, $status)
+    public function updateAcademicYearStatus($yearId, $state)
     {
-        return $this->yearManager->updateYearStatus($yearId, $status);
+        return $this->yearManager->updateYearState($yearId, $state);
     }
 
     /**

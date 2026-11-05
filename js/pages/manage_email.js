@@ -33,6 +33,8 @@
     accessSearchCache: {},
     accessSearchTimer: null,
     realtimeMailTimer: null,
+    staffTagTimer: null,
+    staffTagCache: new Map(),
 
     async init() {
       if (!document.getElementById("mailboxes-root")) return;
@@ -45,6 +47,10 @@
       this.applyUserChip();
       this.bindEvents();
       this.bindComposeEvents();
+      this.on("emailStaffTagSearch", "input", (e) => {
+        clearTimeout(this.staffTagTimer);
+        this.staffTagTimer = setTimeout(() => this.loadEmailStaffTags(e.target.value), 250);
+      });
       this.bindAccessEvents();
       this.bindRealtime();
       this.setupVariableMenu();
@@ -1244,6 +1250,10 @@
       document.getElementById("composeTo").value = config.to || "";
       document.getElementById("composeCc").value = config.cc || "";
       document.getElementById("composeBcc").value = "";
+      const staffTags = document.getElementById("emailStaffTags");
+      if (staffTags) staffTags.replaceChildren();
+      const staffSearch = document.getElementById("emailStaffTagSearch");
+      if (staffSearch) staffSearch.value = "";
       document.getElementById("composeSubject").value = config.subject || "";
       document.getElementById("composeBody").value = config.body || "";
       document.getElementById("composeAttachments").value = "";
@@ -1292,10 +1302,22 @@
     buildComposePayload() {
       const ctx = this.composeContext || {};
       const body = document.getElementById("composeBody").value;
+      const cc = this.parseAddresses(document.getElementById("composeCc").value);
+      const bcc = this.parseAddresses(document.getElementById("composeBcc").value);
+      const tagged = Array.from(document.getElementById("emailStaffTags")?.selectedOptions || []);
+      const tagMode = document.getElementById("emailStaffTagMode")?.value === "bcc" ? "bcc" : "cc";
+      tagged.forEach((option) => {
+        const staff = this.staffTagCache.get(String(option.value));
+        if (!staff?.email) return;
+        const recipients = tagMode === "bcc" ? bcc : cc;
+        if (!recipients.some((email) => email.toLowerCase() === staff.email.toLowerCase())) recipients.push(staff.email);
+      });
       const payload = {
         to: this.parseAddresses(document.getElementById("composeTo").value),
-        cc: this.parseAddresses(document.getElementById("composeCc").value),
-        bcc: this.parseAddresses(document.getElementById("composeBcc").value),
+        cc,
+        bcc,
+        tagged_staff_user_ids: tagged.map((option) => Number(option.value)).filter((id) => id > 0),
+        staff_tag_mode: tagMode,
         subject: document.getElementById("composeSubject").value.trim(),
         body_text: body,
         body_html: this.esc(body).replace(/\r?\n/g, "<br>"),
@@ -1305,6 +1327,29 @@
       if (ctx.references) payload.references = ctx.references;
       if (ctx.draftUid) payload.draft_uid = ctx.draftUid;
       return payload;
+    },
+
+    async loadEmailStaffTags(query) {
+      const select = document.getElementById("emailStaffTags");
+      if (!select || !window.API?.communications?.searchStaffTags) return;
+      const selected = new Set(Array.from(select.selectedOptions).map((option) => option.value));
+      try {
+        const response = await window.API.communications.searchStaffTags(String(query || "").trim());
+        const rows = Array.isArray(response) ? response : (response?.staff || response?.data?.staff || response?.data || []);
+        rows.forEach((staff) => {
+          const id = String(staff.user_id || staff.id || "");
+          if (!id || !staff.email) return;
+          this.staffTagCache.set(id, { ...staff, email: String(staff.email).trim() });
+        });
+        const visible = rows.map((staff) => String(staff.user_id || staff.id || "")).filter((id) => id && this.staffTagCache.has(id));
+        const ids = Array.from(new Set([...visible, ...selected]));
+        select.innerHTML = ids.map((id) => {
+          const staff = this.staffTagCache.get(id);
+          return `<option value="${this.esc(id)}"${selected.has(id) ? " selected" : ""}>${this.esc(staff.full_name || staff.name || staff.email)} — ${this.esc(staff.email)}</option>`;
+        }).join("");
+      } catch (error) {
+        console.warn("[manage_email] staff directory search failed", error);
+      }
     },
 
     validateCompose() {

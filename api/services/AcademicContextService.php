@@ -55,6 +55,7 @@ class AcademicContextService
                         PDO::ATTR_EMULATE_PREPARES => false
                     ]
                 );
+                $this->db->exec("SET time_zone = '+03:00'");
             }
         } else {
             $this->db = $database;
@@ -130,10 +131,10 @@ class AcademicContextService
             return $this->memo['year'];
         }
 
-        $sql = "SELECT id, year_name, year_code, start_date, end_date, is_current, status
+        $sql = "SELECT id, year_name, year_code, start_date, end_date, is_current, status, state
                 FROM academic_years
-                WHERE (is_current = 1 OR status = 'active')
-                ORDER BY is_current DESC, start_date DESC, id DESC
+                WHERE is_current = 1
+                ORDER BY start_date DESC, id DESC
                 LIMIT 1";
 
         try {
@@ -389,14 +390,24 @@ class AcademicContextService
         try {
             $this->db->beginTransaction();
 
-            // Deactivate all years
-            $sql = "UPDATE academic_years SET is_current = 0 WHERE is_current = 1";
+            // Only the single current row moves. A year that loses the flag
+            // falls back to upcoming; completed years keep their state so their
+            // data stays readable and writable-by-privilege during the overlap.
+            $sql = "UPDATE academic_years
+                       SET is_current = 0,
+                           state = CASE WHEN state = 'current' THEN 'upcoming' ELSE state END
+                     WHERE id <> :year_id";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute();
+            $stmt->execute(['year_id' => $yearId]);
 
-            // Activate specified year
-            $sql = "UPDATE academic_years SET is_current = 1, status = 'active' 
-                    WHERE id = :year_id";
+            // Activate specified year. Every non-archived year is 'active'; the
+            // lifecycle lives in `state`.
+            $sql = "UPDATE academic_years
+                       SET is_current = 1,
+                           state = 'current',
+                           status = 'active',
+                           completed_at = NULL
+                     WHERE id = :year_id";
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['year_id' => $yearId]);
 

@@ -342,32 +342,22 @@ class AuthAPI extends BaseAPI
             $testMfaBypassAllowed = $isTestUser
                 && (new TestAccountAccessService($this->db))->mfaBypassAllowed($userId);
 
-            if (!$testMfaBypassAllowed && ($stepActive || $policyForced)) {
-                // The step is required - either the account flag is set, or
-                // school policy forces it - but no usable method exists to
-                // deliver a code (for example the 'none' sentinel). Never let
-                // the account through on a password alone: send it to setup.
+            if (!$testMfaBypassAllowed) {
+                // Every non-test account completes a second factor. A verified
+                // account preference is honored; otherwise SMS is the default,
+                // with email and enrolled factors available in the chooser.
+                // Accounts without a deliverable contact or enrolled factor
+                // cannot continue until the school updates their account.
                 if (!$requiredMethod) {
                     return [
-                        'success' => true,
-                        'status' => 'success',
-                        'data' => array_merge(
-                            [
-                                'user_id' => $userId,
-                                'requires_2fa' => true,
-                                'requires_2fa_setup' => true,
-                                'setup_required' => true,
-                                'method' => null,
-                                'onboarding_token' => $this->generateOnboardingToken($userId, $userData),
-                                'onboarding_expires_in' => self::ONBOARDING_TTL_SECONDS,
-                                'csrf_token' => $this->generateCsrfToken($userId),
-                            ],
-                            $this->parentPortalLoginMarker($userData)
-                        ),
-                        'message' => 'Two-factor authentication must be enabled before you can sign in.',
+                        'success' => false,
+                        'status' => 'error',
+                        'data' => null,
+                        'message' => 'No usable verification method is enrolled for this account. Contact the school office to update your contact details or MFA setup before signing in.',
                     ];
                 }
 
+                $availableMethods = $tfa->getAvailableLoginMethods($userId);
                 $challengeToken = $tfa->createLoginChallenge($userId, $requiredMethod);
                 return [
                     'success' => true,
@@ -377,15 +367,15 @@ class AuthAPI extends BaseAPI
                             'user_id' => $userId,
                             'requires_2fa' => true,
                             'method' => $requiredMethod,
+                            'available_methods' => $availableMethods,
                             'challenge_token' => $challengeToken,
-                            'available_methods' => $tfa->getEnabledMethods($userId),
                         ],
                         $this->parentPortalLoginMarker($userData)
                     ),
                     'message' => 'Two-factor verification required.',
                 ];
             }
-            if ($testMfaBypassAllowed && ($stepActive || $policyForced)) {
+            if ($testMfaBypassAllowed) {
                 Logger::audit(
                     'test_mfa_bypass',
                     'user',

@@ -50,9 +50,16 @@ class AiWorkflowService
             return is_scalar($role) ? strtolower(trim((string) $role)) : '';
         }, $roleNames)));
         $visible = array_values(array_filter($this->describe(), static function (array $workflow) use ($permissions, $route, $module, $audience, $routeDomains, $roleNames): bool {
+            // This is an executable assistance catalogue. Roadmap visibility
+            // belongs to the readiness report; never suggest a workflow that
+            // authorize() will reject as planned.
+            if (($workflow['status'] ?? 'planned') !== 'implemented') return false;
             if (!in_array($audience, (array) ($workflow['audiences'] ?? ['staff']), true)) return false;
-            $required = (string) ($workflow['permission'] ?? '');
-            if ($required !== '' && !in_array('*', $permissions, true) && !in_array($required, $permissions, true)) return false;
+            $required = array_values(array_filter(array_unique(array_merge(
+                [(string) ($workflow['permission'] ?? '')],
+                array_map('strval', (array) ($workflow['permission_any'] ?? []))
+            ))));
+            if ($required !== [] && !in_array('*', $permissions, true) && array_intersect($required, $permissions) === []) return false;
             if ($roleNames !== [] && !self::roleMayUseDomain($roleNames, (string) ($workflow['domain'] ?? 'system'))) return false;
             return true;
         }));
@@ -170,13 +177,17 @@ class AiWorkflowService
         if (!in_array($audience, (array) ($workflow['audiences'] ?? ['staff']), true)) {
             throw new DomainException('AI workflow is not available for this audience.', 403);
         }
-        $permissions = array_values(array_unique(array_map('strval', array_merge(
-            (array) ($context['permissions'] ?? []),
-            (array) ($context['effective_permissions'] ?? [])
+        $permissions = array_values(array_unique(array_map('strval', (array) ($context['effective_permissions'] ?? $context['permissions'] ?? []))));
+        $requiredPermissions = array_values(array_filter(array_unique(array_merge(
+            [(string) ($workflow['permission'] ?? '')],
+            array_map('strval', (array) ($workflow['permission_any'] ?? []))
         ))));
-        if ($workflow['permission'] !== '' && !in_array('*', $permissions, true)
-            && !in_array($workflow['permission'], $permissions, true)) {
+        if ($requiredPermissions !== [] && !in_array('*', $permissions, true)
+            && array_intersect($requiredPermissions, $permissions) === []) {
             throw new DomainException('AI workflow is not permitted for this user.', 403);
+        }
+        if (($workflow['status'] ?? 'planned') !== 'implemented') {
+            throw new DomainException('This AI workflow is not available yet.', 409);
         }
         if ($workflow['action_level'] === 'execute' && empty($context['explicit_execute'])) {
             throw new DomainException('Explicit execution approval is required.', 403);

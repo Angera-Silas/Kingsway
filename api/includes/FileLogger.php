@@ -494,6 +494,78 @@ class FileLogger
         }
     }
 
+    /**
+     * Stream retained journal entries since a timestamp without returning raw
+     * rows or loading whole files into memory. Archives are visited newest
+     * first; a byte cap or unreadable/corrupt input is reported as incomplete.
+     *
+     * @return array{complete:bool,bytes_scanned:int,files_scanned:int,invalid_lines:int}
+     */
+    public static function scanSince(string $category, int $sinceTimestamp, int $maxBytes, callable $consume): array
+    {
+        $maxBytes = max(0, min(268435456, $maxBytes));
+        $summary = ['complete' => true, 'bytes_scanned' => 0, 'files_scanned' => 0, 'invalid_lines' => 0];
+        $paths = self::journalPaths($category, true);
+        foreach ($paths as $path) {
+            $mtime = @filemtime($path);
+            if ($mtime !== false && $mtime < $sinceTimestamp - 300) continue;
+            if ($summary['bytes_scanned'] >= $maxBytes) {
+                $summary['complete'] = false;
+                break;
+            }
+
+            $compressed = str_ends_with($path, '.gz');
+            $handle = $compressed ? @gzopen($path, 'rb') : @fopen($path, 'rb');
+            if ($handle === false) {
+                $summary['complete'] = false;
+                continue;
+            }
+            $summary['files_scanned']++;
+            $readFailed = false;
+            try {
+                while (true) {
+                    $line = $compressed
+                        ? @gzgets($handle, self::MAX_ENTRY_BYTES + 2)
+                        : @fgets($handle, self::MAX_ENTRY_BYTES + 2);
+                    if ($line === false) {
+                        $atEnd = $compressed ? @gzeof($handle) : @feof($handle);
+                        if (!$atEnd) $readFailed = true;
+                        break;
+                    }
+                    $length = strlen($line);
+                    $summary['bytes_scanned'] += $length;
+                    if ($summary['bytes_scanned'] > $maxBytes) {
+                        $summary['complete'] = false;
+                        break;
+                    }
+                    if ($length > self::MAX_ENTRY_BYTES + 1
+                        || (!str_ends_with($line, "\n") && !($compressed ? @gzeof($handle) : @feof($handle)))) {
+                        $summary['complete'] = false;
+                        break;
+                    }
+                    if (trim($line) === '') continue;
+                    $entry = json_decode(trim($line), true);
+                    if (!is_array($entry)) {
+                        $summary['invalid_lines']++;
+                        $summary['complete'] = false;
+                        continue;
+                    }
+                    $consume($entry);
+                }
+            } catch (\Throwable $error) {
+                $readFailed = true;
+            } finally {
+                $compressed ? @gzclose($handle) : @fclose($handle);
+            }
+            if ($readFailed) $summary['complete'] = false;
+            if ($summary['bytes_scanned'] >= $maxBytes) {
+                $summary['complete'] = false;
+                break;
+            }
+        }
+        return $summary;
+    }
+
     /** Read a bounded number of lines from the end without loading the file. */
     private static function tailLines(string $file, int $limit): array
     {

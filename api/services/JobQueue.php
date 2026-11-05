@@ -144,29 +144,29 @@ final class JobQueue
                     // report a lock failure when no idempotent job exists.
                     if ($lockResult !== false && $lockResult !== null && (int) $lockResult === 0) {
                         $existing = $pdo->prepare(
-                            "SELECT id FROM jobs_queue
+                            "SELECT id, payload FROM jobs_queue
                              WHERE job_type = ?
                                AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.idempotency_key')) = ?
                                AND status IN (?, ?, ?)
                              ORDER BY id DESC LIMIT 1"
                         );
                         $existing->execute([$jobType, $idempotencyKey, self::STATUS_PENDING, self::STATUS_PROCESSING, self::STATUS_DONE]);
-                        $existingId = $existing->fetchColumn();
-                        if ($existingId !== false) return (int) $existingId;
+                        $existingRow = $existing->fetch(PDO::FETCH_ASSOC);
+                        if (is_array($existingRow)) return self::reuseIdempotentJob($existingRow, $encoded);
                     }
                     throw new RuntimeException('Unable to acquire the job idempotency lock.');
                 }
                 try {
                     $existing = $pdo->prepare(
-                        "SELECT id FROM jobs_queue
+                        "SELECT id, payload FROM jobs_queue
                          WHERE job_type = ?
                            AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.idempotency_key')) = ?
                            AND status IN (?, ?, ?)
                          ORDER BY id DESC LIMIT 1"
                     );
                     $existing->execute([$jobType, $idempotencyKey, self::STATUS_PENDING, self::STATUS_PROCESSING, self::STATUS_DONE]);
-                    $existingId = $existing->fetchColumn();
-                    if ($existingId !== false) return (int) $existingId;
+                    $existingRow = $existing->fetch(PDO::FETCH_ASSOC);
+                    if (is_array($existingRow)) return self::reuseIdempotentJob($existingRow, $encoded);
 
                     $stmt = $pdo->prepare(
                         "INSERT INTO jobs_queue
@@ -271,6 +271,13 @@ final class JobQueue
         }, ConnectionManager::NS_BUFFERS);
     }
 
+    /** Claim PHP jobs with the exact attempt generation produced by the claim. */
+    public static function claimBatchWithAttempts(int $limit = 10, array $excludeJobTypes = []): array
+    {
+        $excludeJobTypes = self::normalizeJobTypes($excludeJobTypes);
+        return self::claimRowsWithAttempts(max(1, min(500, $limit)), [], $excludeJobTypes, 0);
+    }
+
     /** Claim one or more jobs exclusively from an allowlisted runtime family. */
     public static function claimBatchForTypes(array $jobTypes, int $limit = 1): array
     {
@@ -349,6 +356,56 @@ final class JobQueue
         }, ConnectionManager::NS_BUFFERS);
     }
 
+    /** Claim starved PHP takeover jobs together with their exact attempt generation. */
+    public static function claimStarvedForTypesWithAttempts(array $jobTypes, int $starveSeconds = 120, int $limit = 5): array
+    {
+        $jobTypes = self::normalizeJobTypes($jobTypes);
+        if ($jobTypes === []) return [];
+        return self::claimRowsWithAttempts(
+            max(1, min(50, $limit)),
+            $jobTypes,
+            [],
+            max(30, min(3600, $starveSeconds))
+        );
+    }
+
+    /** @return list<array{id:int,attempts:int}> */
+    private static function claimRowsWithAttempts(int $limit, array $includeTypes, array $excludeTypes, int $starveSeconds): array
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($limit, $includeTypes, $excludeTypes, $starveSeconds): array {
+            $conditions = ['status = ?', 'available_at <= NOW()'];
+            $bindings = [self::STATUS_PENDING];
+            if ($includeTypes !== []) {
+                $conditions[] = 'job_type IN (' . implode(',', array_fill(0, count($includeTypes), '?')) . ')';
+                array_push($bindings, ...$includeTypes);
+            }
+            if ($excludeTypes !== []) {
+                $conditions[] = 'job_type NOT IN (' . implode(',', array_fill(0, count($excludeTypes), '?')) . ')';
+                array_push($bindings, ...$excludeTypes);
+            }
+            if ($starveSeconds > 0) {
+                $conditions[] = 'available_at <= NOW() - INTERVAL ' . $starveSeconds . ' SECOND';
+            }
+            $stmt = $pdo->prepare(
+                'SELECT id FROM jobs_queue WHERE ' . implode(' AND ', $conditions)
+                . ' ORDER BY priority ASC, id ASC LIMIT ' . $limit
+            );
+            $stmt->execute($bindings);
+            $claims = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $rawId) {
+                $id = (int) $rawId;
+                $claim = $pdo->prepare('UPDATE jobs_queue SET status = ?, updated_at = NOW() WHERE id = ? AND status = ?');
+                $claim->execute([self::STATUS_PROCESSING, $id, self::STATUS_PENDING]);
+                if ($claim->rowCount() !== 1) continue;
+                $attempt = $pdo->prepare('SELECT attempts FROM jobs_queue WHERE id = ? AND status = ?');
+                $attempt->execute([$id, self::STATUS_PROCESSING]);
+                $attempts = $attempt->fetchColumn();
+                if ($attempts !== false) $claims[] = ['id' => $id, 'attempts' => (int) $attempts];
+            }
+            return $claims;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
     /**
      * Whether an outstanding job has sat untouched longer than the given
      * window. Schedulers use this to break the "already queued"
@@ -414,6 +471,14 @@ final class JobQueue
             $row['backoff_seconds'] = (int) $row['backoff_seconds'];
             return $row;
         }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /** Whether a fetched queue row still belongs to the claim generation. */
+    public static function jobMatchesAttempt(?array $job, int $attempts): bool
+    {
+        return $job !== null
+            && (string) ($job['status'] ?? '') === self::STATUS_PROCESSING
+            && (int) ($job['attempts'] ?? -1) === max(0, $attempts);
     }
 
     /**
@@ -501,6 +566,37 @@ final class JobQueue
         }, ConnectionManager::NS_BUFFERS);
     }
 
+    /** Permanently fail only the exact active worker attempt. */
+    public static function markPermanentlyFailedForAttempt(int $id, int $expectedAttempts, string $reason = ''): ?string
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $expectedAttempts, $reason): ?string {
+            $pdo->beginTransaction();
+            try {
+                $stmt = $pdo->prepare(
+                    'SELECT id, job_type, payload, status, attempts, max_attempts FROM jobs_queue WHERE id = ? FOR UPDATE'
+                );
+                $stmt->execute([$id]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$row || $row['status'] !== self::STATUS_PROCESSING
+                    || (int) $row['attempts'] !== max(0, $expectedAttempts)) {
+                    $pdo->commit();
+                    return null;
+                }
+                $status = self::finishAsFailed(
+                    $pdo,
+                    $row,
+                    (int) $row['attempts'] + 1,
+                    self::truncate($reason)
+                );
+                $pdo->commit();
+                return $status;
+            } catch (\Throwable $error) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $error;
+            }
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
     /** Extend a Python job lease only while the same attempt remains active. */
     public static function touchProcessingAttempt(int $id, int $attempts): bool
     {
@@ -546,6 +642,42 @@ final class JobQueue
             );
             $stmt->execute([$attempts, self::STATUS_PENDING, $delay, $reason, $id, self::STATUS_PROCESSING]);
             return self::STATUS_PENDING;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Permanently fail a processing job when retrying cannot change the outcome
+     * (for example, the operator's access was revoked while it was queued).
+     * The existing dead-letter path keeps the failure reviewable and redacts
+     * the original job payload.
+     */
+    public static function markPermanentlyFailed(int $id, string $reason = ''): string
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $reason): string {
+            $pdo->beginTransaction();
+            try {
+                $stmt = $pdo->prepare(
+                    'SELECT id, job_type, payload, status, attempts, max_attempts '
+                    . 'FROM jobs_queue WHERE id = ? FOR UPDATE'
+                );
+                $stmt->execute([$id]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$row || $row['status'] !== self::STATUS_PROCESSING) {
+                    $pdo->commit();
+                    return self::STATUS_FAILED;
+                }
+                $status = self::finishAsFailed(
+                    $pdo,
+                    $row,
+                    (int) $row['attempts'] + 1,
+                    self::truncate($reason)
+                );
+                $pdo->commit();
+                return $status;
+            } catch (\Throwable $error) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $error;
+            }
         }, ConnectionManager::NS_BUFFERS);
     }
 
@@ -698,7 +830,7 @@ final class JobQueue
      *
      * @return array{jobs_purged:int, failed_jobs_purged:int, dead_letter_purged:int}
      */
-    public static function purgeOld(int $doneHours = 24, int $failedDays = 7, int $deadLetterDays = 90): array
+    public static function purgeOld(int $doneHours = 24, int $failedDays = 30, int $deadLetterDays = 30): array
     {
         return ConnectionManager::run(static function (PDO $pdo) use (
             $doneHours,
@@ -864,15 +996,26 @@ final class JobQueue
     {
         return ConnectionManager::run(static function (PDO $pdo) use ($deadLetterId): int {
             $stmt = $pdo->prepare(
-                "SELECT id, job_id, job_type, payload, attempts, max_attempts FROM dead_letter_queue WHERE id = ?"
+                "SELECT dl.id, dl.job_id, dl.job_type, dl.payload, dl.attempts, dl.max_attempts,
+                        q.payload AS source_payload, q.status AS source_status
+                 FROM dead_letter_queue dl
+                 LEFT JOIN jobs_queue q ON q.id = dl.job_id
+                 WHERE dl.id = ?"
             );
             $stmt->execute([$deadLetterId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) {
                 throw new RuntimeException('Dead-lettered job not found.');
             }
-            $decoded = json_decode((string) ($row['payload'] ?? '{}'), true);
-            $payload = is_array($decoded) ? $decoded : [];
+            $sourcePayload = (string) ($row['source_payload'] ?? '');
+            if (($row['source_status'] ?? '') !== self::STATUS_FAILED || $sourcePayload === '') {
+                throw new RuntimeException('The failed job payload has expired and cannot be requeued.');
+            }
+            $decoded = json_decode($sourcePayload, true);
+            if (!is_array($decoded)) {
+                throw new RuntimeException('The failed job payload is invalid and cannot be requeued.');
+            }
+            $payload = $decoded;
             $backoffSeconds = self::clampBackoff(60);
             $maxAttempts = self::clampAttempts((int) $row['max_attempts']);
 
@@ -906,6 +1049,33 @@ final class JobQueue
         return $row ?: null;
     }
 
+    /** Reuse an idempotent job only when the key still names the same payload. */
+    private static function reuseIdempotentJob(array $row, string $encodedPayload): int
+    {
+        $storedPayload = json_decode((string) ($row['payload'] ?? ''), true);
+        $requestedPayload = json_decode($encodedPayload, true);
+        if (!is_array($storedPayload) || !is_array($requestedPayload)
+            || self::canonicalizePayload($storedPayload) !== self::canonicalizePayload($requestedPayload)) {
+            throw new RuntimeException('Idempotency key conflicts with an existing job payload.');
+        }
+        return (int) $row['id'];
+    }
+
+    /** Normalize object-key ordering while preserving list ordering. */
+    private static function canonicalizePayload(array $payload): string
+    {
+        $normalize = static function ($value) use (&$normalize) {
+            if (!is_array($value)) return $value;
+            if (array_is_list($value)) return array_map($normalize, $value);
+            $keys = array_keys($value);
+            usort($keys, static fn($left, $right): int => strcmp((string) $left, (string) $right));
+            $normalized = [];
+            foreach ($keys as $key) $normalized[(string) $key] = $normalize($value[$key]);
+            return $normalized;
+        };
+        return json_encode($normalize($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
     private static function finishAsFailed(PDO $pdo, array $row, int $attempts, string $reason): string
     {
         $id = (int) $row['id'];
@@ -923,12 +1093,23 @@ final class JobQueue
         $insert->execute([
             $id,
             (string) $row['job_type'],
-            (string) $row['payload'],
+            json_encode(self::deadLetterPayloadMetadata((string) ($row['payload'] ?? '')),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             $attempts,
             (int) $row['max_attempts'],
             self::truncate($reason),
         ]);
         return self::STATUS_FAILED;
+    }
+
+    /** Keep requeue correlation metadata without retaining free-text job input. */
+    private static function deadLetterPayloadMetadata(string $payload): array
+    {
+        return [
+            'redacted' => true,
+            'payload_sha256' => hash('sha256', $payload),
+            'payload_bytes' => strlen($payload),
+        ];
     }
 
     private static function clampAttempts(int $value): int
@@ -977,6 +1158,14 @@ final class JobQueue
 
     private static function truncate(string $text): string
     {
-        return mb_strlen($text) > 490 ? mb_substr($text, 0, 490) : $text;
+        // Worker/provider exceptions can contain prompt fragments, school
+        // records, credentials, URLs, and internal paths. A text scrubber
+        // cannot reliably recognize every personal detail, so queue records
+        // retain only a stable opaque digest. AI lifecycle journals separately
+        // retain the exception class and a bounded fingerprint for diagnosis.
+        $text = trim($text);
+        if ($text === '') return 'Job processing failed.';
+        $fingerprint = rtrim(strtr(base64_encode(hash('sha256', $text, true)), '+/', '-_'), '=');
+        return 'Job processing failed (' . $fingerprint . ')';
     }
 }

@@ -3,6 +3,7 @@
 namespace App\API\Services;
 
 use App\API\Includes\FileLogger;
+use App\API\Services\NotificationService;
 use PDO;
 use DomainException;
 
@@ -15,10 +16,87 @@ class AiDraftService
     /** @var AiPromptTemplateService */
     private $templates;
 
-    public function __construct(?AiCompletionProvider $provider = null, ?AiPromptTemplateService $templates = null)
-    {
+    /** @var callable(PDO,int):list<string>|null */
+    private $permissionResolver;
+
+    /** @var callable(PDO,int,array):bool|null */
+    private $admissionScopeChecker;
+
+    /** @var callable(PDO,int,int,array):bool|null */
+    private $academicClassScopeChecker;
+
+    /** @var callable(PDO,int,array,bool,array):bool|null */
+    private $attendanceScopeChecker;
+
+    /** @var callable(PDO,array,string,array):array|null */
+    private $learnerSupportInputBuilder;
+
+    /** @var callable(PDO,int):array|null */
+    private $learnerSupportRoleResolver;
+
+    /** @var NotificationService|null */
+    private $notificationService;
+
+    public function __construct(
+        ?AiCompletionProvider $provider = null,
+        ?AiPromptTemplateService $templates = null,
+        ?callable $permissionResolver = null,
+        ?callable $admissionScopeChecker = null,
+        ?callable $academicClassScopeChecker = null,
+        ?callable $attendanceScopeChecker = null,
+        ?callable $learnerSupportInputBuilder = null,
+        ?callable $learnerSupportRoleResolver = null
+    ) {
         $this->provider = $provider ?: new AiProviderGateway();
         $this->templates = $templates ?: new AiPromptTemplateService();
+        $this->permissionResolver = $permissionResolver;
+        $this->admissionScopeChecker = $admissionScopeChecker;
+        $this->academicClassScopeChecker = $academicClassScopeChecker;
+        $this->attendanceScopeChecker = $attendanceScopeChecker;
+        $this->learnerSupportInputBuilder = $learnerSupportInputBuilder;
+        $this->learnerSupportRoleResolver = $learnerSupportRoleResolver;
+        $this->notificationService = null;
+    }
+
+    /** Convert scoped learner score rows into a deterministic, anonymous review payload. */
+    public function buildLearningGapReviewInput(array $rows, string $gradeLevel): array
+    {
+        $learnerCount = 0;
+        $scoredLearnerCount = 0;
+        $missingEvidenceCount = 0;
+        $belowThresholdCount = 0;
+        $bands = ['below_50' => 0, '50_to_74' => 0, '75_plus' => 0];
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+            $learnerCount++;
+            $score = $row['average_score'] ?? null;
+            if ($score === null || $score === '' || !is_numeric($score)) {
+                $missingEvidenceCount++;
+                continue;
+            }
+            $scoredLearnerCount++;
+            $score = (float) $score;
+            if ($score < 50) {
+                $belowThresholdCount++;
+                $bands['below_50']++;
+            } elseif ($score < 75) {
+                $bands['50_to_74']++;
+            } else {
+                $bands['75_plus']++;
+            }
+        }
+
+        return [
+            'report_date' => date('Y-m-d'),
+            'grade_level' => mb_substr($gradeLevel, 0, 100),
+            'learning_area' => 'All learning areas',
+            'learner_count' => (string) $learnerCount,
+            'scored_learner_count' => (string) $scoredLearnerCount,
+            'below_threshold_count' => (string) $belowThresholdCount,
+            'missing_evidence_count' => (string) $missingEvidenceCount,
+            'gap_bands' => json_encode($bands),
+            'follow_up_intent' => 'Review aggregate results for this authorized class and academic year. Provide teacher-led support; do not identify learners or infer individual needs.',
+        ];
     }
 
     public function create(PDO $pdo, string $workflowId, array $context, array $input, array $metadata = []): array
@@ -27,7 +105,9 @@ class AiDraftService
         if ($operatorId < 1) {
             throw new DomainException('An authenticated operator is required to create an AI draft.', 401);
         }
-        $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $operatorId);
+        $permissions = $this->permissionResolver !== null
+            ? (array) call_user_func($this->permissionResolver, $pdo, $operatorId)
+            : (new AiAgentService())->resolveEffectivePermissions($pdo, $operatorId);
         if ($permissions === []) {
             throw new DomainException('Current operator permissions could not be resolved.', 403);
         }
@@ -36,6 +116,25 @@ class AiDraftService
         $context['permissions'] = $permissions;
         $context['effective_permissions'] = $permissions;
         $workflow = (new AiWorkflowService())->authorize($workflowId, $context);
+        $this->assertAdmissionApplicationScope($pdo, $workflowId, $context, $metadata);
+        $this->assertAcademicSourceScope($pdo, $workflowId, $context, $metadata);
+        $this->assertAttendanceSourceScope($pdo, $workflowId, $context, $metadata);
+        if ($workflowId === 'learners.support_planning' && (int) ($metadata['queue_job_id'] ?? 0) > 0) {
+            $context['roles'] = $this->learnerSupportRoleResolver !== null
+                ? (array) call_user_func($this->learnerSupportRoleResolver, $pdo, $operatorId)
+                : (new AiAgentService())->resolveEffectiveRoles($pdo, $operatorId);
+            $builder = $this->learnerSupportInputBuilder !== null
+                ? new LearnerSupportAiScopeService($this->learnerSupportInputBuilder)
+                : new LearnerSupportAiScopeService();
+            $input = $builder->buildInput(
+                $pdo,
+                $operatorId,
+                $permissions,
+                (array) $context['roles'],
+                (string) ($metadata['support_context'] ?? ''),
+                (array) ($metadata['support_filters'] ?? [])
+            );
+        }
         $clean = AiPromptPolicy::minimize($workflowId, $input);
         $queueJobId = (int) ($metadata['queue_job_id'] ?? 0);
         if ($queueJobId > 0) {
@@ -115,7 +214,196 @@ class AiDraftService
             'prompt_hash' => hash('sha256', $prompt['content']),
             'status' => 'pending_approval',
         ]);
+
+        // Emit realtime notification for draft creation
+        try {
+            $this->notificationService = new NotificationService($pdo);
+            $this->notificationService->push(
+                $operatorId,
+                'draft_created',
+                'AI Draft Created',
+                'A new AI draft has been created for workflow ' . $workflowId . '. Draft ID: ' . $id,
+                'medium',
+                ['reference_type' => 'ai_draft', 'reference_id' => $id]
+            );
+        } catch (\Throwable $e) {
+            FileLogger::write('ai_generation', ['type' => 'draft_notification_failed', 'draft_id' => $id]);
+        }
         return ['draft_id' => $id, 'workflow_id' => $workflowId, 'status' => 'pending_approval', 'draft' => $validated];
+    }
+
+    /** Ensure queued admission content is still in the operator's live scope. */
+    private function assertAdmissionApplicationScope(PDO $pdo, string $workflowId, array $context, array $metadata): void
+    {
+        $subjectTypes = [
+            'admissions.application_followup_draft' => 'admission_application',
+            'admissions.interview_preparation' => 'admission_interview_preparation',
+            'admissions.placement_review' => 'admission_placement_review',
+        ];
+        if (!isset($subjectTypes[$workflowId])) {
+            return;
+        }
+
+        $applicationId = (int) ($metadata['subject_id'] ?? 0);
+        if ($applicationId < 1 || (string) ($metadata['subject_type'] ?? '') !== $subjectTypes[$workflowId]) {
+            throw new DomainException('The admissions draft no longer has a valid application scope.', 403);
+        }
+
+        $operatorId = (int) ($context['user_id'] ?? 0);
+        $scopeContext = ['user_id' => $operatorId, 'permission_codes' => (array) ($context['permissions'] ?? [])];
+        if ($this->admissionScopeChecker !== null) {
+            $allowed = (bool) call_user_func($this->admissionScopeChecker, $pdo, $applicationId, $scopeContext);
+        } else {
+            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $operatorId);
+            $scopeContext['role_ids'] = array_values(array_map('intval', array_column($roles, 'id')));
+            $scopeContext['role_names'] = array_values(array_map('strval', array_column($roles, 'name')));
+            $scopeContext['effective_permissions'] = $scopeContext['permission_codes'];
+            $allowed = (new \App\API\Modules\admission\AdmissionAdminManager())
+                ->canViewApplicationForAi($applicationId, $scopeContext, $pdo);
+        }
+
+        if (!$allowed) {
+            throw new DomainException('The admissions application is no longer within your access.', 403);
+        }
+    }
+
+    /** Recheck academic source access immediately before sending queued content to a provider. */
+    private function assertAcademicSourceScope(PDO $pdo, string $workflowId, array $context, array $metadata): void
+    {
+        // These checks close the queue-time/worker-time authorization gap.
+        // Synchronous callers validate source scope before invoking create().
+        if ((int) ($metadata['queue_job_id'] ?? 0) < 1) {
+            return;
+        }
+        $subjectType = (string) ($metadata['subject_type'] ?? '');
+        $subjectId = (int) ($metadata['subject_id'] ?? 0);
+        $userId = (int) ($context['user_id'] ?? 0);
+        if (in_array($workflowId, ['academics.coverage_review', 'academics.learning_gap_review'], true)) {
+            $expectedType = $workflowId === 'academics.coverage_review'
+                ? 'academic_coverage_review'
+                : 'academic_learning_gap_review';
+            if ($subjectType !== $expectedType || $subjectId < 1 || $userId < 1) {
+                throw new DomainException('The academic review scope is no longer valid.', 403);
+            }
+            if ($this->academicClassScopeChecker !== null) {
+                $allowed = (bool) call_user_func(
+                    $this->academicClassScopeChecker,
+                    $pdo,
+                    $userId,
+                    $subjectId,
+                    (array) ($context['permissions'] ?? [])
+                );
+            } else {
+                $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+                $roleIds = array_values(array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles));
+                $allowed = (new TeacherCurriculumScopeService($pdo))
+                    ->canAccessAcademicYearClass($userId, $roleIds, $subjectId);
+            }
+            if (!$allowed) {
+                throw new DomainException('The selected class is no longer within your academic access.', 403);
+            }
+            return;
+        }
+        if ($workflowId === 'academics.scheme_draft') {
+            if ($subjectType !== 'academic_scheme_draft'
+                || (int) ($metadata['learning_area_id'] ?? 0) < 1
+                || trim((string) ($metadata['grade_level'] ?? '')) === '') {
+                throw new DomainException('The scheme-planning scope is no longer valid.', 403);
+            }
+            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+            $roleIds = array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles);
+            if (!array_intersect([2, 3, 4, 5, 6], $roleIds)) {
+                $scope = (new TeacherCurriculumScopeService($pdo))->resolve($userId, $roleIds);
+                if (!self::curriculumScopeContains($scope, (int) $metadata['learning_area_id'], (string) $metadata['grade_level'])) {
+                    throw new DomainException('The scheme is no longer within your curriculum assignment.', 403);
+                }
+            }
+            return;
+        }
+        if ($workflowId === 'academics.lesson_plan_draft') {
+            if ($subjectType !== 'academic_lesson_plan_draft' || $subjectId < 1) {
+                throw new DomainException('The lesson-plan source is no longer valid.', 403);
+            }
+            $scheme = $pdo->prepare(
+                'SELECT status, teacher_id FROM ' . ReadReplicaService::qualifiedRef('schemes_of_work') . ' WHERE id = ? LIMIT 1'
+            );
+            $scheme->execute([$subjectId]);
+            $row = $scheme->fetch(PDO::FETCH_ASSOC);
+            if (!$row || (string) $row['status'] !== 'approved') {
+                throw new DomainException('The approved scheme is no longer available.', 403);
+            }
+            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+            $roleIds = array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles);
+            if (!array_intersect([2, 3, 4, 5, 6], $roleIds)) {
+                $staffId = StaffRecordsService::staffIdForUserId($pdo, $userId, true);
+                if (!$staffId || (int) $row['teacher_id'] !== $staffId) {
+                    throw new DomainException('The scheme is no longer within your teaching assignment.', 403);
+                }
+            }
+            return;
+        }
+
+        if (in_array($workflowId, ['academics.assessment_draft', 'academics.rubric_draft'], true)) {
+            $expectedSubjectType = $workflowId === 'academics.rubric_draft'
+                ? 'academic_rubric_draft'
+                : 'academic_assessment_draft';
+            if ($subjectType !== $expectedSubjectType || $subjectId < 1) {
+                throw new DomainException('The curriculum source is no longer valid.', 403);
+            }
+            $outcome = $pdo->prepare(
+                'SELECT learning_area_id, grade_level FROM ' . ReadReplicaService::qualifiedRef('learning_outcomes') . ' WHERE id = ? LIMIT 1'
+            );
+            $outcome->execute([$subjectId]);
+            $row = $outcome->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                throw new DomainException('The selected learning outcome is no longer available.', 403);
+            }
+            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+            $roleIds = array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles);
+            if (!array_intersect([2, 3, 4, 5, 6], $roleIds)) {
+                $scope = (new TeacherCurriculumScopeService($pdo))->resolve($userId, $roleIds);
+                $areaId = (int) ($row['learning_area_id'] ?? 0);
+                $grade = strtolower(trim((string) ($row['grade_level'] ?? '')));
+                if (!self::curriculumScopeContains($scope, $areaId, $grade)) {
+                    throw new DomainException('The learning outcome is no longer within your curriculum assignment.', 403);
+                }
+            }
+        }
+    }
+
+    /** Recheck queued attendance stream assignments immediately before provider use. */
+    private function assertAttendanceSourceScope(PDO $pdo, string $workflowId, array $context, array $metadata): void
+    {
+        if ($workflowId !== 'attendance.lateness_pattern_review' || (int) ($metadata['queue_job_id'] ?? 0) < 1) return;
+        $userId = (int) ($context['user_id'] ?? 0);
+        $subjectType = (string) ($metadata['subject_type'] ?? '');
+        if ($userId < 1 || $subjectType !== 'attendance_lateness_pattern' || !array_key_exists('attendance_restricted', $metadata)) {
+            throw new DomainException('The attendance review scope is no longer valid.', 403);
+        }
+        $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+        $roleNames = array_values(array_map(static fn(array $role): string => (string) ($role['name'] ?? ''), $roles));
+        $streamIds = array_values(array_map('intval', (array) ($metadata['attendance_stream_ids'] ?? [])));
+        $checker = $this->attendanceScopeChecker;
+        $allowed = $checker !== null
+            ? (bool) call_user_func($checker, $pdo, $userId, $roleNames, (bool) $metadata['attendance_restricted'], $streamIds)
+            : (new AttendanceAiScopeService())->canAccessLatenessScope(
+                $pdo, $userId, $roleNames, (bool) $metadata['attendance_restricted'], $streamIds
+            );
+        if (!$allowed) {
+            throw new DomainException('Your attendance class access changed before this review could run.', 403);
+        }
+    }
+
+    private static function curriculumScopeContains(array $scope, int $learningAreaId, string $gradeLevel): bool
+    {
+        $grade = strtolower(trim($gradeLevel));
+        foreach ((array) ($scope['contexts'] ?? []) as $assignment) {
+            if ((int) ($assignment['learning_area_id'] ?? 0) === $learningAreaId
+                && strtolower(trim((string) ($assignment['grade_level'] ?? ''))) === $grade) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -128,63 +416,46 @@ class AiDraftService
      */
     public function createDraft(PDO $pdo, array $context, string $template, string $contextText): array
     {
-        $workflowId = 'communications.general_draft';
-        $userId = (int) ($context['user_id'] ?? 0);
-        if ($userId < 1) {
-            return ['status' => 'error', 'message' => 'Valid user context required.'];
+        $template = strtolower(trim($template));
+        $templateOptions = [
+            'parent_notice' => ['purpose' => 'Parent notice', 'audience' => 'all_parents'],
+            'staff_memo' => ['purpose' => 'Staff memo', 'audience' => 'all_staff'],
+            'announcement' => ['purpose' => 'School announcement', 'audience' => 'all_parents'],
+        ];
+        if (!isset($templateOptions[$template])) {
+            throw new DomainException('Choose a supported school communication draft type.', 422);
+        }
+        $contextText = trim($contextText);
+        if ($contextText === '' || mb_strlen($contextText) > 2000) {
+            throw new DomainException('Draft context of up to 2,000 characters is required.', 422);
         }
 
-        $prompt = $this->templates->resolve('communications.general_draft');
-        $cleanInput = AiPromptPolicy::minimize('communications.general_draft', [
-            'template' => $template,
-            'context' => $contextText,
-            'staff_name' => $context['user_name'] ?? 'Staff Member',
-        ]);
-        $messages = [
-            ['role' => 'system', 'content' => $prompt['content']],
-            ['role' => 'user', 'content' => json_encode($cleanInput, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-        ];
-        $draft = $this->provider->complete($messages);
-        $validated = $this->validateDraft($draft, 'communications.general_draft', $cleanInput);
-
-        $inputHash = hash('sha256', json_encode($cleanInput));
-        $stmt = $pdo->prepare(
-            'INSERT INTO ai_workflow_drafts
-                (workflow_id, operator_id, subject_type, subject_id, metadata_json, input_hash, draft_json, status, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, \'pending_approval\', DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 DAY))'
+        // Reuse the registered, permission-checked communication workflow and
+        // its normal review lifecycle. Free text is treated only as supplied
+        // facts; it cannot select recipients or trigger delivery.
+        $templateInfo = $templateOptions[$template];
+        $result = $this->create(
+            $pdo,
+            'communications.parent_message_draft',
+            $context,
+            [
+                'purpose' => $templateInfo['purpose'],
+                'audience' => $templateInfo['audience'],
+                'tone' => 'professional',
+                'facts' => $contextText,
+                'deadline' => '',
+                'channel' => 'email',
+            ],
+            [
+                'subject_type' => 'communication_draft',
+                'subject_id' => 0,
+                'channel' => 'email',
+                'audience' => $templateInfo['audience'],
+                'template' => $template,
+            ]
         );
-        $stmt->execute([
-            'communications.general_draft',
-            $userId,
-            'general',
-            0,
-            json_encode(['template' => $template], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            hash('sha256', json_encode($cleanInput)),
-            json_encode($validated, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        ]);
-        $id = (int) $pdo->lastInsertId();
-
-        FileLogger::write('ai_generation', [
-            'type' => 'draft_created',
-            'workflow_id' => 'communications.general_draft',
-            'draft_id' => $id,
-            'operator_id' => $userId,
-            'subject_type' => 'general',
-            'subject_id' => 0,
-            'input_hash' => hash('sha256', json_encode($cleanInput)),
-            'result_hash' => hash('sha256', json_encode($validated)),
-            'prompt_version' => $prompt['version'],
-            'prompt_hash' => hash('sha256', $prompt['content']),
-            'status' => 'pending_approval',
-        ]);
-
-        return [
-            'status' => 'ok',
-            'draft_id' => $id,
-            'workflow_id' => 'communications.general_draft',
-            'status' => 'pending_approval',
-            'draft' => $validated,
-        ];
+        $result['status'] = 'pending_approval';
+        return $result;
     }
 
     public function queue(string $workflowId, array $context, array $input, array $metadata = []): array
@@ -193,30 +464,19 @@ class AiDraftService
         $clean = AiPromptPolicy::minimize($workflowId, $input);
         $inputHash = hash('sha256', json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $operatorId = (int) ($context['user_id'] ?? 0);
-        $idempotencyKey = 'ai-draft:' . hash('sha256', $workflowId . ':' . $operatorId . ':' . $inputHash);
-        $jobId = JobQueue::push('ai.workflow.draft', [
-            'workflow_id' => $workflowId,
-            'input' => $clean,
-            'user_id' => $operatorId,
-            'permissions' => array_values(array_map('strval', (array) ($context['permissions'] ?? []))),
-            'request_id' => (string) ($context['request_id'] ?? ''),
-            'idempotency_key' => $idempotencyKey,
-            'metadata' => [
-                'subject_type' => (string) ($metadata['subject_type'] ?? ''),
-                'subject_id' => (int) ($metadata['subject_id'] ?? 0),
-                'channel' => (string) ($metadata['channel'] ?? ''),
-                'audience' => (string) ($metadata['audience'] ?? ''),
-                'scope' => (string) ($metadata['scope'] ?? ''),
-                'provider' => (string) ($metadata['provider'] ?? ''),
-                'amount_band' => (string) ($metadata['amount_band'] ?? ''),
-                'currency' => (string) ($metadata['currency'] ?? ''),
-                'reconciliation_rule' => (string) ($metadata['reconciliation_rule'] ?? ''),
-                'report_code' => (string) ($metadata['report_code'] ?? ''),
-                'session_id' => (int) ($metadata['session_id'] ?? 0),
-                'scope_hash' => (string) ($metadata['scope_hash'] ?? ''),
-                'planning' => $this->safeExamPlanningMetadata((array) ($metadata['planning'] ?? [])),
-            ],
-        ], 0, 3, 30);
+        $idempotencyKey = $this->draftIdempotencyKey(
+            $workflowId,
+            $operatorId,
+            (string) ($context['request_id'] ?? ''),
+            $inputHash
+        );
+        $jobId = JobQueue::push('ai.workflow.draft', $this->buildQueuePayload(
+            $workflowId,
+            $context,
+            $clean,
+            $metadata,
+            $idempotencyKey
+        ), 0, 3, 30);
         FileLogger::write('ai_generation', [
             'type' => 'draft_queued',
             'workflow_id' => $workflowId,
@@ -228,6 +488,47 @@ class AiDraftService
             'idempotency_key' => $idempotencyKey,
         ]);
         return ['job_id' => $jobId, 'workflow_id' => $workflowId, 'status' => 'queued', 'action_level' => $workflow['action_level']];
+    }
+
+    /** Build the exact bounded job contract before handing it to JobQueue. */
+    private function buildQueuePayload(
+        string $workflowId,
+        array $context,
+        array $clean,
+        array $metadata,
+        string $idempotencyKey
+    ): array {
+        $permissions = (array) ($context['effective_permissions'] ?? $context['permissions'] ?? []);
+        return [
+            'workflow_id' => $workflowId,
+            'input' => $clean,
+            'user_id' => (int) ($context['user_id'] ?? 0),
+            // The worker resolves grants again from the database. Keeping the
+            // full permission catalogue here bloats high-privilege jobs and can
+            // exceed JobQueue's payload limit without improving authorization.
+            'permission_snapshot' => $this->permissionSnapshot($permissions),
+            'request_id' => (string) ($context['request_id'] ?? ''),
+            'idempotency_key' => $idempotencyKey,
+            'metadata' => [
+                'subject_type' => (string) ($metadata['subject_type'] ?? ''),
+                'subject_id' => (int) ($metadata['subject_id'] ?? 0),
+                'channel' => (string) ($metadata['channel'] ?? ''),
+                'audience' => (string) ($metadata['audience'] ?? ''),
+                'scope' => (string) ($metadata['scope'] ?? ''),
+                'learning_area_id' => (int) ($metadata['learning_area_id'] ?? 0),
+                'grade_level' => mb_substr(trim((string) ($metadata['grade_level'] ?? '')), 0, 80),
+                'provider' => (string) ($metadata['provider'] ?? ''),
+                'amount_band' => (string) ($metadata['amount_band'] ?? ''),
+                'currency' => (string) ($metadata['currency'] ?? ''),
+                'reconciliation_rule' => (string) ($metadata['reconciliation_rule'] ?? ''),
+                'report_code' => (string) ($metadata['report_code'] ?? ''),
+                'session_id' => (int) ($metadata['session_id'] ?? 0),
+                'scope_hash' => (string) ($metadata['scope_hash'] ?? ''),
+                'planning' => $this->safeExamPlanningMetadata((array) ($metadata['planning'] ?? [])),
+                'support_context' => mb_substr(trim((string) ($metadata['support_context'] ?? '')), 0, 80),
+                'support_filters' => LearnerSupportAiScopeService::sanitizeFilters((array) ($metadata['support_filters'] ?? [])),
+            ],
+        ];
     }
 
     public function approve(PDO $pdo, int $draftId, int $approverId, ?string $expectedWorkflow = null): array
@@ -247,7 +548,8 @@ class AiDraftService
             if ($expectedWorkflow !== null && (string) ($row['workflow_id'] ?? '') !== $expectedWorkflow) {
                 throw new DomainException('This draft does not belong to the requested AI workflow.', 409);
             }
-            if (($row['status'] ?? '') === 'pending_approval') {
+            $wasPending = ($row['status'] ?? '') === 'pending_approval';
+            if ($wasPending) {
                 $update = $pdo->prepare(
                     "UPDATE ai_workflow_drafts
                      SET status = 'approved', approved_by = ?, approved_at = UTC_TIMESTAMP()
@@ -261,8 +563,27 @@ class AiDraftService
             FileLogger::write('ai_generation', [
                 'type' => 'draft_approved',
                 'draft_id' => $draftId,
+                'workflow_id' => (string) ($row['workflow_id'] ?? ''),
+                'operator_id' => (int) ($row['operator_id'] ?? 0),
                 'approver_id' => $approverId,
+                'approval_action' => $wasPending ? 'approved' : 'already_approved',
             ]);
+
+            // Emit realtime notification for draft approval
+            $workflowId = $row['workflow_id'] ?? '';
+            try {
+                $this->notificationService = new NotificationService($pdo);
+                $this->notificationService->push(
+                    (int) ($row['operator_id'] ?? 0),
+                    'draft_approved',
+                    'AI Draft Approved',
+                    "AI draft #{$draftId} has been approved for workflow {$workflowId}",
+                    'high',
+                    ['reference_type' => 'ai_draft', 'reference_id' => $draftId]
+                );
+            } catch (\Throwable) {
+                // The approval is committed; notification delivery is best effort.
+            }
             $decodedDraft = json_decode((string) ($row['draft_json'] ?? ''), true);
             $decodedMetadata = json_decode((string) ($row['metadata_json'] ?? ''), true);
             return [
@@ -275,6 +596,37 @@ class AiDraftService
             ];
         } catch (\Throwable $e) {
             if ($startedTransaction && $pdo->inTransaction()) $pdo->rollBack();
+            // Approval attempts are security-relevant even when they fail.
+            // Record identifiers and a coarse outcome only; never copy draft
+            // content, metadata, SQL messages, or other sensitive details to
+            // the audit journal.
+            FileLogger::write('ai_generation', [
+                'type' => $e instanceof DomainException ? 'draft_approval_denied' : 'draft_approval_failed',
+                'draft_id' => $draftId,
+                'approver_id' => $approverId,
+                'workflow_id' => $expectedWorkflow,
+                'reason_code' => (int) $e->getCode(),
+                'exception_class' => get_class($e),
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? ''),
+            ], $e instanceof DomainException ? 'warning' : 'error');
+
+            // Emit realtime notification for draft approval denial/failure
+            $outcome = $e instanceof DomainException ? 'draft_approval_denied' : 'draft_approval_failed';
+            try {
+                $this->notificationService = new NotificationService($pdo);
+                $this->notificationService->push(
+                (int) ($row['operator_id'] ?? 0),
+                $outcome,
+                'AI Draft Approval '.ucfirst(str_replace('_', ' ', $outcome)),
+                $e instanceof DomainException
+                    ? "AI draft #{$draftId} approval denied: {$e->getMessage()}"
+                    : "AI draft #{$draftId} approval failed unexpectedly",
+                'medium',
+                ['reference_type' => 'ai_draft', 'reference_id' => $draftId]
+                );
+            } catch (\Throwable) {
+                // Notification delivery must not replace the approval error.
+            }
             throw $e;
         }
     }
@@ -294,7 +646,19 @@ class AiDraftService
             ->execute([json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $draftId]);
     }
 
-    public function listForReview(PDO $pdo, int $userId, bool $approver = false, ?string $workflowPrefix = null): array
+    public function getDraftReference(PDO $pdo, int $draftId): ?array
+    {
+        if ($draftId < 1) return null;
+        $stmt = $pdo->prepare(
+            'SELECT id, workflow_id, operator_id, subject_type, subject_id, status
+             FROM ai_workflow_drafts WHERE id = ? AND expires_at > UTC_TIMESTAMP() LIMIT 1'
+        );
+        $stmt->execute([$draftId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return is_array($row) ? $row : null;
+    }
+
+    public function listForReview(PDO $pdo, int $userId, bool $approver = false, ?string $workflowPrefix = null, ?int $subjectId = null): array
     {
         if ($userId < 1) {
             throw new DomainException('A valid authenticated user is required to list AI drafts.', 401);
@@ -305,6 +669,11 @@ class AiDraftService
         if ($workflowPrefix !== null && $workflowPrefix !== '') {
             $sql .= ' AND workflow_id LIKE ?';
             $params[] = rtrim($workflowPrefix, '.') . '.%';
+        }
+        if ($subjectId !== null) {
+            if ($subjectId < 1) throw new DomainException('A valid draft subject is required.', 422);
+            $sql .= ' AND subject_id = ?';
+            $params[] = $subjectId;
         }
         if (!$approver) {
             $sql .= ' AND operator_id = ?';
@@ -328,6 +697,49 @@ class AiDraftService
         return $rows;
     }
 
+    /**
+     * Return only pending review counts for an explicit allowlist of workflows.
+     * Used by workspace insight scans so they never load draft bodies or
+     * include work from a domain the current operator cannot use.
+     *
+     * @param list<string> $workflowIds
+     * @return array{count:int,workflows:list<string>}
+     */
+    public function pendingReviewSummary(PDO $pdo, int $userId, array $workflowIds): array
+    {
+        if ($userId < 1) {
+            throw new DomainException('A valid authenticated user is required to summarize AI reviews.', 401);
+        }
+        $workflowIds = array_values(array_unique(array_filter(
+            array_map('strval', $workflowIds),
+            static fn(string $workflowId): bool => preg_match('/^[a-z][a-z0-9_.-]{2,100}$/', $workflowId) === 1
+        )));
+        if ($workflowIds === []) {
+            return ['count' => 0, 'workflows' => []];
+        }
+        $placeholders = implode(',', array_fill(0, count($workflowIds), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT workflow_id, COUNT(*) AS pending_count
+             FROM ai_workflow_drafts
+             WHERE expires_at > UTC_TIMESTAMP()
+               AND status = 'pending_approval'
+               AND operator_id <> ?
+               AND workflow_id IN ({$placeholders})
+             GROUP BY workflow_id"
+        );
+        $stmt->execute(array_merge([$userId], $workflowIds));
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $workflows = [];
+        $count = 0;
+        foreach ($rows as $row) {
+            $workflowId = (string) ($row['workflow_id'] ?? '');
+            if ($workflowId === '') continue;
+            $workflows[] = $workflowId;
+            $count += max(0, (int) ($row['pending_count'] ?? 0));
+        }
+        return ['count' => $count, 'workflows' => array_slice($workflows, 0, 20)];
+    }
+
     private function validateDraft(array $draft, string $workflowId = '', array $input = []): array
     {
         foreach (['title', 'body', 'next_steps'] as $field) {
@@ -335,10 +747,11 @@ class AiDraftService
                 throw new DomainException('AI response is missing a required draft field.', 502);
             }
         }
-        if ($workflowId === 'academics.assessment_draft' && is_string($draft['next_steps'])) {
-            // Some approved assessment models emit one concise next step as a
-            // scalar despite the JSON contract. Normalize only this known
-            // workflow shape; unrelated workflows remain fail-closed.
+        if (in_array($workflowId, ['academics.assessment_draft', 'academics.rubric_draft'], true)
+            && is_string($draft['next_steps'])) {
+            // Approved assessment and rubric models may emit one concise next
+            // step as a scalar despite their JSON contracts. Normalize only
+            // these known workflow shapes; unrelated workflows remain closed.
             $draft['next_steps'] = [$draft['next_steps']];
         }
         if (!is_string($draft['title']) || !is_string($draft['body']) || !is_array($draft['next_steps'])) {
@@ -349,6 +762,50 @@ class AiDraftService
             'body' => mb_substr(trim($draft['body']), 0, 10000),
             'next_steps' => array_values(array_map(static fn($item): string => mb_substr(trim((string) $item), 0, 500), array_slice($draft['next_steps'], 0, 10))),
         ];
+        if ($workflowId === 'academics.rubric_draft') {
+            $criteria = $draft['criteria'] ?? null;
+            $expectedCount = max(1, min(12, (int) ($input['criterion_count'] ?? 4)));
+            $expectedLevels = array_values(array_filter(array_map(
+                static fn(string $label): string => mb_substr(trim($label), 0, 80),
+                explode(',', (string) ($input['performance_levels'] ?? ''))
+            ), static fn(string $label): bool => $label !== ''));
+            $expectedLevels = array_slice(array_values(array_unique($expectedLevels)), 0, 8);
+            if (!is_array($criteria) || count($criteria) !== $expectedCount || $expectedLevels === []) {
+                throw new DomainException('AI rubric response must include the requested criteria and performance levels.', 502);
+            }
+            $normalizedCriteria = [];
+            foreach ($criteria as $criterion) {
+                if (!is_array($criterion)) {
+                    throw new DomainException('AI rubric criteria are malformed.', 502);
+                }
+                $name = trim((string) ($criterion['criterion'] ?? ''));
+                $levels = $criterion['levels'] ?? null;
+                if ($name === '' || mb_strlen($name) > 200 || !is_array($levels) || count($levels) !== count($expectedLevels)) {
+                    throw new DomainException('AI rubric criteria must include a descriptor for each performance level.', 502);
+                }
+                $byLabel = [];
+                foreach ($levels as $level) {
+                    if (!is_array($level)) continue;
+                    $label = trim((string) ($level['label'] ?? ''));
+                    $descriptor = trim((string) ($level['descriptor'] ?? ''));
+                    if ($label === '' || $descriptor === '' || mb_strlen($descriptor) > 500 || isset($byLabel[$label])) {
+                        throw new DomainException('AI rubric performance-level descriptors are malformed.', 502);
+                    }
+                    $byLabel[$label] = $descriptor;
+                }
+                if (array_diff($expectedLevels, array_keys($byLabel)) !== [] || array_diff(array_keys($byLabel), $expectedLevels) !== []) {
+                    throw new DomainException('AI rubric levels must match the requested performance levels.', 502);
+                }
+                $normalizedCriteria[] = [
+                    'criterion' => mb_substr($name, 0, 200),
+                    'levels' => array_map(static fn(string $label): array => [
+                        'label' => $label,
+                        'descriptor' => mb_substr($byLabel[$label], 0, 500),
+                    ], $expectedLevels),
+                ];
+            }
+            $result['criteria'] = $normalizedCriteria;
+        }
         if (isset($draft['items']) && is_array($draft['items'])) {
             $result['items'] = array_values(array_filter(array_map(static function ($item): ?array {
                 if (!is_array($item) || trim((string) ($item['question'] ?? '')) === '') return null;
@@ -367,31 +824,10 @@ class AiDraftService
             if (isset($draft['assignments'])) {
                 if (!is_array($draft['assignments'])) throw new DomainException('AI timetable assignments must be a list.', 502);
                 $result['assignments'] = TimetableAssignmentDraftValidator::normalize($draft['assignments']);
-                $candidateKeys = [];
-                foreach ((array) ($input['assignment_candidates'] ?? []) as $candidate) {
-                    if (!is_array($candidate)) continue;
-                    $candidateKeys[implode(':', [
-                        (int) ($candidate['academic_year_class_stream_id'] ?? 0),
-                        (int) ($candidate['learning_area_id'] ?? 0),
-                        (int) ($candidate['teacher_id'] ?? 0),
-                        (int) ($candidate['day_of_week'] ?? 0),
-                        (int) ($candidate['time_slot_id'] ?? 0),
-                    ])] = true;
-                }
-                if ($candidateKeys !== []) {
-                    foreach ($result['assignments'] as $assignment) {
-                        $key = implode(':', [
-                            (int) ($assignment['academic_year_class_stream_id'] ?? 0),
-                            (int) ($assignment['learning_area_id'] ?? 0),
-                            (int) ($assignment['teacher_id'] ?? 0),
-                            (int) ($assignment['day_of_week'] ?? 0),
-                            (int) ($assignment['time_slot_id'] ?? 0),
-                        ]);
-                        if (!isset($candidateKeys[$key])) {
-                            throw new DomainException('AI timetable assignments must use only supplied authorized candidates.', 502);
-                        }
-                    }
-                }
+                TimetableAssignmentCandidateValidator::assertAuthorized(
+                    $result['assignments'],
+                    (array) ($input['assignment_candidates'] ?? [])
+                );
             }
         }
         if ($workflowId === 'academics.exam_timetable_planning') {
@@ -422,6 +858,32 @@ class AiDraftService
                 : mb_substr(trim((string) $planning[$key]), 0, 5);
         }
         return $safe;
+    }
+
+    private function draftIdempotencyKey(string $workflowId, int $operatorId, string $requestId, string $inputHash): string
+    {
+        $requestId = mb_substr(trim($requestId), 0, 100);
+        if ($requestId === '') {
+            // Without a request token, don't suppress a later intentional
+            // request just because its content matches an old completed job.
+            $requestId = bin2hex(random_bytes(16));
+        }
+        return 'ai-draft:' . hash('sha256', $workflowId . ':' . $operatorId . ':' . $requestId . ':' . $inputHash);
+    }
+
+    /** Store an auditable, bounded grant snapshot; workers always re-resolve it. */
+    private function permissionSnapshot(array $permissions): array
+    {
+        $codes = array_values(array_unique(array_filter(array_map(
+            static fn($permission): string => is_scalar($permission) ? trim((string) $permission) : '',
+            $permissions
+        ), static fn(string $permission): bool => $permission !== '')));
+        sort($codes, SORT_STRING);
+
+        return [
+            'count' => count($codes),
+            'sha256' => hash('sha256', implode("\n", $codes)),
+        ];
     }
 
     /** Workflow id recorded on a draft row — callers verify scope before approving. */

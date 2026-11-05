@@ -513,43 +513,7 @@ if ($canViewPayment || $canRecordPayment) {
                 $stmt = $this->db->query(
                     "SELECT awc.application_id AS id, awc.application_no, awc.applicant_name, awc.gender, awc.grade_applying_for,
                             awc.application_status AS status, awc.created_at, awc.updated_at,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp0
-                                WHERE sp0.parent_id = awc.parent_id
-                                  AND (awc.enrolled_student_id IS NULL OR sp0.student_id <> awc.enrolled_student_id)
-                            ) THEN COALESCE(
-                                (SELECT tier.amount
-                                 FROM extra_charge_pricing_tiers tier
-                                 JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id=tier.extra_charge_id
-                                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active'
-                                   AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
-                                   AND tier.condition_code IN ('existing_parent','existing')
-                                 ORDER BY tier.sort_order, tier.id LIMIT 1),
-                                (SELECT ec.amount FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
-                                 ORDER BY ec.id LIMIT 1)
-                            ) ELSE COALESCE(
-                                (SELECT tier.amount
-                                 FROM extra_charge_pricing_tiers tier
-                                 JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id=tier.extra_charge_id
-                                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active'
-                                   AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
-                                   AND tier.condition_code IN ('new_parent','new')
-                                 ORDER BY tier.sort_order, tier.id LIMIT 1),
-                                (SELECT ec.amount FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
-                                 ORDER BY ec.id LIMIT 1)
-                            ) END AS registration_fee_due,
+                            NULL AS registration_fee_due,
                             awc.enrolled_admission_no AS admission_number,
                             lp.class_name AS assigned_class_name,
                             lp.stream_name AS assigned_stream_name,
@@ -594,8 +558,13 @@ if ($canViewPayment || $canRecordPayment) {
                     try {
                         $paymentRow['registration_fee_due'] = $chargeService->admissionTotalDue((int) ($paymentRow['id'] ?? 0));
                         $paymentRow['financial_relief'] = $chargeService->admissionFinancialRelief((int) ($paymentRow['id'] ?? 0));
-                    } catch (\Throwable $ignored) {
-                        // Retain the SQL fallback on older installations.
+                    } catch (\Throwable $error) {
+                        \App\API\Includes\FileLogger::error('admissions', [
+                            'action' => 'resolve_admission_charge_obligations',
+                            'application_id' => (int) ($paymentRow['id'] ?? 0),
+                            'error' => $error->getMessage(),
+                        ]);
+                        $paymentRow['registration_fee_due'] = null;
                     }
                 }
                 unset($paymentRow);
@@ -1087,6 +1056,74 @@ if ($canViewPayment || $canRecordPayment) {
                 'channel' => $channel,
             ],
         ], 'Admissions AI context prepared');
+    }
+
+    /** Build an interview agenda input only for the grades covered by school policy. */
+    public function getAiInterviewPreparationContext(int $id, array $ctx, string $focus = ''): array
+    {
+        $application = $this->getApplicationScopeRecord($id);
+        if (!$application || !$this->canViewApplicationRecord($application, $ctx)) {
+            return $this->errorResponse('Application not found', 404);
+        }
+        $grade = (string) ($application['grade_applying_for'] ?? $application['grade_applying'] ?? $application['grade'] ?? '');
+        if (!$this->policy->requiresInterview($grade)) {
+            return $this->errorResponse('Interview preparation is available only for Grade 4–9 applications.', 422);
+        }
+
+        $followup = $this->getAiFollowupContext($id, $ctx, 'internal');
+        if (($followup['success'] ?? false) !== true) {
+            return $followup;
+        }
+        $input = (array) ($followup['data']['input'] ?? []);
+        // Request text must not become model instructions or carry applicant
+        // details. Accept only known interview themes; otherwise use the
+        // school-owned default.
+        $input['interview_focus'] = $this->policy->aiInterviewFocus($focus);
+        return $this->successResponse(['workflow_id' => 'admissions.interview_preparation', 'input' => $input], 'Admissions interview context prepared');
+    }
+
+    /** Build a placement review from authorized application and recorded interview facts. */
+    public function getAiPlacementReviewContext(int $id, array $ctx, string $capacitySignal = 'unknown'): array
+    {
+        $application = $this->getApplicationScopeRecord($id);
+        if (!$application || !$this->canViewApplicationRecord($application, $ctx)) {
+            return $this->errorResponse('Application not found', 404);
+        }
+
+        $interviewRef = ReadReplicaService::qualifiedRef('admission_applications_interviews');
+        $stmt = $this->db->prepare(
+            "SELECT interview_status, interview_recommendation
+               FROM {$interviewRef}
+              WHERE id = ?
+              LIMIT 1"
+        );
+        $stmt->execute([$id]);
+        $interview = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $status = strtolower(trim((string) ($interview['interview_status'] ?? 'not_available')));
+        $recommendation = strtolower(trim((string) ($interview['interview_recommendation'] ?? '')));
+        $placementSignal = match ($recommendation) {
+            'recommended' => 'human_recommended',
+            'conditional' => 'human_conditional',
+            'not_recommended' => 'human_not_recommended',
+            default => 'not_available',
+        };
+        $capacitySignal = strtolower(trim($capacitySignal));
+        if (!in_array($capacitySignal, ['available', 'limited', 'unknown'], true)) {
+            $capacitySignal = 'unknown';
+        }
+
+        $grade = (string) ($application['grade_applying_for'] ?? $application['grade_applying'] ?? $application['grade'] ?? '');
+        return $this->successResponse([
+            'workflow_id' => 'admissions.placement_review',
+            'input' => [
+                'stage' => (string) ($application['current_stage'] ?? 'not_available'),
+                'grade_band' => $this->aiGradeBand($grade),
+                'interview_status' => $status,
+                'placement_signal_band' => $placementSignal,
+                'capacity_signal' => $capacitySignal,
+                'follow_up_intent' => 'Verify policy, assessment evidence, and class capacity before any official placement decision.',
+            ],
+        ], 'Admissions placement context prepared');
     }
 
     private function aiGradeBand(string $grade): string
@@ -2938,14 +2975,21 @@ if ($canViewPayment || $canRecordPayment) {
     // GUARD PRIMITIVES (used by the controller before delegating writes)
     // ========================================================================
 
-    public function getApplicationScopeRecord(int $applicationId): ?array
+    public function getApplicationScopeRecord(int $applicationId, ?PDO $connection = null): ?array
     {
         try {
-            $stmt = $this->db->prepare(
-                "SELECT aa.*, wi.data_json, wi.current_stage, wi.started_by
-                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
-                 WHERE aa.id = ?
-                 ORDER BY wi.id DESC
+            $stmt = ($connection ?? $this->db)->prepare(
+                "SELECT aa.application_id AS id, aa.application_id, aa.application_no,
+                        aa.applicant_name, aa.grade_applying_for,
+                        aa.application_status AS status,
+                        aa.application_created_at AS created_at, aa.parent_id,
+                        aa.academic_year, aa.workflow_instance_id,
+                        aa.workflow_id, aa.current_stage, aa.stage_code,
+                        aa.workflow_status, aa.started_by, aa.started_at,
+                        aa.completed_at, aa.data_json
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " aa
+                 WHERE aa.application_id = ?
+                 ORDER BY aa.workflow_instance_id DESC
                  LIMIT 1"
             );
             $stmt->execute([$applicationId]);
@@ -2955,6 +2999,13 @@ if ($canViewPayment || $canRecordPayment) {
         } catch (Exception $e) {
             return null;
         }
+    }
+
+    /** Re-check an AI job's application scope against current staff access. */
+    public function canViewApplicationForAi(int $applicationId, array $ctx, ?PDO $connection = null): bool
+    {
+        $application = $this->getApplicationScopeRecord($applicationId, $connection);
+        return $application !== null && $this->canViewApplicationRecord($application, $ctx);
     }
 
     public function getApplicationScopeRecordByDocument(int $documentId): ?array

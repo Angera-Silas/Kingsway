@@ -338,10 +338,11 @@ if (!isset($appBase)) {
                             </tr>
                         </thead>
                         <tbody id="studentsTableBody">
-                            <tr>
-                                <td class="text-center text-muted">Loading...</td>
+                            <tr id="studentsTableState">
+                                <td colspan="14" class="text-center text-muted py-4">Loading...</td>
                             </tr>
                         </tbody>
+                        <template id="cateringBoarderRowTemplate"><tr data-catering-student-row><td data-fill="admission"></td><td data-fill="name"></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="gender"></td><td data-fill="dormitory"></td><td data-fill="boarding"></td><td><span class="badge" data-fill="breakfast"></span></td><td><span class="badge" data-fill="lunch"></span></td><td><span class="badge" data-fill="supper"></span></td><td data-fill="diet"></td><td data-fill="restriction"></td><td data-fill="today-status"></td><td><button class="btn btn-sm btn-outline-primary" type="button" data-student-profile>Meal profile</button></td></tr></template>
                     </table>
                 </div>
             </div>

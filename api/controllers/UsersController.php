@@ -168,7 +168,10 @@ class UsersController extends BaseController
      */
     public function postLogin($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->login($data);
+        // Keep the legacy endpoint behind the same mandatory second-factor
+        // gate as /auth/login. UsersAPI::login can issue a token directly.
+        $auth = $this->contract('App\\API\\Modules\\auth\\AuthAPI');
+        $result = $auth->login($data);
         return $this->handleResponse($result);
     }
 

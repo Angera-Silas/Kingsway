@@ -1294,7 +1294,7 @@ class FeeManager
                 // The current academic year lives in academic_years. The
                 // student_directory projection is a per-enrollment roster and
                 // carries neither year_code nor is_current.
-                $yearStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current=1 AND status='active' ORDER BY start_date DESC LIMIT 1");
+                $yearStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current = 1 ORDER BY start_date DESC LIMIT 1");
                 $yearStmt->execute();
                 $currentYear = $yearStmt->fetchColumn();
                 if (!$currentYear) {
@@ -3300,14 +3300,12 @@ class FeeManager
     public function activateAndGenerateObligations($levelId, $academicYear, $termId, $studentTypeId, $userId)
     {
         try {
-            // 2. Resolve academic_year_id from the 4-digit year
-            $stmt = $this->db->prepare("
-                SELECT id FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                WHERE YEAR(start_date) = ? OR year_code = ?
-                LIMIT 1
-            ");
-            $stmt->execute([$academicYear, $academicYear]);
-            $academicYearId = $stmt->fetchColumn();
+            // 2. Resolve academic_year_id from the 4-digit year (or the full code).
+            // student_directory is an enrollment-grain projection and carries no
+            // start_date/year_code columns, so the year must be resolved against
+            // academic_years itself — otherwise this fails as "unknown column"
+            // and every caller only sees "An internal error occurred".
+            $academicYearId = $this->resolveAcademicYearId($academicYear);
 
             if (!$academicYearId) {
                 return formatResponse(false, null, "Academic year record not found for year: $academicYear");
@@ -3324,7 +3322,7 @@ class FeeManager
             // 3. Get active students enrolled in this level + student_type
             $levelFilter = $levelId ? " AND c.level_id = ?" : "";
             $stmt = $this->db->prepare("
-                SELECT DISTINCT s.id AS student_id
+                SELECT DISTINCT s.id AS student_id, sae.academic_year_class_id
                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
@@ -3342,14 +3340,14 @@ class FeeManager
                 $levelParams[] = $levelId;
             }
             $stmt->execute($levelParams);
-            $students = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // 4. Get all fee schedule rows for this bundle
             $fsdStmt = $this->db->prepare("
-                SELECT id, amount, due_date
+                SELECT id, amount, due_date, academic_year_class_id
                 FROM academic_year_fee_schedules
                 WHERE academic_year_id = ? AND academic_year_term_id = ? AND student_type_id = ?
-                  AND status = 'active'
+                  AND status = 'active' AND amount > 0
             ");
             $fsdStmt->execute([$academicYearId, $termId, $studentTypeId]);
             $feeRows = $fsdStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -3362,7 +3360,22 @@ class FeeManager
                 ]);
             }
 
-            // 5. Insert obligations for each student × each fee row
+            // Bill every learner for the fee rows that actually apply to them:
+            // rows scoped to their own class, plus school-wide rows (class NULL).
+            // Applying the whole bundle to every learner would bill a Playgroup
+            // learner for Grade 9 fees as well.
+            $feeRowsByClass = [];
+            $schoolWideFeeRows = [];
+            foreach ($feeRows as $feeRow) {
+                $classId = $feeRow['academic_year_class_id'] ?? null;
+                if ($classId === null || $classId === '') {
+                    $schoolWideFeeRows[] = $feeRow;
+                    continue;
+                }
+                $feeRowsByClass[(int) $classId][] = $feeRow;
+            }
+
+            // 5. Insert obligations for each student × each applicable fee row
             $enrollStmt = $this->db->prepare("
                 SELECT id FROM student_academic_enrollments
                 WHERE student_id = ? AND academic_year_id = ? AND enrollment_status = 'active'
@@ -3379,13 +3392,24 @@ class FeeManager
             ");
 
             $totalObligations = 0;
-            foreach ($students as $studentId) {
+            $unmatchedStudents = 0;
+            foreach ($students as $student) {
+                $studentId = (int) $student['student_id'];
+                $classId = (int) ($student['academic_year_class_id'] ?? 0);
                 $enrollStmt->execute([$studentId, $academicYearId]);
                 $enrollmentId = $enrollStmt->fetchColumn();
                 if (!$enrollmentId) {
                     continue;
                 }
-                foreach ($feeRows as $feeRow) {
+                $applicableRows = array_merge(
+                    $schoolWideFeeRows,
+                    $feeRowsByClass[$classId] ?? []
+                );
+                if (!$applicableRows && !$schoolWideFeeRows) {
+                    $unmatchedStudents++;
+                    continue;
+                }
+                foreach ($applicableRows as $feeRow) {
                     $insertStmt->execute([
                         $enrollmentId,
                         $academicYearId,
@@ -3401,11 +3425,15 @@ class FeeManager
             return formatResponse(true, [
                 'students_processed' => count($students),
                 'obligations_created' => $totalObligations,
+                'students_without_matching_fee_rows' => $unmatchedStudents,
                 'message' => 'Obligations generated successfully'
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'An internal error occurred.');
+            // A generic message hides real failures (for example an
+            // un-resolvable year) behind "An internal error occurred", which
+            // leaves the caller unable to act on the problem.
+            return formatResponse(false, null, 'Could not generate target-year fee obligations: ' . $e->getMessage());
         }
     }
 
@@ -3619,6 +3647,31 @@ class FeeManager
             $stmt->execute([$studentId]);
             $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            $extraStmt = $this->db->prepare(
+                "SELECT eco.id,eco.student_academic_enrollment_id,sae.academic_year_id,
+                        eco.academic_year_term_id AS term_id,eco.amount_due,eco.amount_paid,
+                        eco.amount_waived,eco.status,eco.due_date,ay.year_code AS academic_year,
+                        t.name AS term_name,CAST(SUBSTRING(t.code,2) AS UNSIGNED) AS term_number,
+                        ec.name AS fee_type_name,'EXTRA_CHARGE' AS fee_type_code,
+                        sl.name AS level_name,sd.class_name AS class_name,
+                        GREATEST(eco.amount_due-eco.amount_paid-eco.amount_waived,0) AS balance,
+                        CASE WHEN eco.amount_due<=eco.amount_paid+eco.amount_waived THEN 'paid'
+                             WHEN eco.amount_paid>0 THEN 'partial' ELSE 'pending' END AS payment_status
+                 FROM extra_charge_student_obligations eco
+                 JOIN student_academic_enrollments sae ON sae.id=eco.student_academic_enrollment_id
+                 JOIN academic_years ay ON ay.id=sae.academic_year_id
+                 JOIN academic_year_terms ayt ON ayt.id=eco.academic_year_term_id
+                 JOIN terms t ON t.id=ayt.term_id
+                 JOIN extra_charge_schedules sch ON sch.id=eco.schedule_id
+                 JOIN extra_charges ec ON ec.id=sch.extra_charge_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef('student_directory') . " sd ON sd.enrollment_id=sae.id
+                 LEFT JOIN school_levels sl ON sl.id=sd.level_id
+                 WHERE sae.student_id=? AND eco.status<>'cancelled'
+                 ORDER BY ay.year_code DESC,t.id,eco.due_date,eco.id"
+            );
+            $extraStmt->execute([$studentId]);
+            $obligations = array_merge($obligations, $extraStmt->fetchAll(PDO::FETCH_ASSOC));
+
             // Fetch confirmed payments
             $stmt = $this->db->prepare("
                 SELECT p.id,
@@ -3824,12 +3877,27 @@ class FeeManager
         }
 
         $db->prepare('DELETE FROM extra_charge_student_types WHERE extra_charge_id=?')->execute([$chargeId]);
-        if (!empty($data['student_type_id'])) {
-            $db->prepare('INSERT INTO extra_charge_student_types(extra_charge_id,student_type_id) VALUES(?,?)')->execute([$chargeId, (int) $data['student_type_id']]);
+        $studentTypeIds = $data['student_type_ids'] ?? (!empty($data['student_type_id']) ? [$data['student_type_id']] : []);
+        $insertType = $db->prepare('INSERT IGNORE INTO extra_charge_student_types(extra_charge_id,student_type_id) VALUES(?,?)');
+        foreach (array_unique(array_filter(array_map('intval', (array) $studentTypeIds))) as $studentTypeId) {
+            $insertType->execute([$chargeId, $studentTypeId]);
         }
         $db->prepare('DELETE FROM extra_charge_classes WHERE extra_charge_id=?')->execute([$chargeId]);
-        if ($target === 'specific_class' && !empty($data['class_id'])) {
-            $db->prepare('INSERT INTO extra_charge_classes(extra_charge_id,class_id) VALUES(?,?)')->execute([$chargeId, (int) $data['class_id']]);
+        $classIds = $data['class_ids'] ?? (!empty($data['class_id']) ? [$data['class_id']] : []);
+        $insertClass = $db->prepare('INSERT IGNORE INTO extra_charge_classes(extra_charge_id,class_id) VALUES(?,?)');
+        foreach (array_unique(array_filter(array_map('intval', (array) $classIds))) as $classId) {
+            $insertClass->execute([$chargeId, $classId]);
+        }
+
+        $db->prepare('DELETE FROM extra_charge_students WHERE extra_charge_id=?')->execute([$chargeId]);
+        $insertStudent = $db->prepare('INSERT IGNORE INTO extra_charge_students(extra_charge_id,student_id) VALUES(?,?)');
+        foreach (array_unique(array_filter(array_map('intval', (array) ($data['student_ids'] ?? [])))) as $studentId) {
+            $insertStudent->execute([$chargeId, $studentId]);
+        }
+        $db->prepare('DELETE FROM extra_charge_parents WHERE extra_charge_id=?')->execute([$chargeId]);
+        $insertParent = $db->prepare('INSERT IGNORE INTO extra_charge_parents(extra_charge_id,parent_id) VALUES(?,?)');
+        foreach (array_unique(array_filter(array_map('intval', (array) ($data['parent_ids'] ?? [])))) as $parentId) {
+            $insertParent->execute([$chargeId, $parentId]);
         }
 
         $db->prepare('DELETE FROM extra_charge_pricing_tiers WHERE extra_charge_id=?')->execute([$chargeId]);
@@ -3862,6 +3930,20 @@ class FeeManager
         );
         $stmt->execute([$chargeId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    private function normalizedChargeIds(string $table, string $column, int $chargeId): array
+    {
+        $allowed = [
+            'extra_charge_classes' => 'class_id',
+            'extra_charge_student_types' => 'student_type_id',
+            'extra_charge_students' => 'student_id',
+            'extra_charge_parents' => 'parent_id',
+        ];
+        if (($allowed[$table] ?? null) !== $column) return [];
+        $stmt = $this->db->prepare("SELECT {$column} FROM {$table} WHERE extra_charge_id=? ORDER BY {$column}");
+        $stmt->execute([$chargeId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
     }
 
     /**
@@ -3900,7 +3982,7 @@ class FeeManager
                            coa.account_code AS gl_account_code,
                            CONCAT(p1.first_name, ' ', p1.last_name) AS created_by_name,
                            CONCAT(p2.first_name, ' ', p2.last_name) AS approved_by_name
-                    FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec
+                    FROM extra_charges ec
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cl ON cl.id = ec.class_id
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa ON coa.id = ec.gl_account_id
                     LEFT JOIN users u ON u.id = ec.created_by
@@ -3916,6 +3998,10 @@ class FeeManager
 
             foreach ($charges as &$c) {
                 $c['pricing_tiers'] = $this->normalizedPricingTiers((int) $c['id']);
+                $c['class_ids'] = $this->normalizedChargeIds('extra_charge_classes', 'class_id', (int) $c['id']);
+                $c['student_type_ids'] = $this->normalizedChargeIds('extra_charge_student_types', 'student_type_id', (int) $c['id']);
+                $c['student_ids'] = $this->normalizedChargeIds('extra_charge_students', 'student_id', (int) $c['id']);
+                $c['parent_ids'] = $this->normalizedChargeIds('extra_charge_parents', 'parent_id', (int) $c['id']);
             }
 
             return formatResponse(true, ['charges' => $charges], 'Extra charges loaded');
@@ -3938,7 +4024,7 @@ class FeeManager
             $stmt = $db->prepare(
                 "SELECT ec.*, cl.name AS class_name,
                         coa.account_name AS gl_account_name, coa.account_code AS gl_account_code
-                 FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec
+                 FROM extra_charges ec
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cl ON cl.id = ec.class_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa ON coa.id = ec.gl_account_id
                  WHERE ec.id = ?"
@@ -3948,6 +4034,10 @@ class FeeManager
             if (!$charge) return formatResponse(false, null, 'Extra charge not found.');
 
             $charge['pricing_tiers'] = $this->normalizedPricingTiers($id);
+            $charge['class_ids'] = $this->normalizedChargeIds('extra_charge_classes', 'class_id', $id);
+            $charge['student_type_ids'] = $this->normalizedChargeIds('extra_charge_student_types', 'student_type_id', $id);
+            $charge['student_ids'] = $this->normalizedChargeIds('extra_charge_students', 'student_id', $id);
+            $charge['parent_ids'] = $this->normalizedChargeIds('extra_charge_parents', 'parent_id', $id);
 
             $logStmt = $db->prepare(
                 "SELECT r.*, CONCAT(p.first_name, ' ', p.last_name) AS reviewer_name
@@ -4005,11 +4095,18 @@ class FeeManager
 
             $targetScope = in_array($data['target_scope'] ?? '', ['new_admissions', 'existing_students', 'all_students', 'boarders', 'day_students', 'specific_class'], true)
                 ? $data['target_scope'] : 'all_students';
-            $classId = ($targetScope === 'specific_class' && !empty($data['class_id']))
-                ? (int) $data['class_id'] : null;
+            $admissionCondition = in_array($data['admission_condition'] ?? '', ['any_new_admission', 'interview_scheduled'], true)
+                ? $data['admission_condition'] : 'any_new_admission';
+            $classIds = array_values(array_unique(array_filter(array_map('intval', (array) ($data['class_ids'] ?? [])))));
+            if (!$classIds && !empty($data['class_id'])) $classIds = [(int) $data['class_id']];
+            $classId = ($targetScope === 'specific_class' && !empty($classIds)) ? $classIds[0] : null;
             if ($targetScope === 'specific_class' && !$classId) {
-                return formatResponse(false, null, 'A class is required for a specific-class charge.');
+                return formatResponse(false, null, 'Select at least one class for a specific-class charge.');
             }
+            $studentTypeIds = array_values(array_unique(array_filter(array_map('intval', (array) ($data['student_type_ids'] ?? [])))));
+            if (!$studentTypeIds && !empty($data['student_type_id'])) $studentTypeIds = [(int) $data['student_type_id']];
+            $data['class_ids'] = $classIds;
+            $data['student_type_ids'] = $studentTypeIds;
 
             $visibleOnFee = !empty($data['visible_on_fee_structure']) ? 1 : 0;
             $glAccountId = !empty($data['gl_account_id']) ? (int) $data['gl_account_id'] : null;
@@ -4025,15 +4122,15 @@ class FeeManager
                 "INSERT INTO extra_charges
                     (academic_year_id, name, description, amount, calculation_mode, unit_label, unit_price,
                      charge_frequency, billing_model, billing_frequency, visible_on_fee_structure,
-                     gl_account_id, target_scope, class_id,
+                     gl_account_id, target_scope, admission_condition, class_id,
                      display_order, status, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)"
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)"
             );
             $stmt->execute([
                 $yearId, $name, $desc ?: null, $amount,
                 $calcMode, $unitLabel ?: null, $unitPrice,
                 $billingFreq, $billingModel, $billingFreq, $visibleOnFee,
-                $glAccountId, $targetScope, $classId,
+                $glAccountId, $targetScope, $admissionCondition, $classId,
                 $order, $userId,
             ]);
             $newId = (int) $db->lastInsertId();
@@ -4076,7 +4173,7 @@ class FeeManager
             $fields = [
                 'name', 'description', 'amount', 'calculation_mode', 'unit_label', 'unit_price',
                 'billing_model', 'billing_frequency', 'visible_on_fee_structure', 'gl_account_id',
-                'target_scope', 'class_id', 'display_order',
+                'target_scope', 'admission_condition', 'class_id', 'student_type_id', 'display_order',
             ];
             foreach ($fields as $f) {
                 if (array_key_exists($f, $data)) {
@@ -4086,6 +4183,18 @@ class FeeManager
             }
 
             $merged = array_merge($existing, $data);
+            if (array_key_exists('class_ids', $data)) {
+                $classIds = array_values(array_unique(array_filter(array_map('intval', (array) $data['class_ids']))));
+                if (($merged['target_scope'] ?? '') === 'specific_class' && !$classIds) {
+                    return formatResponse(false, null, 'Select at least one class for a specific-class charge.');
+                }
+                $merged['class_ids'] = $classIds;
+                $merged['class_id'] = $classIds[0] ?? null;
+            }
+            if (array_key_exists('student_type_ids', $data)) {
+                $merged['student_type_ids'] = array_values(array_unique(array_filter(array_map('intval', (array) $data['student_type_ids']))));
+                $merged['student_type_id'] = $merged['student_type_ids'][0] ?? null;
+            }
             if (!empty($merged['gl_account_id'])) {
                 $gl = $db->prepare("SELECT id FROM chart_of_accounts WHERE id=? AND status='active' AND is_postable=1");
                 $gl->execute([(int) $merged['gl_account_id']]);
@@ -4154,6 +4263,24 @@ class FeeManager
     public function approveExtraCharge(int $id, int $userId, string $notes = ''): array
     {
         $db = Database::getInstance()->getConnection();
+        $chargeCheck = $db->prepare(
+            "SELECT ec.billing_model, ec.gl_account_id,
+                    EXISTS(SELECT 1 FROM extra_charge_contexts ecc WHERE ecc.extra_charge_id=ec.id AND ecc.context_code='enrollment') AS enrollment_context
+             FROM extra_charges ec WHERE ec.id=? LIMIT 1"
+        );
+        $chargeCheck->execute([$id]);
+        $charge = $chargeCheck->fetch(PDO::FETCH_ASSOC);
+        if (!$charge) return formatResponse(false, null, 'Extra charge not found.');
+        if (!empty($charge['enrollment_context']) && ($charge['billing_model'] ?? '') !== 'optional') {
+            if (empty($charge['gl_account_id'])) {
+                return formatResponse(false, null, 'Select the account that will receive this charge before approval.');
+            }
+            $accountCheck = $db->prepare("SELECT 1 FROM chart_of_accounts WHERE id=? AND status='active' AND is_postable=1 LIMIT 1");
+            $accountCheck->execute([(int) $charge['gl_account_id']]);
+            if (!$accountCheck->fetchColumn()) {
+                return formatResponse(false, null, 'The charge account must be active and postable before approval.');
+            }
+        }
         $result = $this->transitionExtraCharge($id, $userId, null, 'active', 'approved', $notes);
         // formatResponse() exposes code/status, not a "success" key.
         $code = (int) ($result['code'] ?? 0);
@@ -4245,6 +4372,10 @@ class FeeManager
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $row['amount'] = (float) $row['amount'];
                 $row['pricing_tiers'] = $this->normalizedPricingTiers((int) ($row['id'] ?? 0));
+                $row['class_ids'] = $this->normalizedChargeIds('extra_charge_classes', 'class_id', (int) ($row['id'] ?? 0));
+                $row['student_type_ids'] = $this->normalizedChargeIds('extra_charge_student_types', 'student_type_id', (int) ($row['id'] ?? 0));
+                $row['student_ids'] = $this->normalizedChargeIds('extra_charge_students', 'student_id', (int) ($row['id'] ?? 0));
+                $row['parent_ids'] = $this->normalizedChargeIds('extra_charge_parents', 'parent_id', (int) ($row['id'] ?? 0));
                 $charges[] = $row;
             }
             return formatResponse(true, ['charges' => $charges]);
@@ -4259,7 +4390,7 @@ class FeeManager
 
     /**
      * Get active extra charges applicable to a student for auto-billing.
-     * Used by enrollment triggers to generate student_fee_obligations.
+     * Kept aligned with ExtraChargeService's shared applicability rules.
      */
     public function getExtraChargesForEnrollment(int $yearId, int $studentTypeId, ?int $classId, bool $isNewStudent): array
     {
@@ -4271,18 +4402,21 @@ class FeeManager
                     LEFT JOIN student_types st ON st.id=?
                     WHERE ec.academic_year_id = ?
                       AND ec.status = 'active'
-                      AND ec.billing_model = 'added_to_fees'
+                      AND ec.billing_model IN ('added_to_fees','paid_separately')
                       AND (
                           ec.target_scope = 'all_students'
                           OR (ec.target_scope = 'existing_students' AND ? = 0)
                           OR (ec.target_scope = 'boarders' AND st.code = 'BOARD')
                           OR (ec.target_scope = 'day_students' AND st.code = 'DAY')
                           OR (ec.target_scope = 'specific_class' AND EXISTS (SELECT 1 FROM " . ReadReplicaService::qualifiedRef("extra_charge_classes") . " xcc WHERE xcc.extra_charge_id=ec.id AND xcc.class_id=? ) )
-                          OR EXISTS (SELECT 1 FROM extra_charge_student_types xst WHERE xst.extra_charge_id=ec.id AND xst.student_type_id=? )
                       )
+                      AND (NOT EXISTS (SELECT 1 FROM extra_charge_classes xcc0 WHERE xcc0.extra_charge_id=ec.id)
+                           OR EXISTS (SELECT 1 FROM extra_charge_classes xcc1 WHERE xcc1.extra_charge_id=ec.id AND xcc1.class_id=?))
+                      AND (NOT EXISTS (SELECT 1 FROM extra_charge_student_types xst0 WHERE xst0.extra_charge_id=ec.id)
+                           OR EXISTS (SELECT 1 FROM extra_charge_student_types xst1 WHERE xst1.extra_charge_id=ec.id AND xst1.student_type_id=?))
                     ORDER BY ec.display_order, ec.name";
             $stmt = $db->prepare($sql);
-            $stmt->execute([$studentTypeId, $yearId, $isNewStudent ? 1 : 0, $classId, $studentTypeId]);
+            $stmt->execute([$studentTypeId, $yearId, $isNewStudent ? 1 : 0, $classId, $classId, $studentTypeId]);
             $charges = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($charges as &$c) {

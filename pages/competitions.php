@@ -69,14 +69,32 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Competition</th><th scope="col">Category</th><th scope="col">Date</th><th scope="col">Venue</th><th scope="col">Participants</th><th scope="col">Result</th><th scope="col">Award</th><th scope="col">Actions</th></tr></thead>
-                    <tbody><tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="competitionsTableBody">
+                        <tr id="competitionsTableState"><td colspan="9" class="text-center text-muted py-4">Loading competitions...</td></tr>
+                    </tbody>
                 </table>
+                <template id="competitionRowTemplate">
+                    <tr data-competition-row>
+                        <td data-field="number"></td>
+                        <td><strong data-field="name"></strong></td>
+                        <td><span class="badge bg-info" data-field="category"></span></td>
+                        <td data-field="date"></td>
+                        <td data-field="venue"></td>
+                        <td data-field="participants"></td>
+                        <td><span class="badge" data-field="result"></span></td>
+                        <td data-field="award"></td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit"><i class="fas fa-edit"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                </template>
             </div>
         </div>
     </div>
 </div>
 <div class="modal fade" id="formModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-trophy me-2"></i>Add Record</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-trophy me-2"></i><span data-modal-title>Add Competition</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body"><form id="recordForm"><input type="hidden" id="recordId">
         <div class="mb-3"><label class="form-label">Name <span class="text-danger">*</span></label><input type="text" class="form-control" id="recordName" required></div>
         <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" id="recordDescription" rows="3"></textarea></div>

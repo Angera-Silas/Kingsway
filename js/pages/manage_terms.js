@@ -58,7 +58,7 @@ const manageTermsController = {
     } catch (e) {
       console.error('Failed to load terms:', e);
       const body = document.getElementById('mtTermsBody');
-      if (body) body.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">Could not load terms. Check your connection and refresh.</td></tr>';
+      this.showTermsState('Could not load terms. Check your connection and refresh.', 'text-danger');
     }
   },
 
@@ -67,21 +67,40 @@ const manageTermsController = {
   renderTerms() {
     const terms = this.filteredTerms();
     const body = document.getElementById('mtTermsBody');
-    if (!body) return;
-    // Keep the summary tied to the same loaded source as the table, including
-    // after a filter refresh or a realtime update.
+    const stateRow = document.getElementById('mtTermsState');
+    const template = document.getElementById('mtTermRowTemplate');
+    if (!body || !stateRow || !template) return;
     this.renderStats();
-    if (!terms.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No terms defined.</td></tr>'; return; }
-    body.innerHTML = terms.map((t, index) => `<tr>
-      <td class="small">${index + 1}</td>
-      <td class="small">${this.esc(t.name || t.term_name || '—')}</td>
-      <td class="small">${this.esc(t.year_name || t.academic_year_name || t.year || '—')}</td>
-      <td class="small">${this.fmtDate(t.start_date)}</td>
-      <td class="small">${this.fmtDate(t.end_date)}</td>
-      <td class="small">${Number(t.weeks ?? t.week_count ?? 0) || '—'}</td>
-      <td class="small"><span class="badge bg-${t.is_current || t.status === 'current' ? 'success' : t.is_active || t.status === 'active' ? 'primary' : 'secondary'}">${this.esc(t.status || (t.is_current ? 'Current' : t.is_active ? 'Active' : 'Inactive'))}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit term" onclick="ManageTermsController.editTerm(${Number(t.id)})"><i class="bi bi-pencil"></i></button></td>
-    </tr>`).join('');
+    body.querySelectorAll('[data-term-row]').forEach((row) => row.remove());
+    if (!terms.length) { this.showTermsState('No terms defined.'); return; }
+    stateRow.hidden = true;
+    const fragment = document.createDocumentFragment();
+    terms.forEach((term, index) => {
+      const row = template.content.cloneNode(true);
+      row.querySelector('[data-fill="number"]').textContent = String(index + 1);
+      row.querySelector('[data-fill="name"]').textContent = term.name || term.term_name || '—';
+      row.querySelector('[data-fill="year"]').textContent = term.year_name || term.academic_year_name || term.year || '—';
+      row.querySelector('[data-fill="start"]').textContent = this.fmtDate(term.start_date);
+      row.querySelector('[data-fill="end"]').textContent = this.fmtDate(term.end_date);
+      row.querySelector('[data-fill="weeks"]').textContent = String(Number(term.weeks ?? term.week_count ?? 0) || '—');
+      const badge = row.querySelector('[data-fill="status"]');
+      const status = term.status || (term.is_current ? 'Current' : term.is_active ? 'Active' : 'Inactive');
+      badge.textContent = status;
+      const normalized = this.statusOf(term);
+      badge.classList.add(normalized === 'current' ? 'bg-success' : normalized === 'active' ? 'bg-primary' : 'bg-secondary');
+      row.querySelector('[data-action="edit"]').dataset.termId = String(Number(term.id));
+      fragment.appendChild(row);
+    });
+    body.insertBefore(fragment, stateRow);
+  },
+
+  showTermsState(message, tone = 'text-center text-muted py-4') {
+    const body = document.getElementById('mtTermsBody');
+    const stateRow = document.getElementById('mtTermsState');
+    body?.querySelectorAll('[data-term-row]').forEach((row) => row.remove());
+    const cell = stateRow?.querySelector('td');
+    if (cell) { cell.className = tone; cell.textContent = message; }
+    if (stateRow) stateRow.hidden = false;
   },
 
   filteredTerms() {
@@ -116,6 +135,7 @@ const manageTermsController = {
     const statusFilter = document.getElementById('filterSelect');
     if (statusFilter) statusFilter.innerHTML = '<option value="">All Statuses</option><option value="current">Current</option><option value="completed">Completed</option><option value="upcoming">Upcoming</option>';
     ['yearFilter', 'filterSelect', 'searchInput', 'dateFilter'].forEach((id) => document.getElementById(id)?.addEventListener(id === 'searchInput' ? 'input' : 'change', () => this.renderTerms()));
+    document.getElementById('mtTermsBody')?.addEventListener('click', (event) => { const button = event.target.closest('[data-action=edit]'); if (button) this.editTerm(button.dataset.termId); });
   },
 
   renderFormOptions() {
@@ -208,5 +228,5 @@ window.ManageTermsController = manageTermsController;
 document.addEventListener('DOMContentLoaded', () => manageTermsController.init().catch((error) => {
   console.error('Manage terms page initialization failed:', error);
   const body = document.getElementById('mtTermsBody');
-  if (body) body.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">Page setup failed. Refresh to try again.</td></tr>';
+  window.ManageTermsController?.showTermsState?.('Page setup failed. Refresh to try again.', 'text-center text-danger py-4');
 }));

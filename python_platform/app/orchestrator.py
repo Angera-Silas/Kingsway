@@ -37,6 +37,8 @@ MAX_TOOLS_PER_STEP = 3
 MAX_TOOL_RESULT_CHARS = 4000
 TOOL_RESULT_FIELDS = (
     "status",
+    "draft_id",
+    "workflow_id",
     "report_code",
     "report_title",
     "row_count",
@@ -54,6 +56,41 @@ TOOL_RESULT_FIELDS = (
     "intent",
     "preview_limited",
 )
+
+
+def _bounded_chart_result(tool_id: str, result: Any) -> dict[str, Any] | None:
+    """Extract a small, display-only chart from the governed PHP report tool."""
+    if tool_id != "charts.generate" or not isinstance(result, dict) or result.get("status") != "answered":
+        return None
+    answer = result.get("answer") if isinstance(result.get("answer"), dict) else {}
+    chart = answer.get("chart")
+    if not isinstance(chart, dict) or chart.get("type") not in {"bar", "line", "pie", "doughnut", "area"}:
+        return None
+    labels = chart.get("labels") if isinstance(chart.get("labels"), list) else []
+    labels = [str(label)[:120] for label in labels[:25]]
+    datasets = []
+    for dataset in (chart.get("datasets") if isinstance(chart.get("datasets"), list) else [])[:4]:
+        if not isinstance(dataset, dict):
+            continue
+        values = dataset.get("data") if isinstance(dataset.get("data"), list) else []
+        data = []
+        for value in values[: len(labels)]:
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                data.append(value if value == value and abs(value) != float("inf") else None)
+            else:
+                data.append(None)
+        datasets.append({"label": str(dataset.get("label") or "Values")[:80], "data": data})
+    if not labels or not datasets:
+        return None
+    scope = answer.get("effective_scope") if isinstance(answer.get("effective_scope"), dict) else {}
+    allowed_scope = {key: scope[key] for key in ("type", "academic_year_id", "academic_year_term_id", "class_id", "stream_id", "learning_area_id", "user_id") if key in scope}
+    return {
+        "chart": {"type": chart["type"], "title": str(chart.get("title") or "Report chart")[:120], "labels": labels, "datasets": datasets},
+        "report_code": str(answer.get("report_code") or "")[:100],
+        "row_count": int(answer.get("row_count") or len(labels)),
+        "preview_limited": bool(answer.get("preview_limited")),
+        "effective_scope": allowed_scope,
+    }
 
 
 def _decode_partial_json_string(value: str, cursor: int) -> tuple[str, int, bool]:
@@ -149,15 +186,32 @@ class Orchestrator:
         session_id = str(context.get("session_id") or "")
         assistant_domain = str(context.get("assistant_domain") or "staff")
 
-        # Intent-first agent selection (same as stream_answer)
+        # Intent-first agent selection. A governed report query is the most
+        # specific intent; otherwise prefer an explicit lexical signal, then
+        # the current workspace, provider triage, and finally the default.
         agent = None
+        routing = "default"
+        if self._is_report_query(question):
+            agent = agents.AGENTS.get("reports.agent")
+            routing = "report_query"
+        routed_agent = agents.for_route(route)
         hinted = agents.route_hint_for(question)
-        if hinted is not None:
+        if agent is None and hinted is not None and routed_agent is not None and hinted[0] == routed_agent["id"]:
+            agent = routed_agent
+            routing = "route_match"
+        if agent is None and hinted is not None:
             agent = agents.AGENTS.get(hinted[0])
+            routing = "lexical"
+        if agent is None and routed_agent is not None:
+            agent = routed_agent
+            routing = "route_match"
         if agent is None:
-            agent = agents.for_route(route)
+            agent = self._triage(question, route, module)
+            if agent is not None:
+                routing = "triage"
         if agent is None:
             agent = agents.default_agent()
+            routing = "default"
 
         # Deterministic pre-flight, before any provider call:
         #   - a confidentiality probe is refused locally and never reaches a
@@ -216,22 +270,6 @@ class Orchestrator:
 
         prefs = self._preferences(user_id, context)
 
-        routing = "route_match"
-        if agent is None:
-            # Deterministic lexical routing before any provider call: a clear
-            # keyword signal ("recap today's attendance") resolves in
-            # microseconds instead of spending a full model round-trip.
-            hinted = agents.route_hint_for(question)
-            if hinted is not None:
-                agent = agents.AGENTS.get(hinted[0])
-                routing = "lexical"
-        if agent is None:
-            agent = self._triage(question, route, module)
-            routing = "triage"
-        if agent is None:
-            agent = agents.default_agent()
-            routing = "default"
-
         # The system_admin agent and its file/log tools are reserved for
         # system administrators only. A non-admin request that lands here is
         # demoted to the default agent; an explicit admin-mode request from a
@@ -252,8 +290,16 @@ class Orchestrator:
         # public -> public.agent, staff -> use normal staff routing.
         assistant_domain = str(context.get("assistant_domain") or "").lower()
         if assistant_domain and agent["id"] != "system_admin.agent":
+            if assistant_domain == "system_admin":
+                if self._is_system_admin(context):
+                    agent = agents.resolve("system_admin.agent") or agents.default_agent()
+                    routing = "domain:system_admin"
+                else:
+                    agent = agents.default_agent()
+                    routing = "not_authorized"
+                assistant_domain = ""
+        if assistant_domain and agent["id"] != "system_admin.agent":
             domain_agent_map = {
-                "system_admin": "system_admin.agent",
                 "parent": "parent.agent",
                 "public": "public.agent",
                 "staff": None,  # normal staff routing below
@@ -780,6 +826,8 @@ class Orchestrator:
         user_id: int,
         permissions: list[str],
         request_id: str,
+        roles: list | None = None,
+        role_ids: list[int] | None = None,
     ) -> list[tuple[str, dict[str, Any]]]:
         if len(requests) == 1:
             tool_id, tool_input = requests[0]
@@ -792,8 +840,8 @@ class Orchestrator:
                         tool_id,
                         tool_input,
                         request_id,
-                        roles=context.get("roles"),
-                        role_ids=context.get("role_ids"),
+                        roles=roles,
+                        role_ids=role_ids,
                     ),
                 )
             ]
@@ -815,6 +863,8 @@ class Orchestrator:
                         tool_id,
                         tool_input,
                         request_id,
+                        roles=roles,
+                        role_ids=role_ids,
                     ),
                 )
                 for tool_id, tool_input in requests
@@ -861,27 +911,33 @@ class Orchestrator:
         if self._is_report_query(question):
             agent = agents.AGENTS.get("reports.agent")
             routing = "report_query"
-        if agent is None:
-            hinted = agents.route_hint_for(question)
-            if hinted is not None:
-                agent = agents.AGENTS.get(hinted[0])
-                routing = "lexical"
-        if agent is None:
-            agent = agents.for_route(route)
-            routing = "route_match" if agent else "default"
-        if agent is None:
-            agent = agents.default_agent()
-            routing = "default"
-
+        routed_agent = agents.for_route(route)
+        hinted = agents.route_hint_for(question)
+        if agent is None and hinted is not None and routed_agent is not None and hinted[0] == routed_agent["id"]:
+            agent = routed_agent
+            routing = "route_match"
+        if agent is None and hinted is not None:
+            agent = agents.AGENTS.get(hinted[0])
+            routing = "lexical"
+        if agent is None and routed_agent is not None:
+            agent = routed_agent
+            routing = "route_match"
         # Same deterministic pre-flight as the buffered path.
         if guard.is_confidential(question):
-            result = guard.confidential_response(agent)
+            result = guard.confidential_response(agent or agents.default_agent())
             yield {"kind": "final", **result}
             return
         if guard.is_smalltalk(question):
-            result = guard.greeting_response(question, agent)
+            result = guard.greeting_response(question, agent or agents.default_agent())
             yield {"kind": "final", **result}
             return
+
+        if agent is None:
+            agent = self._triage(question, route, module)
+            routing = "triage" if agent else "default"
+        if agent is None:
+            agent = agents.default_agent()
+            routing = "default"
 
         # Resolve or create chat session
         session = None
@@ -916,8 +972,16 @@ class Orchestrator:
         # Assistant domain routing: explicit persona from the frontend.
         assistant_domain = str(context.get("assistant_domain") or "").lower()
         if assistant_domain and agent["id"] != "system_admin.agent":
+            if assistant_domain == "system_admin":
+                if self._is_system_admin(context):
+                    agent = agents.resolve("system_admin.agent") or agents.default_agent()
+                    routing = "domain:system_admin"
+                else:
+                    agent = agents.default_agent()
+                    routing = "not_authorized"
+                assistant_domain = ""
+        if assistant_domain and agent["id"] != "system_admin.agent":
             domain_agent_map = {
-                "system_admin": "system_admin.agent",
                 "parent": "parent.agent",
                 "public": "public.agent",
                 "staff": None,
@@ -948,7 +1012,10 @@ class Orchestrator:
         tool_results = [
             self._compact_result(tool_id, result) for tool_id, result in prefetched
         ]
-        tools_used = [tool_id for tool_id, _ in prefetched]
+        tools_used = [
+            tool_id for tool_id, result in prefetched if self._tool_succeeded(result)
+        ]
+        charts = [chart for tool_id, result in prefetched if (chart := _bounded_chart_result(tool_id, result)) is not None][:3]
 
         hints = self.behavior.hints(user_id)
         self.behavior.observe(
@@ -973,7 +1040,12 @@ class Orchestrator:
         )[:400]
         has_nlq_tool = "reports.nlq" in agent.get("tools", ())
         has_nlq_prefetch = has_nlq_tool and any(
-            tool_id == "reports.nlq" for tool_id, _ in prefetched
+            tool_id == "reports.nlq"
+            and isinstance(result, dict)
+            and result.get("status") in {"ok", "success", "answered"}
+            and isinstance(result.get("answer", result), dict)
+            and bool((result.get("answer", result)).get("report_code"))
+            for tool_id, result in prefetched
         )
         if has_nlq_prefetch:
             nlq_result = next(
@@ -1023,9 +1095,8 @@ class Orchestrator:
             if report_code and report_code != "UNKNOWN":
                 citations.append(
                     {
-                        "report_code": report_code,
-                        "title": report_title or report_code,
-                        "description": f"Governed report executed at {datetime.now(ZoneInfo('Africa/Nairobi')).isoformat()}",
+                        "title": report_title or "School report",
+                        "description": "Based on authorized school records.",
                         "row_count": row_count,
                         "columns": columns,
                     }
@@ -1246,6 +1317,9 @@ class Orchestrator:
                             role_ids=context.get("role_ids"),
                         )
                         tools_used.append(tool_id)
+                        chart = _bounded_chart_result(tool_id, result)
+                        if chart is not None and len(charts) < 3:
+                            charts.append(chart)
                         tool_results.append(self._compact_result(tool_id, result))
                     envelope["tool_results"] = tool_results
                     continue
@@ -1329,6 +1403,7 @@ class Orchestrator:
             "answer": answer,
             "degraded": degraded,
             "tools_used": tools_used,
+            "charts": output_guard.scrub(charts),
             "provider_calls": 1,
             "routing": routing,
             "agent": {
@@ -1523,19 +1598,12 @@ class Orchestrator:
     def _is_system_admin(self, context: dict) -> bool:
         """True only when the authenticated operator is a system administrator.
 
-        Checked via the system_admin permission or an equivalent role label so
-        the system_admin agent and its file/log tools can never be reached by
-        ordinary staff.
+        The server-resolved effective permission is the authority. Role labels
+        are descriptive only and must never promote a School Administrator,
+        Director, or any other role into the system-only code/log tool set.
         """
         permissions = set(str(p) for p in (context.get("permissions") or []))
-        roles = context.get("roles") or []
-        role_text = " ".join(str(r) for r in roles).lower()
-        return (
-            SYSTEM_ADMIN_PERMISSION in permissions
-            or "system admin" in role_text
-            or "system_administrator" in role_text
-            or "school administrator" in role_text
-        )
+        return SYSTEM_ADMIN_PERMISSION in permissions
 
     def _remember_session(
         self,
@@ -1724,14 +1792,29 @@ class Orchestrator:
         rows = answer_data.get("rows", [])
         summary = answer_data.get("summary", {})
         filters = answer_data.get("filters", {})
+        display_title = str(report_title or "").strip()
+        if not display_title and report_code:
+            prefix = str(report_code).split("_", 1)[0]
+            display_title = {
+                "ATT": "Attendance summary",
+                "ENR": "Enrollment summary",
+                "ADM": "Admissions summary",
+                "FIN": "Finance summary",
+                "CBC": "Learning progress summary",
+                "DISC": "Student wellbeing summary",
+                "HR": "Staff summary",
+                "INV": "Inventory summary",
+                "CAT": "Catering summary",
+                "COMMS": "Communications summary",
+            }.get(prefix, "School summary")
 
         if not rows and row_count == 0:
             # The governed payload nests everything under "answer"; the title
             # above is already unwrapped. Reading the top level rendered the
             # empty parentheses in "report **CODE** ()".
-            label = f" ({report_title})" if report_title else ""
+            label = f" ({display_title})" if display_title else ""
             return (
-                f"The report **{report_code}**{label} returned no data for the "
+                f"The report{label} returned no data for the "
                 "current filters."
             )
 
@@ -1774,9 +1857,6 @@ class Orchestrator:
                         f"• {r.get('class_name', '')} {r.get('stream_name', '')}: {r.get('total', 0):,}"
                     )
 
-            parts.append(
-                f"\n_Report: {report_code} — {report_title}_"
-            )
             return "\n".join(parts)
 
         # ENR_MONTHLY_TREND
@@ -1784,21 +1864,15 @@ class Orchestrator:
             parts = [f"**Enrollment trend** ({row_count} months)"]
             for r in rows[:12]:
                 parts.append(f"• {r.get('month', '')}: {r.get('total', 0):,}")
-            parts.append(
-                f"\n_Report: {report_code} — {report_title}_"
-            )
             return "\n".join(parts)
 
         # ADM_CONVERSION, ADM_ENROLLED_COHORT
         if report_code in ("ADM_CONVERSION", "ADM_ENROLLED_COHORT"):
             parts = [
-                f"**Admissions {report_code.replace('ADM_', '').replace('_', ' ').title()}**"
+                f"**{display_title or 'Admissions'}**"
             ]
             for r in rows[:10]:
                 parts.append(f"• {r}")
-            parts.append(
-                f"\n_Report: {report_code} — {report_title}_"
-            )
             return "\n".join(parts)
 
         # FIN_FEE_SUMMARY_CLASS, FIN_ARREARS_CLASS
@@ -1806,13 +1880,10 @@ class Orchestrator:
             # Prefer the governed report's own title ("Fee Arrears by Class")
             # over the label derived from the code ("Arrears Class").
             parts = [
-                f"**{report_title or report_code.replace('FIN_', '').replace('_', ' ').title()}**"
+                f"**{display_title or 'Finance summary'}**"
             ]
             for r in rows[:10]:
                 parts.append(f"• {r.get('class_name', '')}: {r.get('total', 0):,}")
-            parts.append(
-                f"\n_Report: {report_code} — {report_title}_"
-            )
             return "\n".join(parts)
 
         # ATT_CLASS_TERM_RATE
@@ -1820,13 +1891,10 @@ class Orchestrator:
             parts = [f"**Class Attendance Rate** ({row_count} classes)"]
             for r in rows[:10]:
                 parts.append(f"• {r.get('class_name', '')}: {r.get('rate', 0):.1f}%")
-            parts.append(
-                f"\n_Report: {report_code} — {report_title}_"
-            )
             return "\n".join(parts)
 
         # Generic fallback for other reports
-        parts = [f"**{report_code}** — {report_title}"]
+        parts = [f"**{display_title or 'School summary'}**"]
         parts.append(f"Rows: {row_count:,}")
         if summary:
             parts.append(f"Summary: {summary}")
@@ -1835,9 +1903,6 @@ class Orchestrator:
             parts.append(f"• {r}")
         if row_count > 5:
             parts.append(f"... and {row_count - 5} more rows")
-        parts.append(
-            f"\n_Report: {report_code} — {report_title}_"
-        )
         return "\n".join(parts)
 
     # ----------------------------------------------------------- dynamic follow-up questions
@@ -2128,6 +2193,8 @@ class Orchestrator:
         ]
         tool_results: list[str] = []
         tools_used: list[str] = []
+        scope_checks: list[dict[str, Any]] = []
+        charts: list[dict[str, Any]] = []
         tool_steps = 0
         provider_calls = 0
         answer: dict[str, Any] | None = None
@@ -2148,8 +2215,15 @@ class Orchestrator:
             role_ids=context.get("role_ids"),
         )
         for tool_id, result in prefetched:
-            tools_used.append(tool_id)
             tool_results.append(self._compact_result(tool_id, result))
+            chart = _bounded_chart_result(tool_id, result)
+            if chart is not None:
+                charts.append(chart)
+            scope_check = self._report_scope_check(tool_id, result)
+            if scope_check is not None and scope_check not in scope_checks:
+                scope_checks.append(scope_check)
+            if self._tool_succeeded(result):
+                tools_used.append(tool_id)
 
         instruction = str(context.get("instruction") or "")[:400]
 
@@ -2202,7 +2276,13 @@ class Orchestrator:
                     tool_steps >= MAX_TOOL_STEPS
                     or len(tools_used) >= MAX_TOOL_EXECUTIONS
                 ):
-                    answer = self._fallback_answer(tools_used, tool_results)
+                    answer = {
+                        "title": "Assistant ran out of steps",
+                        "body": "I reached the limit for this request before I could finish. Please narrow the question or ask for one task at a time.",
+                        "next_steps": ["Ask one focused question, then continue with a follow-up."],
+                        "suggested_questions": [],
+                        "escalation_required": False,
+                    }
                     break
 
                 requests, rejected = self._requested_tools(
@@ -2211,13 +2291,34 @@ class Orchestrator:
                 if rejected:
                     tool_results.append(rejected)
                 if not requests:
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": json.dumps(response, ensure_ascii=False),
-                        }
-                    )
-                    continue
+                    proposed_ids = []
+                    raw_tools = response.get("tools")
+                    if isinstance(raw_tools, list):
+                        proposed_ids = [
+                            str(item.get("tool") or "").strip()
+                            for item in raw_tools
+                            if isinstance(item, dict)
+                        ]
+                    else:
+                        proposed_ids = [str(response.get("tool") or "").strip()]
+                    if proposed_ids and all(tool_id in tools for tool_id in proposed_ids):
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": json.dumps(response, ensure_ascii=False),
+                            }
+                        )
+                        continue
+                    # Repeating a tool that already ran cannot add information
+                    # and otherwise burns the entire provider-call budget.
+                    answer = {
+                        "title": "Assistant ran out of steps",
+                        "body": "I reached the limit for this request before I could finish. Please narrow the question or ask for one task at a time.",
+                        "next_steps": ["Ask one focused question, then continue with a follow-up."],
+                        "suggested_questions": [],
+                        "escalation_required": False,
+                    }
+                    break
                 requests = requests[: max(0, MAX_TOOL_EXECUTIONS - len(tools_used))]
 
                 # Independent governed tools run concurrently: latency drops to
@@ -2225,9 +2326,20 @@ class Orchestrator:
                 # worker count stays hard-capped so nothing floods PHP.
                 tool_steps += 1
                 for tool_id, tool_result in self._run_tools_parallel(
-                    requests, user_id, permissions, request_id
+                    requests,
+                    user_id,
+                    permissions,
+                    request_id,
+                    roles=context.get("roles"),
+                    role_ids=context.get("role_ids"),
                 ):
                     tools_used.append(tool_id)
+                    chart = _bounded_chart_result(tool_id, tool_result)
+                    if chart is not None:
+                        charts.append(chart)
+                    scope_check = self._report_scope_check(tool_id, tool_result)
+                    if scope_check is not None and scope_check not in scope_checks:
+                        scope_checks.append(scope_check)
                     tool_results.append(self._compact_result(tool_id, tool_result))
                     self.behavior.observe(
                         user_id,
@@ -2249,18 +2361,60 @@ class Orchestrator:
                 "status": "unavailable",
                 "answer": None,
                 "tools_used": tools_used,
+                "scope_checks": scope_checks,
                 "provider_calls": provider_calls,
                 "message": str(error)[:300],
             }
 
         if answer is None:
-            answer = self._fallback_answer(tools_used, tool_results)
+            answer = {
+                "title": "Assistant ran out of steps",
+                "body": "I reached the limit for this request before I could finish. Please narrow the question or ask for one task at a time.",
+                "next_steps": ["Ask one focused question, then continue with a follow-up."],
+                "suggested_questions": [],
+                "escalation_required": False,
+            }
         return {
             "status": "answered",
             "answer": answer,
             "tools_used": tools_used,
+            "charts": output_guard.scrub(charts[:3]),
+            "scope_checks": scope_checks,
             "provider_calls": provider_calls,
         }
+
+    @staticmethod
+    def _report_scope_check(tool_id: str, result: Any) -> dict[str, Any] | None:
+        """Extract PHP-resolved scope metadata for later task-result checks."""
+        if tool_id not in {"reports.nlq", "reports.aggregate", "charts.generate"}:
+            return None
+        if not isinstance(result, dict) or result.get("status") not in {"answered", "ok", "success"}:
+            return None
+        answer = result.get("answer") if isinstance(result.get("answer"), dict) else result
+        scope = answer.get("effective_scope")
+        if not isinstance(scope, dict):
+            return None
+        allowed = (
+            "academic_year_id",
+            "academic_year_term_id",
+            "class_id",
+            "stream_id",
+            "learning_area_id",
+            "user_id",
+        )
+        normalized: dict[str, Any] = {}
+        scope_type = scope.get("type")
+        if not isinstance(scope_type, str) or scope_type.strip() not in {"school", "own", "class", "learning_area"}:
+            return None
+        normalized["type"] = scope_type.strip()
+        for key in allowed:
+            value = scope.get(key)
+            if isinstance(value, int) and value > 0:
+                normalized[key] = value
+        intent = result.get("intent")
+        report_code = str(intent.get("report_code") or "") if isinstance(intent, dict) else ""
+        report_code = report_code or str(answer.get("report_code") or "")
+        return {"report_code": report_code[:100], "scope": normalized}
 
     # ------------------------------------------------------------------ triage
     def _triage(self, question: str, route: str, module: str) -> dict[str, Any] | None:
@@ -2310,6 +2464,15 @@ class Orchestrator:
         if hints.get("preferred_cadence"):
             lines.append(f"preferred_cadence={hints['preferred_cadence']}")
         return lines[:6]
+
+    @staticmethod
+    def _tool_succeeded(result: Any) -> bool:
+        return isinstance(result, dict) and result.get("status") in {
+            "ok",
+            "success",
+            "answered",
+            "ready",
+        }
 
     @staticmethod
     def _compact_result(tool_id: str, result: dict[str, Any]) -> str:

@@ -101,7 +101,7 @@
                             </tr>
                         </thead>
                         <tbody id="apiMetricsTableBody">
-                            <tr><td colspan="5" class="text-center py-5 text-muted">Loading endpoints...</td></tr>
+                            <tr id="apiMetricsTableState"><td colspan="5" class="text-center py-5 text-muted">Loading endpoints...</td></tr>
                         </tbody>
                         <template id="apiMetricsRowTemplate">
                             <tr>
@@ -141,6 +141,7 @@
                 </div>
                 <div class="card-body">
                     <div class="text-muted small text-center py-5" id="apiMetricsDistribution">Loading...</div>
+                    <template id="apiMetricsDistributionRowTemplate"><div class="d-flex justify-content-between align-items-center py-1 border-bottom"><span data-fill="label"></span><strong data-fill="value"></strong></div></template>
                 </div>
             </div>
             <div class="card border-0 shadow-sm mt-4">
@@ -149,6 +150,7 @@
                 </div>
                 <div class="card-body">
                     <div class="text-muted small text-center py-5" id="apiMetricsTrend">Loading...</div>
+                    <template id="apiMetricsTrendItemTemplate"><div class="d-flex flex-column align-items-center gap-1 flex-fill"><div class="bg-primary rounded" data-fill="bar" style="height:4px;width:12px;min-height:4px"></div><span class="tiny text-muted" data-fill="label"></span></div></template>
                 </div>
             </div>
         </div>

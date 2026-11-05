@@ -92,10 +92,20 @@
         this.subscribeRealtime();
         this.applyPermissionGates();
         await Promise.all([this.loadData(), this.loadGroups(), this.loadTemplates(), this.loadAudienceOptions()]);
+        if (!document.getElementById("composeBtn")?.hidden) await this.loadStaffTagOptions("");
         if (this.cfg.channel === "whatsapp") await this.loadWhatsAppDocumentYears();
         this.setupVariableMenu();
+        const currentUser = window.AuthContext?.getUser?.() || {};
+        const currentRoleId = Number(currentUser.role_id || currentUser.roleId || currentUser.primary_role_id || 0);
+        const currentRoleName = String(currentUser.role_name || currentUser.role || "").toLowerCase();
+        const canViewProviderAccount = (currentRoleId === 1 || currentRoleId === 4 || /system admin|school administrator/.test(currentRoleName)) &&
+          (!window.AuthContext?.hasPermission || AuthContext.hasPermission("communications_manage"));
+        const gateway = document.getElementById("gatewaySection");
+        if (gateway) gateway.hidden = !canViewProviderAccount;
+        const balanceChip = document.getElementById("smsBalanceChip");
+        if (balanceChip && this.cfg.channel === "sms") balanceChip.hidden = !canViewProviderAccount;
         if (this.cfg.channel !== "sms") this.hideBalanceChip();
-        this.checkBalance();
+        if (canViewProviderAccount && this.cfg.channel === "sms") this.checkBalance();
       },
 
       hideBalanceChip: function () {
@@ -190,6 +200,7 @@
 
         this.on("recipientType", "change", function () { self.toggleRecipientSection(this.value); });
         this.on("contactSearch", "input", function () { self.filterContactList(this.value); });
+        this.on("taggedStaffSearch", "input", function () { self.loadStaffTagOptions(this.value); });
         this.on("enableReminder", "change", function () {
           const ro = document.getElementById("reminderOptions");
           if (ro) ro.style.display = this.checked ? "" : "none";
@@ -269,6 +280,13 @@
         if (tbody) tbody.addEventListener("click", function (e) {
           const tr = e.target.closest("tr[data-idx]");
           if (tr) self.openDetail(Number(tr.getAttribute("data-idx")));
+        });
+        const contactsBody = document.querySelector("#contactsTable tbody");
+        if (contactsBody) contactsBody.addEventListener("click", function (event) {
+          const button = event.target.closest("button[data-contact-action]");
+          if (!button) return;
+          if (button.dataset.contactAction === "edit") self.openContactForm(button.dataset.id);
+          else self.deleteContact(button.dataset.id);
         });
 
         this.on("closeDetailBtn", "click", () => this.closeDetail());
@@ -434,30 +452,41 @@
 
       renderTable: function () {
         const tbody = document.querySelector("#messagesTable tbody");
-        if (!tbody) return;
+        const stateRow = document.getElementById("messagesTableState");
+        const template = document.getElementById("messageListRowTemplate");
+        if (!tbody || !stateRow || !template) return;
+        tbody.querySelectorAll("[data-message-row]").forEach((row) => row.remove());
         if (!this.filtered.length) {
-          tbody.innerHTML = '<tr class="kw-empty-row"><td colspan="5">No ' + this.esc(this.cfg.title) + ' messages match the current filters.</td></tr>';
+          stateRow.querySelector("td").textContent = "No " + this.cfg.title + " messages match the current filters.";
+          stateRow.hidden = false;
           return;
         }
+        stateRow.hidden = true;
         const start = (this.currentPage - 1) * this.perPage;
         const page = this.filtered.slice(start, start + this.perPage);
-        const self = this;
-        tbody.innerHTML = page.map(function (row, i) {
+        const fragment = document.createDocumentFragment();
+        page.forEach((row, i) => {
           const msg = String(row.content || row.message || row.body || "");
           const preview = msg.length > 90 ? msg.substring(0, 90) + "…" : (msg || "—");
-          const type = row.subject || row.category ? String(row.subject || row.category).replace(/_/g, " ") : self.cfg.title + " Broadcast";
+          const type = row.subject || row.category ? String(row.subject || row.category).replace(/_/g, " ") : this.cfg.title + " Broadcast";
           const recipientCount = Number(row.recipient_count || 0);
           const recipients = row.recipient_summary || row.recipient_type || (recipientCount ? recipientCount + " recipients" : "—");
-          const st = String(row.status || "unknown");
-          const active = String(row.id || row.communication_id) === String(self.selectedId);
-          return '<tr data-idx="' + (start + i) + '" class="' + (active ? "kw-row-active" : "") + '">' +
-            '<td class="kw-cell-subject">' + self.esc(type) + "</td>" +
-            '<td class="kw-cell-preview">' + self.esc(preview) + "</td>" +
-            '<td class="kw-cell-recipients">' + self.esc(recipients) + "</td>" +
-            "<td><span class=\"" + badgeClass(st) + '">' + self.esc(st) + "</span></td>" +
-            '<td class="text-nowrap">' + self.formatDate(row.created_at || row.scheduled_at) + "</td>" +
-            "</tr>";
-        }).join("");
+          const status = String(row.status || "unknown");
+          const active = String(row.id || row.communication_id) === String(this.selectedId);
+          const item = template.content.cloneNode(true);
+          item.querySelector('[data-fill="type"]').textContent = type;
+          item.querySelector('[data-fill="preview"]').textContent = preview;
+          item.querySelector('[data-fill="recipients"]').textContent = recipients;
+          const badge = item.querySelector('[data-fill="status"]');
+          badge.textContent = status;
+          badge.classList.add(...badgeClass(status).split(" "));
+          item.querySelector('[data-fill="created"]').textContent = this.formatDate(row.created_at || row.scheduled_at);
+          const tr = item.querySelector("tr");
+          tr.dataset.idx = String(start + i);
+          tr.classList.toggle("kw-row-active", active);
+          fragment.appendChild(item);
+        });
+        tbody.insertBefore(fragment, stateRow);
       },
 
       renderPagination: function () {
@@ -834,38 +863,34 @@
 
       renderContacts: function () {
         const tbody = document.querySelector("#contactsTable tbody");
-        if (!tbody) return;
+        const stateRow = document.getElementById("contactsTableState");
+        const template = document.getElementById("contactListRowTemplate");
+        if (!tbody || !stateRow || !template) return;
         const q = this.value("contactFilter").toLowerCase();
         const rows = (this.contacts || []).filter((c) =>
           !q || String(c.name || [c.first_name, c.last_name].filter(Boolean).join(" ")).toLowerCase().includes(q) || String(c.phone || c.address || "").includes(q));
+        tbody.querySelectorAll("[data-contact-row]").forEach((row) => row.remove());
         if (!rows.length) {
-          tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">No contacts.</td></tr>';
+          stateRow.querySelector("td").textContent = "No contacts.";
+          stateRow.hidden = false;
           return;
         }
-        const self = this;
-        tbody.innerHTML = rows.map(function (c) {
-          const name = c.name || [c.first_name, c.last_name].filter(Boolean).join(" ") || "—";
-          const status = c.status || "active";
-          return "<tr>" +
-            '<td class="small">' + self.esc(name) + "</td>" +
-            '<td class="small">' + self.esc(c.phone || c.address || "—") + "</td>" +
-            '<td class="text-end text-nowrap">' +
-            '<span class="' + badgeClass(status) + '">' + self.esc(status) + "</span> " +
-            '<div class="btn-group btn-group-sm">' +
-            '<button class="btn btn-outline-primary" data-contact-action="edit" data-id="' + c.id + '" title="Edit"><i class="bi bi-pencil"></i></button>' +
-            '<button class="btn btn-outline-danger" data-contact-action="delete" data-id="' + c.id + '" title="Delete"><i class="bi bi-trash"></i></button>' +
-            "</div></td>" +
-            "</tr>";
-        }).join("");
-        tbody.querySelectorAll("button[data-contact-action]").forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            const id = this.getAttribute("data-id");
-            if (this.getAttribute("data-contact-action") === "edit") self.openContactForm(id);
-            else self.deleteContact(id);
-          });
+        stateRow.hidden = true;
+        const fragment = document.createDocumentFragment();
+        rows.forEach((contact) => {
+          const name = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(" ") || "—";
+          const status = contact.status || "active";
+          const item = template.content.cloneNode(true);
+          item.querySelector('[data-fill="name"]').textContent = name;
+          item.querySelector('[data-fill="phone"]').textContent = contact.phone || contact.address || "—";
+          const badge = item.querySelector('[data-fill="status"]');
+          badge.textContent = status;
+          badge.classList.add(...badgeClass(status).split(" "));
+          item.querySelectorAll("[data-contact-action]").forEach((button) => { button.dataset.id = String(contact.id); });
+          fragment.appendChild(item);
         });
+        tbody.insertBefore(fragment, stateRow);
       },
-
       openContactForm: function (contactId) {
         if (!this.activeGroupId) { this.notify("Open a group first", "warning"); return; }
         const contact = contactId ? (this.contacts || []).find((c) => String(c.id) === String(contactId)) : null;
@@ -1115,6 +1140,13 @@
       },
 
       loadProfile: async function () {
+        const user = window.AuthContext?.getUser?.() || {};
+        const roleId = Number(user.role_id || user.roleId || user.primary_role_id || 0);
+        const roleName = String(user.role_name || user.role || "").toLowerCase();
+        if (!(roleId === 1 || roleId === 4 || /system admin|school administrator/.test(roleName)) ||
+            (window.AuthContext?.hasPermission && !AuthContext.hasPermission("communications_manage"))) {
+          return this.notify("Only school administrators can view SMS provider details.", "warning");
+        }
         const panel = document.getElementById("profilePanel");
         try {
           const res = await window.API.messaging.getProfile();
@@ -1127,6 +1159,10 @@
       },
 
       checkBalance: async function () {
+        const user = window.AuthContext?.getUser?.() || {};
+        const roleId = Number(user.role_id || user.roleId || user.primary_role_id || 0);
+        if ((roleId !== 1 && roleId !== 4) ||
+            (window.AuthContext?.hasPermission && !AuthContext.hasPermission("communications_manage"))) return;
         try {
           const response = await window.API.communications.getSmsBalance();
           const payload = response?.data && typeof response.data === "object" ? response.data : response;
@@ -1503,6 +1539,7 @@
           message,
           schedule_time: this.value("scheduleTime") || null,
           client_submission_id: document.getElementById("composeForm")?.dataset.submissionKey || "",
+          tagged_staff_user_ids: Array.from(document.getElementById("taggedStaffUserIds")?.selectedOptions || []).map((option) => Number(option.value)).filter((id) => id > 0),
         };
         if (channel === "mms") payload.media_url = this.value("mediaUrl").trim();
         if (channel === "voice") {
@@ -1529,6 +1566,37 @@
         }
         const result = await window.API.messaging.send(payload);
         this.notify(result?.message || (result?.status === "scheduled" ? "Message scheduled" : "Message sent or queued"), "success");
+      },
+
+      loadStaffTagOptions: async function (query) {
+        const select = document.getElementById("taggedStaffUserIds");
+        if (!select) return;
+        const selected = Array.from(select.selectedOptions).map((option) => ({ value: option.value, text: option.textContent }));
+        try {
+          const response = await window.API.communications.searchStaffTags(query || "");
+          let data = response?.data || response || {};
+          if (data?.data && typeof data.data === "object") data = data.data;
+          const staff = data?.staff || [];
+          const options = staff.map((member) => {
+            const option = document.createElement("option");
+            option.value = String(member.user_id);
+            option.textContent = member.name || member.email || `Staff ${member.user_id}`;
+            option.selected = selected.some((saved) => saved.value === option.value);
+            return option;
+          });
+          const seen = new Set(options.map((option) => option.value));
+          selected.forEach((saved) => {
+            if (seen.has(saved.value)) return;
+            const option = document.createElement("option");
+            option.value = saved.value;
+            option.textContent = saved.text;
+            option.selected = true;
+            options.push(option);
+          });
+          select.replaceChildren(...options);
+        } catch (error) {
+          this.notify(error.message || "Could not load staff tagging options", "error");
+        }
       },
 
       exportConsole: function () {

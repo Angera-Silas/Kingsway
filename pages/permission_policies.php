@@ -61,7 +61,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="permissionPoliciesTableBody">
-                    <tr>
+                    <tr id="permissionPoliciesTableState">
                         <td colspan="7" class="text-center py-5 text-muted">Loading permission policies...</td>
                     </tr>
                 </tbody>

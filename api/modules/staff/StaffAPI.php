@@ -520,7 +520,7 @@ class StaffAPI extends BaseAPI {
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " sf_ayc ON sf_ayc.id = sf_area.academic_year_class_id
                     JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " subject_year ON subject_year.id = sf_ayc.academic_year_id
                     WHERE subject_filter.staff_id = s.id
-                      AND subject_year.status = 'active'
+                      AND subject_year.is_current = 1
                       AND sf_area.learning_area_id = ?
                 )";
                 $params[] = (int) $subjectId;
@@ -626,7 +626,7 @@ class StaffAPI extends BaseAPI {
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = aycla.learning_area_id
                     INNER JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                     LEFT JOIN school_levels sl ON sl.id = c.level_id
-                    WHERE ay.status = 'active'
+                    WHERE ay.is_current = 1
                     GROUP BY t.staff_id
                 ) assign ON assign.staff_id = s.id
                 WHERE " . implode(' AND ', $where) . "
@@ -816,7 +816,7 @@ class StaffAPI extends BaseAPI {
                 (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " cs
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = cs.academic_year_class_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
-                 WHERE cs.class_teacher_id = ? AND ay.status = 'active') AS class_teacher_classes,
+                 WHERE cs.class_teacher_id = ? AND ay.is_current = 1) AS class_teacher_classes,
                 COUNT(DISTINCT aycla.learning_area_id) AS learning_areas_count,
                 COUNT(DISTINCT ayc.class_id) AS classes_count,
                 (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " te WHERE te.teacher_id = ? AND te.status = 'scheduled') AS assignment_periods_per_week
@@ -826,7 +826,7 @@ class StaffAPI extends BaseAPI {
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = t.academic_year_term_id
             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
             WHERE t.staff_id = ?
-              AND ay.status = 'active'
+              AND ay.is_current = 1
         ");
         $stmt->execute([$staffId, $staffId, $staffId]);
         $assignment = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -2134,13 +2134,13 @@ class StaffAPI extends BaseAPI {
                         JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
                         JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = t.academic_year_term_id
                         JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
-                        WHERE t.staff_id = sc.staff_id AND ay.status = 'active'
+                        WHERE t.staff_id = sc.staff_id AND ay.is_current = 1
                     ) + (
                         SELECT COUNT(DISTINCT ayc.class_id)
                         FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " cs
                         JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = cs.academic_year_class_id
                         JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
-                        WHERE cs.class_teacher_id = sc.staff_id AND ay.status = 'active'
+                        WHERE cs.class_teacher_id = sc.staff_id AND ay.is_current = 1
                     ) AS assigned_classes,
                     (
                         SELECT COUNT(DISTINCT cs.learning_area_id)
@@ -2204,7 +2204,7 @@ class StaffAPI extends BaseAPI {
                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                     JOIN academic_years ay ON ay.id = ayc.academic_year_id
                     SET aycs.class_teacher_id = ?
-                    WHERE ayc.class_id = ? AND aycs.stream_id = ? AND ay.status = 'active'";
+                    WHERE ayc.class_id = ? AND aycs.stream_id = ? AND ay.is_current = 1";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id, $data['class_id'], $data['stream_id']]);
 
@@ -2230,7 +2230,7 @@ class StaffAPI extends BaseAPI {
             // Subjects are now assigned via timetable_entries (a scheduled Monday 08:00 lesson)
             $ayId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
             if ($ayId <= 0) {
-                $ayId = (int) $this->db->query("SELECT id FROM academic_years WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+                $ayId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
             }
             if ($ayId <= 0) {
                 return $this->response([

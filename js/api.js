@@ -1152,6 +1152,8 @@ const APIRealtime = (() => {
   const controllerRoutes = new WeakMap();
   const patches = new Map();
   let refreshTimer = null;
+  let deferredFocusRefreshTimer = null;
+  let refreshDeferredForEditing = false;
   let refreshRunning = false;
   let refreshAgain = false;
   const scheduledTargets = new Set();
@@ -1289,6 +1291,17 @@ const APIRealtime = (() => {
       return;
     }
     const routeAtStart = String(window.REQUESTED_ROUTE || "");
+    // A reconnect refresh must not replace a page's controls while the user is
+    // actively editing them. Keep the invalidation targets and resume after
+    // focus leaves the editor, allowing the associated save click/submit to run.
+    const active = document.activeElement;
+    const editing = active instanceof HTMLElement
+      && active.matches("input:not([readonly]):not([disabled]), textarea:not([readonly]):not([disabled]), select:not([disabled]), [contenteditable='true']");
+    if (editing) {
+      refreshDeferredForEditing = true;
+      targets.forEach((target) => refreshAgainTargets.add(normalize(target)));
+      return;
+    }
     if (refreshRunning) {
       refreshAgain = true;
       targets.forEach((target) => refreshAgainTargets.add(normalize(target)));
@@ -1322,6 +1335,17 @@ const APIRealtime = (() => {
     }
   }
 
+  document.addEventListener("focusout", () => {
+    if (!refreshDeferredForEditing) return;
+    window.clearTimeout(deferredFocusRefreshTimer);
+    deferredFocusRefreshTimer = window.setTimeout(() => {
+      refreshDeferredForEditing = false;
+      const queuedTargets = [...refreshAgainTargets];
+      refreshAgainTargets.clear();
+      if (queuedTargets.length) schedule(queuedTargets);
+    }, 1200);
+  }, true);
+
   function schedule(targets = []) {
     targets.map(normalize).filter(Boolean).forEach((target) => scheduledTargets.add(target));
     window.clearTimeout(refreshTimer);
@@ -1340,6 +1364,8 @@ const APIRealtime = (() => {
     window.clearTimeout(refreshTimer);
     refreshTimer = null;
     refreshAgain = false;
+    refreshDeferredForEditing = false;
+    window.clearTimeout(deferredFocusRefreshTimer);
     scheduledTargets.clear();
     refreshAgainTargets.clear();
     dependencies.clear();
@@ -1848,6 +1874,7 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/subjects": "academic_view",
   "/academic/subjects-list": "academic_view",
   "/academic/learning-areas/list": "academic_view",
+  "/academic/learning-outcomes": "academic_view",
   "/academic/lesson-plans/by-teacher": "academic_view",
   "/academic/learning-areas/get": "academic_view",
   "/academic/learning-areas/create": "academic_create",
@@ -2005,6 +2032,7 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/ai-lesson-plan-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
   "/academic/ai-assessment-draft-queue": { POST: "academic_view" },
   "/academic/ai-coverage-review-queue": { POST: "academic_view" },
+  "/academic/ai-academic-class-options": { GET: "academic_view" },
   "/academic/ai-rubric-draft-queue": { POST: "academic_view" },
   "/academic/ai-learning-gap-review-queue": { POST: "academic_view" },
   "/admission/ai-interview-preparation-queue": { POST: "admission_view" },
@@ -2013,8 +2041,8 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/ai-rubric-draft-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
   "/academic/ai-coverage-review-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
   "/academic/ai-learning-gap-review-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
-  "/students/ai-support-planning-queue": { POST: "student_view" },
-  "/students/ai-support-planning-reviews": { GET: "student_view" },
+  "/students/ai-support-planning-queue": { POST: ["students_view", "students_view_all"] },
+  "/students/ai-support-planning-reviews": { GET: ["students_view", "students_view_all"] },
   "/students/ai-support-planning-approve": { POST: ["students_edit", "students_view_all"] },
   "/academic/ai-assessment-drafts": { GET: "academic_view" },
   "/academic/ai-assessment-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
@@ -2351,6 +2379,9 @@ const ENDPOINT_PERMISSIONS = {
     GET: "communications_view",
     POST: "communications_create",
   },
+  "/communications/sms-messages": { GET: "communications_view" },
+  "/communications/remote-sms-messages": { GET: "communications_view" },
+  "/communications/staff-tags": { GET: ["communications_create", "communications_manage"] },
   "/communications/communication": {
     GET: "communications_view",
     POST: "communications_create",
@@ -2676,6 +2707,41 @@ function validatePermission(endpoint, method) {
     ) && ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(String(method).toUpperCase());
 
   if (!hasPermission && paymentIntegrationManagerRole && isPaymentIntegrationConfigRequest) {
+    return;
+  }
+
+  // Mirror AttendanceController::canApproveAiAttendance so authorized
+  // leadership reviewers are not blocked by this client-side UX check.
+  const attendanceReviewerRole = [
+    "headteacher",
+    "deputy headteacher",
+    "school administrator",
+    "director",
+  ].some((roleName) => AuthContext.hasRole?.(roleName)) ||
+    (currentUser.role_ids || []).some((roleId) => [3, 4, 5, 10].includes(Number(roleId)));
+  const isAttendanceAiApproval =
+    normalizedEndpoint.startsWith("/attendance/ai-exception-summary-approve/") &&
+    String(method).toUpperCase() === "POST";
+
+  if (!hasPermission && attendanceReviewerRole && isAttendanceAiApproval) {
+    return;
+  }
+
+  // BoardingController::canApproveAiBoarding grants these leadership and
+  // boarding-master roles the review action even when legacy permission rows
+  // do not include the newer boarding approval codes.
+  const boardingReviewerRole = [
+    "headteacher",
+    "school administrator",
+    "director",
+    "boarding master",
+  ].some((roleName) => AuthContext.hasRole?.(roleName)) ||
+    (currentUser.role_ids || []).some((roleId) => [3, 4, 5, 10].includes(Number(roleId)));
+  const isBoardingAiApproval =
+    normalizedEndpoint.startsWith("/boarding/ai-exception-summary-approve/") &&
+    String(method).toUpperCase() === "POST";
+
+  if (!hasPermission && boardingReviewerRole && isBoardingAiApproval) {
     return;
   }
 
@@ -5000,6 +5066,8 @@ window.API = {
     // Learning Areas (Subjects)
     listLearningAreas: async (params) =>
       apiCall("/academic/learning-areas/list", "GET", null, params),
+    getLearningOutcomes: async (params = {}) =>
+      apiCall("/academic/learning-outcomes", "GET", null, params),
     listSubjects: async (params) =>
       apiCall("/academic/learning-areas/list", "GET", null, params),
     getLearningArea: async (id) =>
@@ -5122,11 +5190,9 @@ window.API = {
     approveAiAssessmentDraft: async (id) =>
       apiCall(`/academic/ai-assessment-draft-approve/${Number(id)}`, "POST", {}),
     queueAiCoverageReview: async (data = {}) => apiCall("/academic/ai-coverage-review-queue", "POST", data),
+    getAiAcademicClassOptions: async () => apiCall("/academic/ai-academic-class-options", "GET"),
     queueAiRubricDraft: async (data = {}) => apiCall("/academic/ai-rubric-draft-queue", "POST", data),
     queueAiLearningGapReview: async (data = {}) => apiCall("/academic/ai-learning-gap-review-queue", "POST", data),
-    queueAiInterviewPreparation: async (data = {}) => apiCall("/admission/ai-interview-preparation-queue", "POST", data),
-    queueAiPlacementReview: async (data = {}) => apiCall("/admission/ai-placement-review-queue", "POST", data),
-    queueAiLatenessPattern: async (data = {}) => apiCall("/attendance/ai-lateness-pattern-queue", "POST", data),
     approveAiRubricDraft: async (id) => apiCall(`/academic/ai-rubric-draft-approve/${Number(id)}`, "POST", {}),
     approveAiCoverageReview: async (id) => apiCall(`/academic/ai-coverage-review-approve/${Number(id)}`, "POST", {}),
     approveAiLearningGapReview: async (id) => apiCall(`/academic/ai-learning-gap-review-approve/${Number(id)}`, "POST", {}),
@@ -5515,6 +5581,13 @@ window.API = {
     getStats: async () => apiCall("/admission/stats", "GET"),
     // Get role-based notifications for dashboards
     getNotifications: async () => apiCall("/admission/notifications", "GET"),
+    queueAiFollowupDraft: async (data = {}) => apiCall("/admission/ai-followup-draft-queue", "POST", data),
+    queueAiInterviewPreparation: async (data = {}) => apiCall("/admission/ai-interview-preparation-queue", "POST", data),
+    queueAiPlacementReview: async (data = {}) => apiCall("/admission/ai-placement-review-queue", "POST", data),
+    getAiDrafts: async (scope = "own", applicationId) => apiCall(`/admission/ai-drafts?scope=${encodeURIComponent(scope)}&application_id=${Number(applicationId) || 0}`, "GET"),
+    approveAiFollowupDraft: async (id) => apiCall(`/admission/ai-followup-draft-approve/${Number(id)}`, "POST", {}),
+    approveAiInterviewPreparation: async (id) => apiCall(`/admission/ai-interview-preparation-approve/${Number(id)}`, "POST", {}),
+    approveAiPlacementReview: async (id) => apiCall(`/admission/ai-placement-review-approve/${Number(id)}`, "POST", {}),
     // Get classes for placement offer assignment
     getPlacementClasses: async () =>
       apiCall("/admission/placement-classes", "GET"),
@@ -5627,6 +5700,7 @@ window.API = {
   // Communications endpoints
   communications: {
     index: async () => apiCall("/communications/index", "GET"),
+    searchStaffTags: async (q = "") => apiCall("/communications/staff-tags", "GET", null, { q }),
     getSmsBalance: async () => apiCall("/communications/sms-balance", "GET"),
 
     // School-domain mailboxes (role-scoped IMAP/SMTP mailboxes)
@@ -7267,7 +7341,7 @@ window.API = {
   },
 
   boarding: {
-    queueAiExceptionSummary: async (date) => apiCall("/boarding/ai-exception-summary-queue", "POST", { date }),
+    queueAiExceptionSummary: async (dateFrom, dateTo) => apiCall("/boarding/ai-exception-summary-queue", "POST", { date_from: dateFrom, date_to: dateTo }),
     getAiExceptionSummaries: async (scope = "own") => apiCall(`/boarding/ai-exception-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
     approveAiExceptionSummary: async (id) => apiCall(`/boarding/ai-exception-summary-approve/${Number(id)}`, "POST", {}),
     // Dormitories
@@ -8547,10 +8621,9 @@ window.API = {
     // Background agent tasks with progress tracking. The panel passes one
     // object; keep positional arguments for older callers.
     agentTaskCreate: async (tool, question, route = "dashboard", module = "dashboard", options = {}) => {
-      const payload =
-        tool && typeof tool === "object"
-          ? { ...tool }
-          : { tool, question, route, module, ...options };
+      const payload = tool && typeof tool === "object"
+        ? { ...tool, tool: tool.tool || "assistant" }
+        : { tool: tool || "assistant", question, route, module, ...options };
       if (!hasAgentGateway()) {
         return apiCall("/dashboard/agent-task-create", "POST", payload);
       }

@@ -12,6 +12,7 @@ const YearCalendarController = (() => {
         document.getElementById('filterSelect')?.addEventListener('change', filterData);
         document.getElementById('termFilter')?.addEventListener('change', filterData);
         document.getElementById('dateFilter')?.addEventListener('change', filterData);
+        document.getElementById('yearCalendarBody')?.addEventListener('click', (event) => { const button = event.target.closest('[data-action=edit]'); if (button) openEditDay(button.dataset.calendarDayId || null); });
     }
     async function loadData() {
         try {
@@ -82,16 +83,14 @@ const YearCalendarController = (() => {
         return Math.ceil(dt.getDate() / 7);
     }
     function dateCell(d) {
-        const s = d.date || d.event_date || "--";
-        const e = d.end_date && d.end_date !== s ? d.end_date : '';
-        const sT = d.start_time || (d.start_at ? String(d.start_at).substring(11, 16) : '') || '';
-        const eT = d.end_time || (d.end_at ? String(d.end_at).substring(11, 16) : '') || '';
-        let out = escapeHtml(s);
-        if (e) out += ' <span class="text-muted">\u2192 ' + escapeHtml(e) + '</span>';
-        const times = [sT, eT].filter(Boolean).join(' \u2013 ');
-        if (times) out += ' <small class="text-muted">(' + escapeHtml(times) + ')</small>';
-        return out;
+        const start = d.date || d.event_date || "--";
+        const end = d.end_date && d.end_date !== start ? " → " + d.end_date : "";
+        const startTime = d.start_time || (d.start_at ? String(d.start_at).substring(11, 16) : "");
+        const endTime = d.end_time || (d.end_at ? String(d.end_at).substring(11, 16) : "");
+        const times = [startTime, endTime].filter(Boolean).join(" – ");
+        return start + end + (times ? " (" + times + ")" : "");
     }
+
     function renderStats(data) {
         const items = Array.isArray(data) ? data : [];
         const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
@@ -102,39 +101,49 @@ const YearCalendarController = (() => {
     }
     function renderTable(items) {
         filtered = items;
-        const tbody = document.querySelector('#dataTable tbody');
-        if (!tbody) return;
+        const tbody = document.getElementById("yearCalendarBody");
+        const stateRow = document.getElementById("yearCalendarState");
+        const template = document.getElementById("yearCalendarRowTemplate");
+        if (!tbody || !stateRow || !template) return;
+        tbody.querySelectorAll("[data-year-calendar-row]").forEach((row) => row.remove());
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No calendar entries found</td></tr>';
+            stateRow.querySelector("td").textContent = "No calendar entries found";
+            stateRow.hidden = false;
             return;
         }
+        stateRow.hidden = true;
         const now = new Date();
-        tbody.innerHTML = items
-            .map((d, i) => {
-                const dt = new Date(d.date || d.event_date);
-                const isToday = dt.toDateString() === now.toDateString();
-                const week = weekOf(d);
-                const dayName = dt.toLocaleDateString("en-US", { weekday: "short" });
-                const manual = d.is_manual ? ' <span class="badge bg-danger-subtle text-danger" title="Manually marked">manual</span>' : '';
-                const evtBadges = (d.events || []).map((e) =>
-                    `<span class="badge bg-info-subtle text-info border border-info me-1" title="${escapeHtml((e.type || '') + (e.location ? ' \u2022 ' + e.location : '') + (e.status ? ' \u2022 ' + e.status : ''))}">${escapeHtml(e.title)}</span>`
-                ).join('');
-                const evtMarkup = evtBadges ? `<div class="mt-1">${evtBadges}</div>` : '';
-                return `<tr class="${isToday ? "table-warning" : ""}">
-                    <td>${i + 1}</td>
-                    <td>${escapeHtml(termOf(d)) || "--"}</td>
-                    <td>${week > 0 ? "Week " + week : "--"}</td>
-                    <td>${dateCell(d)}</td>
-                    <td>${dayName}</td>
-                    <td><strong>${escapeHtml(d.name || d.event || d.title || "--")}</strong>${manual}${evtMarkup}</td>
-                    <td><span class="badge bg-${typeColor(d)}">${escapeHtml(typeLabel(d))}</span></td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="YearCalendarController.openEditDay(${d.calendar_day_id ?? "null"})" title="Mark holiday / edit day"><i class="fas fa-calendar-day"></i></button>
-                    </td>
-                </tr>`;
-            })
-            .join("");
+        const fragment = document.createDocumentFragment();
+        items.forEach((day, index) => {
+            const date = new Date(day.date || day.event_date);
+            const row = template.content.cloneNode(true);
+            const tr = row.querySelector("tr");
+            tr.classList.toggle("table-warning", date.toDateString() === now.toDateString());
+            row.querySelector('[data-fill="number"]').textContent = String(index + 1);
+            row.querySelector('[data-fill="term"]').textContent = termOf(day) || "--";
+            const week = weekOf(day);
+            row.querySelector('[data-fill="week"]').textContent = week > 0 ? "Week " + week : "--";
+            row.querySelector('[data-fill="date"]').textContent = dateCell(day);
+            row.querySelector('[data-fill="day"]').textContent = Number.isNaN(date.getTime()) ? "--" : date.toLocaleDateString("en-US", { weekday: "short" });
+            row.querySelector('[data-fill="event-name"]').textContent = day.name || day.event || day.title || "--";
+            row.querySelector('[data-fill="manual"]').hidden = !day.is_manual;
+            const events = row.querySelector('[data-fill="events"]');
+            (day.events || []).forEach((event) => {
+                const badge = document.getElementById("yearCalendarEventBadgeTemplate").content.cloneNode(true);
+                const node = badge.querySelector("span");
+                node.textContent = event.title || "Event";
+                node.title = [event.type, event.location, event.status].filter(Boolean).join(" • ");
+                events.appendChild(badge);
+            });
+            const type = row.querySelector('[data-fill="type"]');
+            type.textContent = typeLabel(day);
+            type.classList.add("bg-" + typeColor(day));
+            row.querySelector('[data-action="edit"]').dataset.calendarDayId = day.calendar_day_id ?? "";
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow);
     }
+
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
         const f = document.getElementById("filterSelect")?.value;

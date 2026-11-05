@@ -76,7 +76,8 @@
 
                 <section class="settings-section d-none" data-settings-section="activity">
                     <div class="d-flex justify-content-between align-items-start mb-3"><div><h2 class="h4 mb-1">Login activity</h2><p class="settings-muted mb-0">Review recent access and investigate anything you do not recognize.</p></div><a class="btn btn-outline-success btn-sm" href="home.php?route=active_sessions">Manage sessions</a></div>
-                    <div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0" id="loginHistoryTable"><thead><tr><th>Date & time</th><th>IP address</th><th>Device</th><th>Browser</th><th>Status</th></tr></thead><tbody><tr><td colspan="5" class="text-center text-muted py-4">Loading activity…</td></tr></tbody></table></div></div>
+                    <div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0" id="loginHistoryTable"><thead><tr><th>Date & time</th><th>IP address</th><th>Device</th><th>Browser</th><th>Status</th></tr></thead><tbody id="loginHistoryBody"><tr id="loginHistoryState"><td colspan="5" class="text-center text-muted py-4">Loading activity…</td></tr></tbody></table>
+<template id="loginHistoryRowTemplate"><tr data-login-history-row><td data-fill="created"></td><td data-fill="ip"></td><td data-fill="device"></td><td data-fill="browser"></td><td><span class="badge" data-fill="status"></span></td></tr></template></div></div>
                 </section>
 
                 <section class="settings-section d-none" data-settings-section="security">

@@ -41,15 +41,20 @@ final class AiProviderGateway implements AiCompletionProvider
                 return $result;
             } catch (\Throwable $e) {
                 $failures[] = ['provider_index' => $index, 'error' => get_class($e)];
+                $fallbackAllowed = !($e instanceof AiProviderException) || $e->allowsProviderFallback();
                 FileLogger::write('ai_generation', [
-                    'type' => 'provider_gateway_fallback',
+                    'type' => $fallbackAllowed ? 'provider_gateway_fallback' : 'provider_gateway_failure',
                     'provider_index' => $index,
+                    'fallback_attempted' => $fallbackAllowed,
                     'error_class' => get_class($e),
-                    // Exception messages here are provider/client contract
-                    // diagnostics; prompt bodies, headers, and credentials
-                    // are never logged.
-                    'error_message' => mb_substr($e->getMessage(), 0, 240),
+                    // Exception text can contain provider response bodies or
+                    // credentials that pattern scrubbing cannot reliably
+                    // recognize. Keep correlation useful without retaining it.
+                    'error_fingerprint' => hash('sha256', get_class($e) . ':' . $e->getMessage()),
                 ]);
+                if (!$fallbackAllowed) {
+                    throw new RuntimeException('AI provider configuration or request was rejected; fallback was not attempted.');
+                }
             }
         }
         throw new RuntimeException('All configured AI providers were unavailable.');

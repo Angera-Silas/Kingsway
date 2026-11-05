@@ -196,6 +196,13 @@ final class MailboxMailService
             $where[] = 'profile_id = ?';
             $params[] = (int) $filters['profile_id'];
         }
+        if (!empty($filters['visibility_user_id'])) {
+            $where[] = '(user_id = ? OR JSON_CONTAINS(COALESCE(cc_json, JSON_ARRAY()), JSON_QUOTE(?)) OR JSON_CONTAINS(COALESCE(bcc_json, JSON_ARRAY()), JSON_QUOTE(?)))';
+            $params[] = (int) $filters['visibility_user_id'];
+            $email = strtolower(trim((string) ($filters['visibility_email'] ?? '')));
+            $params[] = $email;
+            $params[] = $email;
+        }
         if (isset($filters['status']) && in_array((string) $filters['status'], ['queued', 'sending', 'sent', 'failed'], true)) {
             $where[] = 'status = ?';
             $params[] = (string) $filters['status'];
@@ -240,7 +247,7 @@ final class MailboxMailService
         ];
     }
 
-    public function getOutbox(int $outboxId, array $profileIds): ?array
+    public function getOutbox(int $outboxId, array $profileIds, array $filters = []): ?array
     {
         $row = $this->getOutboxRow($outboxId);
         if ($row === null) {
@@ -248,6 +255,11 @@ final class MailboxMailService
         }
         if ($profileIds !== [] && !in_array((int) $row['profile_id'], array_map('intval', $profileIds), true)) {
             return null;
+        }
+        if (!empty($filters['visibility_user_id']) && (int) ($row['user_id'] ?? 0) !== (int) $filters['visibility_user_id']) {
+            $email = strtolower(trim((string) ($filters['visibility_email'] ?? '')));
+            $copied = array_map('strtolower', array_merge($this->decodeList($row['cc_json'] ?? null), $this->decodeList($row['bcc_json'] ?? null)));
+            if ($email === '' || !in_array($email, $copied, true)) return null;
         }
 
         return $this->hydrateOutboxRow($row);

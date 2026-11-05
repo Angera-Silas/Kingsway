@@ -54,7 +54,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="domainIsolationTableBody">
-                    <tr>
+                    <tr id="domainIsolationTableState">
                         <td colspan="4" class="text-center py-5 text-muted">Loading isolation rules...</td>
                     </tr>
                 </tbody>

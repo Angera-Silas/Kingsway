@@ -9,6 +9,8 @@ const admissionsWorkspaceController = {
     initialized: false,
     dom: {},
     pendingStageSkip: null,
+    aiDraftPollTimer: null,
+    aiDraftPollRunId: 0,
     workspaceModalParentState: null,
     state: { referenceCache: null },
 
@@ -2509,9 +2511,9 @@ const admissionsWorkspaceController = {
         const aiBtn = ['application_received', 'application_review'].includes(stage)
             ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueFollowupDraft(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Draft follow-up</button>` : '';
         const aiInterviewBtn = ['interview_scheduling', 'interview_results'].includes(stage)
-            ? `<button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.queueInterviewPreparation(${Number(applicationId)})"><i class="bi bi-person-video3 me-1"></i>Prepare interview</button>` : '';
+            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueInterviewPreparation(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Prepare interview</button>` : '';
         const aiPlacementBtn = stage === 'class_placement'
-            ? `<button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.queuePlacementReview(${Number(applicationId)})"><i class="bi bi-mortarboard me-1"></i>Review placement</button>` : '';
+            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queuePlacementReview(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Review placement</button>` : '';
 
         if (['application_received', 'application_review'].includes(stage)) {
             const nextStage = stage === 'application_received'
@@ -2555,31 +2557,37 @@ const admissionsWorkspaceController = {
     },
 
     queueInterviewPreparation: async function(applicationId) {
+        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queueInterviewPreparation"]');
+        if (button) button.disabled = true;
         try {
-            const response = await this.apiCall('/admission/ai-interview-preparation-queue', 'POST', { application_id: Number(applicationId) });
+            const response = await window.API.admission.queueAiInterviewPreparation({ application_id: Number(applicationId) });
             this.notify('info', `Interview preparation queued${response?.job_id ? ` (${response.job_id})` : ''}.`);
-            await this.pollAiDraftsForApplication(applicationId);
+            this.pollAiDraftsForApplication(applicationId, response?.job_id, 'admissions.interview_preparation');
         } catch (error) { this.notify('error', error.message || 'Unable to queue interview preparation'); }
+        finally { if (button) button.disabled = false; }
     },
 
     queuePlacementReview: async function(applicationId) {
+        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queuePlacementReview"]');
+        if (button) button.disabled = true;
         try {
-            const response = await this.apiCall('/admission/ai-placement-review-queue', 'POST', { application_id: Number(applicationId) });
+            const response = await window.API.admission.queueAiPlacementReview({ application_id: Number(applicationId) });
             this.notify('info', `Placement review queued${response?.job_id ? ` (${response.job_id})` : ''}.`);
-            await this.pollAiDraftsForApplication(applicationId);
+            this.pollAiDraftsForApplication(applicationId, response?.job_id, 'admissions.placement_review');
         } catch (error) { this.notify('error', error.message || 'Unable to queue placement review'); }
+        finally { if (button) button.disabled = false; }
     },
 
     queueFollowupDraft: async function(applicationId) {
         const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queueFollowupDraft"]');
         if (button) button.disabled = true;
         try {
-            const response = await this.apiCall('/admission/ai-followup-draft-queue', 'POST', {
+            const response = await window.API.admission.queueAiFollowupDraft({
                 application_id: Number(applicationId),
                 channel: 'email'
             });
             this.notify('info', `Follow-up draft queued${response?.job_id ? ` (job ${response.job_id})` : ''}.`);
-            await this.pollAiDraftsForApplication(applicationId);
+            this.pollAiDraftsForApplication(applicationId, response?.job_id, 'admissions.application_followup_draft');
         } catch (error) {
             this.notify('error', error.message || 'Unable to queue follow-up draft');
         } finally {
@@ -2587,25 +2595,85 @@ const admissionsWorkspaceController = {
         }
     },
 
-    pollAiDraftsForApplication: async function(applicationId) {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 1200 : 2500));
-            await this.loadAiDraftsForApplication(applicationId);
-            const panel = document.getElementById('admissionsAiDraftPanel');
-            if (panel && panel.querySelector('[data-ai-draft-status="pending_approval"], [data-ai-draft-status="approved"]')) return;
+    pollAiDraftsForApplication: function(applicationId, jobId, workflowId) {
+        if (this.aiDraftPollTimer) window.clearTimeout(this.aiDraftPollTimer);
+        const pollRunId = ++this.aiDraftPollRunId;
+        const id = Number(jobId) || 0;
+        const labels = {
+            'admissions.application_followup_draft': 'Follow-up draft',
+            'admissions.interview_preparation': 'Interview preparation',
+            'admissions.placement_review': 'Placement review'
+        };
+        const label = labels[workflowId] || 'Admissions draft';
+        const panel = document.getElementById('admissionsAiDraftPanel');
+        if (!panel) return;
+        let state = document.getElementById('admissionsAiDraftJobState');
+        if (!state) {
+            state = document.createElement('div');
+            state.id = 'admissionsAiDraftJobState';
+            state.className = 'small mb-2';
+            state.setAttribute('role', 'status');
+            panel.before(state);
         }
+        const updateState = (message, kind = 'muted') => {
+            if (pollRunId !== this.aiDraftPollRunId) return;
+            state.className = `small mb-2 text-${kind}`;
+            state.textContent = message;
+        };
+        if (!id) {
+            updateState(`${label} was queued. Refresh the draft list to check its status.`);
+            return;
+        }
+        let attempt = 0;
+        updateState(`${label} is queued. Preparing it in the background…`);
+        const poll = async () => {
+            attempt += 1;
+            let job = null;
+            try { job = await window.API.nodeJobs?.status?.(id); } catch (_) {}
+            if (pollRunId !== this.aiDraftPollRunId) return;
+            const status = String(job?.status || '').toLowerCase();
+            if (['failed', 'cancelled', 'dead_letter'].includes(status)) {
+                updateState(`${label} could not be prepared. You can try again.`, 'danger');
+                await this.loadAiDraftsForApplication(applicationId);
+                return;
+            }
+            const drafts = await this.loadAiDraftsForApplication(applicationId);
+            if (pollRunId !== this.aiDraftPollRunId) return;
+            const match = (Array.isArray(drafts) ? drafts : []).find((draft) =>
+                Number(draft.metadata?.queue_job_id) === id && draft.workflow_id === workflowId
+            );
+            if (match && ['pending_approval', 'approved'].includes(match.status)) {
+                updateState(`${label} is ready for staff review.`, 'success');
+                return;
+            }
+            if (match?.status === 'failed') {
+                updateState(`${label} could not be prepared. You can try again.`, 'danger');
+                return;
+            }
+            if (['done', 'completed'].includes(status)) {
+                updateState(`${label} finished, but its matching draft was not returned. Refresh or contact support.`, 'danger');
+                return;
+            }
+            if (attempt >= 12) {
+                updateState(`${label} is still processing. The draft list will update when it is ready.`);
+                return;
+            }
+            updateState(['running', 'processing'].includes(status) ? `${label} is being prepared…` : `${label} is queued. Preparing it in the background…`);
+            this.aiDraftPollTimer = window.setTimeout(poll, 4000);
+        };
+        this.aiDraftPollTimer = window.setTimeout(poll, 1200);
     },
 
     loadAiDraftsForApplication: async function(applicationId) {
         const panel = document.getElementById('admissionsAiDraftPanel');
         if (!panel) return;
         try {
-            const own = await this.apiCall('/admission/ai-drafts?scope=own', 'GET');
+            const own = await window.API.admission.getAiDrafts('own', applicationId);
             const ownDrafts = Array.isArray(own?.drafts) ? own.drafts : [];
             const matching = ownDrafts.filter((draft) => Number(draft.subject_id) === Number(applicationId));
             let reviewDrafts = [];
             try {
-                const review = await this.apiCall('/admission/ai-drafts?scope=review', 'GET');
+                const review = await window.API.admission.getAiDrafts('review', applicationId);
                 reviewDrafts = (Array.isArray(review?.drafts) ? review.drafts : [])
                     .filter((draft) => Number(draft.subject_id) === Number(applicationId));
             } catch (_) {
@@ -2617,7 +2685,7 @@ const admissionsWorkspaceController = {
             ];
             if (!drafts.length) {
                 panel.innerHTML = '<div class="alert alert-light border small mb-0"><i class="bi bi-stars me-1"></i>AI follow-up drafts will appear here after generation.</div>';
-                return;
+                return drafts;
             }
             panel.innerHTML = `<div class="border rounded-3 p-3 bg-light">
                 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -2642,21 +2710,23 @@ const admissionsWorkspaceController = {
                     </article>`;
                 }).join('')}
             </div>`;
+            return drafts;
         } catch (error) {
             panel.innerHTML = '<div class="alert alert-warning small mb-0">AI draft status is temporarily unavailable.</div>';
+            return [];
         }
     },
 
     approveAiDraft: async function(draftId, applicationId, approvalKind = '') {
         try {
-            const endpointByKind = {
-                followup: '/admission/ai-followup-draft-approve',
-                interview: '/admission/ai-interview-preparation-approve',
-                placement: '/admission/ai-placement-review-approve'
+            const approveByKind = {
+                followup: window.API.admission.approveAiFollowupDraft,
+                interview: window.API.admission.approveAiInterviewPreparation,
+                placement: window.API.admission.approveAiPlacementReview
             };
-            const endpoint = endpointByKind[approvalKind];
-            if (!endpoint) throw new Error('This admissions AI workflow cannot be approved from this screen.');
-            await this.apiCall(`${endpoint}/${Number(draftId)}`, 'POST', {});
+            const approve = approveByKind[approvalKind];
+            if (typeof approve !== 'function') throw new Error('This admissions AI workflow cannot be approved from this screen.');
+            await approve(draftId);
             this.notify('success', 'AI draft approved for staff use.');
             await this.loadAiDraftsForApplication(applicationId);
         } catch (error) {

@@ -291,7 +291,7 @@ class MessageService
     }
 
     // Send email (single or mass)
-    public function sendEmail($recipients, $subject, $htmlBody, $attachments = [], $includeAuditBcc = false)
+    public function sendEmail($recipients, $subject, $htmlBody, $attachments = [], $includeAuditBcc = false, $recordCommunication = true)
     {
         // Enforce one visual identity at the transport boundary. Callers may
         // provide a body fragment or an already-rendered Kingsway message; no
@@ -357,11 +357,63 @@ class MessageService
             $mail->AltBody = strip_tags($htmlBody);
 
             $mail->send();
+            if ($recordCommunication) {
+                $this->recordSuccessfulEmail($recipients, (string) $subject, (string) $htmlBody);
+            }
             return true;
         } catch (Exception $e) {
             // Log error
             \App\API\Services\Logger::legacyError("Email send error: " . $e->getMessage());
             return false;
+        }
+    }
+
+    /** Persist successful non-OTP email delivery in the canonical audit history. */
+    private function recordSuccessfulEmail($recipients, string $subject, string $htmlBody): void
+    {
+        $ownsTransaction = false;
+        try {
+            $addresses = [];
+            foreach ((array) $recipients as $address => $name) {
+                $email = is_int($address) ? (string) $name : (string) $address;
+                $email = trim($email);
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) $addresses[] = $email;
+            }
+            $addresses = array_values(array_unique($addresses));
+            $senderId = isset($_SESSION['user_id']) && (int) $_SESSION['user_id'] > 0 ? (int) $_SESSION['user_id'] : null;
+            $metadata = json_encode([
+                'delivery_source' => $senderId === null ? 'system' : 'staff',
+                'system_generated' => $senderId === null,
+                'authentication_message' => false,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $ownsTransaction = true;
+            }
+            $stmt = $this->db->prepare(
+                "INSERT INTO communications (type, provider, subject, body, channel_meta, status, priority, sender_id, sender_signature, processed_at)
+                 VALUES ('email', 'smtp', ?, ?, ?, 'sent', 'medium', ?, ?, NOW())"
+            );
+            $stmt->execute([$subject, $htmlBody, $metadata, $senderId, $senderId === null ? 'System' : null]);
+            $communicationId = (int) $this->db->lastInsertId();
+            $recipientStmt = $this->db->prepare("INSERT INTO communication_recipients (communication_id, recipient_id, status, delivered_at) VALUES (?, NULL, 'sent', NOW())");
+            $endpointStmt = $this->db->prepare("INSERT INTO communication_recipient_endpoints (communication_recipient_id, channel, address, status, delivered_at) VALUES (?, 'email', ?, 'sent', NOW())");
+            foreach ($addresses as $address) {
+                $recipientStmt->execute([$communicationId]);
+                $endpointStmt->execute([(int) $this->db->lastInsertId(), $address]);
+            }
+            $audit = $this->db->prepare(
+                "INSERT INTO communication_audit_events (communication_id, actor_user_id, event_type, rendered_subject, rendered_body)
+                 VALUES (?, ?, ?, ?, ?)"
+            );
+            $audit->execute([$communicationId, $senderId, $senderId === null ? 'system_email_sent' : 'email_sent', $subject, $htmlBody]);
+            if ($ownsTransaction) $this->db->commit();
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            FileLogger::write('communications', [
+                'type' => 'email_delivery_audit_persist_failed',
+                'error' => $error->getMessage(),
+            ]);
         }
     }
 

@@ -60,7 +60,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="routeRegistryTableBody">
-                    <tr>
+                    <tr id="routeRegistryTableState">
                         <td colspan="7" class="text-center py-5 text-muted">Loading routes...</td>
                     </tr>
                 </tbody>

@@ -37,6 +37,20 @@ class AdmissionPolicy
         return in_array($this->normalizeGrade($grade), self::INTERVIEW_GRADES, true);
     }
 
+    /** Map an interview focus selector to school-owned prompt text. */
+    public function aiInterviewFocus(string $focus): string
+    {
+        $focus = strtolower(trim($focus));
+        $allowed = [
+            'learning readiness' => 'Explore learning readiness and prior learning in an age-appropriate way.',
+            'communication' => 'Explore communication and how the applicant asks for help.',
+            'interests' => 'Explore the applicant’s interests and preferred ways of learning.',
+            'school transition' => 'Explore expectations and support needed for transition into the school.',
+        ];
+
+        return $allowed[$focus] ?? 'Verify readiness, communication, and age-appropriate learning context.';
+    }
+
     public function getRequiredDocuments(string $grade, string $category = 'standard', bool $isExistingParent = false): array
     {
         $normalized = $this->normalizeGrade($grade);

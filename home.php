@@ -45,7 +45,6 @@ if (!headers_sent()) {
     <!-- Load first: silences every console.* call and routes warnings/errors to the
          central file logger (never the browser console). -->
     <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
-    <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
     <meta charset="utf-8">
     <meta
         name="viewport"

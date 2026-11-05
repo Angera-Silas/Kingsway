@@ -15,13 +15,17 @@ touching school data directly.
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
+import re
 import ssl
 import threading
 import urllib.error
 import urllib.request
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from .config import Config
 
@@ -207,17 +211,6 @@ class ToolBridge:
                     "type": "agent_tool_relay",
                     "tool": tool,
                     "http_status": int(status or 0),
-                    "link": link if not link.startswith("http") else "public",
-                },
-            )
-
-        if self.journal is not None:
-            self.journal.write(
-                "ai_generation",
-                {
-                    "type": "agent_tool_relay",
-                    "tool": tool,
-                    "http_status": int(status or 0),
                 },
             )
 
@@ -332,9 +325,33 @@ class ToolBridge:
             content = handle.read(max_chars + 1)
         if len(content) > max_chars:
             content = content[:max_chars] + "\n…[truncated]"
-        return content
+        return self._system_redact(content)
+
+    @staticmethod
+    def _system_redact(text: str) -> str:
+        """Remove common credentials and direct contact identifiers before model use."""
+        value = str(text or "")
+        value = re.sub(
+            r"(?i)([\"']?\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth(?:orization)?|password|passwd|secret|client[_-]?secret|cookie|session(?:[_-]?id)?|learner[_-]?(?:name|number|no|id|phone|email)|student[_-]?(?:name|number|no|id|phone|email)|admission[_-]?(?:name|number|no|id)|parent[_-]?(?:name|phone|email)|guardian[_-]?(?:name|phone|email)|staff[_-]?(?:name|id|phone|email))\b[\"']?\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^,\s}]+)",
+            r'\1"[REDACTED]"',
+            value,
+        )
+        value = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
+        value = re.sub(
+            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b",
+            "[REDACTED_TOKEN]",
+            value,
+        )
+        value = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[REDACTED_EMAIL]", value)
+        value = re.sub(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)", "[REDACTED_PHONE]", value)
+        return value
 
     def _system_code_read(self, path: str = "", max_chars: int = 0) -> dict[str, Any]:
+        if not self._system_code_context_allowed():
+            return {
+                "status": "capability_disabled",
+                "message": "Source-code context is disabled for this assistant configuration.",
+            }
         if not path:
             return {"status": "error", "message": "path is required"}
         candidate = self._system_allowed_path(path)
@@ -357,7 +374,6 @@ class ToolBridge:
         log_dir = self._system_log_dir()
         candidate_path = None
         if path:
-            candidate = self._system_allowed_path(path)
             # Logs live under the log dir; allow any file there directly.
             try:
                 direct = (log_dir / path).resolve(strict=False)
@@ -376,17 +392,15 @@ class ToolBridge:
             1, min(int(tail_lines or _SYSTEM_MAX_LOG_LINES), _SYSTEM_MAX_LOG_LINES)
         )
         try:
-            with open(
-                candidate_path, "r", encoding="utf-8", errors="replace"
-            ) as handle:
-                lines = handle.readlines()
+            with open(candidate_path, "r", encoding="utf-8", errors="replace") as handle:
+                lines = list(deque(handle, maxlen=tail))
         except OSError as error:
             return {"status": "error", "message": str(error)[:200]}
-        selected = lines[-tail:] if tail < len(lines) else lines
+        selected = lines
         return {
             "status": "ok",
             "path": str(candidate_path.relative_to(log_dir)),
-            "lines": [line.rstrip("\n") for line in selected],
+            "lines": [self._system_redact(line.rstrip("\n"))[:4000] for line in selected],
             "line_count": len(selected),
         }
 
@@ -398,7 +412,7 @@ class ToolBridge:
         for log_file in sorted(log_dir.glob("*.jsonl")):
             try:
                 with open(log_file, "r", encoding="utf-8", errors="replace") as handle:
-                    lines = handle.readlines()
+                    lines = list(deque(handle, maxlen=limit * 4))
             except OSError:
                 continue
             for line in lines[-(limit * 4) :]:
@@ -409,7 +423,7 @@ class ToolBridge:
                     and "failed" not in lower
                 ):
                     continue
-                text = line.strip()
+                text = self._system_redact(line.strip())[:4000]
                 signature = text[:120]
                 signatures[signature] = signatures.get(signature, 0) + 1
                 if len(samples) < limit:
@@ -426,6 +440,11 @@ class ToolBridge:
         }
 
     def _system_fix_suggest(self, path: str = "", context: str = "") -> dict[str, Any]:
+        if not self._system_code_context_allowed():
+            return {
+                "status": "capability_disabled",
+                "message": "Source-code context is disabled for this assistant configuration.",
+            }
         if not path:
             return {"status": "error", "message": "path is required"}
         candidate = self._system_allowed_path(path)
@@ -439,13 +458,53 @@ class ToolBridge:
             "status": "ok",
             "path": str(candidate.relative_to(self._system_repo_root())),
             "content": content,
-            "context": str(context or "")[:1000],
+            "context": self._system_redact(str(context or "")[:1000]),
             "advice": (
                 "Review the file above with the administrator. Suggest only "
                 "bounded, reversible changes; do not rotate credentials or "
                 "modify learner, health or family data."
             ),
         }
+
+    def _system_code_context_allowed(self) -> bool:
+        """Permit proprietary source context only for explicitly enabled local models."""
+        if not getattr(self.config, "allow_system_code_context", False):
+            return False
+        if not getattr(self.config, "enabled", False):
+            return False
+
+        endpoints: list[str] = []
+        primary = str(getattr(self.config, "provider_base_url", "") or "").strip()
+        if primary:
+            endpoints.append(primary)
+        raw_fallbacks = str(getattr(self.config, "fallbacks_raw", "") or "[]")
+        try:
+            fallbacks = json.loads(raw_fallbacks)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(fallbacks, list):
+            return False
+        for fallback in fallbacks[:4]:
+            if not isinstance(fallback, dict):
+                return False
+            endpoint = str(fallback.get("base_url") or "").strip()
+            model = str(fallback.get("model") or "").strip()
+            if endpoint and model:
+                endpoints.append(endpoint)
+        if not endpoints:
+            return False
+
+        for endpoint in endpoints:
+            hostname = (urlparse(endpoint).hostname or "").lower()
+            if hostname == "localhost":
+                continue
+            try:
+                if ipaddress.ip_address(hostname).is_loopback:
+                    continue
+            except ValueError:
+                pass
+            return False
+        return True
 
     @staticmethod
     def _bound_input(tool: str, tool_input: dict) -> dict:

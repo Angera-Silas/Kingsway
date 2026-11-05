@@ -670,6 +670,7 @@ class SMSService
             'gender' => $params['gender'] ?? null,
             'dlt_template_id' => $params['dlt_template_id'] ?? null,
             'recipient_format' => $params['recipient_format'] ?? null,
+            'tagged_staff_user_ids' => array_values(array_unique(array_map('intval', (array) ($params['tagged_staff_user_ids'] ?? [])))),
         ], static fn ($value) => $value !== null && $value !== '');
 
         $communicationId = $this->createCommunicationRow($type, $mode, $message, $channelMeta, $scheduleTime);
@@ -735,6 +736,17 @@ class SMSService
                   FROM communications c WHERE 1 = 1";
         $params = [];
 
+        if (($filters['visibility'] ?? 'all') === 'self_or_tagged') {
+            $userId = (int) ($filters['visibility_user_id'] ?? 0);
+            if ($userId < 1) {
+                $sql .= ' AND 1 = 0';
+            } else {
+                $sql .= " AND (c.sender_id = ? OR JSON_CONTAINS(COALESCE(c.channel_meta, JSON_OBJECT()), ?, '$.tagged_staff_user_ids'))";
+                $params[] = $userId;
+                $params[] = (string) $userId;
+            }
+        }
+
         if (!empty($filters['type'])) {
             $sql .= " AND c.type = ?";
             $params[] = $filters['type'];
@@ -764,15 +776,26 @@ class SMSService
         $stmt->execute($params);
         $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $stats = $this->messageStats();
+        $stats = $this->messageStats($filters);
         return ['messages' => $messages, 'stats' => $stats];
     }
 
-    public function messageStats(): array
+    public function messageStats(array $filters = []): array
     {
-        $stmt = $this->db->query(
-            "SELECT type, status, COUNT(*) AS total FROM communications GROUP BY type, status"
-        );
+        $sql = "SELECT c.type, c.status, COUNT(*) AS total FROM communications c";
+        $params = [];
+        if (($filters['visibility'] ?? 'all') === 'self_or_tagged') {
+            $userId = (int) ($filters['visibility_user_id'] ?? 0);
+            if ($userId < 1) {
+                $sql .= ' WHERE 1 = 0';
+            } else {
+                $sql .= " WHERE (c.sender_id = ? OR JSON_CONTAINS(COALESCE(c.channel_meta, JSON_OBJECT()), ?, '$.tagged_staff_user_ids'))";
+                $params = [$userId, (string) $userId];
+            }
+        }
+        $sql .= ' GROUP BY c.type, c.status';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         $byType = [];
         $byStatus = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -847,9 +870,11 @@ class SMSService
     private function createCommunicationRow(string $type, string $mode, string $message, array $channelMeta, ?string $scheduleTime): int
     {
         $status = $scheduleTime !== null ? 'scheduled' : 'queued';
+        $senderId = $this->currentUserId();
+        $channelMeta['delivery_source'] = $senderId === null ? 'system' : 'staff';
         $stmt = $this->db->prepare(
-            "INSERT INTO communications (type, provider, subject, body, channel_meta, status, priority, scheduled_at, sender_id)
-             VALUES (?, ?, ?, ?, ?, ?, 'medium', ?, ?)"
+            "INSERT INTO communications (type, provider, subject, body, channel_meta, status, priority, scheduled_at, sender_id, sender_signature)
+             VALUES (?, ?, ?, ?, ?, ?, 'medium', ?, ?, ?)"
         );
         $stmt->execute([
             $type,
@@ -859,7 +884,8 @@ class SMSService
             $channelMeta ? json_encode($channelMeta, JSON_UNESCAPED_SLASHES) : null,
             $status,
             $scheduleTime,
-            $this->currentUserId(),
+            $senderId,
+            $senderId === null ? 'System' : null,
         ]);
         return (int) $this->db->lastInsertId();
     }

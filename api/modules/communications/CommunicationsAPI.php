@@ -106,8 +106,8 @@ class CommunicationsAPI extends BaseAPI
             $visibilitySql = '';
             $visibilityParams = [];
             if ($visibility === 'self_or_tagged' && $userId > 0) {
-                $visibilitySql = " WHERE (c.sender_id = :scope_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = c.id AND cr_scope.recipient_id = :scope_recipient))";
-                $visibilityParams = [':scope_user' => $userId, ':scope_recipient' => $userId];
+                $visibilitySql = " WHERE (c.sender_id = :scope_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = c.id AND cr_scope.recipient_id = :scope_recipient) OR JSON_CONTAINS(COALESCE(c.channel_meta, JSON_OBJECT()), :scope_tagged_user, '$.tagged_staff_user_ids'))";
+                $visibilityParams = [':scope_user' => $userId, ':scope_recipient' => $userId, ':scope_tagged_user' => (string) $userId];
             } elseif ($visibility === 'self_or_tagged') {
                 $visibilitySql = ' WHERE 1 = 0';
             } elseif ($visibility === 'teacher_parent') {
@@ -834,7 +834,8 @@ class CommunicationsAPI extends BaseAPI
             if ($signature !== '') $renderedBody .= '<p>' . htmlspecialchars($signature, ENT_QUOTES, 'UTF-8') . '</p>';
             $queued = $platform->queueRenderedForContacts([['email' => $email]], 'email', $subject, $renderedBody, [
                 'purpose' => 'transactional',
-                'sender_id' => $this->user_id ?: 1,
+                'sender_id' => (int) ($this->user_id ?? 0) > 0 ? (int) $this->user_id : null,
+                'channel_meta' => ['delivery_source' => (int) ($this->user_id ?? 0) > 0 ? 'staff' : 'system'],
             ]);
             if (($queued['recipient_count'] ?? 0) > 0) {
                 $queuedIds[] = (int) $queued['communication_id'];
@@ -1409,6 +1410,21 @@ class CommunicationsAPI extends BaseAPI
     public function listCommunications($filters = [])
     {
         return $this->manager->listCommunications($filters);
+    }
+
+    public function searchStaffTags(string $term = ''): array
+    {
+        return $this->manager->searchStaffTags($term);
+    }
+
+    public function getStaffTagRecipients(array $userIds): array
+    {
+        return $this->manager->getStaffTagRecipients($userIds);
+    }
+
+    public function validateStaffTagUserIds(array $userIds): array
+    {
+        return $this->manager->validateStaffTagUserIds($userIds);
     }
 
     // --- Attachments CRUD ---

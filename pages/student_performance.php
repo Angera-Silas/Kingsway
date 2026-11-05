@@ -228,12 +228,19 @@ if (!isset($appBase)) {
 
                 <div class="card-body table-responsive">
                     <table class="table table-hover align-middle">
-                        <thead class="table-light" id="overviewTableHead"></thead>
+                        <thead class="table-light">
+                            <tr data-performance-head="students"><th>#</th><th>Admission No.</th><th>Learner</th><th>Class</th><th>Stream</th><th>Average</th><th>Grade</th><th>Attendance</th><th>Position</th></tr>
+                            <tr data-performance-head="class" hidden><th>Class</th><th>Learners</th><th>Average</th><th>Attendance</th><th>Top learner</th><th>Lowest learner</th></tr>
+                            <tr data-performance-head="stream" hidden><th>Class</th><th>Stream</th><th>Learners</th><th>Average</th><th>Attendance</th><th>Top learner</th></tr>
+                            <tr data-performance-head="school" hidden><th>Scope</th><th>Learners</th><th>Average</th><th>Attendance</th><th>Top class</th><th>Top learner</th></tr>
+                        </thead>
                         <tbody id="performanceOverviewBody">
-                            <tr>
-                                <td class="text-center text-muted">Loading...</td>
-                            </tr>
+                            <tr id="performanceOverviewState"><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
                         </tbody>
+                        <template id="performanceStudentsRowTemplate"><tr data-performance-row><td data-fill="number"></td><td data-fill="admission"></td><td><button type="button" class="btn btn-link p-0 text-start" data-fill="student"></button></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="average"></td><td data-fill="grade"></td><td data-fill="attendance"></td><td data-fill="position"></td></tr></template>
+                        <template id="performanceClassRowTemplate"><tr data-performance-row><td data-fill="class"></td><td data-fill="students"></td><td data-fill="average"></td><td data-fill="attendance"></td><td data-fill="top"></td><td data-fill="lowest"></td></tr></template>
+                        <template id="performanceStreamRowTemplate"><tr data-performance-row><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="students"></td><td data-fill="average"></td><td data-fill="attendance"></td><td data-fill="top"></td></tr></template>
+                        <template id="performanceSchoolRowTemplate"><tr data-performance-row><td data-fill="scope"></td><td data-fill="students"></td><td data-fill="average"></td><td data-fill="attendance"></td><td data-fill="top-class"></td><td data-fill="top-student"></td></tr></template>
                     </table>
                 </div>
             </div>
@@ -446,8 +453,9 @@ if (!isset($appBase)) {
                                         <th scope="col">Remarks</th>
                                     </tr>
                                     </thead>
-                                    <tbody id="subjectsTableBody"></tbody>
+                                    <tbody id="subjectsTableBody"><tr id="subjectsTableState"><td colspan="7" class="text-center text-muted">Select a learner to view subject results.</td></tr></tbody>
                                 </table>
+                                <template id="studentSubjectRowTemplate"><tr data-student-subject-row><td data-fill="subject"></td><td data-fill="score"></td><td data-fill="grade"></td><td data-fill="average"></td><td data-fill="position"></td><td data-fill="teacher"></td><td data-fill="remarks"></td></tr></template>
                             </div>
                         </div>
                     </div>

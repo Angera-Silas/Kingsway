@@ -64,6 +64,31 @@ class SystemCommsConfigService
         $this->db = $db;
     }
 
+    /**
+     * Return static field metadata for templates that render the settings UI.
+     * Values and configuration state still come from getGroup().
+     *
+     * @return array<int, array{key: string, constant_name: string, label: string, is_secret: bool}>
+     */
+    public static function fieldDefinitions(string $group): array
+    {
+        if (!isset(self::GROUPS[$group])) {
+            return [];
+        }
+
+        $definitions = [];
+        foreach (self::GROUPS[$group] as $key => [$constantName, $label, $isSecret]) {
+            $definitions[] = [
+                'key' => $key,
+                'constant_name' => $constantName,
+                'label' => $label,
+                'is_secret' => $isSecret,
+            ];
+        }
+
+        return $definitions;
+    }
+
     // ── Public API ────────────────────────────────────────────────────────
 
     /**

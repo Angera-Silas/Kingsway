@@ -134,6 +134,7 @@ const TokenManagementController = {
       bulkClearBtn: document.getElementById("bulkClearTokensBtn"),
       tableHead: document.getElementById("tokenManagementTableHead"),
       tableBody: document.getElementById("tokenManagementTableBody"),
+      tableState: document.getElementById("tokenManagementTableState"),
       count: document.getElementById("tokenManagementCount"),
       previousButton: document.getElementById("tokenPreviousPage"),
       pageIndicator: document.getElementById("tokenPageIndicator"),
@@ -464,8 +465,13 @@ const TokenManagementController = {
     }
 
     const template = document.getElementById("tokenManagementRowTemplate");
+    this.elements.tableBody.querySelectorAll("[data-token-row]").forEach((row) => row.remove());
+    if (this.elements.tableState) this.elements.tableState.hidden = true;
     const rows = tokens.map((token) => this.buildTokenRow(template, token));
-    this.elements.tableBody.replaceChildren(...rows);
+    rows.forEach((row) => {
+      row.dataset.tokenRow = "1";
+      this.elements.tableBody.insertBefore(row, this.elements.tableState || null);
+    });
     this.syncSelectAll();
   },
 
@@ -704,22 +710,15 @@ const TokenManagementController = {
   },
 
   showTableLoading() {
-    this.showTableMessage(
-      '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading token records...',
-      "text-primary",
-      true,
-    );
+    this.showTableMessage("Loading token records...", "text-primary");
   },
 
-  showTableMessage(message, className = "text-muted", allowMarkup = false) {
+  showTableMessage(message, className = "text-muted") {
     if (!this.elements.tableBody) return;
-    const content = allowMarkup ? message : this.escapeHtml(message);
-    this.elements.tableBody.innerHTML = `
-      <tr>
-        <td colspan="9" class="text-center py-5 ${className}">
-          ${content}
-        </td>
-      </tr>`;
+    this.elements.tableBody.querySelectorAll("[data-token-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + className; cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   showState(message, type = "info") {

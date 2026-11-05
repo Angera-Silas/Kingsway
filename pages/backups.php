@@ -59,7 +59,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="backupsTableBody">
-                    <tr>
+                    <tr id="backupsTableState">
                         <td colspan="6" class="text-center py-5 text-muted">Loading backups...</td>
                     </tr>
                 </tbody>

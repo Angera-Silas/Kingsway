@@ -68,8 +68,8 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"\b(?:[A-Za-z0-9_.\-]*[_.\-])?(?:password|passwd|secret|api[_-]?key|"
-            r"auth[_-]?token|access[_-]?token|client[_-]?secret)\b(\s*[:=]\s*)(\S{4,})",
+            r"\b((?:[A-Za-z0-9_.\-]*[_.\-])?(?:password|passwd|secret|api[_-]?key|"
+            r"auth[_-]?token|access[_-]?token|client[_-]?secret)\b\s*[:=]\s*)(\S{4,})",
             re.I,
         ),
         r"\1[redacted]",

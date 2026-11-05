@@ -9,6 +9,10 @@ const ParentFeedbackController = (() => {
         document.getElementById('searchInput')?.addEventListener('input', filterData);
         document.getElementById('filterSelect')?.addEventListener('change', filterData);
         document.getElementById('dateFilter')?.addEventListener('change', filterData);
+        document.getElementById('parentFeedbackTableBody')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-action="view"]');
+            if (button) viewFeedback(Number(button.dataset.index));
+        });
     }
     async function loadData() {
         try {
@@ -56,15 +60,21 @@ const ParentFeedbackController = (() => {
         );
     }
     function renderTable(items) {
-      const tbody = document.querySelector("#dataTable tbody");
+      const tbody = document.getElementById("parentFeedbackTableBody");
       if (!tbody) return;
+      const stateRow = document.getElementById("parentFeedbackTableState");
+      const stateCell = stateRow?.querySelector("td");
+      tbody.querySelectorAll("[data-feedback-row]").forEach((row) => row.remove());
       if (!items.length) {
-        tbody.innerHTML =
-          '<tr><td colspan="9" class="text-center text-muted py-4">No parent feedback found</td></tr>';
+        if (stateCell) stateCell.textContent = "No parent feedback found";
+        if (stateRow) stateRow.hidden = false;
         return;
       }
-      tbody.innerHTML = items
-        .map((d, i) => {
+      if (stateRow) stateRow.hidden = true;
+      const template = document.getElementById("parentFeedbackRowTemplate");
+      if (!template) return;
+      const fragment = document.createDocumentFragment();
+      items.forEach((d, i) => {
           const rating = parseFloat(d.rating || d.score) || 0;
           const stars =
             "★".repeat(Math.round(rating)) + "☆".repeat(5 - Math.round(rating));
@@ -78,45 +88,52 @@ const ParentFeedbackController = (() => {
               : status.toLowerCase() === "pending"
                 ? "warning"
                 : "secondary";
-          return `<tr>
-                <td>${i + 1}</td>
-                <td>${escapeHtml(d.parent_name || d.parent || "--")}</td>
-                <td>${escapeHtml(d.student_name || d.student || "--")}</td>
-                <td><span class="badge bg-info">${escapeHtml(cat)}</span></td>
-                <td><span class="text-${ratingColor}">${stars}</span> <small>(${rating})</small></td>
-                <td>${escapeHtml((d.message || d.feedback || d.comment || "").substring(0, 60))}${(d.message || d.feedback || d.comment || "").length > 60 ? "..." : ""}</td>
-                <td>${d.date || d.created_at || d.submitted_at || "--"}</td>
-                <td><span class="badge bg-${statusColor}">${status}</span></td>
-                <td><button class="btn btn-sm btn-outline-primary" onclick="ParentFeedbackController.viewFeedback(${i})" title="View"><i class="fas fa-eye"></i></button></td>
-            </tr>`;
-        })
-        .join("");
+          const row = template.content.firstElementChild.cloneNode(true);
+          const set = (field, value) => {
+            const element = row.querySelector(`[data-field="${field}"]`);
+            if (element) element.textContent = value ?? "—";
+          };
+          set("number", String(i + 1));
+          set("parent", d.parent_name || d.parent || "--");
+          set("student", d.student_name || d.student || "--");
+          set("category", cat);
+          set("rating", stars);
+          set("rating-number", `(${rating})`);
+          const message = d.message || d.feedback || d.comment || "";
+          set("message", `${message.substring(0, 60)}${message.length > 60 ? "..." : ""}`);
+          set("date", d.date || d.created_at || d.submitted_at || "--");
+          set("status", status);
+          const ratingElement = row.querySelector('[data-field="rating"]');
+          if (ratingElement) ratingElement.classList.add(`text-${ratingColor}`);
+          const statusElement = row.querySelector('[data-field="status"]');
+          if (statusElement) statusElement.classList.add(`bg-${statusColor}`);
+          const viewButton = row.querySelector('[data-action="view"]');
+          if (viewButton) viewButton.dataset.index = String(allData.indexOf(d));
+          fragment.appendChild(row);
+      });
+      tbody.insertBefore(fragment, stateRow || null);
     }
     function viewFeedback(index) {
       const d = allData[index];
       if (!d) return;
       const rating = parseFloat(d.rating || d.score) || 0;
-      const html = [
-        `<strong>Parent:</strong> ${escapeHtml(d.parent_name || d.parent || "")}`,
-        `<strong>Student:</strong> ${escapeHtml(d.student_name || d.student || "")}`,
-        `<strong>Category:</strong> ${d.category || d.feedback_type || "General"}`,
-        `<strong>Rating:</strong> ${"★".repeat(Math.round(rating))}${"☆".repeat(5 - Math.round(rating))} (${rating}/5)`,
-        `<strong>Date:</strong> ${d.date || d.created_at || ""}`,
-        `<hr><strong>Message:</strong><br>${escapeHtml(d.message || d.feedback || d.comment || "No message")}`,
-        d.response
-          ? `<hr><strong>Response:</strong><br>${escapeHtml(d.response)}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join("<br>");
-      const modal = document.getElementById("notificationModal");
-      if (modal) {
-        const m =
-          modal.querySelector(".notification-message") ||
-          modal.querySelector(".modal-body");
-        if (m) m.innerHTML = html;
-        bootstrap.Modal.getOrCreateInstance(modal).show();
-      }
+      const modal = document.getElementById("parentFeedbackViewModal");
+      if (!modal) return;
+      const values = {
+        parent: d.parent_name || d.parent || "—",
+        student: d.student_name || d.student || "—",
+        category: d.category || d.feedback_type || "General",
+        rating: `${"★".repeat(Math.round(rating))}${"☆".repeat(5 - Math.round(rating))} (${rating}/5)`,
+        date: d.date || d.created_at || "—",
+        message: d.message || d.feedback || d.comment || "No message",
+        response: d.response || "",
+      };
+      modal.querySelectorAll("[data-view]").forEach((element) => {
+        element.textContent = values[element.dataset.view] ?? "";
+      });
+      const responseContainer = modal.querySelector("[data-view-response-container]");
+      if (responseContainer) responseContainer.hidden = !d.response;
+      bootstrap.Modal.getOrCreateInstance(modal).show();
     }
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
@@ -168,13 +185,6 @@ const ParentFeedbackController = (() => {
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
         KingswayFileLifecycle.exportText(csv, "parent_feedback.csv", "text/csv");
-    }
-    function escapeHtml(s) {
-      return String(s || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
     }
     function showNotification(message, type) { window.showNotification(message, type); }
     return { init, refresh: loadData, exportCSV, viewFeedback };

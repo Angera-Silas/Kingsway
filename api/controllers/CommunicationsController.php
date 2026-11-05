@@ -198,18 +198,22 @@ class CommunicationsController extends BaseController
 
     public function index()
     {
+        if (!$this->userHasAny(['communications_view', 'communications_manage'])) {
+            return $this->forbidden('You do not have permission to view communications.');
+        }
         $roles = $this->getUserRoleIds();
-        $isManagement = !empty(array_intersect($roles, [2, 3, 4]));
-        $isHeadteacher = in_array(5, $roles, true) && !$isManagement;
         return $this->handleResponse($this->api->getSummary([
             'user_id' => (int) $this->getUserId(),
-            'visibility' => $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged'),
+            'visibility' => in_array(4, $roles, true) ? 'all' : 'self_or_tagged',
         ]));
     }
 
     /** GET /api/communications/sms-balance */
     public function getSmsBalance($id = null, $data = [], $segments = [])
     {
+        if (!$this->isSmsAccountAdministrator()) {
+            return $this->forbidden('Only school administrators can view the SMS provider balance and top-up details.');
+        }
         try {
             $service = $this->contract(
                 'App\API\Services\SystemCommsConfigService',
@@ -237,13 +241,24 @@ class CommunicationsController extends BaseController
     /** GET /api/communications/sms-gateway */
     public function getSmsGateway($id = null, $data = [], $segments = [])
     {
+        if (!$this->isSmsAccountAdministrator()) {
+            return $this->forbidden('Only school administrators can view SMS gateway configuration.');
+        }
         return $this->success($this->smsService()->gatewayInfo());
     }
 
     /** GET /api/communications/sms-profile */
     public function getSmsProfile($id = null, $data = [], $segments = [])
     {
+        if (!$this->isSmsAccountAdministrator()) {
+            return $this->forbidden('Only school administrators can view SMS provider account details.');
+        }
         return $this->success($this->smsService()->profile());
+    }
+
+    private function isSmsAccountAdministrator(): bool
+    {
+        return $this->userHasAny(['communications_manage'], [1, 4], ['system admin', 'school administrator']);
     }
 
     /** GET /api/communications/sms-groups */
@@ -428,7 +443,16 @@ class CommunicationsController extends BaseController
     /** POST /api/communications/sms-send */
     public function postSmsSend($id = null, $data = [], $segments = [])
     {
+        if (!$this->isTestAccount() && !$this->userHasAny(['communications_create', 'communications_manage'])) {
+            return $this->forbidden('You do not have permission to send communications.');
+        }
         if ($guard = $this->guardCommunicationDelivery('Message delivery')) return $guard;
+        $requestedTags = $data['tagged_staff_user_ids'] ?? [];
+        $taggedStaff = $this->validatedTaggedStaff($requestedTags);
+        if (count($taggedStaff) !== count(array_unique(array_map('intval', (array) $requestedTags)))) {
+            return $this->badRequest('One or more tagged staff accounts are not active staff users.');
+        }
+        $data['tagged_staff_user_ids'] = $taggedStaff;
         try {
             return $this->success($this->smsService()->send($data), 'Message queued');
         } catch (\InvalidArgumentException $e) {
@@ -441,18 +465,25 @@ class CommunicationsController extends BaseController
     /** GET /api/communications/sms-messages */
     public function getSmsMessages($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['communications_view', 'communications_manage'])) {
+            return $this->forbidden('You do not have permission to view communications.');
+        }
+        $data['visibility'] = in_array(4, $this->getUserRoleIds(), true) ? 'all' : 'self_or_tagged';
+        $data['visibility_user_id'] = (int) ($this->getUserId() ?? 0);
         return $this->success($this->smsService()->listMessages($data));
     }
 
     /** GET /api/communications/remote-sms-messages */
     public function getRemoteSmsMessages($id = null, $data = [], $segments = [])
     {
+        if (!$this->canAuditAllCommunications()) return $this->forbidden('Only the school administrator can review provider-wide SMS history.');
         return $this->success($this->smsService()->remoteMessages());
     }
 
     /** GET /api/communications/remote-sms-messages/{uid} */
     public function getRemoteSmsMessage($id = null, $data = [], $segments = [])
     {
+        if (!$this->canAuditAllCommunications()) return $this->forbidden('Only the school administrator can review provider-wide SMS history.');
         $uid = (string) ($id ?? $data['uid'] ?? $_GET['uid'] ?? '');
         if ($uid === '') {
             return $this->badRequest('Message UID required');
@@ -610,9 +641,8 @@ class CommunicationsController extends BaseController
     {
         return [
             'user_id' => (int) ($this->getUserId() ?? 0),
-            'permissions' => array_values(array_unique(array_merge(
-                (array) ($this->user['effective_permissions'] ?? []),
-                (array) ($this->user['permissions'] ?? [])
+            'permissions' => array_values(array_unique((array) (
+                $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
             ))),
             'request_id' => $_SERVER['REQUEST_ID'] ?? '',
         ];
@@ -1176,17 +1206,19 @@ class CommunicationsController extends BaseController
     // --- Communications CRUD ---
     public function getCommunication($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['communications_view', 'communications_manage'])) {
+            return $this->forbidden('You do not have permission to view communications.');
+        }
         $roles = $this->getUserRoleIds();
-        $isManagement = !empty(array_intersect($roles, [2, 3, 4]));
-        $isHeadteacher = in_array(5, $roles, true) && !$isManagement;
+        $isSchoolAdmin = in_array(4, $roles, true);
         if ($id !== null) {
             $data['visibility_user_id'] = (int) $this->getUserId();
-            $data['visibility'] = $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged');
+            $data['visibility'] = $isSchoolAdmin ? 'all' : 'self_or_tagged';
             $data['data_scope'] = DataScopeService::current();
             return $this->handleResponse($this->api->getCommunication($id, $data));
         }
         $data['visibility_user_id'] = (int) $this->getUserId();
-        $data['visibility'] = $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged');
+        $data['visibility'] = $isSchoolAdmin ? 'all' : 'self_or_tagged';
         $data['data_scope'] = DataScopeService::current();
         return $this->handleResponse($this->api->listCommunications($data));
     }
@@ -1201,6 +1233,13 @@ class CommunicationsController extends BaseController
             return $this->forbidden('You do not have permission to create communications');
         }
         $channelMeta = is_array($data['channel_meta'] ?? null) ? $data['channel_meta'] : [];
+        $requestedTags = $data['tagged_staff_user_ids'] ?? $channelMeta['tagged_staff_user_ids'] ?? [];
+        $taggedStaff = $this->validatedTaggedStaff($requestedTags);
+        if (count($taggedStaff) !== count(array_unique(array_map('intval', (array) $requestedTags)))) {
+            return $this->badRequest('One or more tagged staff accounts are not active staff users.');
+        }
+        if ($taggedStaff !== []) $channelMeta['tagged_staff_user_ids'] = $taggedStaff;
+        $data['channel_meta'] = $channelMeta;
         if (($channelMeta['recipient_document_strategy'] ?? $channelMeta['whatsapp_document_strategy'] ?? '') === 'fee_statement'
             && !$isTestScope
             && !$this->userHasAny(['finance_view', 'finance_manage'])) {
@@ -1269,6 +1308,21 @@ class CommunicationsController extends BaseController
         if (!$isTestScope && in_array($audience, ['selected_vendors', 'all_vendors'], true) && !array_intersect($roles, [2, 3, 4, 10])) return $this->forbidden('Vendor messaging is restricted to finance and school management roles.');
         $data['audit_bcc'] = 1;
         return $this->handleResponse($this->api->createCommunication($data));
+    }
+
+    /** Validate staff CC/tag IDs against active staff accounts with active logins. */
+    private function validatedTaggedStaff($rawIds): array
+    {
+        if (!is_array($rawIds)) return [];
+        $ids = array_values(array_unique(array_filter(array_map('intval', $rawIds), static fn($id) => $id > 0)));
+        if ($ids === []) return [];
+        return $this->api->validateStaffTagUserIds($ids);
+    }
+
+    private function canAuditAllCommunications(): bool
+    {
+        return in_array(4, $this->getUserRoleIds(), true)
+            && $this->userHasAny(['communications_view', 'communications_manage']);
     }
     public function postDispatchCommunication($id = null, $data = [], $segments = [])
     {
@@ -1403,6 +1457,15 @@ class CommunicationsController extends BaseController
         }
         $term = isset($data['q']) ? (string)$data['q'] : (string)($data['term'] ?? '');
         return $this->handleResponse($this->api->searchMessageRecipients($userId, $term));
+    }
+
+    /** GET /communications/staff-tags?q={term} */
+    public function getStaffTags($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['communications_create', 'communications_manage'])) {
+            return $this->forbidden('You do not have permission to prepare communications.');
+        }
+        return $this->success(['staff' => $this->api->searchStaffTags((string) ($data['q'] ?? ''))]);
     }
 
     /**
@@ -1905,6 +1968,14 @@ class CommunicationsController extends BaseController
         ];
     }
 
+    private function mailboxOutboxVisibilityFilters(): array
+    {
+        $userId = (int) ($this->getUserId() ?? 0);
+        if (in_array(4, $this->getUserRoleIds(), true)) return [];
+        $staff = $this->api->getStaffTagRecipients([$userId]);
+        return ['visibility_user_id' => $userId, 'visibility_email' => strtolower((string) ($staff[0]['email'] ?? ''))];
+    }
+
     private function accessibleMailboxProfiles(): array
     {
         $context = $this->mailboxAccessContext();
@@ -2149,6 +2220,21 @@ class CommunicationsController extends BaseController
         }
 
         try {
+            $taggedIds = array_values(array_unique(array_filter(array_map('intval', (array) ($data['tagged_staff_user_ids'] ?? [])), static fn (int $id): bool => $id > 0)));
+            if ($taggedIds !== []) {
+                if (!$this->userHasAny(['communications_create', 'communications_manage'])) {
+                    return $this->forbidden('You do not have permission to tag staff on communications.');
+                }
+                $taggedStaff = $this->api->getStaffTagRecipients($taggedIds);
+                if (count($taggedStaff) !== count($taggedIds)) {
+                    return $this->badRequest('One or more tagged staff accounts are not active or have no email address.');
+                }
+                $field = strtolower((string) ($data['staff_tag_mode'] ?? 'cc')) === 'bcc' ? 'bcc' : 'cc';
+                $recipients = (array) ($data[$field] ?? []);
+                foreach ($taggedStaff as $staff) $recipients[] = $staff['email'];
+                $data[$field] = array_values(array_unique($recipients));
+            }
+            unset($data['tagged_staff_user_ids'], $data['staff_tag_mode']);
             $result = $this->mailboxMailService->send($resolved['profile'], (int) $this->getUserId(), $data);
             return $this->success($result, $result['warning'] ?? 'Message sent successfully.');
         } catch (\InvalidArgumentException $e) {
@@ -2362,7 +2448,7 @@ class CommunicationsController extends BaseController
 
         $page = max(1, (int) ($data['page'] ?? 1));
         $perPage = min(50, max(1, (int) ($data['per_page'] ?? 25)));
-        $result = $this->mailboxMailService->listOutbox([$profileId], $data, $page, $perPage);
+        $result = $this->mailboxMailService->listOutbox([$profileId], array_merge($data, $this->mailboxOutboxVisibilityFilters()), $page, $perPage);
 
         return $this->success($result, 'Outbox retrieved');
     }
@@ -2379,7 +2465,7 @@ class CommunicationsController extends BaseController
         }
 
         if ($id !== null && is_numeric($id)) {
-            $row = $this->mailboxMailService->getOutbox((int) $id, $profileIds);
+            $row = $this->mailboxMailService->getOutbox((int) $id, $profileIds, $this->mailboxOutboxVisibilityFilters());
             if ($row === null) {
                 return $this->badRequest('Outbox message not found.');
             }
@@ -2388,7 +2474,7 @@ class CommunicationsController extends BaseController
 
         $page = max(1, (int) ($data['page'] ?? 1));
         $perPage = min(50, max(1, (int) ($data['per_page'] ?? 25)));
-        $result = $this->mailboxMailService->listOutbox($profileIds, $data, $page, $perPage);
+        $result = $this->mailboxMailService->listOutbox($profileIds, array_merge($data, $this->mailboxOutboxVisibilityFilters()), $page, $perPage);
 
         return $this->success($result, 'Outbox retrieved');
     }
@@ -2403,7 +2489,7 @@ class CommunicationsController extends BaseController
             return $this->badRequest('Outbox message ID required');
         }
 
-        $row = $this->mailboxMailService->getOutbox($outboxId, array_map('intval', array_column($this->accessibleMailboxProfiles(), 'id')));
+        $row = $this->mailboxMailService->getOutbox($outboxId, array_map('intval', array_column($this->accessibleMailboxProfiles(), 'id')), $this->mailboxOutboxVisibilityFilters());
         if ($row === null) {
             return $this->badRequest('Outbox message not found.');
         }

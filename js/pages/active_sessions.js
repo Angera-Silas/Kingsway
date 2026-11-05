@@ -139,6 +139,7 @@ const ActiveSessionsController = {
       bulkClearBtn: document.getElementById("bulkClearSessionsBtn"),
       tableHead: document.getElementById("activeSessionsTableHead"),
       tableBody: document.getElementById("activeSessionsTableBody"),
+      tableState: document.getElementById("activeSessionsTableState"),
       count: document.getElementById("activeSessionsCount"),
       previousButton: document.getElementById(
         "activeSessionsPreviousPage",
@@ -458,10 +459,13 @@ const ActiveSessionsController = {
     }
 
     const template = document.getElementById("activeSessionsRowTemplate");
-    const rows = this.state.sessions.map((session) =>
-      this.buildSessionRow(template, session),
-    );
-    this.elements.tableBody.replaceChildren(...rows);
+    this.elements.tableBody.querySelectorAll("[data-active-session-row]").forEach((row) => row.remove());
+    if (this.elements.tableState) this.elements.tableState.hidden = true;
+    const rows = this.state.sessions.map((session) => this.buildSessionRow(template, session));
+    rows.forEach((row) => {
+      row.dataset.activeSessionRow = "1";
+      this.elements.tableBody.insertBefore(row, this.elements.tableState || null);
+    });
     this.syncSelectAll();
   },
 
@@ -707,22 +711,15 @@ const ActiveSessionsController = {
   },
 
   showTableLoading() {
-    this.showTableMessage(
-      '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading active sessions...',
-      "text-primary",
-      true,
-    );
+    this.showTableMessage("Loading active sessions...", "text-primary");
   },
 
-  showTableMessage(message, className = "text-muted", allowMarkup = false) {
+  showTableMessage(message, className = "text-muted") {
     if (!this.elements.tableBody) return;
-    const content = allowMarkup ? message : this.escapeHtml(message);
-    this.elements.tableBody.innerHTML = `
-      <tr>
-        <td colspan="8" class="text-center py-5 ${className}">
-          ${content}
-        </td>
-      </tr>`;
+    this.elements.tableBody.querySelectorAll("[data-active-session-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + className; cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   showState(message, type = "info") {

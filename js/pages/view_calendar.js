@@ -60,43 +60,66 @@ const ViewCalendarController = (() => {
         const tbody = document.getElementById('calendarBody');
         if (!tbody) return;
 
-        let html = '<tr>';
-        for (let i = 0; i < firstDay; i++) {
-            html += '<td class="text-muted p-2" style="height:90px; vertical-align:top;"></td>';
-        }
+        tbody.replaceChildren();
+        const weekTemplate = document.getElementById('calendarWeekTemplate');
+        const cellTemplate = document.getElementById('calendarDayCellTemplate');
+        const blankTemplate = document.getElementById('calendarBlankCellTemplate');
+        const eventTemplate = document.getElementById('calendarEventTemplate');
+        if (!weekTemplate || !cellTemplate || !blankTemplate || !eventTemplate) return;
 
-        for (let day = 1; day <= daysInMonth; day++) {
+        let week = weekTemplate.content.firstElementChild.cloneNode(true);
+        tbody.appendChild(week);
+        const appendBlankCell = () => week.appendChild(blankTemplate.content.firstElementChild.cloneNode(true));
+        const appendDayCell = (day) => {
             const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isToday = today.getDate() === day && today.getMonth() === currentMonth && today.getFullYear() === currentYear;
             const dayEvents = events.filter(e => {
                 const eDate = (e.start_date || e.date || '').substring(0, 10);
                 return eDate === dateStr;
             });
-
-            const cellClass = isToday ? 'bg-light border-primary' : '';
-            html += `<td class="p-1 ${cellClass}" style="height:90px; vertical-align:top; cursor:pointer;" onclick="ViewCalendarController.dayClick('${dateStr}')">`;
-            html += `<div class="fw-bold small ${isToday ? 'text-primary' : ''}">${day}</div>`;
-
+            const cell = cellTemplate.content.firstElementChild.cloneNode(true);
+            cell.dataset.date = dateStr;
+            cell.style.height = '90px';
+            cell.style.verticalAlign = 'top';
+            cell.style.cursor = 'pointer';
+            if (isToday) cell.classList.add('bg-light', 'border-primary');
+            const dayLabel = cell.querySelector('[data-field="day"]');
+            if (dayLabel) {
+                dayLabel.textContent = String(day);
+                dayLabel.classList.toggle('text-primary', isToday);
+            }
+            const eventContainer = cell.querySelector('[data-field="events"]');
             dayEvents.slice(0, 3).forEach(evt => {
                 const color = typeColors[evt.type || evt.event_type] || 'secondary';
-                html += `<div class="badge bg-${color} text-truncate d-block mb-1" style="max-width:100%; font-size:0.65rem;" title="${evt.title || evt.name}">${evt.title || evt.name}</div>`;
+                const event = eventTemplate.content.firstElementChild.cloneNode(true);
+                event.textContent = evt.title || evt.name || 'Event';
+                event.title = evt.title || evt.name || 'Event';
+                event.dataset.eventId = String(evt.id ?? '');
+                event.classList.add(`bg-${color}`);
+                event.style.maxWidth = '100%';
+                event.style.fontSize = '0.65rem';
+                eventContainer?.appendChild(event);
             });
             if (dayEvents.length > 3) {
-                html += `<small class="text-muted">+${dayEvents.length - 3} more</small>`;
+                const more = cell.querySelector('[data-field="more"]');
+                if (more) {
+                    more.textContent = `+${dayEvents.length - 3} more`;
+                    more.classList.remove('d-none');
+                }
             }
-            html += '</td>';
+            week.appendChild(cell);
+        };
 
+        for (let i = 0; i < firstDay; i++) appendBlankCell();
+        for (let day = 1; day <= daysInMonth; day++) {
+            appendDayCell(day);
             if ((firstDay + day) % 7 === 0 && day < daysInMonth) {
-                html += '</tr><tr>';
+                week = weekTemplate.content.firstElementChild.cloneNode(true);
+                tbody.appendChild(week);
             }
         }
-
         const remainingCells = (7 - (firstDay + daysInMonth) % 7) % 7;
-        for (let i = 0; i < remainingCells; i++) {
-            html += '<td class="text-muted p-2" style="height:90px; vertical-align:top;"></td>';
-        }
-        html += '</tr>';
-        tbody.innerHTML = html;
+        for (let i = 0; i < remainingCells; i++) appendBlankCell();
     }
 
     function renderUpcomingEvents() {
@@ -110,12 +133,14 @@ const ViewCalendarController = (() => {
             .sort((a, b) => new Date(a.start_date || a.date) - new Date(b.start_date || b.date))
             .slice(0, 10);
 
-        if (!upcoming.length) {
-            list.innerHTML = '<div class="list-group-item text-center text-muted py-4">No upcoming events</div>';
-            return;
-        }
-
-        list.innerHTML = upcoming.map(evt => {
+        list.querySelectorAll('[data-upcoming-event]').forEach((item) => item.remove());
+        const emptyState = document.getElementById('upcomingEventsEmpty');
+        if (emptyState) emptyState.hidden = upcoming.length > 0;
+        if (!upcoming.length) return;
+        const template = document.getElementById('upcomingEventTemplate');
+        if (!template) return;
+        const fragment = document.createDocumentFragment();
+        upcoming.forEach(evt => {
             const color = typeColors[evt.type || evt.event_type] || 'secondary';
             const date = new Date(evt.start_date || evt.date);
             const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -126,19 +151,25 @@ const ViewCalendarController = (() => {
                 : '';
             const rangeStr = [dateStr, endDate].filter(Boolean).join(' – ');
             const timeStr = [startT, endT].filter(Boolean).join(' – ');
-            return `
-                <div class="list-group-item list-group-item-action" onclick="ViewCalendarController.viewEvent(${evt.id})">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <span class="badge bg-${color} me-2">${evt.type || evt.event_type || 'event'}</span>
-                            <strong>${evt.title || evt.name}</strong>
-                        </div>
-                        <small class="text-muted">${rangeStr}${timeStr ? ' · ' + timeStr : ''}</small>
-                    </div>
-                    ${evt.description ? `<small class="text-muted d-block mt-1">${evt.description.substring(0, 60)}...</small>` : ''}
-                </div>
-            `;
-        }).join('');
+            const item = template.content.firstElementChild.cloneNode(true);
+            item.dataset.eventId = String(evt.id ?? '');
+            const typeBadge = item.querySelector('[data-field="type"]');
+            if (typeBadge) {
+                typeBadge.textContent = evt.type || evt.event_type || 'event';
+                typeBadge.classList.add(`bg-${color}`);
+            }
+            const title = item.querySelector('[data-field="title"]');
+            if (title) title.textContent = evt.title || evt.name || 'Event';
+            const datetime = item.querySelector('[data-field="datetime"]');
+            if (datetime) datetime.textContent = `${rangeStr}${timeStr ? ` · ${timeStr}` : ''}`;
+            const description = item.querySelector('[data-field="description"]');
+            if (description && evt.description) {
+                description.textContent = `${evt.description.substring(0, 60)}${evt.description.length > 60 ? '...' : ''}`;
+                description.hidden = false;
+            }
+            fragment.appendChild(item);
+        });
+        list.appendChild(fragment);
     }
 
     function dayClick(dateStr) {
@@ -213,8 +244,10 @@ const ViewCalendarController = (() => {
         const select = document.getElementById('yearFilter');
         if (!select) return;
         const now = new Date().getFullYear();
+        const template = document.getElementById('calendarYearOptionTemplate');
+        if (!template) return;
         for (let y = now - 2; y <= now + 3; y++) {
-            const opt = document.createElement('option');
+            const opt = template.content.firstElementChild.cloneNode(true);
             opt.value = y;
             opt.textContent = y;
             if (y === currentYear) opt.selected = true;
@@ -223,6 +256,16 @@ const ViewCalendarController = (() => {
     }
 
     function attachListeners() {
+        document.getElementById('calendarBody')?.addEventListener('click', (event) => {
+            const eventButton = event.target.closest('[data-event-id]');
+            if (eventButton) return viewEvent(eventButton.dataset.eventId);
+            const cell = event.target.closest('[data-date]');
+            if (cell) dayClick(cell.dataset.date);
+        });
+        document.getElementById('upcomingEventsList')?.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-upcoming-event]');
+            if (item) viewEvent(item.dataset.eventId);
+        });
         document.getElementById('addEventBtn')?.addEventListener('click', () => openModal());
         document.getElementById('saveEventBtn')?.addEventListener('click', () => save());
         document.getElementById('prevMonthBtn')?.addEventListener('click', () => navigateMonth(-1));

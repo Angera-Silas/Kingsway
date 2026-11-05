@@ -52,7 +52,7 @@ final class AiOutputGuard
         ['/\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{6,}/u', '[redacted token]'],
         ['/\bBearer\s+[A-Za-z0-9._~\+\/\-]{16,}=*/u', 'Bearer [redacted]'],
         ['#\b(?:mysql|mariadb|pgsql|postgres|sqlserver|redis|mongodb)://[^\s"\']+#iu', '[redacted connection]'],
-        ['/\b(?:[A-Za-z0-9_.\-]*[_.\-])?(?:password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret)\b(\s*[:=]\s*)(\S{4,})/iu', '$1[redacted]'],
+        ['/\b((?:[A-Za-z0-9_.\-]*[_.\-])?(?:password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret)\b\s*[:=]\s*)(\S{4,})/iu', '$1[redacted]'],
         ['/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b(?=[^\s]*\b(?:kingsway|mysql|db|database))/iu', '[redacted address]'],
 
         // Filesystem paths and code file names.

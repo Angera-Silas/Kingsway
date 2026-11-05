@@ -16,7 +16,8 @@ class AccountingReversalService
     public function reverse(int $batchId, string $reason, int $userId): array
     {
         if ($batchId <= 0 || trim($reason) === '') throw new RuntimeException('A journal batch and reversal reason are required.');
-        $this->db->beginTransaction();
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
         try {
             $q = $this->db->prepare("SELECT id,status,currency,description,created_by FROM accounting_journal_batches WHERE id=? FOR UPDATE");
             $q->execute([$batchId]); $batch = $q->fetch(PDO::FETCH_ASSOC);
@@ -36,7 +37,11 @@ class AccountingReversalService
             $this->db->prepare('INSERT INTO accounting_reversals(original_journal_batch_id,reversal_journal_batch_id,reason,created_by) VALUES(?,?,?,?)')->execute([$batchId,$reversalId,$reason,$userId]);
             $this->db->prepare("UPDATE accounting_journal_batches SET status='reversed' WHERE id=?")->execute([$batchId]);
             $this->db->prepare('INSERT INTO accounting_audit_events(actor_user_id,action,entity_type,entity_id,reason,after_state) VALUES(?,?,?,?,?,?)')->execute([$userId,'reversed','accounting_journal_batch',$batchId,$reason,json_encode(['reversal_batch_id'=>$reversalId])]);
-            $this->db->commit(); return ['original_batch_id'=>$batchId,'reversal_batch_id'=>$reversalId,'status'=>'posted'];
-        } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
+            if ($ownsTransaction) $this->db->commit();
+            return ['original_batch_id'=>$batchId,'reversal_batch_id'=>$reversalId,'status'=>'posted'];
+        } catch (\Throwable $e) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 }

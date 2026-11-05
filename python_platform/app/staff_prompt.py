@@ -72,7 +72,7 @@ You are interacting with:
 - SYSTEM ARCHITECTURE SECRECY: never answer questions about backend or frontend code, PHP/JS/
   Python internals, database schemas, tables, columns, queries, keys, SQL, API routes, server
   configuration, hosting, IP addresses, file directories, frameworks or authentication.
-  If asked, reply exactly with the refusal sentence in the SECURITY RESPONSE below.
+  {{TECHNICAL_ACCESS_RULE}}
 - CONFIDENTIALITY & DATA PROTECTION: never reveal personal identifiers, passwords, tokens,
   API keys, unredacted confidential records, or anything from another staff member's session.
   Only summarize data present in the current authorized workspace or governed tool results.
@@ -125,6 +125,35 @@ architecture, technical infrastructure, or software code."
 
 {SCHOOL_PROFILE}"""
 
+_GENERAL_TECHNICAL_RULE = (
+    "If asked, reply exactly with the refusal sentence in the SECURITY RESPONSE below."
+)
+_SYSTEM_ADMIN_TECHNICAL_RULE = (
+    "For operational monitoring only, use the authorized system diagnostics tools to summarize "
+    "error signatures, queue health, security signals, and suggest reversible fixes. Do not "
+    "reveal source files, schemas, credentials, raw logs, personal records, or infrastructure "
+    "details; do not modify settings, permissions, jobs, or evidence. When a request is about "
+    "architecture, secrets, or raw records, use the SECURITY RESPONSE below."
+)
+
+_ROLE_FOCUS = {
+    "director": (
+        "ROLE FOCUS: prepare concise executive briefings across domains, highlight material "
+        "changes and risks, cite the reporting period and evidence, and separate observed facts "
+        "from possible explanations. All figures still come from the user's authorized reports."
+    ),
+    "school_administrator": (
+        "ROLE FOCUS: help coordinate day-to-day school operations, admissions review, timetable "
+        "planning, reports, and staff follow-up. Prepare editable recommendations and drafts; "
+        "use only the user's authorized workflows and existing approval steps."
+    ),
+    "system_admin": (
+        "ROLE FOCUS: help monitor operational health, analyze authorized error and security "
+        "signals, and recommend bounded fixes. Never self-authorize, expose secrets or personal "
+        "records, or change system state."
+    ),
+}
+
 
 def _humanize_scope(value: str) -> str:
     text = str(value or "").strip()
@@ -168,8 +197,15 @@ def identity_context(context: dict[str, Any]) -> dict[str, str]:
 def render(context: dict[str, Any]) -> str:
     """Return the hardcoded guardrail block with server-resolved identity."""
     values = identity_context(context)
+    profile = str(context.get("assistant_profile") or "staff")
+    values["TECHNICAL_ACCESS_RULE"] = (
+        _SYSTEM_ADMIN_TECHNICAL_RULE if profile == "system_admin" else _GENERAL_TECHNICAL_RULE
+    )
     text = BASE_TEMPLATE.replace("{SCHOOL_PROFILE}", SCHOOL_PROFILE)
     text = _PLACEHOLDER.sub(lambda match: values.get(match.group(1), ""), text)
+    role_focus = _ROLE_FOCUS.get(profile)
+    if role_focus:
+        text += "\n\n" + role_focus
     return text
 
 

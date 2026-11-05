@@ -43,6 +43,7 @@
                 Loading operations summary...
             </div>
             <div class="row g-3 mb-3" id="systemOperationsKpis"></div>
+            <div class="alert alert-warning d-none" id="systemOperationsErrorScanNotice" role="status"></div>
             <div class="row g-3" id="systemOperationsQueue"></div>
             <hr class="my-3">
             <h6 class="mb-2">Recurring error / critical signals (24h)</h6>
@@ -63,9 +64,10 @@
                         </tr>
                     </thead>
                     <tbody id="systemOperationsRows">
-                        <tr><td class="text-center text-muted py-4" colspan="2">Loading...</td></tr>
+                        <tr id="systemOperationsRowsState"><td class="text-center text-muted py-4" colspan="2">Loading...</td></tr>
                     </tbody>
                 </table>
+                <template id="systemOperationsRowTemplate"><tr><td class="font-monospace small" data-fill="signature"></td><td><span class="badge text-bg-secondary" data-fill="count"></span></td></tr></template>
             </div>
             <div class="mt-3" id="systemOperationsDrafts"></div>
         </div>
@@ -94,7 +96,7 @@
                     </tr>
                 </thead>
                 <tbody id="systemHealthTableBody">
-                    <tr>
+                    <tr id="systemHealthTableState">
                         <td colspan="3" class="text-center py-5 text-muted">Loading health checks...</td>
                     </tr>
                 </tbody>

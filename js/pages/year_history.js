@@ -56,15 +56,21 @@ const YearHistoryController = (() => {
         el("statGraduation", "—");
     }
     function renderTable(items) {
-        const tbody = document.querySelector('#dataTable tbody');
+        const tbody = document.getElementById('yearHistoryTableBody');
         if (!tbody) return;
+        const stateRow = document.getElementById('yearHistoryTableState');
+        const stateCell = stateRow?.querySelector('td');
+        tbody.querySelectorAll('[data-year-history-row]').forEach((row) => row.remove());
         if (!items.length) {
-          tbody.innerHTML =
-            '<tr><td colspan="8" class="text-center text-muted py-4">No academic year history found</td></tr>';
+          if (stateCell) stateCell.textContent = 'No academic year history found';
+          if (stateRow) stateRow.hidden = false;
           return;
         }
-        tbody.innerHTML = items
-          .map((d, i) => {
+        if (stateRow) stateRow.hidden = true;
+        const template = document.getElementById('yearHistoryRowTemplate');
+        if (!template) return;
+        const fragment = document.createDocumentFragment();
+        items.forEach((d, i) => {
             const status = d.status || (d.is_current ? "Current" : "Completed");
             const statusColor =
               status.toLowerCase() === "current" ||
@@ -81,18 +87,30 @@ const YearHistoryController = (() => {
                   : perf > 0
                     ? "danger"
                     : "secondary";
-            return `<tr>
-                <td>${i + 1}</td>
-                <td><strong>${escapeHtml(d.name || d.year || d.academic_year || "--")}</strong></td>
-                <td>${d.start_date || "--"}</td>
-                <td>${d.end_date || "--"}</td>
-                <td>${d.terms || d.term_count || "--"}</td>
-                <td>${d.total_students || d.student_count || d.enrollment || "--"}</td>
-                <td>${perf > 0 ? `<span class="badge bg-${perfColor}">${perf.toFixed(1)}%</span>` : "--"}</td>
-                <td><span class="badge bg-${statusColor}">${status}</span></td>
-            </tr>`;
-          })
-          .join("");
+            const row = template.content.firstElementChild.cloneNode(true);
+            const set = (field, value) => {
+                const element = row.querySelector(`[data-field="${field}"]`);
+                if (element) element.textContent = value ?? "—";
+            };
+            set('number', String(i + 1));
+            set('year', d.name || d.year || d.academic_year || "--");
+            set('start', d.start_date || "--");
+            set('end', d.end_date || "--");
+            set('terms', d.terms || d.term_count || "--");
+            set('students', d.total_students || d.student_count || d.enrollment || "--");
+            const performance = row.querySelector('[data-field="performance"]');
+            if (performance) {
+                performance.textContent = perf > 0 ? `${perf.toFixed(1)}%` : "--";
+                performance.classList.add(`bg-${perfColor}`);
+            }
+            const statusElement = row.querySelector('[data-field="status"]');
+            if (statusElement) {
+                statusElement.textContent = status;
+                statusElement.classList.add(`bg-${statusColor}`);
+            }
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow || null);
     }
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
@@ -130,13 +148,6 @@ const YearHistoryController = (() => {
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
         KingswayFileLifecycle.exportText(csv, "year_history.csv", "text/csv");
-    }
-    function escapeHtml(s) {
-      return String(s || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
     }
     function showNotification(message, type) { window.showNotification(message, type); }
     return { init, refresh: loadData, exportCSV };

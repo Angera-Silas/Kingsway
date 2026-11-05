@@ -29,8 +29,9 @@ class SystemOperationsReviewService
     ];
 
     private const ERROR_WINDOW_HOURS = 24;
+    private const CLOCK_SKEW_TOLERANCE_SECONDS = 300;
     private const STALE_QUEUE_MINUTES = 15;
-    private const MAX_ENTRIES_PER_CATEGORY = 400;
+    private const MAX_ERROR_SCAN_BYTES = 134217728; // 128 MiB per request, streamed
     private const MAX_SIGNATURES = 8;
     private const MAX_CATEGORIES = 8;
     private const MAX_SIGNATURE_LENGTH = 120;
@@ -42,12 +43,23 @@ class SystemOperationsReviewService
     /** @var callable fn(string $category, int $limit): array */
     private $journalReader;
 
+    /** @var callable fn(string $category, int $since, int $budget, callable $consume): array */
+    private $journalWindowReader;
+
     public function __construct(
         ?callable $queueSummaryProvider = null,
-        ?callable $journalReader = null
+        ?callable $journalReader = null,
+        ?callable $journalWindowReader = null
     ) {
         $this->queueSummaryProvider = $queueSummaryProvider ?: static fn(): array => JobQueue::statusSummary();
         $this->journalReader = $journalReader ?: static fn(string $category, int $limit): array => FileLogger::recent($category, $limit);
+        $this->journalWindowReader = $journalWindowReader ?: ($journalReader !== null
+            ? static function (string $category, int $since, int $budget, callable $consume) use ($journalReader): array {
+                $entries = $journalReader($category, 5000);
+                foreach ($entries as $entry) if (is_array($entry)) $consume($entry);
+                return ['complete' => count($entries) < 5000, 'bytes_scanned' => 0, 'invalid_lines' => 0];
+            }
+            : static fn(string $category, int $since, int $budget, callable $consume): array => FileLogger::scanSince($category, $since, $budget, $consume));
     }
 
     /**
@@ -89,6 +101,8 @@ class SystemOperationsReviewService
             'error_total_24h' => (string) (int) ($errors['entries_24h'] ?? 0),
             'error_critical_24h' => (string) (int) ($errors['critical_24h'] ?? 0),
             'error_category_count' => (string) count($errors['categories'] ?? []),
+            'error_scan_complete' => !empty($errors['scan_complete']) ? 'yes' : 'no',
+            'error_scan_truncated_category_count' => (string) (int) ($errors['truncated_category_count'] ?? 0),
             'error_signatures' => array_values(array_slice(array_map(
                 static fn(string $item): string => $item,
                 $errors['signatures'] ?? []
@@ -143,31 +157,61 @@ class SystemOperationsReviewService
         $critical24h = 0;
         $categoryCounts = [];
         $signatureCounts = [];
+        $truncatedCategories = [];
+        $remainingBytes = self::MAX_ERROR_SCAN_BYTES;
+        $since = time() - self::ERROR_WINDOW_HOURS * 3600;
 
         foreach (self::JOURNAL_CATEGORIES as $category) {
-            foreach (($this->journalReader)($category, self::MAX_ENTRIES_PER_CATEGORY) as $entry) {
+            $consume = function ($entry) use (&$entries24h, &$critical24h, &$categoryCounts, &$signatureCounts, $since): void {
                 if (!is_array($entry)) {
-                    continue;
+                    return;
                 }
                 $level = strtolower((string) ($entry['level'] ?? ''));
                 if ($level !== 'error' && $level !== 'critical') {
-                    continue;
+                    return;
                 }
                 $timestamp = (string) ($entry['timestamp'] ?? '');
                 $parsed = strtotime($timestamp);
-                if ($parsed === false || (time() - $parsed) > self::ERROR_WINDOW_HOURS * 3600) {
-                    continue;
+                if ($parsed === false || $parsed < 1) {
+                    return;
+                }
+                $ageSeconds = time() - $parsed;
+                if (
+                    $parsed < $since
+                    || $ageSeconds < -self::CLOCK_SKEW_TOLERANCE_SECONDS
+                ) {
+                    return;
                 }
                 $entries24h++;
                 if ($level === 'critical') {
                     $critical24h++;
                 }
-                $categoryCounts[$category] = ($categoryCounts[$category] ?? 0) + 1;
+                $entryCategory = (string) ($entry['_journal_category'] ?? '');
+                if ($entryCategory !== '') $categoryCounts[$entryCategory] = ($categoryCounts[$entryCategory] ?? 0) + 1;
 
-                $message = $this->signature((string) ($entry['message'] ?? $entry['type'] ?? 'unknown'));
+                // Structured server-side diagnostics often keep a deliberately
+                // generic public log message while placing the useful,
+                // already-scrubbed failure category in exception_summary.
+                // Prefer that detail for aggregate analysis, but continue to
+                // scrub it in signature() before it can leave the journal.
+                $diagnostic = $entry['exception_summary'] ?? $entry['message'] ?? $entry['type'] ?? 'unknown';
+                $message = $this->signature(is_scalar($diagnostic) ? (string) $diagnostic : 'unknown');
                 if ($message !== '') {
                     $signatureCounts[$message] = ($signatureCounts[$message] ?? 0) + 1;
                 }
+            };
+            try {
+                $scan = (array) ($this->journalWindowReader)($category, $since, $remainingBytes, static function (array $entry) use ($consume, $category): void {
+                    $entry['_journal_category'] = $category;
+                    $consume($entry);
+                });
+                $scanned = max(0, (int) ($scan['bytes_scanned'] ?? 0));
+                $remainingBytes = max(0, $remainingBytes - $scanned);
+                if (empty($scan['complete']) || (int) ($scan['invalid_lines'] ?? 0) > 0) {
+                    $truncatedCategories[] = $category;
+                }
+            } catch (\Throwable $error) {
+                $truncatedCategories[] = $category;
             }
         }
 
@@ -179,6 +223,9 @@ class SystemOperationsReviewService
             'entries_24h' => $entries24h,
             'critical_24h' => $critical24h,
             'categories' => array_slice($categoryCounts, 0, self::MAX_CATEGORIES, true),
+            'scan_complete' => $truncatedCategories === [],
+            'truncated_category_count' => count(array_unique($truncatedCategories)),
+            'truncated_categories' => array_values(array_unique($truncatedCategories)),
             'signatures' => array_values(array_slice(array_map(
                 static fn(string $signature, int $count): string => $signature . ' (x' . $count . ')',
                 array_keys($signatureCounts),
@@ -191,6 +238,11 @@ class SystemOperationsReviewService
     /** Normalized, identity-free signature for recurring error aggregation. */
     public function signature(string $message): string
     {
+        // Error text is an untrusted model input. Apply the same credential,
+        // contact, path and infrastructure scrubber used on model output
+        // before normalizing it into an aggregate signature.
+        $scrubbed = AiOutputGuard::scrub($message);
+        $message = is_scalar($scrubbed) ? (string) $scrubbed : '';
         $normalized = strtolower(trim($message));
         $normalized = preg_replace('#https?://#', '', $normalized) ?? $normalized;
         $normalized = preg_replace('/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/', 'x', $normalized) ?? $normalized;

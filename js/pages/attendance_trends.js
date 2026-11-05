@@ -89,13 +89,18 @@ const AttendanceTrendsController = (() => {
     function renderTable(items) {
         const tbody = document.querySelector('#dataTable tbody');
         if (!tbody) return;
+        const stateRow = document.getElementById('attendanceTrendsState');
+        const template = document.getElementById('attendanceTrendRowTemplate');
+        tbody.querySelectorAll('[data-attendance-trend-row]').forEach((row) => row.remove());
         if (!items.length) {
-          tbody.innerHTML =
-            '<tr><td colspan="7" class="text-center text-muted py-4">No attendance trend data found</td></tr>';
+          const cell = stateRow?.querySelector('td');
+          if (cell) cell.textContent = 'No attendance trend data found';
+          if (stateRow) stateRow.hidden = false;
           return;
         }
-        tbody.innerHTML = items
-          .map((d, i) => {
+        if (stateRow) stateRow.hidden = true;
+        const fragment = document.createDocumentFragment();
+        items.forEach((d, i) => {
             const present = parseInt(d.present) || 0;
             const absent = parseInt(d.absent) || 0;
             const late = parseInt(d.late) || 0;
@@ -106,17 +111,20 @@ const AttendanceTrendsController = (() => {
                 : d.attendance_rate || d.percentage || 0;
             const rateColor =
               rate >= 90 ? "success" : rate >= 75 ? "warning" : "danger";
-            return `<tr>
-                <td>${i + 1}</td>
-                <td>${escapeHtml(d.date || d.week || d.period || "--")}</td>
-                <td>${escapeHtml(d.class_name || d.name || "All")}</td>
-                <td class="text-success">${present}</td>
-                <td class="text-danger">${absent}</td>
-                <td>${late}</td>
-                <td><span class="badge bg-${rateColor}">${rate}%</span></td>
-            </tr>`;
-          })
-          .join("");
+            const row = template.content.cloneNode(true);
+            row.querySelector('[data-fill="number"]').textContent = String(i + 1);
+            row.querySelector('[data-fill="date"]').textContent = d.date || d.week || d.period || "--";
+            row.querySelector('[data-fill="class"]').textContent = d.class_name || d.name || "All";
+            row.querySelector('[data-fill="present"]').textContent = String(present);
+            row.querySelector('[data-fill="absent"]').textContent = String(absent);
+            row.querySelector('[data-fill="late"]').textContent = String(late);
+            const badge = row.querySelector('[data-fill="rate"]');
+            badge.textContent = rate + "%";
+            badge.classList.add("bg-" + rateColor);
+            row.querySelector("tr").dataset.attendanceTrendRow = "1";
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow || null);
     }
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();

@@ -609,21 +609,25 @@ class CommunicationsManager extends FileLifecycleBase
             $rows[] = [null, $value];
         }
         if (!$rows) throw new \InvalidArgumentException('At least one valid recipient is required');
-        if (in_array($type, ['sms', 'whatsapp'], true)) {
-            foreach ($rows as &$row) {
+        foreach ($rows as &$row) {
+            if (in_array($type, ['sms', 'whatsapp'], true)) {
                 $normalized = \App\API\Services\PhoneNumberNormalizer::normalize((string) ($row[1] ?? ''));
                 if ($normalized === null) {
                     throw new \InvalidArgumentException('A recipient has an invalid Kenyan mobile number. Use 07XXXXXXXX, 01XXXXXXXX, or 254XXXXXXXXX.');
                 }
                 $row[1] = $normalized;
+            } else {
+                $row[1] = strtolower(trim((string) $row[1]));
             }
-            unset($row);
-            $uniqueRows = [];
-            foreach ($rows as $row) {
-                $uniqueRows[(string) ($row[0] ?? '') . ':' . $row[1]] = $row;
-            }
-            $rows = array_values($uniqueRows);
         }
+        unset($row);
+        $uniqueRows = [];
+        foreach ($rows as $row) {
+            $recipientId = (int) ($row[0] ?? 0);
+            $dedupeKey = $recipientId > 0 ? 'user:' . $recipientId : 'address:' . $row[1];
+            $uniqueRows[$dedupeKey] = $row;
+        }
+        $rows = array_values($uniqueRows);
         $recipientStatus = $recordOnly ? ($recordOnlyStatus === 'failed' ? 'failed' : 'sent') : 'queued';
         $endpointStatus = $recordOnly ? ($recordOnlyStatus === 'failed' ? 'failed' : 'sent') : 'pending';
         $recipientStmt = $this->db->prepare(
@@ -661,7 +665,9 @@ class CommunicationsManager extends FileLifecycleBase
             if ($userId < 1) return false;
             $stmt = $this->db->prepare('SELECT 1 FROM communication_recipients WHERE communication_id = ? AND recipient_id = ? LIMIT 1');
             $stmt->execute([(int) $row['id'], $userId]);
-            return (int) $row['sender_id'] === $userId || (bool) $stmt->fetchColumn();
+            if ((int) $row['sender_id'] === $userId || (bool) $stmt->fetchColumn()) return true;
+            $metadata = json_decode((string) ($row['channel_meta'] ?? ''), true);
+            return is_array($metadata) && in_array($userId, array_map('intval', (array) ($metadata['tagged_staff_user_ids'] ?? [])), true);
         }
         if ($visibility === 'teacher_parent') {
             $stmt = $this->db->prepare("SELECT 1 FROM user_roles WHERE user_id = ? AND role_id IN (7,8,9) LIMIT 1");
@@ -734,9 +740,12 @@ class CommunicationsManager extends FileLifecycleBase
         $visibility = $filters['visibility'] ?? 'all';
         $visibilityUserId = (int) ($filters['visibility_user_id'] ?? 0);
         if ($visibility === 'self_or_tagged' && $visibilityUserId > 0) {
-            $sql .= " AND (sender_id = :visibility_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = communications.id AND cr_scope.recipient_id = :visibility_recipient))";
+            $sql .= " AND (sender_id = :visibility_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = communications.id AND cr_scope.recipient_id = :visibility_recipient) OR JSON_CONTAINS(COALESCE(channel_meta, JSON_OBJECT()), :visibility_tagged_user, '$.tagged_staff_user_ids'))";
             $params[':visibility_user'] = $visibilityUserId;
             $params[':visibility_recipient'] = $visibilityUserId;
+            $params[':visibility_tagged_user'] = (string) $visibilityUserId;
+        } elseif ($visibility === 'self_or_tagged') {
+            $sql .= ' AND 1 = 0';
         } elseif ($visibility === 'teacher_parent') {
             $sql .= " AND EXISTS (SELECT 1 FROM user_roles sender_role WHERE sender_role.user_id = communications.sender_id AND sender_role.role_id IN (7, 8, 9)) AND (sender_signature LIKE '%parent%' OR sender_signature LIKE '%selected_students%' OR sender_signature LIKE '%selected_class%' OR EXISTS (SELECT 1 FROM communication_recipients cr_parent JOIN users parent_user ON parent_user.id = cr_parent.recipient_id JOIN parents parent_record ON parent_record.person_id = parent_user.person_id WHERE cr_parent.communication_id = communications.id))";
         }
@@ -761,6 +770,48 @@ class CommunicationsManager extends FileLifecycleBase
             return $this->decorateRow($row);
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
         return $this->attachRecipientSummaries($rows);
+    }
+
+    public function searchStaffTags(string $term = ''): array
+    {
+        $directory = ReadReplicaService::qualifiedRef('staff_directory');
+        $sql = "SELECT user_id, full_name, email FROM {$directory}
+                 WHERE staff_status = 'active' AND user_status = 'active'";
+        $params = [];
+        $term = trim($term);
+        if ($term !== '') {
+            $sql .= ' AND (full_name LIKE ? OR email LIKE ?)';
+            $like = '%' . $term . '%';
+            $params = [$like, $like];
+        }
+        $sql .= ' ORDER BY full_name LIMIT 50';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return array_map(static function (array $row): array {
+            return ['user_id' => (int) $row['user_id'], 'name' => (string) $row['full_name'], 'email' => (string) ($row['email'] ?? '')];
+        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function getStaffTagRecipients(array $userIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn (int $id): bool => $id > 0)));
+        if ($ids === []) return [];
+        $directory = ReadReplicaService::qualifiedRef('staff_directory');
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare("SELECT user_id, email FROM {$directory} WHERE user_id IN ({$marks}) AND staff_status = 'active' AND user_status = 'active' AND email IS NOT NULL AND email <> ''");
+        $stmt->execute($ids);
+        return array_map(static fn (array $row): array => ['user_id' => (int) $row['user_id'], 'email' => (string) $row['email']], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function validateStaffTagUserIds(array $userIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn (int $id): bool => $id > 0)));
+        if ($ids === []) return [];
+        $directory = ReadReplicaService::qualifiedRef('staff_directory');
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare("SELECT user_id FROM {$directory} WHERE user_status = 'active' AND staff_status = 'active' AND user_id IN ({$marks})");
+        $stmt->execute($ids);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
     /**

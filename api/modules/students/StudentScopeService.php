@@ -365,7 +365,7 @@ class StudentScopeService
 
     private function currentAcademicYearId(): ?int
     {
-        $stmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1");
+        $stmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
         $id = $stmt->fetchColumn();
         return $id ? (int) $id : null;
     }
