@@ -76,7 +76,7 @@ final class StaffTeachingAssignmentService
     private function currentYearId(): int
     {
         $id = (int)$this->db->query(
-            "SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1"
+            "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
         )->fetchColumn();
         if (!$id) throw new RuntimeException('No active academic year configured', 422);
         return $id;

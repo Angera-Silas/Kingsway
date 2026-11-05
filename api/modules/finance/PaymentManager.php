@@ -635,6 +635,29 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $stmt->execute(["\n" . $reversalNote, $paymentId]);
 
+            // The payment-status trigger releases extra-charge allocations.
+            // Reverse every posted journal linked to this payment in the same
+            // transaction so the receivable and charge-income accounts also
+            // return to their pre-payment balances.
+            $journalStmt = $this->db->prepare(
+                "SELECT j.id
+                   FROM accounting_source_links l
+                   JOIN accounting_journal_batches j ON j.id=l.journal_batch_id
+                  WHERE l.source_type IN ('payment','payment_extra_charge_allocation')
+                    AND l.source_id=? AND j.status='posted'
+                  ORDER BY CASE WHEN l.source_type='payment' THEN 0 ELSE 1 END,j.id
+                  FOR UPDATE"
+            );
+            $journalStmt->execute([(int) $paymentId]);
+            $reversalService = new \App\API\Services\AccountingReversalService($this->db);
+            foreach ($journalStmt->fetchAll(PDO::FETCH_COLUMN) as $journalId) {
+                $reversalService->reverse(
+                    (int) $journalId,
+                    'Source learner payment reversed: ' . trim((string) $data['reason']),
+                    (int) $data['reversed_by']
+                );
+            }
+
             // Reversing the payment status is sufficient: the fee balance views
             // (vw_student_fee_balances) only count payments with a confirmed
             // status, so a reversed payment no longer contributes to amount_paid.

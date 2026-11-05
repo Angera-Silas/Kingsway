@@ -39,7 +39,7 @@ final class AttendanceAiScopeService
         if ($staffId < 1) return false;
 
         $yearId = (int) ($pdo->query(
-            "SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1"
+            "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
         )->fetchColumn() ?: 0);
         if ($yearId < 1) return false;
 

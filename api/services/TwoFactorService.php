@@ -553,13 +553,14 @@ class TwoFactorService
     // ========================================================================
 
     /**
-     * Determine the mandatory login verification method after password login.
-     * Prefer email, then SMS, then an enrolled authenticator/passkey.
+     * Determine the default login method after password login.
+     * Honor a verified account preference; otherwise prefer SMS, then email,
+     * authenticator app, and passkey when each factor is usable.
      */
     public function getRequiredMethod(int $userId): ?string
     {
         $stmt = $this->db->prepare(
-            "SELECT two_factor_enabled, two_factor_method
+            "SELECT two_factor_enabled, two_factor_method, two_factor_verified_at
              FROM users WHERE id = ? AND status = 'active'"
         );
         $stmt->execute([$userId]);
@@ -567,31 +568,21 @@ class TwoFactorService
 
         if (!$row) return null;
 
-        // Contact OTP remains the default, while the post-password chooser
-        // exposes every other enrolled factor the account can use.
-        $contact = $this->getUserContact($userId);
-        $email = trim((string) ($contact['email'] ?? ''));
-        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) return 'email';
-        $phone = trim((string) ($contact['phone_1'] ?? ''));
-        if (\App\API\Services\PhoneNumberNormalizer::normalize($phone) !== null) return 'sms';
+        $available = $this->getAvailableLoginMethods($userId);
+        if ($available === []) return null;
 
-        // Accounts without a deliverable email or phone may still use an
-        // already enrolled authenticator or passkey.
-        $configuredMethod = strtolower(trim((string) ($row['two_factor_method'] ?? '')));
-        if ($configuredMethod === 'passkey') {
-            $passkeys = $this->db->prepare('SELECT COUNT(*) FROM user_passkeys WHERE user_id = ?');
-            $passkeys->execute([$userId]);
-            if ((int) $passkeys->fetchColumn() > 0) return 'passkey';
+        // A timestamp is set only when a factor is verified or the user
+        // explicitly changes their primary preference. The database's legacy
+        // DEFAULT 'email' therefore does not override the new SMS default.
+        $preferred = strtolower(trim((string) ($row['two_factor_method'] ?? '')));
+        if (!empty($row['two_factor_verified_at']) && in_array($preferred, $available, true)) {
+            return $preferred;
         }
-        $enrolled = $this->db->prepare(
-            "SELECT method FROM user_two_factor_methods
-             WHERE user_id = ? AND is_enabled = 1
-               AND method = 'totp'
-             ORDER BY is_primary DESC, id ASC LIMIT 1"
-        );
-        $enrolled->execute([$userId]);
-        $fallback = strtolower(trim((string)($enrolled->fetchColumn() ?: '')));
-        return $fallback === 'totp' ? $fallback : null;
+
+        foreach (['sms', 'email', 'totp', 'passkey', 'whatsapp'] as $defaultMethod) {
+            if (in_array($defaultMethod, $available, true)) return $defaultMethod;
+        }
+        return null;
     }
 
     /**
@@ -615,7 +606,6 @@ class TwoFactorService
         $stmt = $this->db->prepare("SELECT method FROM user_two_factor_methods WHERE user_id=? AND is_enabled=1 ORDER BY is_primary DESC, id ASC");
         $stmt->execute([$userId]);
         $methods = array_values(array_unique(array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'method')));
-        if (!$methods) { $primary = $this->getRequiredMethod($userId); if ($primary) $methods[] = $primary; }
         $passkeys = $this->db->prepare("SELECT COUNT(*) FROM user_passkeys WHERE user_id=?"); $passkeys->execute([$userId]);
         if ((int) $passkeys->fetchColumn() > 0) $methods[] = 'passkey';
         return $methods;
@@ -631,9 +621,23 @@ class TwoFactorService
         $isParent = \App\API\Modules\parent\ParentPortalManager::isParentAccount($this->db, $userId);
         $available = [];
 
-        foreach (['email', 'sms', 'whatsapp', 'totp', 'passkey'] as $method) {
+        foreach (['sms', 'email', 'totp', 'passkey', 'whatsapp'] as $method) {
             $contactChannel = in_array($method, ['email', 'sms'], true);
-            if (!$contactChannel && !in_array($method, $enabled, true)) continue;
+            if ($method === 'totp') {
+                $totp = $this->db->prepare(
+                    "SELECT secret_ciphertext FROM user_two_factor_methods
+                     WHERE user_id = ? AND method = 'totp' AND is_enabled = 1 LIMIT 1"
+                );
+                $totp->execute([$userId]);
+                $ciphertext = $totp->fetchColumn();
+                if ((!$ciphertext || !$this->decryptSecret((string) $ciphertext)) && !$this->getSecret($userId)) continue;
+            } elseif ($method === 'passkey') {
+                $passkeys = $this->db->prepare('SELECT COUNT(*) FROM user_passkeys WHERE user_id = ?');
+                $passkeys->execute([$userId]);
+                if ((int) $passkeys->fetchColumn() < 1) continue;
+            } elseif (!$contactChannel && !in_array($method, $enabled, true)) {
+                continue;
+            }
             if ($method === 'email' && ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL))) continue;
             if (in_array($method, ['sms', 'whatsapp'], true)
                 && ($phone === '' || \App\API\Services\PhoneNumberNormalizer::normalize($phone) === null)) continue;
@@ -781,14 +785,20 @@ class TwoFactorService
      */
     public function getUserContact(int $userId): array
     {
-        $stmt = $this->db->prepare("SELECT email, phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE user_id = ?");
-        $stmt->execute([$userId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $stmt = $this->db->prepare("SELECT email, phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        return [
-            'email'   => $row['email'] ?? null,
-            'phone_1' => $row['phone_1'] ?? null,
-        ];
+            return [
+                'email'   => $row['email'] ?? null,
+                'phone_1' => $row['phone_1'] ?? null,
+            ];
+        } catch (\PDOException $e) {
+            // Users table may lack email/phone columns (e.g., test env SQLite).
+            // Return empty contact info and let the caller handle it.
+            return ['email' => null, 'phone_1' => null];
+        }
     }
 
     /** Store an encrypted pending TOTP setup secret with a 15-minute TTL. */

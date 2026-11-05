@@ -78,8 +78,8 @@ class AttendanceManager extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT id
              FROM academic_years
-             WHERE is_current = 1 OR status = 'active'
-             ORDER BY is_current DESC, id DESC
+             WHERE is_current = 1
+             ORDER BY id DESC
              LIMIT 1"
         );
         $stmt->execute();

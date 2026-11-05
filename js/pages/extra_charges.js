@@ -11,6 +11,9 @@
     var academicYears = [];
     var glAccounts = [];
     var classes = [];
+    var studentTypes = [];
+    var students = [];
+    var parents = [];
     var currentYearId = null;
 
     function escHtml(str) {
@@ -68,6 +71,24 @@
         } catch (e) {
             classes = [];
         }
+
+        try {
+            var typesRes = await window.API.finance.listStudentTypes();
+            var typesData = typesRes?.data || typesRes;
+            studentTypes = Array.isArray(typesData) ? typesData : (typesData.student_types || typesData.types || []);
+        } catch (e) {
+            studentTypes = [];
+        }
+
+        try {
+            var studentRes = await window.API.students.getAll({ limit: 500, offset: 0, status: 'active' });
+            students = Array.isArray(studentRes?.data) ? studentRes.data : [];
+        } catch (e) { students = []; }
+        try {
+            var parentRes = await window.API.students.getParentsList({ limit: 500, offset: 0, status: 'active' });
+            var parentData = parentRes?.data?.data || parentRes?.data || parentRes;
+            parents = Array.isArray(parentData) ? parentData : (parentData.parents || parentData.items || []);
+        } catch (e) { parents = []; }
     }
 
     async function loadCharges() {
@@ -134,7 +155,9 @@
             var amountStr;
             if (hasTiers) {
                 amountStr = c.pricing_tiers.map(function (t) {
-                    return '<div><small>' + escHtml(t.label || 'Tier') + ': '
+                    var condition = String(t.condition || 'default');
+                    var conditionLabel = condition === 'default' ? 'All eligible learners' : condition.replace(/^new$/, 'new_parent').replace(/^existing$/, 'existing_parent').replace(/^class:/, 'Class ').replace(/^student_type:/, 'Learner type ').replaceAll('_', ' ');
+                    return '<div><small>' + escHtml(t.label || 'Tier') + ' · ' + escHtml(conditionLabel) + ': '
                         + Number(t.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 }) + '</small></div>';
                 }).join('');
             } else {
@@ -145,9 +168,14 @@
             }
 
             var targetStr = targetLabels[c.target_scope] || c.target_scope;
-            if (c.target_scope === 'specific_class' && c.class_name) {
-                targetStr += '<br><small class="text-muted">' + escHtml(c.class_name) + '</small>';
-            }
+            var chargeClasses = (c.class_ids || (c.class_id ? [c.class_id] : [])).map(function (id) { var item = classes.find(function (x) { return String(x.id) === String(id); }); return item?.name || item?.class_name || c.class_name || ('Class ' + id); });
+            var chargeTypes = (c.student_type_ids || (c.student_type_id ? [c.student_type_id] : [])).map(function (id) { var item = studentTypes.find(function (x) { return String(x.id) === String(id); }); return item?.name || item?.code || ('Type ' + id); });
+            if (chargeClasses.length) targetStr += '<br><small class="text-muted">Classes: ' + chargeClasses.map(escHtml).join(', ') + '</small>';
+            if (chargeTypes.length) targetStr += '<br><small class="text-muted">Learner types: ' + chargeTypes.map(escHtml).join(', ') + '</small>';
+            var selectedStudents = (c.student_ids || []).map(function (id) { var item = students.find(function (x) { return String(x.id) === String(id); }); return item?.full_name || item?.student_name || item?.name || ('Learner ' + id); });
+            var selectedParents = (c.parent_ids || []).map(function (id) { var item = parents.find(function (x) { return String(x.id) === String(id); }); return item?.full_name || item?.name || [item?.first_name, item?.last_name].filter(Boolean).join(' ') || ('Parent ' + id); });
+            if (selectedStudents.length) targetStr += '<br><small class="text-muted">Selected learners: ' + selectedStudents.map(escHtml).join(', ') + '</small>';
+            if (selectedParents.length) targetStr += '<br><small class="text-muted">Selected parents: ' + selectedParents.map(escHtml).join(', ') + '</small>';
 
             var actions = '';
             if (canEdit) actions += '<button class="btn btn-outline-primary btn-sm me-1" onclick="window.extraCharges.edit(' + c.id + ')" title="Edit"><i class="bi bi-pencil"></i></button>';
@@ -193,7 +221,11 @@
             container.innerHTML = '';
             return;
         }
+        var conditions = [['default', 'All eligible learners'], ['new_parent', 'New parent'], ['existing_parent', 'Existing parent'], ['new_student', 'New learner'], ['existing_student', 'Existing learner']]
+            .concat(classes.map(function (c) { return ['class:' + c.id, 'Class: ' + (c.name || c.class_name || c.id)]; }))
+            .concat(studentTypes.map(function (t) { return ['student_type:' + (t.code || t.name || t.id), 'Learner type: ' + (t.name || t.code || t.id)]; }));
         container.innerHTML = tiers.map(function (t, idx) {
+            var condition = ({ new: 'new_parent', existing: 'existing_parent' })[String(t.condition || '')] || t.condition || 'default';
             return '<div class="row g-2 mb-2 tier-row" data-tier-idx="' + idx + '">'
                 + '<div class="col-md-4">'
                 + '<input type="text" class="form-control form-control-sm tier-label" placeholder="Label (e.g. New Parents)" value="' + escHtml(t.label || '') + '">'
@@ -202,7 +234,7 @@
                 + '<input type="number" class="form-control form-control-sm tier-amount" placeholder="Amount" min="0" step="0.01" value="' + (t.amount || '') + '">'
                 + '</div>'
                 + '<div class="col-md-3">'
-                + '<input type="text" class="form-control form-control-sm tier-condition" placeholder="Condition (e.g. new)" value="' + escHtml(t.condition || '') + '">'
+                + '<select class="form-select form-select-sm tier-condition" aria-label="Who pays this tier">' + conditions.map(function (option) { return '<option value="' + escHtml(option[0]) + '"' + (condition === option[0] ? ' selected' : '') + '>' + escHtml(option[1]) + '</option>'; }).join('') + '</select>'
                 + '</div>'
                 + '<div class="col-md-2">'
                 + '<button type="button" class="btn btn-outline-danger btn-sm w-100 btn-remove-tier" data-idx="' + idx + '"><i class="bi bi-x"></i></button>'
@@ -228,7 +260,7 @@
     function addTier() {
         var container = document.getElementById('pricingTiersContainer');
         var existing = collectTiers() || [];
-        existing.push({ label: '', amount: 0, condition: '' });
+        existing.push({ label: '', amount: 0, condition: 'default' });
         renderTiers(existing);
     }
 
@@ -243,15 +275,39 @@
     function updateTargetScopeUI() {
         var scope = document.getElementById('chargeTargetScope').value;
         var classGroup = document.getElementById('classSelectGroup');
-        classGroup.style.display = scope === 'specific_class' ? '' : 'none';
+        var admissionGroup = document.getElementById('admissionConditionGroup');
+        if (admissionGroup) admissionGroup.style.display = scope === 'new_admissions' ? '' : 'none';
+        classGroup.style.display = '';
+        populateTargetingSelects();
+    }
 
-        if (scope === 'specific_class') {
-            var sel = document.getElementById('chargeClassId');
-            sel.innerHTML = '<option value="">Select Class</option>';
-            classes.forEach(function (c) {
-                sel.innerHTML += '<option value="' + c.id + '">' + escHtml(c.name) + '</option>';
-            });
-        }
+    function populateTargetingSelects(selectedClassIds, selectedTypeIds, selectedStudentIds, selectedParentIds) {
+        var classSel = document.getElementById('chargeClassIds');
+        var typeSel = document.getElementById('chargeStudentTypeIds');
+        var studentSel = document.getElementById('chargeStudentIds');
+        var parentSel = document.getElementById('chargeParentIds');
+        var classValues = (selectedClassIds || Array.from(classSel.selectedOptions || []).map(function (o) { return String(o.value); })).map(String);
+        var typeValues = (selectedTypeIds || Array.from(typeSel.selectedOptions || []).map(function (o) { return String(o.value); })).map(String);
+        var studentValues = (selectedStudentIds || Array.from(studentSel.selectedOptions || []).map(function (o) { return String(o.value); })).map(String);
+        var parentValues = (selectedParentIds || Array.from(parentSel.selectedOptions || []).map(function (o) { return String(o.value); })).map(String);
+        classSel.innerHTML = classes.map(function (c) {
+            var id = String(c.id);
+            return '<option value="' + escHtml(id) + '"' + (classValues.indexOf(id) >= 0 ? ' selected' : '') + '>' + escHtml(c.name || c.class_name || ('Class ' + id)) + '</option>';
+        }).join('');
+        typeSel.innerHTML = studentTypes.map(function (t) {
+            var id = String(t.id);
+            return '<option value="' + escHtml(id) + '"' + (typeValues.indexOf(id) >= 0 ? ' selected' : '') + '>' + escHtml(t.name || t.code) + '</option>';
+        }).join('');
+        studentSel.innerHTML = students.map(function (s) {
+            var id = String(s.id);
+            var name = s.full_name || s.student_name || s.name || [s.first_name, s.last_name].filter(Boolean).join(' ') || ('Learner ' + id);
+            return '<option value="' + escHtml(id) + '"' + (studentValues.includes(id) ? ' selected' : '') + '>' + escHtml(name + (s.admission_no ? ' · ' + s.admission_no : '')) + '</option>';
+        }).join('');
+        parentSel.innerHTML = parents.map(function (p) {
+            var id = String(p.id);
+            var name = p.full_name || p.name || [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(' ') || ('Parent ' + id);
+            return '<option value="' + escHtml(id) + '"' + (parentValues.includes(id) ? ' selected' : '') + '>' + escHtml(name + (p.phone_1 || p.phone ? ' · ' + (p.phone_1 || p.phone) : '')) + '</option>';
+        }).join('');
     }
 
     function populateGLAccounts() {
@@ -302,25 +358,32 @@
             visible_on_fee_structure: document.getElementById('chargeVisible').checked ? 1 : 0,
             gl_account_id: document.getElementById('chargeGLAccount').value || null,
             target_scope: document.getElementById('chargeTargetScope').value,
+            admission_condition: document.getElementById('chargeAdmissionCondition')?.value || 'any_new_admission',
             starts_on: document.getElementById('chargeStartsOn').value || null,
             ends_on: document.getElementById('chargeEndsOn').value || null,
             due_day: parseInt(document.getElementById('chargeDueDay').value) || null,
             academic_year_term_id: parseInt(document.getElementById('chargeTermId').value) || null,
             class_id: null,
+            class_ids: Array.from(document.getElementById('chargeClassIds').selectedOptions).map(function (o) { return parseInt(o.value, 10); }).filter(Boolean),
+            student_type_ids: Array.from(document.getElementById('chargeStudentTypeIds').selectedOptions).map(function (o) { return parseInt(o.value, 10); }).filter(Boolean),
+            student_ids: Array.from(document.getElementById('chargeStudentIds').selectedOptions).map(function (o) { return parseInt(o.value, 10); }).filter(Boolean),
+            parent_ids: Array.from(document.getElementById('chargeParentIds').selectedOptions).map(function (o) { return parseInt(o.value, 10); }).filter(Boolean),
             description: document.getElementById('chargeDescription').value.trim(),
             display_order: parseInt(document.getElementById('chargeDisplayOrder').value) || 0,
             pricing_tiers: collectTiers(),
         };
 
         if (!data.name) return notify('Name is required', 'error');
-        if (data.amount <= 0) return notify('Amount must be greater than zero', 'error');
+        if (data.pricing_tiers?.length) data.amount = data.amount || Number(data.pricing_tiers[0].amount);
+        if (data.amount <= 0) return notify('Enter a base amount or at least one pricing tier', 'error');
 
         if (data.calculation_mode === 'per_unit') {
             data.unit_price = parseFloat(document.getElementById('chargeUnitPrice').value) || 0;
         }
 
         if (data.target_scope === 'specific_class') {
-            data.class_id = parseInt(document.getElementById('chargeClassId').value) || null;
+            if (!data.class_ids.length) return notify('Select at least one class', 'error');
+            data.class_id = data.class_ids[0];
         }
 
         var yearId = document.getElementById('chargeAcademicYearId').value || document.getElementById('filterYear').value;
@@ -363,6 +426,7 @@
             document.getElementById('chargeBillingFreq').value = c.billing_frequency || 'one_time';
             document.getElementById('chargeVisible').checked = !!c.visible_on_fee_structure;
             document.getElementById('chargeTargetScope').value = c.target_scope || 'all_students';
+            document.getElementById('chargeAdmissionCondition').value = c.admission_condition || 'any_new_admission';
             document.getElementById('chargeDescription').value = c.description || '';
             document.getElementById('chargeDisplayOrder').value = c.display_order || 0;
             document.getElementById('chargeAcademicYearId').value = c.academic_year_id || '';
@@ -377,12 +441,7 @@
 
             updateCalcModeUI();
             updateTargetScopeUI();
-
-            if (c.target_scope === 'specific_class' && c.class_id) {
-                setTimeout(function () {
-                    document.getElementById('chargeClassId').value = c.class_id;
-                }, 100);
-            }
+            populateTargetingSelects(c.class_ids || (c.class_id ? [c.class_id] : []), c.student_type_ids || (c.student_type_id ? [c.student_type_id] : []), c.student_ids || [], c.parent_ids || []);
 
             renderTiers(c.pricing_tiers || []);
 

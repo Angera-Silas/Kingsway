@@ -92,7 +92,7 @@ class ExaminationWorkflow extends WorkflowHandler {
              FROM student_academic_enrollments
              WHERE student_id = ?
                AND academic_year_class_stream_id = ?
-               AND enrollment_status IN ('pending', 'active')
+               AND enrollment_status IN ('pending', 'active', 'completed')
              ORDER BY id DESC LIMIT 1"
         );
         $stmt->execute([(int) $studentId, $aycsId]);

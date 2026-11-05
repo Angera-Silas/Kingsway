@@ -57,6 +57,9 @@ class BaseAPI extends FileLifecycleBase
     {
         // Initialize database connection
         $this->db = Database::getInstance()->getConnection();
+        // All API SQL time functions follow Kenya civil time, matching PHP and
+        // Node calendar generation. Nairobi has no daylight-saving changes.
+        $this->db->exec("SET time_zone = '+03:00'");
         $this->module = $module;
         $this->user_id = $this->getCurrentUserId();
         $this->request_id = uniqid('req_');
@@ -87,6 +90,53 @@ class BaseAPI extends FileLifecycleBase
         // Request outcomes are logged once by ControllerRouter after the
         // response is known. Constructor-time logging caused duplicate inbound
         // traces whenever controllers composed multiple legacy API services.
+    }
+
+    /**
+     * Lowercase role names of the current user.
+     *
+     * Read from $_SERVER['auth_user']['roles'] when the token carried them;
+     * otherwise resolved once from user_roles/roles. Used by cross-cutting
+     * guards such as CompletedYearWriteGuard.
+     */
+    protected function currentRoleNames(): array
+    {
+        static $resolved = null;
+        if ($resolved !== null) return $resolved;
+
+        $authRoles = $_SERVER['auth_user']['roles'] ?? $_SERVER['auth_user']['role_names'] ?? null;
+        if (is_string($authRoles)) $authRoles = preg_split('/[|,]/', $authRoles) ?: [];
+        if (is_array($authRoles) && $authRoles) {
+            $resolved = array_values(array_filter(array_map(
+                static fn($role) => is_string($role) ? strtolower(trim($role)) : '',
+                $authRoles
+            )));
+            return $resolved;
+        }
+
+        $userId = $this->getCurrentUserId();
+        if (!$userId) {
+            $resolved = [];
+            return $resolved;
+        }
+
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT r.name FROM user_roles ur
+                 JOIN roles r ON r.id = ur.role_id
+                 WHERE ur.user_id = ?"
+            );
+            $stmt->execute([$userId]);
+            $names = $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+            $resolved = array_values(array_map(
+                static fn($name) => strtolower(trim((string) $name)),
+                $names
+            ));
+        } catch (Exception $e) {
+            $resolved = [];
+        }
+
+        return $resolved;
     }
 
     protected function getCurrentUserId()

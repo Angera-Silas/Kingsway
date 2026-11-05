@@ -603,6 +603,17 @@ class PaymentsAPI extends BaseAPI
                 ]);
                 $spStmt->closeCursor();
 
+                $postedPayment = $this->db->prepare('SELECT id FROM payments WHERE receipt_no=? ORDER BY id DESC LIMIT 1');
+                $postedPayment->execute([$receiptNo]);
+                $postedPaymentId = (int) ($postedPayment->fetchColumn() ?: 0);
+                if ($postedPaymentId > 0) {
+                    $feesAccount = (new \App\API\Services\payments\FinancialAccountService($this->db))->requireFor(0, 'fees', 'safaricom_c2b');
+                    (new FinancialPostingCoordinator($this->db))->postIncoming(
+                        'payment', $postedPaymentId, (int) $feesAccount['id'], 'fees',
+                        (string) $amount, $systemUserId, $mpesaCode
+                    );
+                }
+
                 // Log webhook
                 \App\API\Includes\FileLogger::write('payments', [
                     'type' => 'webhook',
@@ -2390,6 +2401,13 @@ class PaymentsAPI extends BaseAPI
                 );
                 $ptStmt->execute([$mpesaCode]);
                 $paymentId = $ptStmt->fetchColumn() ?: null;
+                if ($paymentId) {
+                    $feesAccount = (new \App\API\Services\payments\FinancialAccountService($this->db))->requireFor(0, 'fees', 'safaricom_c2b');
+                    (new FinancialPostingCoordinator($this->db))->postIncoming(
+                        'payment', (int) $paymentId, (int) $feesAccount['id'], 'fees',
+                        (string) $amount, (int) ($userId ?? $this->user_id ?? 1), (string) $mpesaCode
+                    );
+                }
                 $feeAllocated = true;
             } elseif ($studentId && $accountType === 'transport') {
                 // Allocate FIFO across the student's outstanding transport bills

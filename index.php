@@ -54,6 +54,7 @@ $pageScript = 'home';
 // Public pages keep the CSP header + Composer autoloader; the dynamic sections
 // below are rendered by js/pages/public/home.js via /api/website/* (PublicSite).
 require_once __DIR__ . '/public/layout/public_data.php';
+$showCookieConsent = true;
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 

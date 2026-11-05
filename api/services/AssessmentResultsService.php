@@ -1175,7 +1175,7 @@ final class AssessmentResultsService
              LEFT JOIN " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
                ON ar.student_academic_enrollment_id = sae.id AND ar.assessment_id = ? AND ar.deleted_at IS NULL
              WHERE sae.academic_year_class_stream_id = ?
-               AND sae.enrollment_status IN ('pending','active')
+               AND sae.enrollment_status IN ('pending','active','completed')
              ORDER BY p.first_name, p.middle_name, p.last_name, s.admission_no"
         );
         $stmt->execute([$assessmentId, $classStreamId]);
@@ -1220,7 +1220,7 @@ final class AssessmentResultsService
     {
         $stmt = $this->db->prepare(
             "SELECT student_id, id FROM student_academic_enrollments
-             WHERE academic_year_class_stream_id = ? AND enrollment_status IN ('pending','active')"
+             WHERE academic_year_class_stream_id = ? AND enrollment_status IN ('pending','active','completed')"
         );
         $stmt->execute([$classStreamId]);
         $map = [];

@@ -145,6 +145,14 @@ class DashboardController extends BaseController
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
         }
         $context = $this->buildAssistantContext((array) $data, $userId);
+
+        // Explicit workflow authorization at the HTTP boundary (Gate 3)
+        try {
+            $this->contract(AiWorkflowService::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
             $context['permissions'] = $permissions;
@@ -230,6 +238,13 @@ class DashboardController extends BaseController
 
         $context = $this->buildAssistantContext((array) $data, $userId);
 
+        // Explicit workflow authorization at the HTTP boundary (Gate 3)
+        try {
+            $this->contract(AiWorkflowService::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
             $context['permissions'] = $permissions;
@@ -296,6 +311,72 @@ class DashboardController extends BaseController
     }
 
     /**
+     * POST /api/dashboard/draft-state-stream
+     *
+     * Server-sent events handshake for draft state clients.
+     *
+     * Draft lifecycle notifications are delivered through the authenticated
+     * notification inbox. This endpoint intentionally does not read shared
+     * journals or broadcast draft records across workflow scopes.
+     *
+     * Authorization: same authenticated operator, same permission checks as
+     * the buffered draft approval path — the AI workflow must have been
+     * authorized via AiWorkflowService::authorize() at the HTTP boundary
+     * before draft state changes are relevant.
+     */
+    public function postDraftStateStream($id = null, $data = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $context = $this->buildAssistantContext((array) $data, $userId);
+
+        // Gate 3: Explicit workflow authorization at the HTTP boundary before
+        // any draft state changes are streamed. This mirrors the pattern in
+        // postAgentAssistStream and postAgentAssist — authorization must happen
+        // at the controller boundary, not just inside AiWorkflowService::prepare().
+        try {
+            $this->contract(AiWorkflowService::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+            $isSystemAdmin = in_array('system_admin', $permissions, true);
+            $context['system_admin'] = $isSystemAdmin;
+            $context['assistant_domain'] = $isSystemAdmin ? 'system_admin' : 'staff';
+
+            $this->beginEventStream();
+
+            // Do not read shared journals here. They contain events from
+            // unrelated users and workflows, and are not an authorization source.
+            $this->writeEventChunk($this->eventChunk('status', [
+                'text' => 'Draft state stream connected. Updates are available in notifications.',
+            ]));
+
+            $this->endEventStream();
+            return null;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] draft state stream failed: ' . $e->getMessage());
+            try {
+                $this->writeEventChunk($this->eventChunk('error', [
+                    'message' => 'I couldn’t stream draft state. Please try again.',
+                    'terminal' => true,
+                ]));
+            } catch (\Throwable $e2) {
+                // best-effort: ignore if stream already closed
+            }
+            $this->endEventStream();
+            return null;
+        }
+    }
+
+    /**
      * POST /api/dashboard/agent-stream-context
      * Issue the authenticated, server-derived envelope for Node's direct
      * Python stream. Node transports events; PHP remains the identity and
@@ -318,6 +399,14 @@ class DashboardController extends BaseController
         $context['effective_permissions'] = $permissions;
         $context['system_admin'] = in_array('system_admin', $permissions, true);
         $context['assistant_domain'] = $context['system_admin'] ? 'system_admin' : 'staff';
+
+        // Explicit workflow authorization at the HTTP boundary (Gate 3)
+        try {
+            $this->contract(AiWorkflowService::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
         return $this->success(['context' => $context], 'Assistant context authorized');
     }
 

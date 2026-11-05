@@ -3,6 +3,7 @@
 namespace App\API\Services;
 
 use App\API\Includes\FileLogger;
+use App\API\Services\NotificationService;
 use PDO;
 use DomainException;
 
@@ -33,6 +34,9 @@ class AiDraftService
     /** @var callable(PDO,int):array|null */
     private $learnerSupportRoleResolver;
 
+    /** @var NotificationService|null */
+    private $notificationService;
+
     public function __construct(
         ?AiCompletionProvider $provider = null,
         ?AiPromptTemplateService $templates = null,
@@ -51,6 +55,7 @@ class AiDraftService
         $this->attendanceScopeChecker = $attendanceScopeChecker;
         $this->learnerSupportInputBuilder = $learnerSupportInputBuilder;
         $this->learnerSupportRoleResolver = $learnerSupportRoleResolver;
+        $this->notificationService = null;
     }
 
     /** Convert scoped learner score rows into a deterministic, anonymous review payload. */
@@ -209,6 +214,21 @@ class AiDraftService
             'prompt_hash' => hash('sha256', $prompt['content']),
             'status' => 'pending_approval',
         ]);
+
+        // Emit realtime notification for draft creation
+        try {
+            $this->notificationService = new NotificationService($pdo);
+            $this->notificationService->push(
+                $operatorId,
+                'draft_created',
+                'AI Draft Created',
+                'A new AI draft has been created for workflow ' . $workflowId . '. Draft ID: ' . $id,
+                'medium',
+                ['reference_type' => 'ai_draft', 'reference_id' => $id]
+            );
+        } catch (\Throwable $e) {
+            FileLogger::write('ai_generation', ['type' => 'draft_notification_failed', 'draft_id' => $id]);
+        }
         return ['draft_id' => $id, 'workflow_id' => $workflowId, 'status' => 'pending_approval', 'draft' => $validated];
     }
 
@@ -548,6 +568,22 @@ class AiDraftService
                 'approver_id' => $approverId,
                 'approval_action' => $wasPending ? 'approved' : 'already_approved',
             ]);
+
+            // Emit realtime notification for draft approval
+            $workflowId = $row['workflow_id'] ?? '';
+            try {
+                $this->notificationService = new NotificationService($pdo);
+                $this->notificationService->push(
+                    (int) ($row['operator_id'] ?? 0),
+                    'draft_approved',
+                    'AI Draft Approved',
+                    "AI draft #{$draftId} has been approved for workflow {$workflowId}",
+                    'high',
+                    ['reference_type' => 'ai_draft', 'reference_id' => $draftId]
+                );
+            } catch (\Throwable) {
+                // The approval is committed; notification delivery is best effort.
+            }
             $decodedDraft = json_decode((string) ($row['draft_json'] ?? ''), true);
             $decodedMetadata = json_decode((string) ($row['metadata_json'] ?? ''), true);
             return [
@@ -573,6 +609,24 @@ class AiDraftService
                 'exception_class' => get_class($e),
                 'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? ''),
             ], $e instanceof DomainException ? 'warning' : 'error');
+
+            // Emit realtime notification for draft approval denial/failure
+            $outcome = $e instanceof DomainException ? 'draft_approval_denied' : 'draft_approval_failed';
+            try {
+                $this->notificationService = new NotificationService($pdo);
+                $this->notificationService->push(
+                (int) ($row['operator_id'] ?? 0),
+                $outcome,
+                'AI Draft Approval '.ucfirst(str_replace('_', ' ', $outcome)),
+                $e instanceof DomainException
+                    ? "AI draft #{$draftId} approval denied: {$e->getMessage()}"
+                    : "AI draft #{$draftId} approval failed unexpectedly",
+                'medium',
+                ['reference_type' => 'ai_draft', 'reference_id' => $draftId]
+                );
+            } catch (\Throwable) {
+                // Notification delivery must not replace the approval error.
+            }
             throw $e;
         }
     }

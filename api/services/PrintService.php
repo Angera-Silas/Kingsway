@@ -3470,7 +3470,7 @@ final class PrintService
         } else {
             $stmt = $db->query(
                 "SELECT id, year_code FROM academic_years
-                 WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+                 WHERE is_current = 1 LIMIT 1"
             );
         }
         $yearRow = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -4042,12 +4042,18 @@ final class PrintService
             $rows = [];
             foreach ($ids as $cid) {
                 $amounts = $pivot[$stCode][$cid] ?? [];
+                $term1 = (float) ($amounts[1] ?? 0);
+                $term2 = (float) ($amounts[2] ?? 0);
+                $term3 = (float) ($amounts[3] ?? 0);
+                if ($term1 <= 0 && $term2 <= 0 && $term3 <= 0) {
+                    continue;
+                }
                 $rows[] = [
                     'class_id' => $cid,
                     'label' => $classMeta[$cid]['name'] ?? '',
-                    'term1' => $amounts[1] ?? 0,
-                    'term2' => $amounts[2] ?? 0,
-                    'term3' => $amounts[3] ?? 0,
+                    'term1' => $term1,
+                    'term2' => $term2,
+                    'term3' => $term3,
                     'total' => array_sum($amounts),
                 ];
             }
@@ -4130,9 +4136,13 @@ final class PrintService
         $sConfig = $this->loadSchoolDbConfig();
 
         $grades = [];
+        $boarderRowsByClass = [];
+        foreach ($boarderRows as $row) {
+            $boarderRowsByClass[(int) $row['class_id']] = $row;
+        }
         foreach ($dayRows as $i => $dr) {
-            $br = $boarderRows[$i] ?? null;
             $cid = (int) ($dr['class_id'] ?? 0);
+            $br = $boarderRowsByClass[$cid] ?? null;
             $meta = $cid !== null ? ($classMeta[$cid] ?? []) : [];
             $grades[] = [
                 'id'         => $cid,
@@ -4216,33 +4226,31 @@ final class PrintService
                     SELECT 1 FROM extra_charge_student_types xst
                     JOIN student_types stc ON stc.id = xst.student_type_id
                     WHERE xst.extra_charge_id = ec.id AND stc.code IN ($typePlaceholders)
-                )
-            )";
+            ))";
             $stmt = $db->prepare(
-                "SELECT ec.name, ec.amount, ec.pricing_tiers
+                "SELECT ec.id, ec.name, ec.amount, tier.label AS tier_label, tier.amount AS tier_amount
                  FROM extra_charges ec
+                 LEFT JOIN extra_charge_pricing_tiers tier ON tier.extra_charge_id=ec.id
                  WHERE ec.academic_year_id = ? AND ec.status = 'active'
                    AND ec.visible_on_fee_structure = 1
+                   AND (NOT EXISTS (SELECT 1 FROM extra_charge_classes xc WHERE xc.extra_charge_id=ec.id)
+                        OR EXISTS (SELECT 1 FROM extra_charge_classes xc WHERE xc.extra_charge_id=ec.id AND xc.class_id=?))
+                   AND (NOT EXISTS (SELECT 1 FROM extra_charge_student_types xt WHERE xt.extra_charge_id=ec.id)
+                        OR EXISTS (SELECT 1 FROM extra_charge_student_types xt WHERE xt.extra_charge_id=ec.id AND EXISTS (
+                            SELECT 1 FROM student_types stf WHERE stf.id=xt.student_type_id AND stf.code IN ($typePlaceholders)
+                        )))
+                   AND NOT EXISTS (SELECT 1 FROM extra_charge_students xs WHERE xs.extra_charge_id=ec.id)
+                   AND NOT EXISTS (SELECT 1 FROM extra_charge_parents xp WHERE xp.extra_charge_id=ec.id)
                    $scopeSql
-                 ORDER BY ec.display_order, ec.name"
+                 ORDER BY ec.display_order, ec.name, tier.sort_order, tier.id"
             );
-            $stmt->execute(array_merge([$yearId, $classId, $classId], $typeCodes, $typeCodes, $typeCodes));
+            $stmt->execute(array_merge([$yearId, $classId], $typeCodes, [$classId, $classId], $typeCodes, $typeCodes, $typeCodes));
             $charges = [];
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-                $tiers = json_decode((string) ($row['pricing_tiers'] ?? ''), true);
-                if (is_array($tiers) && $tiers) {
-                    foreach ($tiers as $tier) {
-                        if (!is_array($tier) || !isset($tier['amount'])) {
-                            continue;
-                        }
-                        $charges[] = [
-                            'name' => $tier['label'] ?? $row['name'],
-                            'amount' => (float) $tier['amount'],
-                        ];
-                    }
-                    continue;
-                }
-                $charges[] = ['name' => $row['name'], 'amount' => (float) $row['amount']];
+                $charges[] = [
+                    'name' => !empty($row['tier_label']) ? $row['name'] . ' — ' . $row['tier_label'] : $row['name'],
+                    'amount' => (float) ($row['tier_amount'] ?? $row['amount']),
+                ];
             }
             return $charges;
         } catch (\Exception $e) {
@@ -4430,6 +4438,7 @@ final class PrintService
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         ]);
+        $pdo->exec("SET time_zone = '+03:00'");
         return $pdo;
     }
 

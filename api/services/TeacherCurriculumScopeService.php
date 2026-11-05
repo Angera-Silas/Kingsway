@@ -21,7 +21,7 @@ final class TeacherCurriculumScopeService
         }
 
         $yearId = $academicYearId ?: (int) $this->db->query(
-            "SELECT id FROM academic_years WHERE is_current=1 OR status='active' ORDER BY is_current DESC, id DESC LIMIT 1"
+            "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
         )->fetchColumn();
         $staff = $this->db->prepare(
             'SELECT s.staff_id FROM ' . ReadReplicaService::masterSourceRef("staff_directory") . ' s WHERE s.user_id = ? LIMIT 1'

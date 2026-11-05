@@ -2391,12 +2391,15 @@ if ($classId) {
             ) {
                 return $this->errorResponse('This assessment is outside your teaching scope', 403);
             }
-            if ($asmnt['status'] === 'approved') {
+            if ($asmnt['status'] === 'approved' && !$canManageAll) {
                 return $this->errorResponse('Approved assessment scores are locked', 409);
             }
+            $correctionReason = trim((string) ($data['reason'] ?? ''));
+            if ($asmnt['status'] === 'approved' && $correctionReason === '') $correctionReason = 'School administrator correction';
             $maxMarks = (float) $asmnt['max_marks'];
 
             $this->db->beginTransaction();
+            $auditChanges = [];
             // Native prepared statements bind each placeholder once, so the
             // ON DUPLICATE KEY UPDATE clause needs its own placeholder names.
             $ins = $this->db->prepare(
@@ -2422,6 +2425,14 @@ if ($classId) {
                 if ($score < 0 || $score > $maxMarks) {
                     throw new \InvalidArgumentException('Every score must be between zero and the assessment maximum');
                 }
+                if ($asmnt['status'] === 'approved') {
+                    $beforeStmt = $this->db->prepare('SELECT score, max_score, remarks FROM formative_scores WHERE assessment_id=? AND student_id=? LIMIT 1');
+                    $beforeStmt->execute([$assessmentId, $studentId]);
+                    $before = $beforeStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($before && ((float) $before['score'] !== $score || (string) ($before['remarks'] ?? '') !== (string) ($entry['remarks'] ?? ''))) {
+                        $auditChanges[] = ['student_id' => $studentId, 'before_score' => (float) $before['score'], 'after_score' => $score];
+                    }
+                }
                 $ins->execute([
                     ':aid'   => $assessmentId,
                     ':sid'   => $studentId,
@@ -2436,6 +2447,16 @@ if ($classId) {
                 ]);
             }
             $this->db->commit();
+            if ($auditChanges) {
+                \App\API\Includes\FileLogger::write('academic', [
+                    'type' => 'published_formative_marks_corrected',
+                    'assessment_id' => $assessmentId,
+                    'academic_year_term_id' => (int) $asmnt['academic_year_term_id'],
+                    'user_id' => $userId,
+                    'reason' => mb_substr($correctionReason, 0, 255),
+                    'changes' => $auditChanges,
+                ]);
+            }
             return $this->successResponse(['saved' => count($scores)], 'Marks saved successfully');
         } catch (\InvalidArgumentException $e) {
             if ($this->db->inTransaction()) $this->db->rollback();
@@ -3957,7 +3978,10 @@ if ($classId) {
                 'pending_results'     => (int) $pendingResults,
                 'pending_promotions'  => (int) $pendingPromotions,
                 'students_with_fees'  => (int) $outstandingFees,
-                'ready_for_rollover'  => $allTermsComplete && $pendingResults == 0 && $pendingPromotions == 0,
+                // The rollover can be prepared while Term 3 is current and
+                // while learners still need individual promotion decisions.
+                // Final activation is validated by AcademicYearTransitionWorkflow.
+                'ready_for_rollover'  => true,
                 'rollover_log'        => $rolloverLog,
             ]);
         } catch (Exception $e) {
@@ -4239,9 +4263,17 @@ if ($classId) {
                     return $this->errorResponse('Next academic year does not exist; run create_new_year first.', 400);
                 }
 
-                $this->dbQuery("UPDATE academic_years SET is_current = 0");
                 $this->dbQuery(
-                    "UPDATE academic_years SET is_current = 1, status = 'active' WHERE id = ?",
+                    "UPDATE academic_years
+                        SET is_current = 0,
+                            state = CASE WHEN state = 'current' THEN 'upcoming' ELSE state END
+                      WHERE id <> ?",
+                    [$newYear['id']]
+                );
+                $this->dbQuery(
+                    "UPDATE academic_years
+                        SET is_current = 1, state = 'current', status = 'active', completed_at = NULL
+                      WHERE id = ?",
                     [$newYear['id']]
                 );
                 $this->dbQuery(
@@ -4297,6 +4329,7 @@ if ($classId) {
         $created = 0;
         $already = 0;
         $skipped = [];
+        $learnerTypeAvailability = new \App\API\Services\AcademicYearLearnerTypeAvailabilityService($this->db);
         foreach ($rows as $row) {
             $targetAycs = $this->dbQuery(
                 "SELECT class_stream_id
@@ -4311,6 +4344,15 @@ if ($classId) {
             )->fetchColumn();
 
             if (!$targetAycs) {
+                $skipped[] = (int) $row['student_id'];
+                continue;
+            }
+
+            $studentType = $this->dbQuery(
+                "SELECT student_type_id FROM students WHERE id = ? LIMIT 1",
+                [(int) $row['student_id']]
+            )->fetchColumn();
+            if (!$learnerTypeAvailability->isAvailable($toYearId, (int) $row['class_id'], (int) $studentType)) {
                 $skipped[] = (int) $row['student_id'];
                 continue;
             }

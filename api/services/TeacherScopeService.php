@@ -180,7 +180,7 @@ final class TeacherScopeService
 
     private function currentYearId(): ?int
     {
-        $id = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1")->fetchColumn();
+        $id = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetchColumn();
         return $id ? (int)$id : null;
     }
 

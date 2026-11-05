@@ -195,6 +195,11 @@ class WorkflowHandler extends BaseAPI
      */
     public function advanceStage($instance_id, $to_stage, $action, $action_data = [])
     {
+        // sp_advance_workflow_stage(p_action VARCHAR(50)): a longer action text
+        // fails with SQLSTATE[22001] and aborts the whole stage transition, so
+        // the label is bounded here while the full text goes to p_remarks.
+        $action = mb_substr((string) $action, 0, 50);
+
         try {
             // Use stored procedure for atomic stage advancement
             $sql = "CALL sp_advance_workflow_stage(:instance_id, :to_stage, :action, :user_id, :remarks, :data_json)";

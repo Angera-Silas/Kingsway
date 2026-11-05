@@ -57,8 +57,9 @@ $organizationData = [
   <?php /* Load first: silences every console.* call site (incl. inline <script>)
         across public pages and routes warnings/errors to the file logger. */ ?>
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
-  <?php /* Cookie consent - loads early to show banner before user interaction */ ?>
+  <?php if (!empty($showCookieConsent)): ?>
   <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
+  <?php endif; ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= htmlspecialchars($pageTitle) ?> | Kingsway Preparatory School</title>

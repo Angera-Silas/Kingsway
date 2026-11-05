@@ -45,7 +45,7 @@
   }
   async function beginVerification(result) {
     state.userId=Number(result.user_id); state.challenge=result.challenge_token;
-    state.methods=Array.isArray(result.available_methods)&&result.available_methods.length?result.available_methods:[result.method||'email'];
+    state.methods=Array.isArray(result.available_methods)&&result.available_methods.length?result.available_methods:[result.method||'sms'];
     const picker=byId('verificationMethod'); picker.replaceChildren();
     state.methods.forEach((method)=>{const option=document.createElement('option');option.value=method;option.textContent=methodLabels[method]||method;picker.appendChild(option);});
     byId('verificationMethodWrap').classList.toggle('d-none',state.methods.length<2);

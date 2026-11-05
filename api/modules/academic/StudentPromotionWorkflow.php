@@ -485,6 +485,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             $approved = $approvedStmt->fetchAll(PDO::FETCH_ASSOC);
 
             $executedCount = 0;
+            $learnerTypeAvailability = new \App\API\Services\AcademicYearLearnerTypeAvailabilityService($this->db);
 
             if ($applyImmediately) {
                 foreach ($approved as $promotion) {
@@ -510,6 +511,16 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                         $nextClassId = (int)($progressionStmt->fetchColumn() ?: 0);
 
                         if ($nextClassId > 0) {
+                            $studentTypeStmt = $this->db->prepare("SELECT student_type_id FROM students WHERE id = ? LIMIT 1");
+                            $studentTypeStmt->execute([$studentId]);
+                            if (!$learnerTypeAvailability->isAvailable(
+                                $toYearId,
+                                $nextClassId,
+                                (int) ($studentTypeStmt->fetchColumn() ?: 0)
+                            )) {
+                                // Keep this learner's transition pending; other approved learners continue.
+                                continue;
+                            }
                             // Prefer the matching stream in the target class
                             $aycsStmt = $this->db->prepare(
                                 "SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
