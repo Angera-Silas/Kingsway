@@ -5,6 +5,8 @@ import { broadcast as broadcastDomain } from '../publish/domain.js';
 import { getCache } from '../clients/cache.js';
 import { getInternalClient } from '../clients/internal.js';
 import { verifyWorkerSecret } from '../utils/verifySecret.js';
+import Holidays from 'date-holidays';
+import panchangam from '@ishubhamx/panchangam-js';
 
 /**
  * Map a PHP mutation descriptor (domain + target names) onto the entity keys
@@ -50,6 +52,101 @@ export function registerInternalRoutes(app) {
   function check(req) {
     return verifyWorkerSecret(req, config);
   }
+
+  app.get('/internal/academic/kenya-holidays', async (req, reply) => {
+    if (!check(req)) return reply.code(403).send({ error: 'Forbidden' });
+    const year = Number(req.query?.year);
+    if (!Number.isInteger(year) || year < 1900 || year > 9998) {
+      return reply.code(400).send({ error: 'year must be an integer from 1900 to 9998' });
+    }
+
+    const source = new Holidays('KE', { timezone: 'Africa/Nairobi' });
+    const englishNames = {
+      'Mwaka mpya': "New Year's Day",
+      'Ijumaa Kuu': 'Good Friday',
+      'Pasaka': 'Easter Sunday',
+      'Jumatatu ya Pasaka': 'Easter Monday',
+      'Siku ya Madaraka': 'Madaraka Day',
+      'Moi Day': 'Mazingira Day (Utamaduni Day)',
+      'Siku ya Mashujaa': 'Mashujaa Day',
+      'Siku ya Jamhuri': 'Jamhuri Day',
+      'Krismasi': 'Christmas Day',
+    };
+    const holidays = new Map();
+    for (const item of source.getHolidays(year)) {
+      if (item.type !== 'public') continue;
+      // Easter Sunday is not a Kenyan public holiday under the Public Holidays Act.
+      if (item.name === 'Pasaka') continue;
+      const date = String(item.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const lunar = /idd|fitr|azha|adha|ramadan|diwali/i.test(`${item.name} ${item.rule || ''}`);
+      const isSubstitute = / \(substitute day\)$/i.test(item.name);
+      const baseName = String(item.name).replace(/ \(substitute day\)$/i, '');
+      const name = `${englishNames[baseName] || baseName}${isSubstitute ? ' (Substitute Day)' : ''}`;
+      const christian = /good friday|easter monday|christmas/i.test(name);
+      holidays.set(`${date}|${name}`, {
+        date,
+        name: name.slice(0, 150),
+        type: lunar || christian ? 'religious' : 'national',
+        estimated: lunar,
+        source: 'date-holidays KE',
+      });
+    }
+
+    // date-holidays' Kenyan lunar rules have a finite data range. For later
+    // years, derive Umalqura dates from ICU's calendar data and label them as
+    // estimates because Kenyan dates are confirmed by moon sighting/Gazette.
+    const islamic = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
+      timeZone: 'Africa/Nairobi', day: 'numeric', month: 'numeric',
+    });
+    const start = new Date(`${year}-01-01T12:00:00+03:00`);
+    const end = new Date(`${year + 1}-01-01T12:00:00+03:00`);
+    for (let cursor = start; cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+      const parts = Object.fromEntries(islamic.formatToParts(cursor).map(part => [part.type, part.value]));
+      const month = Number(parts.month);
+      const day = Number(parts.day);
+      const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).formatToParts(cursor).map(part => [part.type, part.value]));
+      const date = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+      if (month === 10 && day === 1 && ![...holidays.values()].some(item => item.type === 'religious' && /fitr/i.test(item.name))) {
+        holidays.set(`${date}|Idd-ul-Fitr (estimated)`, { date, name: 'Idd-ul-Fitr (estimated)', type: 'religious', estimated: true, source: 'ICU Umalqura calculation' });
+      }
+      if (month === 12 && day === 10 && ![...holidays.values()].some(item => item.type === 'religious' && /azha|adha/i.test(item.name))) {
+        holidays.set(`${date}|Idd-ul-Azha (estimated)`, { date, name: 'Idd-ul-Azha (estimated)', type: 'religious', estimated: true, source: 'ICU Umalqura calculation' });
+      }
+    }
+
+    // Kenya's Public Holidays Act Part III recognizes Diwali for people of
+    // the Hindu faith. Add only Diwali to the Kenyan school calendar; other
+    // Hindu festivals are not Kenyan public holidays under this schedule.
+    const { getFestivals, getPanchangam, Observer } = panchangam;
+    const kenyaObserver = new Observer(-0.17, 35.60, 2000); // Londiani, Kericho County
+    for (let month = 9; month <= 10; month += 1) {
+      const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        const date = new Date(Date.UTC(year, month, day, 9)); // noon in Africa/Nairobi
+        const panchang = getPanchangam(date, kenyaObserver, { timezoneOffset: 180 });
+        const festivals = getFestivals({ date, observer: kenyaObserver, ...panchang, timezoneOffset: 180 }) || [];
+        if (!festivals.some(festival => /^Diwali \(Lakshmi Puja\)$/i.test(festival.name))) continue;
+        const dateKey = date.toISOString().slice(0, 10);
+        holidays.set(`${dateKey}|Diwali`, {
+          date: dateKey,
+          name: 'Diwali',
+          type: 'religious',
+          estimated: true,
+          source: 'Hindu panchang calculation for Londiani, Kenya',
+        });
+      }
+    }
+
+    return {
+      year,
+      timezone: 'Africa/Nairobi',
+      source: 'Kenya Public Holidays Act + date-holidays KE + ICU Umalqura and Hindu panchang calculations',
+      holidays: [...holidays.values()].sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)),
+    };
+  });
 
   app.get('/internal/stats', async (req, reply) => {
     if (!check(req)) return reply.code(403).send({ error: 'Forbidden' });

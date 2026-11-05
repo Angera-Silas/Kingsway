@@ -3237,6 +3237,25 @@ class ParentPortalManager extends BaseAPI
         $stmt->execute([':sid' => $studentId]);
         $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        $extraStmt = $this->db->prepare(
+            "SELECT eco.id,eco.student_academic_enrollment_id,sae.academic_year_id,
+                    eco.academic_year_term_id,eco.amount_due,eco.status AS obligation_status,
+                    eco.due_date,eco.amount_paid,eco.amount_waived,
+                    ay.year_code AS academic_year,t.id AS term_id,t.name AS term_name,
+                    t.code AS term_number,ec.name AS fee_type_name,'EXTRA_CHARGE' AS fee_type_code
+             FROM extra_charge_student_obligations eco
+             JOIN student_academic_enrollments sae ON sae.id=eco.student_academic_enrollment_id
+             JOIN academic_years ay ON ay.id=sae.academic_year_id
+             JOIN academic_year_terms ayt ON ayt.id=eco.academic_year_term_id
+             JOIN terms t ON t.id=ayt.term_id
+             JOIN extra_charge_schedules sch ON sch.id=eco.schedule_id
+             JOIN extra_charges ec ON ec.id=sch.extra_charge_id
+             WHERE sae.student_id=:sid AND eco.status<>'cancelled'
+             ORDER BY ay.year_code DESC,t.id,eco.due_date,eco.id"
+        );
+        $extraStmt->execute([':sid' => $studentId]);
+        $obligations = array_merge($obligations, $extraStmt->fetchAll(PDO::FETCH_ASSOC));
+
         // Term-level paid/balance/waived from the ledger view
         $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
         $stmt = $this->db->prepare(
@@ -3288,9 +3307,16 @@ class ParentPortalManager extends BaseAPI
             foreach ($yData['terms'] as &$term) {
                 $aytId = null;
                 $termDue = 0;
+                $schoolFeeDue = 0;
+                $extraPaid = 0;
                 foreach ($term['obligations'] as $o) {
                     $aytId = (int)$o['academic_year_term_id'];
                     $termDue += (float)$o['amount_due'];
+                    if (($o['fee_type_code'] ?? '') === 'EXTRA_CHARGE') {
+                        $extraPaid += (float)($o['amount_paid'] ?? 0);
+                    } else {
+                        $schoolFeeDue += (float)$o['amount_due'];
+                    }
                 }
 
                 $paid = 0;
@@ -3302,8 +3328,11 @@ class ParentPortalManager extends BaseAPI
 
                 foreach ($term['obligations'] as &$o) {
                     $amountDue = (float)$o['amount_due'];
-                    $rowPaid   = $termDue > 0 ? round($paid * ($amountDue / $termDue), 2) : 0;
-                    $waived    = (float)($o['sponsored_waiver_amount'] ?? 0);
+                    $isExtra = ($o['fee_type_code'] ?? '') === 'EXTRA_CHARGE';
+                    $rowPaid   = $isExtra
+                        ? (float)($o['amount_paid'] ?? 0)
+                        : ($schoolFeeDue > 0 ? round(max(0, $paid - $extraPaid) * ($amountDue / $schoolFeeDue), 2) : 0);
+                    $waived    = (float)($o['amount_waived'] ?? $o['sponsored_waiver_amount'] ?? 0);
                     $rowBal    = max($amountDue - $waived - $rowPaid, 0);
 
                     $o['amount_paid'] = $rowPaid;

@@ -611,6 +611,8 @@ class PromotionManager
             $promoted = 0;
             $retained = 0;
             $processed = 0;
+            $unavailablePlacements = 0;
+            $learnerTypeAvailability = new \App\API\Services\AcademicYearLearnerTypeAvailabilityService($this->db);
 
             foreach ($students as $studentData) {
                 if (!is_array($studentData) || empty($studentData['student_id'])) {
@@ -631,6 +633,16 @@ class PromotionManager
                 $toEnrollmentId = null;
 
                 if ($finalAction === 'promote') {
+                    $studentTypeStmt = $this->db->prepare("SELECT student_type_id FROM students WHERE id = ? LIMIT 1");
+                    $studentTypeStmt->execute([$studentId]);
+                    if (!$learnerTypeAvailability->isAvailable(
+                        $toYearId,
+                        $targetClassId,
+                        (int) ($studentTypeStmt->fetchColumn() ?: 0)
+                    )) {
+                        $unavailablePlacements++;
+                        continue;
+                    }
                     $toEnrollmentId = $this->getCurrentEnrollment($studentId, $toYearId)['id'] ?? null;
 
                     if ($toEnrollmentId) {
@@ -692,11 +704,12 @@ class PromotionManager
 
             $this->db->commit();
             return [
-                'message' => "Promotion completed successfully. {$promoted} promoted, {$retained} retained.",
+                'message' => "Promotion completed successfully. {$promoted} promoted, {$retained} retained, {$unavailablePlacements} unavailable placement(s) skipped.",
                 'batch_id' => $batchId,
                 'processed' => $processed,
                 'promoted' => $promoted,
                 'retained' => $retained,
+                'unavailable_placements' => $unavailablePlacements,
             ];
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {

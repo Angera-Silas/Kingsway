@@ -513,43 +513,7 @@ if ($canViewPayment || $canRecordPayment) {
                 $stmt = $this->db->query(
                     "SELECT awc.application_id AS id, awc.application_no, awc.applicant_name, awc.gender, awc.grade_applying_for,
                             awc.application_status AS status, awc.created_at, awc.updated_at,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp0
-                                WHERE sp0.parent_id = awc.parent_id
-                                  AND (awc.enrolled_student_id IS NULL OR sp0.student_id <> awc.enrolled_student_id)
-                            ) THEN COALESCE(
-                                (SELECT tier.amount
-                                 FROM extra_charge_pricing_tiers tier
-                                 JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id=tier.extra_charge_id
-                                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active'
-                                   AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
-                                   AND tier.condition_code IN ('existing_parent','existing')
-                                 ORDER BY tier.sort_order, tier.id LIMIT 1),
-                                (SELECT ec.amount FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
-                                 ORDER BY ec.id LIMIT 1)
-                            ) ELSE COALESCE(
-                                (SELECT tier.amount
-                                 FROM extra_charge_pricing_tiers tier
-                                 JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id=tier.extra_charge_id
-                                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active'
-                                   AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
-                                   AND tier.condition_code IN ('new_parent','new')
-                                 ORDER BY tier.sort_order, tier.id LIMIT 1),
-                                (SELECT ec.amount FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
-                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
-                                   AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
-                                 ORDER BY ec.id LIMIT 1)
-                            ) END AS registration_fee_due,
+                            NULL AS registration_fee_due,
                             awc.enrolled_admission_no AS admission_number,
                             lp.class_name AS assigned_class_name,
                             lp.stream_name AS assigned_stream_name,
@@ -594,8 +558,13 @@ if ($canViewPayment || $canRecordPayment) {
                     try {
                         $paymentRow['registration_fee_due'] = $chargeService->admissionTotalDue((int) ($paymentRow['id'] ?? 0));
                         $paymentRow['financial_relief'] = $chargeService->admissionFinancialRelief((int) ($paymentRow['id'] ?? 0));
-                    } catch (\Throwable $ignored) {
-                        // Retain the SQL fallback on older installations.
+                    } catch (\Throwable $error) {
+                        \App\API\Includes\FileLogger::error('admissions', [
+                            'action' => 'resolve_admission_charge_obligations',
+                            'application_id' => (int) ($paymentRow['id'] ?? 0),
+                            'error' => $error->getMessage(),
+                        ]);
+                        $paymentRow['registration_fee_due'] = null;
                     }
                 }
                 unset($paymentRow);

@@ -667,7 +667,7 @@ class StudentInsightsService
         $yearCode = $academicYear !== '' ? $academicYear : null;
         if ($yearCode === null) {
             $row = $this->fetchOne(
-                "SELECT year_code FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1"
+                "SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
             );
             $yearCode = $row['year_code'] ?? null;
         }
@@ -729,7 +729,7 @@ class StudentInsightsService
             return [$yearId ? (int)$yearId : null, $yearCode];
         }
 
-        $row = $this->fetchOne("SELECT id, year_code FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1");
+        $row = $this->fetchOne("SELECT id, year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
         return $row ? [(int)$row['id'], $row['year_code']] : [null, null];
     }
 

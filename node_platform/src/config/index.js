@@ -164,7 +164,14 @@ export function loadConfig(overrides = {}) {
 
   // Priority: process.env (Passenger SetEnv, Docker, systemd) > .env file > YAML defaults
   // .env file is only for local development; production uses Passenger SetEnv / Docker env / systemd env
-  const fileConfig = loadEnvFile(resolve(__dirname, '.env'));
+  const nodeFileConfig = loadEnvFile(resolve(__dirname, '.env'));
+  // PHP issues browser SSE capabilities with the application JWT signing key.
+  // In local development, use PHP's config/.env as the shared source of truth.
+  // Production remains environment-driven and does not read the PHP local file.
+  const applicationFileConfig = env === 'development'
+    ? loadEnvFile(resolve(APP_ROOT, 'config/.env'))
+    : {};
+  const fileConfig = { ...nodeFileConfig, ...applicationFileConfig };
   // process.env takes precedence (Passenger SetEnv in production, Docker env, systemd)
   const mergedEnv = mergeEnv(fileConfig, process.env);
 

@@ -523,6 +523,31 @@ class AcademicAPI extends BaseAPI
         return $this->yearTransitionWorkflow->prepareCalendar($data);
     }
 
+    public function findActiveYearTransitionForYear($yearCode)
+    {
+        return $this->yearTransitionWorkflow->findActiveWorkflowForYear($yearCode);
+    }
+
+    public function startYearTransitionForExistingYear($fromYear, $toYear)
+    {
+        return $this->yearTransitionWorkflow->startWorkflowForExistingYear($fromYear, $toYear);
+    }
+
+    public function getYearTransitionClassSetupSource($yearCode, $targetYearCode = '')
+    {
+        return $this->yearTransitionWorkflow->getClassSetupSource($yearCode, $targetYearCode);
+    }
+
+    public function getYearTransitionSetupDrafts($instanceId)
+    {
+        return $this->yearTransitionWorkflow->getSetupDrafts((int) $instanceId);
+    }
+
+    public function saveYearTransitionSetupDrafts($instanceId, $drafts)
+    {
+        return $this->yearTransitionWorkflow->saveSetupDrafts((int) $instanceId, (array) $drafts);
+    }
+
     public function archiveAcademicData($instanceId, $data)
     {
         if (empty($instanceId)) {
@@ -567,6 +592,27 @@ class AcademicAPI extends BaseAPI
             (string) ($data['stage_code'] ?? ''),
             (string) ($data['notes'] ?? '')
         );
+    }
+
+    /**
+     * Close the outgoing year (never archive). Data stays in place and stays
+     * readable; only school admin / system admin / director may edit it.
+     */
+    public function closeYearTransition($instanceId, $data = [])
+    {
+        if (empty($instanceId)) return ['status' => 'error', 'message' => 'Missing year transition instance_id', 'code' => 400];
+        return $this->yearTransitionWorkflow->archiveData(
+            (int) $instanceId,
+            array_merge(['archive_assessments' => false, 'archive_attendance' => false,
+                'archive_reports' => false, 'archive_competencies' => false],
+                is_array($data) ? $data : [])
+        );
+    }
+
+    public function getYearRolloverSummary($instanceId)
+    {
+        if (empty($instanceId)) return ['status' => 'error', 'message' => 'Missing year transition instance_id', 'code' => 400];
+        return $this->yearTransitionWorkflow->getRolloverSummary((int) $instanceId);
     }
 
     public function setupNewAcademicYear($instanceId, $data)
@@ -726,7 +772,15 @@ class AcademicAPI extends BaseAPI
                 throw new Exception('Invalid workflow type');
         }
 
-        return $workflow->getWorkflowInstance($instanceId);
+        $instance = $workflow->getWorkflowInstance($instanceId);
+        if (!$instance) {
+            return $this->errorResponse('Workflow instance was not found.', 404);
+        }
+
+        // Workflow instances have their own `status` field (for example,
+        // `in_progress`). Wrap the record in the API envelope so the
+        // controller does not mistake that domain status for an error result.
+        return $this->successResponse($instance, 'Workflow status loaded.');
     }
 
     // List all learning areas with pagination and search
@@ -8194,8 +8248,8 @@ return errorResponse($e->getMessage(), 400);
                 $yearStmt = $this->db->prepare(
                     "SELECT id
                      FROM academic_years
-                     WHERE is_current = 1 OR status = 'active'
-                     ORDER BY is_current DESC, start_date DESC, id DESC
+                     WHERE is_current = 1
+                     ORDER BY start_date DESC, id DESC
                      LIMIT 1"
                 );
                 $yearStmt->execute();
@@ -8664,7 +8718,7 @@ return errorResponse($e->getMessage(), 400);
     {
         $academicYearId = $data['academic_year_id'] ?? $data['academic_year'] ?? null;
         if (empty($academicYearId)) {
-            $yearStmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1");
+            $yearStmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
             $academicYearId = $yearStmt->fetchColumn() ?: null;
         }
         $academicYearId = $academicYearId ? (int) $academicYearId : $this->resolveCurrentAcademicYearId();

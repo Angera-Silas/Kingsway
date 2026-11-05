@@ -343,8 +343,9 @@ class AuthAPI extends BaseAPI
                 && (new TestAccountAccessService($this->db))->mfaBypassAllowed($userId);
 
             if (!$testMfaBypassAllowed) {
-                // Every non-test account completes a second factor. Contact OTP
-                // defaults to email and falls back to SMS when email is absent.
+                // Every non-test account completes a second factor. A verified
+                // account preference is honored; otherwise SMS is the default,
+                // with email and enrolled factors available in the chooser.
                 // Accounts without a deliverable contact or enrolled factor
                 // cannot continue until the school updates their account.
                 if (!$requiredMethod) {
@@ -357,10 +358,6 @@ class AuthAPI extends BaseAPI
                 }
 
                 $availableMethods = $tfa->getAvailableLoginMethods($userId);
-                if (!in_array($requiredMethod, $availableMethods, true)) {
-                    array_unshift($availableMethods, $requiredMethod);
-                }
-
                 $challengeToken = $tfa->createLoginChallenge($userId, $requiredMethod);
                 return [
                     'success' => true,

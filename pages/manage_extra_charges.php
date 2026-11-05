@@ -228,11 +228,42 @@
                                 <option value="specific_class">Specific Class</option>
                             </select>
                         </div>
-                        <div class="col-md-6" id="classSelectGroup" style="display:none">
-                            <label class="form-label">Class</label>
-                            <select class="form-select" id="chargeClassId">
-                                <option value="">Select Class</option>
+                        <div class="col-md-6" id="admissionConditionGroup" style="display:none">
+                            <label class="form-label" for="chargeAdmissionCondition">Admission condition</label>
+                            <select class="form-select" id="chargeAdmissionCondition">
+                                <option value="any_new_admission">Every new admission</option>
+                                <option value="interview_scheduled">Only when an interview is scheduled</option>
                             </select>
+                        </div>
+                        <div class="col-md-6" id="classSelectGroup" style="display:none">
+                            <label class="form-label">Classes (optional restriction)</label>
+                            <select class="form-select" id="chargeClassIds" multiple size="5">
+                            </select>
+                            <small class="form-text text-muted">Select classes to limit this charge. Leave blank to apply across all classes allowed by the target scope. Pricing tiers can set different amounts by class.</small>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Learner types (optional)</label>
+                            <select class="form-select" id="chargeStudentTypeIds" multiple size="3"></select>
+                            <small class="form-text text-muted">Leave blank for all learner types allowed by the target scope.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="form-text text-muted d-block pt-4">Tier conditions: <code>default</code>, <code>new_parent</code>, <code>existing_parent</code>, <code>new_student</code>, <code>existing_student</code>, <code>class:ID</code>, or <code>student_type:CODE</code> (DAY/BOARD). More specific conditions take priority.</small>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Specific learners (optional)</label>
+                            <select class="form-select" id="chargeStudentIds" multiple size="5"></select>
+                            <small class="form-text text-muted">Leave blank unless this charge is for selected learners only.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Specific parents / guardians (optional)</label>
+                            <select class="form-select" id="chargeParentIds" multiple size="5"></select>
+                            <small class="form-text text-muted">For admissions, the selected parent must match the application. For enrolled learners, any linked selected guardian qualifies.</small>
                         </div>
                     </div>
 

@@ -39,6 +39,17 @@
   }
 
   function getConsent() {
+    // localStorage is origin-wide, so every tab/window on this site observes
+    // the same choice. Prefer it over legacy cookies that may be duplicated
+    // across old path/domain variants.
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored === CONSENT_VALUES.accepted || stored === CONSENT_VALUES.declined) {
+        return stored;
+      }
+    } catch {
+      /* Fall back to the shared cookie when storage is unavailable. */
+    }
     // Parse cookie separators explicitly; browsers expose cookies as a
     // semicolon-delimited string, with optional whitespace around entries.
     const cookie = document.cookie.split(';').map(part => part.trim())
@@ -47,12 +58,7 @@
       try { return decodeURIComponent(cookie.slice(COOKIE_NAME.length + 1)); }
       catch { return cookie.slice(COOKIE_NAME.length + 1); }
     }
-    // localStorage is the fallback for browsers that block cookies.
-    try {
-      return localStorage.getItem(STORAGE_KEY) || null;
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   function setConsent(value, days = 365) {
@@ -121,6 +127,19 @@
       }
     }
   }
+
+  // Keep an already-open tab in sync when the choice is made in another tab.
+  window.addEventListener('storage', event => {
+    if (event.key !== STORAGE_KEY) return;
+    const banner = document.getElementById('kingsway-cookie-consent');
+    if (!banner) {
+      if (event.newValue !== CONSENT_VALUES.accepted && event.newValue !== CONSENT_VALUES.declined) init();
+      return;
+    }
+    if (event.newValue === CONSENT_VALUES.accepted || event.newValue === CONSENT_VALUES.declined) {
+      banner.remove();
+    }
+  });
 
   window.KingswayCookieConsent = {
     init,

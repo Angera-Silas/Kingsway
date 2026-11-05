@@ -210,11 +210,11 @@ return $this->errorResponse('An internal error occurred.');
     {
         // Prefer is_current, else the active year with a 'current' term.
         $year = $this->fetchRow(
-            "SELECT * FROM academic_years WHERE is_current = 1 AND status = 'active' LIMIT 1"
+            "SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1"
         );
         if (!$year) {
             $year = $this->fetchRow(
-                "SELECT * FROM academic_years WHERE status = 'active' ORDER BY year_code DESC LIMIT 1"
+                "SELECT * FROM academic_years WHERE is_current = 1 ORDER BY year_code DESC LIMIT 1"
             );
         }
         $term = null;

@@ -1061,8 +1061,8 @@ class StudentProfileManager extends BaseAPI
             if ($academicYearId < 1) {
                 $academicYearId = (int) ($this->db->query(
                     "SELECT id FROM academic_years
-                     WHERE is_current = 1 OR status = 'active'
-                     ORDER BY is_current DESC, id DESC LIMIT 1"
+                     WHERE is_current = 1
+                     ORDER BY id DESC LIMIT 1"
                 )->fetchColumn() ?: 0);
             }
             $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;

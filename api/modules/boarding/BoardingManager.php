@@ -289,7 +289,7 @@ class BoardingManager extends BaseAPI
             if ($academicYearId === null) {
                 $yearStmt = $this->db->query(
                     "SELECT id FROM academic_years
-                     WHERE is_current = 1 OR status = 'active'
+                     WHERE is_current = 1
                      ORDER BY is_current DESC, id DESC LIMIT 1"
                 );
                 $academicYearId = (int) ($yearStmt->fetchColumn() ?: 0);

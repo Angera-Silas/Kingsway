@@ -2131,6 +2131,44 @@ return $this->serverError('An internal error occurred.');
 
     // ==================== YEAR TRANSITION WORKFLOW ====================
 
+    /** GET /api/academic/year-transition/active?to_year=YYYY/YYYY+1 */
+    public function getYearTransitionActive($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $yearCode = $data['to_year'] ?? ($data['year_code'] ?? '');
+        return $this->handleResponse($this->api->findActiveYearTransitionForYear($yearCode));
+    }
+
+    /** GET /api/academic/year-transition/class-setup-source?from_year=YYYY/YYYY+1 */
+    public function getYearTransitionClassSetupSource($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        return $this->handleResponse($this->api->getYearTransitionClassSetupSource($data['from_year'] ?? '', $data['to_year'] ?? ''));
+    }
+
+    /** GET /api/academic/year-transition/setup-drafts?instance_id=123 */
+    public function getYearTransitionSetupDrafts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        return $this->handleResponse($this->api->getYearTransitionSetupDrafts((int) ($data['instance_id'] ?? 0)));
+    }
+
+    /** PUT /api/academic/year-transition/setup-drafts?instance_id=123 */
+    public function putYearTransitionSetupDrafts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        return $this->handleResponse($this->api->saveYearTransitionSetupDrafts((int) ($data['instance_id'] ?? 0), $data));
+    }
+
+    /** POST /api/academic/year-transition/start-existing-workflow */
+    public function postYearTransitionStartExistingWorkflow($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $fromYear = $data['from_year'] ?? '';
+        $toYear = $data['to_year'] ?? '';
+        return $this->handleResponse($this->api->startYearTransitionForExistingYear($fromYear, $toYear));
+    }
+
     /**
      * POST /api/academic/year-transition/start-workflow - Start year transition workflow (Director only)
      * Body: { from_year, to_year, year_start_date, year_end_date, terms[] }
@@ -2197,6 +2235,29 @@ return $this->serverError('An internal error occurred.');
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
         $instanceId = $data['instance_id'] ?? ($id ?? null);
         return $this->handleResponse($this->api->completeYearTransitionStage($instanceId, $data));
+    }
+
+    /**
+     * POST /api/academic/year-transition/close-year - Close the outgoing year
+     *
+     * Alias of archive-data with the corrected name. It archives nothing: the
+     * outgoing year is marked active - completed so its records stay readable
+     * for every user, writable only by school admin / system admin / director.
+     */
+    public function postYearTransitionCloseYear($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $archive = $this->api->closeYearTransition($instanceId, $data);
+        return $this->handleResponse($archive);
+    }
+
+    /** GET /api/academic/year-transition/summary?instance_id=123 */
+    public function getYearTransitionSummary($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->getYearRolloverSummary($instanceId));
     }
 
     /**

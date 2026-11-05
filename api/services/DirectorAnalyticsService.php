@@ -243,7 +243,7 @@ class DirectorAnalyticsService
         $result = [];
 
         // Academic Year and Term (using correct columns)
-        $yearStmt = $this->db->query("SELECT year_name FROM academic_years WHERE status = 'active' OR is_current = 1 ORDER BY id DESC LIMIT 1");
+        $yearStmt = $this->db->query("SELECT year_name FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
         $result['academic_year'] = $yearStmt->fetch()['year_name'] ?? date('Y');
 
         $termStmt = $this->db->query("SELECT term_name FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 ORDER BY academic_year_term_id DESC LIMIT 1");
