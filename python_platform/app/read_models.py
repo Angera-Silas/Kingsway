@@ -2745,12 +2745,16 @@ class ReadModelRefresher:
         close_all_connections()
 
     def _connect_new(self):
-        return _open_mysql_connection(self.config, self.config.db_master_schema, self.connector)
+        return _open_mysql_connection(
+            self.config, self.config.db_master_schema, self.connector
+        )
 
     def _connect(self):
         # Reuse one connection per process. Per-instance caching was not
         # enough because callers construct a refresher per projection.
-        return _open_mysql_connection(self.config, self.config.db_master_schema, self.connector)
+        return _open_mysql_connection(
+            self.config, self.config.db_master_schema, self.connector
+        )
 
     def refresh(self, projection: str) -> dict[str, Any]:
         if not self.config.read_models_enabled:
@@ -2832,15 +2836,37 @@ class ReadModelRefresher:
                     (self.config.db_reads_schema, definition["target"]),
                 )
                 exists = int(cursor.fetchone()[0]) == 1
-                if exists:
-                    old_name = f"__stage_old_{definition['target'][:40]}_{uuid.uuid4().hex[:8]}"
-                    old = _qualified(self.config.db_reads_schema, old_name)
-                    cursor.execute(
-                        f"RENAME TABLE {target} TO {old}, {stage} TO {target}"
-                    )
-                    cursor.execute(f"DROP TABLE {old}")
-                else:
-                    cursor.execute(f"RENAME TABLE {stage} TO {target}")
+                try:
+                    if exists:
+                        old_name = f"__stage_old_{definition['target'][:40]}_{uuid.uuid4().hex[:8]}"
+                        old = _qualified(self.config.db_reads_schema, old_name)
+                        cursor.execute(
+                            f"RENAME TABLE {target} TO {old}, {stage} TO {target}"
+                        )
+                        cursor.execute(f"DROP TABLE {old}")
+                    else:
+                        cursor.execute(f"RENAME TABLE {stage} TO {target}")
+                except Exception as rename_error:  # noqa: BLE001
+                    # An interrupted refresh can leave an orphaned InnoDB
+                    # tablespace for the target name. The dictionary has no
+                    # entry for it, so DROP is a no-op, yet RENAME fails with
+                    # errno 184 "Tablespace already exists" forever after.
+                    # Publishing by copy keeps those projections alive: it uses
+                    # the fully-populated staging table we just built and never
+                    # renames onto the poisoned name.
+                    message = str(rename_error)
+                    if (
+                        "Tablespace already exists" not in message
+                        and "errno: 184" not in message
+                    ):
+                        raise
+                    if not exists:
+                        # The target is unreachable, so there is nothing to
+                        # preserve; create it from the staging table's shape.
+                        cursor.execute(f"DROP TABLE IF EXISTS {target}")
+                        cursor.execute(f"CREATE TABLE {target} LIKE {stage}")
+                        cursor.execute(f"INSERT INTO {target} SELECT * FROM {stage}")
+                        cursor.execute(f"DROP TABLE {stage}")
 
                 watermark = None
                 if projection == "fee_collection_monthly_trend":

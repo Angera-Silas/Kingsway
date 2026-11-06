@@ -104,10 +104,16 @@ class SchedulerRunner:
         return result
 
     def _dispatch(self, job: Any) -> None:
-        """HTTP-dispatch an operational job (no DB connection from this path)."""
-        import os
+        """HTTP-dispatch an operational job.
 
-        import requests
+        Uses urllib from the standard library rather than `requests`: the
+        scheduler must not fail a job because an optional HTTP dependency was
+        not installed on the host.
+        """
+        import json
+        import os
+        import urllib.error
+        import urllib.request
 
         base = os.environ.get("KINGSWAY_PHP_BASE_URL", "").rstrip("/")
         endpoint = job.endpoint
@@ -119,12 +125,16 @@ class SchedulerRunner:
         if secret:
             headers["X-Kingsway-Worker-Secret"] = secret
 
-        requests.post(
-            base + endpoint,
-            json=job.payload,
-            headers=headers,
-            timeout=(
-                max(1, min(15, int(os.environ.get("KINGSWAY_HTTP_TIMEOUT", "12")))),
-                max(1, min(60, int(os.environ.get("KINGSWAY_HTTP_TIMEOUT", "12")))),
-            ),
+        timeout = max(1, min(60, int(os.environ.get("KINGSWAY_HTTP_TIMEOUT", "12"))))
+        payload = json.dumps(job.payload or {}).encode("utf-8")
+        request = urllib.request.Request(
+            base + endpoint, data=payload, headers=headers, method="POST"
         )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+                response.read()
+        except urllib.error.HTTPError as error:  # noqa: BLE001
+            if error.code >= 500:
+                raise
+        except Exception:  # noqa: BLE001 - transport faults must not kill the tick
+            pass
