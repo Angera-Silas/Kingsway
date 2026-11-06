@@ -4,7 +4,17 @@
   const byId = (id) => document.getElementById(id);
   const showError = (id, message) => { const el=byId(id); if(!el)return; el.textContent=message; el.classList.remove('d-none'); };
   const clearMessages = () => ['authError','verifyError','verifySuccess'].forEach((id)=>byId(id)?.classList.add('d-none'));
-  const api = (path, method='POST', body={}) => window.API.apiCall(path, method, body, {}, { checkPermission:false });
+  // window.API.apiCall RETURNS an error body instead of throwing, so a failed
+  // challenge would otherwise flow on as if it succeeded (which is how a
+  // passkey attempt reached navigator.credentials.get() with undefined
+  // options). Normalise failures into a throw so every caller's catch fires.
+  const api = async (path, method='POST', body={}) => {
+    const result = await window.API.apiCall(path, method, body, {}, { checkPermission:false });
+    if (result && typeof result === 'object' && (result.success === false || result.status === 'error')) {
+      throw new Error(result.message || 'The request failed.');
+    }
+    return result;
+  };
   const toB64 = (buffer) => { let value=''; new Uint8Array(buffer).forEach((byte)=>{value+=String.fromCharCode(byte);}); return btoa(value); };
   const decodeOptions = (value, key='') => { if(Array.isArray(value))return value.map((item)=>decodeOptions(item,key)); if(value&&typeof value==='object'){Object.keys(value).forEach((child)=>{value[child]=decodeOptions(value[child],child);});return value;} if(typeof value==='string'&&['challenge','id'].includes(key)){const normalized=value.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-value.length%4)%4);return Uint8Array.from(atob(normalized),(character)=>character.charCodeAt(0));} return value; };
   const otpCells = () => Array.from(document.querySelectorAll('.auth-otp-cell'));
@@ -24,7 +34,7 @@
     byId('verificationForm').classList.toggle('d-none',!code||!ready);
     byId('authVerifyPasskey').classList.toggle('d-none',!passkey||!ready);
     byId('authStartMethod').classList.toggle('d-none',ready);
-    byId('authStartMethod').textContent=`Continue with ${methodLabels[method]||'selected method'}`;
+    byId('authStartMethod').textContent = method==='passkey' ? 'Verify with this device' : 'Send the code again';
     byId('authResend').classList.toggle('d-none',!ready||!['email','sms','whatsapp'].includes(method));
     byId('authUseRecovery').classList.toggle('d-none',!ready||passkey);
     byId('authAutoStatus').classList.toggle('d-none',method==='totp'||passkey);
@@ -50,7 +60,6 @@
     // resolves it (users.two_factor_method, honouring two_factor_verified_at),
     // so the UI never asks the user to choose up front.
     state.method=state.methods.includes(result.method)?result.method:state.methods[0];
-    byId('verificationMethod').value=state.method;
 
     // The fallback is a MODAL listing every method on the account. The button
     // is always visible: a user who cannot receive the default code needs a way
@@ -148,12 +157,12 @@
   }
   async function passwordless() {
     clearMessages(); if(!window.PublicKeyCredential||!navigator.credentials?.get){showError('authError','Passkeys are not supported on this browser or device.');return;}
-    try { const options=decodeOptions(await api('/twofactor/passwordless-options')); const credential=await navigator.credentials.get({publicKey:options}); const encoded={id:credential.id,clientDataJSON:toB64(credential.response.clientDataJSON),authenticatorData:toB64(credential.response.authenticatorData),signature:toB64(credential.response.signature),userHandle:credential.response.userHandle?toB64(credential.response.userHandle):null}; const verified=await api('/twofactor/passwordless-verify','POST',{credential:encoded}); await finish(verified.user_id,verified.challenge_token); } catch(error){if(error?.name!=='NotAllowedError')showError('authError',error.message||'Passkey sign-in failed.');}
+    try { const raw=await api('/twofactor/passwordless-options'); if(!raw||!raw.challenge)throw new Error('Passkey sign-in is not available right now.'); const options=decodeOptions(raw); if(!options||!options.challenge)throw new Error('Passkey sign-in could not be started.'); const credential=await navigator.credentials.get({publicKey:options}); const encoded={id:credential.id,clientDataJSON:toB64(credential.response.clientDataJSON),authenticatorData:toB64(credential.response.authenticatorData),signature:toB64(credential.response.signature),userHandle:credential.response.userHandle?toB64(credential.response.userHandle):null}; const verified=await api('/twofactor/passwordless-verify','POST',{credential:encoded}); await finish(verified.user_id,verified.challenge_token); } catch(error){if(error?.name!=='NotAllowedError')showError('authError',error.message||'Passkey sign-in failed.');}
   }
   async function verifyPasskey() {
     clearMessages();
     state.methodStarted='passkey'; updateMethodView('passkey');
-    try { if(!window.PublicKeyCredential||!navigator.credentials?.get)throw new Error('Passkeys are not supported on this browser or device.'); const start=await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method:'passkey'}); const options=decodeOptions(start.public_key); const credential=await navigator.credentials.get({publicKey:options}); const encoded={id:credential.id,clientDataJSON:toB64(credential.response.clientDataJSON),authenticatorData:toB64(credential.response.authenticatorData),signature:toB64(credential.response.signature),userHandle:credential.response.userHandle?toB64(credential.response.userHandle):null}; const verified=await api('/twofactor/verify','POST',{challenge_token:state.challenge,method:'passkey',credential:encoded,code:'passkey'}); if(!verified?.verified)throw new Error('Passkey verification failed.'); await finish(state.userId,state.challenge); } catch(error){if(error?.name!=='NotAllowedError')showError('verifyError',error.message||'Passkey verification failed.');}
+    try { if(!window.PublicKeyCredential||!navigator.credentials?.get)throw new Error('Passkeys are not supported on this browser or device.'); const start=await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method:'passkey'}); if(!start||!start.public_key||!start.public_key.challenge)throw new Error('Passkey verification is not available for this account.'); const options=decodeOptions(start.public_key); if(!options||!options.challenge)throw new Error('Passkey verification could not be started.'); const credential=await navigator.credentials.get({publicKey:options}); const encoded={id:credential.id,clientDataJSON:toB64(credential.response.clientDataJSON),authenticatorData:toB64(credential.response.authenticatorData),signature:toB64(credential.response.signature),userHandle:credential.response.userHandle?toB64(credential.response.userHandle):null}; const verified=await api('/twofactor/verify','POST',{challenge_token:state.challenge,method:'passkey',credential:encoded,code:'passkey'}); if(!verified?.verified)throw new Error('Passkey verification failed.'); await finish(state.userId,state.challenge); } catch(error){if(error?.name!=='NotAllowedError')showError('verifyError',error.message||'Passkey verification failed.');}
   }
   function setupOtpInputs(){
     const cells=otpCells();
