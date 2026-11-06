@@ -106,7 +106,7 @@
   function hideTryAnotherModal() {
     const modalEl=byId('tryAnotherModal');
     if(modalEl && window.bootstrap?.Modal) {
-      window.bootstrap.Modal.getInstance(modalEl)?.hide();
+      window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
     }
   }
 
