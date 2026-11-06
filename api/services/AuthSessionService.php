@@ -36,19 +36,27 @@ final class AuthSessionService
     }
 
     /**
-     * Create a session or rotate the access-token hash for an existing session.
-     * The returned ID is safe to expose as a session identifier.
+     * Concurrent active sessions a single user may hold.
      *
-     * By default each user keeps one active row and a re-login/refresh rotates
-     * that row. Portal callers may disable rotation to keep independent device
-     * sessions; the schema supports multiple active rows per user.
+     * Rotating the one active row meant a second login (phone + desktop, or a
+     * second tab) overwrote the first token's hash and killed that session
+     * instantly. Sessions are now appended per device, and the least-recently
+     * active one past this cap is expired instead of deleted so the audit
+     * trail survives.
+     */
+    public const MAX_ACTIVE_SESSIONS_PER_USER = 5;
+
+    /**
+     * Create a session, refresh an existing one in place, or (for legacy
+     * callers) rotate the newest active row. The returned ID is safe to expose
+     * as a session identifier.
      */
     public function upsertAccessSession(
         int $userId,
         string $accessToken,
         ?int $refreshTokenId,
         string $expiresAt,
-        bool $rotateExisting = true
+        bool $rotateExisting = false
     ): int {
         if ($userId <= 0) {
             throw new InvalidArgumentException('A valid user ID is required');
@@ -73,66 +81,95 @@ final class AuthSessionService
         }
 
         try {
-            $stmt = $this->db->prepare(
-                "SELECT id
-                 FROM user_sessions
-                 WHERE user_id = ?
-                   AND session_status = 'active'
-                   AND logout_time IS NULL
-                 ORDER BY last_activity DESC
-                 LIMIT 1
-                 FOR UPDATE"
-            );
-            $stmt->execute([$userId]);
-            $sessionId = $stmt->fetchColumn();
-
             $tokenHash = self::hashAccessToken($accessToken);
             $ipAddress = $this->clientIpAddress();
             $userAgent = $this->clientUserAgent();
 
-            if ($rotateExisting && $sessionId !== false && $sessionId !== null) {
-                $stmt = $this->db->prepare(
-                    'UPDATE user_sessions
-                     SET session_token = ?,
-                         ip_address = ?,
-                         user_agent = ?,
-                         last_activity = NOW()
-                     WHERE id = ?'
-                );
-                $stmt->execute([
-                    $tokenHash,
-                    $ipAddress,
-                    $userAgent,
-                    (int) $sessionId,
-                ]);
-                $resolvedSessionId = (int) $sessionId;
-            } else {
-                $stmt = $this->db->prepare(
-                    'INSERT INTO user_sessions (
-                        user_id,
-                        session_token,
-                        ip_address,
-                        user_agent,
-                        login_time,
-                        last_activity,
-                        session_status
-                     ) VALUES (?, ?, ?, ?, NOW(), NOW(), ?)'
-                );
-                $stmt->execute([
-                    $userId,
-                    $tokenHash,
-                    $ipAddress,
-                    $userAgent,
-                    'active',
-                ]);
-                $resolvedSessionId = (int) $this->db->lastInsertId();
+            // A row already holding this exact token is the same device
+            // refreshing its own session: refresh it in place instead of
+            // accumulating one row per token refresh.
+            $sameToken = $this->db->prepare(
+                "SELECT id FROM user_sessions
+                 WHERE user_id = ? AND session_token = ? AND session_status = 'active'
+                 LIMIT 1"
+            );
+            $sameToken->execute([$userId, $tokenHash]);
+            $existingId = $sameToken->fetchColumn();
+
+            if ($existingId) {
+                $this->db->prepare(
+                    "UPDATE user_sessions
+                     SET last_activity = NOW(), logout_time = NULL
+                     WHERE id = ?"
+                )->execute([(int) $existingId]);
+                if ($ownsTransaction) {
+                    $this->db->commit();
+                }
+                return (int) $existingId;
             }
+
+            if ($rotateExisting) {
+                // Legacy single-session callers still rotate the newest row,
+                // but they must not silently delete a second active device.
+                $this->db->prepare(
+                    "UPDATE user_sessions
+                     SET session_token = ?, ip_address = ?, user_agent = ?, last_activity = NOW()
+                     WHERE user_id = ? AND session_status = 'active' AND logout_time IS NULL
+                     ORDER BY last_activity DESC LIMIT 1"
+                )->execute([$tokenHash, $ipAddress, $userAgent, $userId]);
+                $rotated = $this->db->prepare(
+                    "SELECT id FROM user_sessions WHERE user_id = ? AND session_token = ? LIMIT 1"
+                );
+                $rotated->execute([$userId, $tokenHash]);
+                $resolvedSessionId = (int) $rotated->fetchColumn();
+                if ($ownsTransaction) {
+                    $this->db->commit();
+                }
+                return $resolvedSessionId;
+            }
+
+            // Enforce the per-user cap before appending the newest session.
+            $activeCount = $this->db->prepare(
+                "SELECT COUNT(*) FROM user_sessions
+                 WHERE user_id = ? AND session_status = 'active' AND logout_time IS NULL"
+            );
+            $activeCount->execute([$userId]);
+            $cap = max(1, self::MAX_ACTIVE_SESSIONS_PER_USER - 1);
+            if ((int) $activeCount->fetchColumn() >= $cap) {
+                $activeRows = $this->db->prepare(
+                    "SELECT COUNT(*) FROM user_sessions
+                     WHERE user_id = ? AND session_status = 'active' AND logout_time IS NULL"
+                );
+                $activeRows->execute([$userId]);
+                $drop = max(1, (int) $activeRows->fetchColumn() - $cap + 1);
+                $this->db->prepare(
+                    "UPDATE user_sessions
+                     SET session_status = 'expired'
+                     WHERE user_id = ? AND session_status = 'active' AND logout_time IS NULL
+                     ORDER BY last_activity ASC
+                     LIMIT " . $drop
+                )->execute([$userId]);
+            }
+
+            $this->db->prepare(
+                'INSERT INTO user_sessions (
+                    user_id, session_token, ip_address, user_agent,
+                    login_time, last_activity, session_status
+                ) VALUES (?, ?, ?, ?, NOW(), NOW(), ?)'
+            )->execute([$userId, $tokenHash, $ipAddress, $userAgent, 'active']);
 
             if ($ownsTransaction) {
                 $this->db->commit();
             }
 
-            return $resolvedSessionId;
+            // lastInsertId() is unreliable here: an UPDATE earlier in this
+            // method already reset the connection's insert-id state, so read
+            // the row back by its unique token instead.
+            $inserted = $this->db->prepare(
+                "SELECT id FROM user_sessions WHERE user_id = ? AND session_token = ? LIMIT 1"
+            );
+            $inserted->execute([$userId, $tokenHash]);
+            return (int) $inserted->fetchColumn();
         } catch (Throwable $error) {
             if ($ownsTransaction && $this->db->inTransaction()) {
                 $this->db->rollBack();
