@@ -397,6 +397,16 @@ class PythonQueueWorker:
                 heartbeat_stop.set()
                 if heartbeat_thread is not None:
                     heartbeat_thread.join(timeout=2)
+        # Bounded mode exits after this batch so the OS reclaims CPU/RAM.
+        # The cached MySQL connections must be released explicitly: leaving
+        # them open strands one master and one reads connection per invocation
+        # against the account's max_user_connections cap.
+        try:
+            from .read_models import close_all_connections
+
+            close_all_connections()
+        except Exception:  # noqa: BLE001 - shutdown cleanup must not raise
+            pass
         return {
             "processed": processed,
             "succeeded": succeeded,

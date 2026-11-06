@@ -6456,6 +6456,78 @@ def create_app(config: Config | None = None) -> Flask:
             }
         )
 
+    @app.post("/internal/tick")
+    def internal_tick():
+        """Curl-cron entry for the schedule-driven dispatcher.
+
+        ONE crontab line calls this once a minute. The schedule lives in
+        schedules.yaml, so the connection count is independent of job count:
+        every projection that is due runs inside this single request against
+        the process-wide cached MySQL connection.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+
+        with queue_state_lock:
+            if queue_state["active"]:
+                return jsonify(
+                    {
+                        "success": True,
+                        "data": {"status": "busy"},
+                        "message": "Scheduler is already running a bounded batch",
+                    }
+                ), 202
+            queue_state["active"] = True
+
+        payload = request.get_json(force=True, silent=True) or {}
+        max_jobs = payload.get("max_jobs")
+        max_seconds = payload.get("max_seconds")
+
+        try:
+            from .scheduler import Scheduler
+            from .scheduler_runner import SchedulerRunner
+
+            scheduler = Scheduler(cfg)
+            runner = SchedulerRunner(cfg, scheduler)
+            outcome = runner.run_bounded(
+                max_jobs=int(max_jobs) if str(max_jobs or "").isdigit() else 25,
+                max_seconds=float(max_seconds) if str(max_seconds or "").replace(".", "", 1).isdigit() else 45.0,
+            )
+            journal.write(
+                "reads",
+                {
+                    "type": "scheduler_tick_finished",
+                    **{k: v for k, v in outcome.items() if k != "failures"},
+                    "failures": outcome.get("failures", []),
+                },
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "data": outcome,
+                    "message": "Scheduler tick complete",
+                }
+            ), 200
+        except Exception as error:  # noqa: BLE001 - report, never crash Passenger
+            journal.write(
+                "reads",
+                {
+                    "type": "scheduler_tick_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "data": None,
+                    "message": f"Scheduler tick failed: {error}",
+                }
+            ), 503
+        finally:
+            with queue_state_lock:
+                queue_state["active"] = False
+
     @app.post("/internal/worker")
     def internal_worker():
         """Curl-cron entry for bounded Python queue jobs or existing AI runs."""
