@@ -58,9 +58,19 @@ try {
                 <button class="btn btn-success w-100 mb-3" id="authStartMethod" type="button">Continue with selected method</button>
                 <form id="verificationForm"><label class="form-label" id="verificationCodeLabel">Enter the six-digit code</label><div class="auth-otp-grid" id="authOtpGrid" role="group" aria-labelledby="verificationCodeLabel"><input class="auth-otp-cell" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 2"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 3"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 4"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 5"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 6"></div><input class="form-control form-control-lg auth-code d-none" id="verificationCode" autocomplete="one-time-code" maxlength="32"><p class="auth-auto-status" id="authAutoStatus"><i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.</p><button class="btn btn-warning w-100 mt-3 auth-submit d-none" id="verifySubmit" type="submit">Verify recovery code</button></form>
                 <button class="btn btn-success w-100 d-none" id="authVerifyPasskey" type="button"><i class="bi bi-fingerprint me-2"></i>Verify with this device</button>
-                <div class="row row-cols-1 row-cols-sm-3 g-2 mt-4"><button class="btn btn-outline-secondary btn-sm w-100" id="authBack" type="button"><i class="bi bi-arrow-left"></i> Back to login</button><button class="btn btn-outline-primary btn-sm w-100" id="authResend" type="button">Send a new code</button><button class="btn btn-outline-danger btn-sm w-100" id="authUseRecovery" type="button" data-bs-toggle="modal" data-bs-target="#noAccessModal">I don't have my 2FA</button><button class="btn btn-outline-warning btn-sm w-100" id="authTryAnother" type="button" data-bs-toggle="modal" data-bs-target="#tryAnotherModal"><i class="bi bi-arrow-repeat me-1"></i>Try another method</button></div>
-                
-                <div class="modal fade" id="noAccessModal" tabindex="-1" aria-labelledby="noAccessModalLabel" aria-hidden="true">
+                <div class="row g-2 mt-4"><div class="col-12 col-sm-4"><button class="btn btn-outline-secondary btn-sm w-100" id="authBack" type="button"><i class="bi bi-arrow-left me-1"></i>Back to login</button></div><div class="col-12 col-sm-4"><button class="btn btn-outline-primary btn-sm w-100" id="authResend" type="button">Send a new code</button></div><div class="col-12 col-sm-4"><button class="btn btn-outline-danger btn-sm w-100" id="authUseRecovery" type="button" data-bs-toggle="modal" data-bs-target="#noAccessModal">I don't have my 2FA</button></div><div class="col-12 col-sm-4 mt-0"><button class="btn btn-outline-warning btn-sm w-100" id="authTryAnother" type="button" data-bs-toggle="modal" data-bs-target="#tryAnotherModal"><i class="bi bi-arrow-repeat me-1"></i>Try another method</button></div></div>
+
+            </div>
+        </div>
+        <p class="auth-help"><i class="bi bi-shield-lock"></i> Kingsway will never ask you to share a verification code.</p>
+        <p class="auth-soft">Maintained by <a href="https://www.angisoft.co.ke" target="_blank" rel="noopener">AngiSoft Technologies</a></p>
+    </section>
+</main>
+<script src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"></script>
+<script src="<?= htmlspecialchars($appBase) ?>/js/api.js?v=<?= asset_version('js/api.js') ?>"></script>
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/sign_in.js?v=<?= asset_version('js/pages/sign_in.js') ?>"></script>
+
+<div class="modal fade" id="noAccessModal" tabindex="-1" aria-labelledby="noAccessModalLabel" aria-hidden="true">
                   <div class="modal-dialog modal-dialog-centered">
                     <div class="modal-content">
                       <div class="modal-header">
@@ -83,7 +93,7 @@ try {
                     </div>
                   </div>
                 </div>
-                <div class="modal fade" id="tryAnotherModal" tabindex="-1" aria-labelledby="tryAnotherModalLabel" aria-hidden="true">
+<div class="modal fade" id="tryAnotherModal" tabindex="-1" aria-labelledby="tryAnotherModalLabel" aria-hidden="true">
                   <div class="modal-dialog modal-dialog-centered">
                     <div class="modal-content">
                       <div class="modal-header">
@@ -100,13 +110,4 @@ try {
                     </div>
                   </div>
                 </div>
-            </div>
-        </div>
-        <p class="auth-help"><i class="bi bi-shield-lock"></i> Kingsway will never ask you to share a verification code.</p>
-        <p class="auth-soft">Maintained by <a href="https://www.angisoft.co.ke" target="_blank" rel="noopener">AngiSoft Technologies</a></p>
-    </section>
-</main>
-<script src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"></script>
-<script src="<?= htmlspecialchars($appBase) ?>/js/api.js?v=<?= asset_version('js/api.js') ?>"></script>
-<script src="<?= htmlspecialchars($appBase) ?>/js/pages/sign_in.js?v=<?= asset_version('js/pages/sign_in.js') ?>"></script>
 </body></html>
