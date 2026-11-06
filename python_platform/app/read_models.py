@@ -2652,49 +2652,105 @@ def _qualified(schema: str, table: str) -> str:
     return f"{_qid(schema)}.{_qid(table)}"
 
 
-class ReadModelRefresher:
-    def __init__(self, config: Any, connector: Callable[..., Any] | None = None):
-        self.config = config
-        self.connector = connector
+# Process-wide MySQL connection cache.
+#
+# Refreshers are constructed per job (queue_worker.py builds a new
+# ReadModelRefresher for every projection), so a per-instance cache would
+# still open one connection per job. This module-level cache is keyed by the
+# resolved schema, so a bounded batch of 25 projections costs exactly one or
+# two connections for the whole process instead of 25-50.
+_CONNECTION_CACHE: dict = {}
 
-    def _connect(self):
-        if self.connector is not None:
-            return self.connector(
-                host=self.config.db_host,
-                port=self.config.db_port,
-                user=self.config.db_user,
-                password=self.config.db_password,
-                database=self.config.db_master_schema,
-                charset="utf8mb4",
-                connect_timeout=self.config.db_connect_timeout,
-                read_timeout=self.config.db_read_timeout,
-                write_timeout=30,
-                autocommit=True,
-                ssl_ca=self.config.db_ssl_ca or None,
-                ssl_verify_cert=bool(self.config.db_ssl_ca),
-                ssl_verify_identity=bool(self.config.db_ssl_ca),
-            )
+
+# The scheduler executes every due job on ONE connection. The read-model
+# account is granted full access on both the master and the reads schema, so a
+# single connection can run the cross-database INSERT ... SELECT that publishes
+# a projection. Keying the cache on the user rather than the schema is what
+# keeps the tick at exactly one connection.
+def _open_mysql_connection(config, database, connector=None):
+    """Open (or reuse) a single autocommit connection."""
+    key = ("singleton", getattr(config, "db_user", ""))
+    cached = _CONNECTION_CACHE.get(key)
+    if cached is not None:
+        try:
+            cached.ping(reconnect=True)
+            return cached
+        except Exception:  # noqa: BLE001 - stale connection, reopen below
+            try:
+                cached.close()
+            except Exception:  # noqa: BLE001
+                pass
+            _CONNECTION_CACHE.pop(key, None)
+
+    if connector is not None:
+        connection = connector(
+            host=config.db_host,
+            port=config.db_port,
+            user=config.db_user,
+            password=config.db_password,
+            database=database,
+            charset="utf8mb4",
+            connect_timeout=config.db_connect_timeout,
+            read_timeout=config.db_read_timeout,
+            write_timeout=30,
+            autocommit=True,
+            ssl_ca=config.db_ssl_ca or None,
+            ssl_verify_cert=bool(config.db_ssl_ca),
+            ssl_verify_identity=bool(config.db_ssl_ca),
+        )
+    else:
         try:
             import pymysql
         except ImportError as error:  # fail closed when not installed
             raise ReadModelError(
                 "The read-model database driver is not installed"
             ) from error
-        return pymysql.connect(
-            host=self.config.db_host,
-            port=self.config.db_port,
-            user=self.config.db_user,
-            password=self.config.db_password,
-            database=self.config.db_master_schema,
+        connection = pymysql.connect(
+            host=config.db_host,
+            port=config.db_port,
+            user=config.db_user,
+            password=config.db_password,
+            database=database,
             charset="utf8mb4",
-            connect_timeout=self.config.db_connect_timeout,
-            read_timeout=self.config.db_read_timeout,
+            connect_timeout=config.db_connect_timeout,
+            read_timeout=config.db_read_timeout,
             write_timeout=30,
             autocommit=True,
-            ssl_ca=self.config.db_ssl_ca or None,
-            ssl_verify_cert=bool(self.config.db_ssl_ca),
-            ssl_verify_identity=bool(self.config.db_ssl_ca),
+            ssl_ca=config.db_ssl_ca or None,
+            ssl_verify_cert=bool(config.db_ssl_ca),
+            ssl_verify_identity=bool(config.db_ssl_ca),
         )
+
+    _CONNECTION_CACHE[key] = connection
+    return connection
+
+
+def close_all_connections() -> None:
+    """Release every cached connection. Call on worker shutdown."""
+    while _CONNECTION_CACHE:
+        _key, connection = _CONNECTION_CACHE.popitem()
+        try:
+            connection.close()
+        except Exception:  # noqa: BLE001 - best effort on shutdown
+            pass
+
+
+class ReadModelRefresher:
+    def __init__(self, config: Any, connector: Callable[..., Any] | None = None):
+        self.config = config
+        self.connector = connector
+        self._cached_connection: Any = None
+
+    def close(self) -> None:
+        close_all_connections()
+
+    def _connect_new(self):
+        return _open_mysql_connection(self.config, self.config.db_master_schema, self.connector)
+
+    def _connect(self):
+        # Reuse one connection per process. Per-instance caching was not
+        # enough because callers construct a refresher per projection.
+        return _open_mysql_connection(self.config, self.config.db_master_schema, self.connector)
 
     def refresh(self, projection: str) -> dict[str, Any]:
         if not self.config.read_models_enabled:
@@ -2874,43 +2930,17 @@ class PolarsReadModelRefresher:
             raise ReadModelError("polars is not installed") from error
         self.pl = pl
 
-    def _connect_master(self):
-        import pymysql
+    def close(self) -> None:
+        close_all_connections()
 
-        return pymysql.connect(
-            host=self.config.db_host,
-            port=self.config.db_port,
-            user=self.config.db_user,
-            password=self.config.db_password,
-            database=self.config.db_master_schema,
-            charset="utf8mb4",
-            connect_timeout=self.config.db_connect_timeout,
-            read_timeout=self.config.db_read_timeout,
-            write_timeout=30,
-            autocommit=True,
-            ssl_ca=self.config.db_ssl_ca or None,
-            ssl_verify_cert=bool(self.config.db_ssl_ca),
-            ssl_verify_identity=bool(self.config.db_ssl_ca),
-        )
+    def _connect_master(self):
+        # Process-wide cache: queue_worker and routes both construct a new
+        # refresher per job, so per-instance caching was still one connection
+        # per projection. The module cache keeps it to one per schema.
+        return _open_mysql_connection(self.config, self.config.db_master_schema)
 
     def _connect_reads(self):
-        import pymysql
-
-        return pymysql.connect(
-            host=self.config.db_host,
-            port=self.config.db_port,
-            user=self.config.db_user,
-            password=self.config.db_password,
-            database=self.config.db_reads_schema,
-            charset="utf8mb4",
-            connect_timeout=self.config.db_connect_timeout,
-            read_timeout=self.config.db_read_timeout,
-            write_timeout=30,
-            autocommit=True,
-            ssl_ca=self.config.db_ssl_ca or None,
-            ssl_verify_cert=bool(self.config.db_ssl_ca),
-            ssl_verify_identity=bool(self.config.db_ssl_ca),
-        )
+        return _open_mysql_connection(self.config, self.config.db_reads_schema)
 
     def refresh(self, projection: str) -> dict[str, Any]:
         """Publish an allowlisted source view through bounded Polars batches."""

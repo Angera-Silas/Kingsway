@@ -159,7 +159,6 @@ class AuthMiddleware
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'realtime/worker',
             'realtime/cleanup',
-            'realtime/sync-projection',
             'realtime/python-job-claim',
             'realtime/python-job-input',
             'realtime/python-job-heartbeat',

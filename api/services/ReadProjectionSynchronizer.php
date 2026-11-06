@@ -24,7 +24,8 @@ final class ReadProjectionSynchronizer
 
     /**
      * Freshness budgets at or below this threshold are served by the
-     * per-projection sync-projection crontab lines, which refresh inline in
+     * per-projection refresh (formerly driven by sync-projection crontab
+     * lines) runs inline in
      * the request. Those projections are the expensive aggregate views on the
      * shortest leash, so the queued batch path deliberately skips them: it
      * would duplicate the inline work and push every cheaper projection on
