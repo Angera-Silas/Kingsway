@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const state = { userId: null, method: null, methods: [], methodStarted: null, challenge: null, remember: false, identifier: '', password: '', verifying: false, redirecting: false };
+  const state = { userId: null, method: null, methods: [], challenge: null, remember: false, identifier: '', password: '', verifying: false, redirecting: false };
   const byId = (id) => document.getElementById(id);
   const showError = (id, message) => { const el=byId(id); if(!el)return; el.textContent=message; el.classList.remove('d-none'); };
   const clearMessages = () => ['authError','verifyError','verifySuccess'].forEach((id)=>byId(id)?.classList.add('d-none'));
@@ -26,17 +26,22 @@
   }
   function updateMethodView(method) {
     state.method=method;
-    const ready=state.methodStarted===method;
+    // `ready` used to gate the whole layout: it was false during any
+    // method switch and after any failed send, which replaced the code form
+    // with a lone error message and a retry button. The form is now always
+    // shown for a code method, so the panel looks identical in every state.
+
     const passkey=method==='passkey';
     const code=method==='email'||method==='sms'||method==='whatsapp'||method==='totp';
     byId('verificationTitle').textContent=passkey?'Passkey verification':method==='totp'?'Authenticator verification':'Verify your identity';
     byId('verificationDescription').textContent=methodDescription(method);
-    byId('verificationForm').classList.toggle('d-none',!code||!ready);
-    byId('authVerifyPasskey').classList.toggle('d-none',!passkey||!ready);
-    byId('authStartMethod').classList.toggle('d-none',ready);
-    byId('authStartMethod').textContent = method==='passkey' ? 'Verify with this device' : 'Send the code again';
-    byId('authResend').classList.toggle('d-none',!ready||!['email','sms','whatsapp'].includes(method));
-    byId('authUseRecovery').classList.toggle('d-none',!ready||passkey);
+    // The code entry stays visible before the send resolves: hiding it on
+    // failure replaced the whole form with a single button and made the
+    // verification step look like two different screens.
+    byId('verificationForm').classList.toggle('d-none',!code);
+    byId('authVerifyPasskey').classList.toggle('d-none',!passkey);
+    byId('authResend').classList.toggle('d-none',!['email','sms','whatsapp'].includes(method));
+    byId('authUseRecovery').classList.toggle('d-none',passkey);
     byId('authAutoStatus').classList.toggle('d-none',method==='totp'||passkey);
   }
 
@@ -70,7 +75,6 @@
     // seen in its final state. Revealing first and then activating made the
     // "Continue with ..." button and the code box flash in sequence for a
     // second while the request was in flight.
-    state.methodStarted=null;
     await activateMethod(state.method);
     byId('signInStep').classList.add('d-none');
     byId('verificationStep').classList.remove('d-none');
@@ -125,11 +129,9 @@
     if(method==='passkey') { await verifyPasskey(); return; }
     try {
       await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method});
-      state.methodStarted=method;
-      updateMethodView(method);
       if(['email','sms','whatsapp'].includes(method)) {
         const label=method==='email'?'email address':method==='sms'?'phone':'WhatsApp';
-        const el=byId('verifySuccess'); el.textContent=`A verification code was sent to your ${label}.`; el.classList.remove('d-none');
+        const el=byId('verifySuccess'); el.textContent=`A verification code was sent to your ${label}. Use the newest one if several arrive.`; el.classList.remove('d-none');
       }
       if(method!=='totp') otpCells()[0]?.focus();
     } catch(error) { showError('verifyError',error.message||'This verification method could not be started.'); }
@@ -161,7 +163,7 @@
   }
   async function verifyPasskey() {
     clearMessages();
-    state.methodStarted='passkey'; updateMethodView('passkey');
+    updateMethodView('passkey');
     try { if(!window.PublicKeyCredential||!navigator.credentials?.get)throw new Error('Passkeys are not supported on this browser or device.'); const start=await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method:'passkey'}); if(!start||!start.public_key||!start.public_key.challenge)throw new Error('Passkey verification is not available for this account.'); const options=decodeOptions(start.public_key); if(!options||!options.challenge)throw new Error('Passkey verification could not be started.'); const credential=await navigator.credentials.get({publicKey:options}); const encoded={id:credential.id,clientDataJSON:toB64(credential.response.clientDataJSON),authenticatorData:toB64(credential.response.authenticatorData),signature:toB64(credential.response.signature),userHandle:credential.response.userHandle?toB64(credential.response.userHandle):null}; const verified=await api('/twofactor/verify','POST',{challenge_token:state.challenge,method:'passkey',credential:encoded,code:'passkey'}); if(!verified?.verified)throw new Error('Passkey verification failed.'); await finish(state.userId,state.challenge); } catch(error){if(error?.name!=='NotAllowedError')showError('verifyError',error.message||'Passkey verification failed.');}
   }
   function setupOtpInputs(){
@@ -172,6 +174,6 @@
       cell.addEventListener('paste',(event)=>{const digits=(event.clipboardData?.getData('text')||'').replace(/\D/g,'').slice(0,6);if(!digits)return;event.preventDefault();clearOtp();digits.split('').forEach((digit,i)=>{if(cells[i]){cells[i].value=digit;cells[i].classList.add('is-complete');}});cells[Math.min(digits.length,6)-1]?.focus();if(digits.length===6)void verify();});
     });
   }
-  function reset() { state.userId=null;state.challenge=null;state.methods=[];state.method=null;state.methodStarted=null;state.verifying=false;clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authPassword').focus(); }
-  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authStartMethod').addEventListener('click',()=>{void activateMethod(state.method);});byId('authTryAnother').addEventListener('click',buildTryAnotherList);byId('tryAnotherModal').addEventListener('show.bs.modal',buildTryAnotherList);byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
+  function reset() { state.userId=null;state.challenge=null;state.methods=[];state.method=null;state.verifying=false;clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authPassword').focus(); }
+  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authTryAnother').addEventListener('click',buildTryAnotherList);byId('tryAnotherModal').addEventListener('show.bs.modal',buildTryAnotherList);byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
 })();

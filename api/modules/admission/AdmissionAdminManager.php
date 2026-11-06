@@ -1267,7 +1267,7 @@ if ($canViewPayment || $canRecordPayment) {
                          application_open_at, application_close_at, interview_start_at, interview_end_at,
                          interview_results_deadline_at, admission_start_at, admission_end_at,
                          notes, opened_by, opened_at, closed_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                      ON DUPLICATE KEY UPDATE
                         label = VALUES(label),
                         status = VALUES(status),

@@ -899,3 +899,10 @@ jobs:
   - name: staff_daily_register
     kind: projection
     interval: 300
+
+# --- housekeeping ---
+  - name: prune_rate_limit_buckets
+    kind: http
+    endpoint: /api/system/prune-rate-limit
+    payload: {"keep_days":2}
+    interval: 21600

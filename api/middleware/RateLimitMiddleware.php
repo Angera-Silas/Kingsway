@@ -2,7 +2,6 @@
 
 namespace App\API\Middleware;
 
-use App\Database\Database;
 use PDO;
 
 class RateLimitMiddleware
@@ -27,6 +26,14 @@ class RateLimitMiddleware
         '/users/login',
     ];
 
+    // Each call to these can send a PAID SMS/WhatsApp message, so they get
+    // their own tight bucket rather than the general authenticated default.
+    const VERIFICATION_PATHS = [
+        '/twofactor/challenge',
+        '/twofactor/verify',
+    ];
+    const VERIFICATION_REQUESTS_LIMIT = 10;
+
     /**
      * Check rate limiting by authenticated user when a bearer token is present,
      * otherwise by IP address. This middleware intentionally does not authorize
@@ -39,67 +46,19 @@ class RateLimitMiddleware
         $limit = self::resolveLimit($rateKey);
         $now = time();
 
-        try {
-            $db = Database::getInstance();
-
-            // The runtime counter store is optional: if it has not been
-            // provisioned, fail open (the nginx edge layer still enforces
-            // per-route limits).
-            if (!self::rateLimitStoreAvailable($db)) {
-                return;
-            }
-
-            // Clean old entries (older than time window)
-            $db->query(
-                "DELETE FROM rate_limit_logs WHERE request_time < ?",
-                [$now - self::TIME_WINDOW]
-            );
-
-            // Count requests from this IP in current window
-            $stmt = $db->query(
-                "SELECT COUNT(*) as request_count FROM rate_limit_logs 
-                 WHERE ip_address = ? AND request_time > ?",
-                [$rateKey, $now - self::TIME_WINDOW]
-            );
-
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            $requestCount = $result['request_count'] ?? 0;
-
-            if ($requestCount >= $limit) {
-                self::deny(429, 'Too many requests. Rate limit exceeded.');
-            }
-
-            // Log this request
-            $db->query(
-                "INSERT INTO rate_limit_logs (ip_address, request_time) VALUES (?, ?)",
-                [$rateKey, $now]
-            );
-
-        } catch (\Exception $e) {
-            // Log but don't block on database error
-            \App\API\Services\Logger::legacyError("Rate limit check failed: " . $e->getMessage());
-        }
-    }
-
-    private static $rateLimitStoreChecked = false;
-    private static $rateLimitStoreAvailable = false;
-
-    private static function rateLimitStoreAvailable($db): bool
-    {
-        if (self::$rateLimitStoreChecked) {
-            return self::$rateLimitStoreAvailable;
-        }
-
-        $stmt = $db->query(
-            "SELECT COUNT(*)
-             FROM information_schema.tables
-             WHERE table_schema = DATABASE()
-               AND table_name = 'rate_limit_logs'"
+        // Counters are JSON-lines files under logs/<env>/ratelimit, matching
+        // Hard Rule 2 (no database log tables). The previous rate_limit_logs
+        // table never existed, so this middleware silently failed open for
+        // every request; the file limiter is always available and always
+        // counts, so rotating IPs does not bypass it.
+        $remaining = \App\API\Services\FileRateLimiter::consume(
+            $rateKey,
+            $limit,
+            self::TIME_WINDOW
         );
-        self::$rateLimitStoreAvailable = (int) $stmt->fetchColumn() === 1;
-        self::$rateLimitStoreChecked = true;
-
-        return self::$rateLimitStoreAvailable;
+        if ($remaining < 0) {
+            self::deny(429, 'Too many requests. Rate limit exceeded.');
+        }
     }
 
     private static function resolveLimit($rateKey)
@@ -121,9 +80,22 @@ class RateLimitMiddleware
             return self::LOGIN_REQUESTS_LIMIT;
         }
 
+        if (self::isVerificationEndpoint()) {
+            return self::VERIFICATION_REQUESTS_LIMIT;
+        }
+
         return strpos($rateKey, 'user:') === 0
             ? self::AUTHENTICATED_REQUESTS_LIMIT
             : self::ANONYMOUS_REQUESTS_LIMIT;
+    }
+
+    private static function isVerificationEndpoint(): bool
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        foreach (self::VERIFICATION_PATHS as $verificationPath) {
+            if (strpos($path, $verificationPath) !== false) return true;
+        }
+        return false;
     }
 
     private static function isTelemetryEndpoint(): bool
