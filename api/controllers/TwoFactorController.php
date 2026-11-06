@@ -456,8 +456,14 @@ class TwoFactorController extends BaseController
                 break;
 
             case 'backup':
-                $verified = $this->tfa->verifyBackupCode($targetUserId, $code);
-                break;
+                // Self-service recovery is not permitted: a lost factor is
+                // resolved by an administrator who re-enrols the user. The
+                // codes remain usable by administrativeReset(), which is the
+                // only sanctioned way back into an account.
+                return $this->forbidden(
+                    'Backup codes are not accepted for self-service sign-in on this system. '
+                    . 'Contact the system administrator, who can restore your verification method.'
+                );
 
             default:
                 return $this->badRequest('Invalid 2FA method');
