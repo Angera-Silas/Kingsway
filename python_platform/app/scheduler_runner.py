@@ -39,6 +39,44 @@ class SchedulerRunner:
 
     # -------------------------------------------------------------------- run
 
+    def _missing_projections(self) -> list[str]:
+        """Projections whose target table is absent or empty.
+
+        The scheduler's last-run state lives in a JSON file that survives a
+        schema wipe. After the reads namespace is rebuilt, every entry still
+        claims "ran recently", so an interval-based check alone leaves those
+        projections unpublished for their full interval (or forever, if the
+        interval is long). The target table is therefore verified directly
+        before the state file is trusted.
+
+        Runs on the same cached connection the batch already opened.
+        """
+        try:
+            connection = self._refresher._connect()
+        except Exception:  # noqa: BLE001 - no connection, nothing to verify
+            return []
+
+        reads = self.config.db_reads_schema
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT table_name, table_rows FROM information_schema.TABLES "
+                    "WHERE table_schema=%s AND table_name LIKE 'mmv_%'",
+                    (reads,),
+                )
+                rows = {str(row[0]): int(row[1] or 0) for row in cursor.fetchall()}
+        except Exception:  # noqa: BLE001
+            return []
+
+        missing = []
+        for job in self.scheduler._jobs:
+            if job.kind != "projection":
+                continue
+            target = f"mmv_{job.name}"
+            if target not in rows or rows[target] == 0:
+                missing.append(job.name)
+        return missing
+
     def run_bounded(
         self,
         max_jobs: int = DEFAULT_MAX_JOBS,
@@ -54,6 +92,18 @@ class SchedulerRunner:
         deadline = time.monotonic() + max_seconds
 
         due = self.scheduler.due_jobs()
+
+        # A rebuilt reads schema leaves every interval claiming "recently run".
+        # Verify the targets directly and queue whatever is actually missing.
+        due_by_name = {job.name: job for job in due}
+        for name in self._missing_projections():
+            if name not in due_by_name:
+                job = next((j for j in self.scheduler._jobs if j.name == name), None)
+                if job is not None:
+                    due.append(job)
+                    due_by_name[name] = job
+        due.sort(key=lambda job: self._last_run.get(job.name, 0.0))
+
         attempted = len(due)
         processed = succeeded = failed = 0
         failures: list[dict[str, str]] = []
