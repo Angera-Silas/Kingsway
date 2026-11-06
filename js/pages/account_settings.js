@@ -63,6 +63,8 @@ const accountSettings = {
         document.getElementById('tfa-setup-totp')?.addEventListener('click', () => this.setupTOTP());
         document.getElementById('tfa-setup-email')?.addEventListener('click', () => this.setupEmail());
         document.getElementById('tfa-setup-passkey')?.addEventListener('click', () => this.setupPasskey());
+        document.getElementById('tfa-setup-sms')?.addEventListener('click', () => this.setupSms());
+        document.getElementById('tfa-setup-whatsapp')?.addEventListener('click', () => this.setupWhatsapp());
 
         // ── 2FA verify setup code ──
         document.getElementById('tfa-verify-code-btn')?.addEventListener('click', () => this.verifySetupCode());
@@ -170,6 +172,62 @@ const accountSettings = {
         document.getElementById('tfa-setup-section')?.classList.remove('d-none');
         document.getElementById('tfa-manage-section')?.classList.toggle('d-none', !enabled);
         document.getElementById('tfa-backup-section')?.classList.toggle('d-none', !enabled);
+
+        this.renderPrimaryMethod(data);
+    },
+
+    TFA_LABELS: { email: 'Email code', sms: 'Text message', whatsapp: 'WhatsApp', totp: 'Authenticator app', passkey: 'Passkey' },
+
+    /** Render the "default verification method" picker from the enrolled list. */
+    renderPrimaryMethod(data) {
+        const enrolled = Array.isArray(data.methods)
+            ? data.methods.map(m => String(m.method || m).toLowerCase())
+            : [];
+        const current = String(data.primary_method || data.method || '').toLowerCase();
+        const currentEl = document.getElementById('tfa-primary-current');
+        if (currentEl) currentEl.textContent = this.TFA_LABELS[current] || current || '—';
+
+        const wrap = document.getElementById('tfa-primary-section');
+        // Only offer a choice when there is something to choose between.
+        if (wrap) wrap.classList.toggle('d-none', enrolled.length < 2);
+
+        const group = document.getElementById('tfa-primary-options');
+        if (!group) return;
+        group.replaceChildren();
+        enrolled.forEach((method) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm ' + (method === current ? 'btn-success' : 'btn-outline-secondary');
+            btn.dataset.primaryMethod = method;
+            if (method === current) {
+                btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>';
+                btn.setAttribute('aria-pressed', 'true');
+            }
+            btn.appendChild(document.createTextNode(this.TFA_LABELS[method] || method.toUpperCase()));
+            btn.addEventListener('click', () => this.setPrimaryMethod(method));
+            group.appendChild(btn);
+        });
+    },
+
+    /** Persist the user's preferred verification method. */
+    async setPrimaryMethod(method) {
+        const currentPassword = await this.requestReauth();
+        try {
+            const resp = await window.API.apiCall('/twofactor/primary-method', 'POST', {
+                method,
+                current_password: currentPassword,
+            });
+            if (!resp || resp.success === false) throw new Error(resp?.message || 'Could not update the default method.');
+            showNotification('Default verification method updated.', 'success');
+            const saved = document.getElementById('tfa-primary-saved');
+            if (saved) saved.classList.remove('d-none');
+            // Re-read status so the picker and the enabled-methods line stay in step.
+            const status = await window.API.apiCall('/twofactor/status', 'POST');
+            this.state.tfaStatus = status;
+            this.renderTFAStatus(status);
+        } catch (error) {
+            showNotification(error.message || 'Could not update the default method.', 'danger');
+        }
     },
 
     // ═══════════════════════════════════════════════════════════════════

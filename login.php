@@ -3,6 +3,17 @@ require_once __DIR__ . '/vendor/autoload.php';
 $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
 if ($appBase === '.') $appBase = '';
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+// SCHOOL_PHONE / SCHOOL_EMAIL back the "Contact the system administrator"
+// modal below. The constants are only defined by loadSchoolIdentity(), which
+// Config::init() calls. Without this the modal renders with no contact
+// details at all. Wrapped so a config fault degrades the page instead of
+// taking the sign-in screen down with it.
+try {
+    \App\Config\Config::init();
+} catch (\Throwable $configError) {
+    error_log('[login] Config::init() failed: ' . $configError->getMessage());
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -43,13 +54,52 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
             <div class="d-none" id="verificationStep">
                 <span class="auth-step-label">Identity verification</span><h2 id="verificationTitle">Two-factor authentication 🔑</h2><p class="auth-intro" id="verificationDescription">Use your device to get the code.</p>
                 <input type="hidden" id="verificationMethod" value="">
-                <div class="mt-3" id="tryAnotherWrap"><button class="btn btn-link p-0" id="authTryAnother" type="button"><i class="bi bi-arrow-repeat me-1"></i>Try another method</button></div>
-                <div class="mb-3 d-none" id="tryAnotherPanel"><label class="form-label" for="tryAnotherSelect">Available methods for this account</label><select class="form-select" id="tryAnotherSelect" aria-describedby="verificationDescription"></select></div>
                 <div class="alert alert-danger d-none" id="verifyError" role="alert"></div><div class="alert alert-success d-none" id="verifySuccess" role="status"></div>
                 <button class="btn btn-success w-100 mb-3" id="authStartMethod" type="button">Continue with selected method</button>
                 <form id="verificationForm"><label class="form-label" id="verificationCodeLabel">Enter the six-digit code</label><div class="auth-otp-grid" id="authOtpGrid" role="group" aria-labelledby="verificationCodeLabel"><input class="auth-otp-cell" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 2"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 3"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 4"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 5"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 6"></div><input class="form-control form-control-lg auth-code d-none" id="verificationCode" autocomplete="one-time-code" maxlength="32"><p class="auth-auto-status" id="authAutoStatus"><i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.</p><button class="btn btn-warning w-100 mt-3 auth-submit d-none" id="verifySubmit" type="submit">Verify recovery code</button></form>
                 <button class="btn btn-success w-100 d-none" id="authVerifyPasskey" type="button"><i class="bi bi-fingerprint me-2"></i>Verify with this device</button>
-                <div class="d-flex justify-content-between mt-4"><button class="btn btn-link p-0" id="authBack" type="button"><i class="bi bi-arrow-left"></i> Back to login</button><button class="btn btn-link p-0" id="authResend" type="button">Send a new code</button><button class="btn btn-link p-0" id="authUseRecovery" type="button">I don't have my 2FA</button></div>
+                <div class="row row-cols-1 row-cols-sm-3 g-2 mt-4"><button class="btn btn-outline-secondary btn-sm w-100" id="authBack" type="button"><i class="bi bi-arrow-left"></i> Back to login</button><button class="btn btn-outline-primary btn-sm w-100" id="authResend" type="button">Send a new code</button><button class="btn btn-outline-danger btn-sm w-100" id="authUseRecovery" type="button" data-bs-toggle="modal" data-bs-target="#noAccessModal">I don't have my 2FA</button><button class="btn btn-outline-warning btn-sm w-100" id="authTryAnother" type="button" data-bs-toggle="modal" data-bs-target="#tryAnotherModal"><i class="bi bi-arrow-repeat me-1"></i>Try another method</button></div>
+                
+                <div class="modal fade" id="noAccessModal" tabindex="-1" aria-labelledby="noAccessModalLabel" aria-hidden="true">
+                  <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                      <div class="modal-header">
+                        <h6 class="modal-title" id="noAccessModalLabel">Contact the system administrator</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <p class="mb-2">You cannot restore your own sign-in on this system. Verification is arranged by the school, not by the account holder.</p>
+                        <p class="mb-2">Contact the system administrator, who can re-enrol your second factor or unlock the account for you.</p>
+                        <hr>
+                        <ul class="list-unstyled small mb-0">
+                          <?php if (defined('SCHOOL_PHONE') && SCHOOL_PHONE !== ''): ?><li class="mb-1"><i class="bi bi-telephone me-2"></i><?= htmlspecialchars(SCHOOL_PHONE, ENT_QUOTES) ?></li><?php endif; ?>
+                          <?php if (defined('SCHOOL_EMAIL') && SCHOOL_EMAIL !== ''): ?><li class="mb-1"><i class="bi bi-envelope me-2"></i><a href="mailto:<?= htmlspecialchars(SCHOOL_EMAIL, ENT_QUOTES) ?>"><?= htmlspecialchars(SCHOOL_EMAIL, ENT_QUOTES) ?></a></li><?php endif; ?>
+                          <?php if (defined('SCHOOL_NAME') && SCHOOL_NAME !== '' && SCHOOL_NAME !== 'School'): ?><li class="mb-1"><i class="bi bi-building me-2"></i><?= htmlspecialchars(SCHOOL_NAME, ENT_QUOTES) ?> office</li><?php endif; ?>
+                        </ul>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="modal fade" id="tryAnotherModal" tabindex="-1" aria-labelledby="tryAnotherModalLabel" aria-hidden="true">
+                  <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                      <div class="modal-header">
+                        <h6 class="modal-title" id="tryAnotherModalLabel">Choose how to verify</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body" id="tryAnotherModalBody">
+                        <p class="text-muted small mb-3">Pick any method available on this account. Your default was already tried.</p>
+                        <div class="list-group" id="tryAnotherList" role="listbox" aria-label="Available verification methods"></div>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
             </div>
         </div>
         <p class="auth-help"><i class="bi bi-shield-lock"></i> Kingsway will never ask you to share a verification code.</p>
