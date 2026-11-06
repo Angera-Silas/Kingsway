@@ -131,7 +131,9 @@
       await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method});
       if(['email','sms','whatsapp'].includes(method)) {
         const label=method==='email'?'email address':method==='sms'?'phone':'WhatsApp';
-        const el=byId('verifySuccess'); el.textContent=`A verification code was sent to your ${label}. Use the newest one if several arrive.`; el.classList.remove('d-none');
+        const el=byId('verifySuccess');
+        el.textContent=`A verification code was sent to your ${label}. It can take a moment to arrive; only the newest code works.`;
+        startResendCooldown(60);
       }
       if(method!=='totp') otpCells()[0]?.focus();
     } catch(error) { showError('verifyError',error.message||'This verification method could not be started.'); }
@@ -151,11 +153,55 @@
     const method=state.method; const button=byId('verifySubmit'); button.disabled=true;
     const status=byId('authAutoStatus'); state.verifying=true; otpCells().forEach((cell)=>cell.disabled=true); if(status)status.innerHTML='<span class="spinner-border spinner-border-sm me-2"></span>Verifying securely…';
     try { const result=await api('/twofactor/verify','POST',{challenge_token:state.challenge,method,code}); if(!result?.verified)throw new Error('Verification failed.'); await finish(state.userId,state.challenge); }
-    catch(error){showError('verifyError',error.message||'The code is invalid or expired.');clearOtp();otpCells()[0]?.focus();}
+    catch(error) {
+      const text = /expired|invalid|verification/i.test(error.message || '')
+        ? 'That code is no longer valid. Each new code replaces the one before it, so use the digits from the most recent message, or ask for a new code.'
+        : (error.message || 'The code is invalid or expired.');
+      showError('verifyError', text);
+      clearOtp(); otpCells()[0]?.focus();
+    }
     finally{state.verifying=false;button.disabled=false;otpCells().forEach((cell)=>cell.disabled=false);if(status)status.innerHTML='<i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.';}
   }
+  let resendTimer = null;
+
+  function startResendCooldown(seconds) {
+    const button = byId('authResend');
+    clearInterval(resendTimer);
+    if (!button) return;
+    let remaining = seconds;
+    button.disabled = true;
+    button.textContent = `Send a new code (${remaining}s)`;
+    resendTimer = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(resendTimer); resendTimer = null;
+        button.disabled = false;
+        button.textContent = 'Send a new code';
+        return;
+      }
+      button.textContent = `Send a new code (${remaining}s)`;
+    }, 1000);
+  }
+
   async function resend() {
-    clearMessages(); try { await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method:state.method}); const el=byId('verifySuccess');el.textContent=`A new code was sent by ${state.method==='sms'?'text message':state.method==='whatsapp'?'WhatsApp':'email'}. Previous codes are no longer valid.`;el.classList.remove('d-none'); } catch(error){showError('verifyError',error.message||'A new code could not be sent.');}
+    clearMessages();
+    // A code was already issued automatically, so block the click inside
+    // the 60-second server cooldown rather than letting the user discover
+    // it through a bare 429 after another paid SMS was spent.
+    if (resendTimer !== null) {
+      showError('verifyError', 'A code was just sent. Please wait for the countdown before requesting another one.');
+      return;
+    }
+    try {
+      await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method:state.method});
+      const el=byId('verifySuccess');
+      el.textContent=`A new code was sent by ${state.method==='sms'?'text message':state.method==='whatsapp'?'WhatsApp':'email'}. Only the newest code works.`;
+      el.classList.remove('d-none');
+      startResendCooldown(60);
+    } catch(error){
+      if (/60 seconds/i.test(error.message || '')) startResendCooldown(60);
+      showError('verifyError',error.message||'A new code could not be sent.');
+    }
   }
   async function passwordless() {
     clearMessages(); if(!window.PublicKeyCredential||!navigator.credentials?.get){showError('authError','Passkeys are not supported on this browser or device.');return;}
@@ -174,6 +220,6 @@
       cell.addEventListener('paste',(event)=>{const digits=(event.clipboardData?.getData('text')||'').replace(/\D/g,'').slice(0,6);if(!digits)return;event.preventDefault();clearOtp();digits.split('').forEach((digit,i)=>{if(cells[i]){cells[i].value=digit;cells[i].classList.add('is-complete');}});cells[Math.min(digits.length,6)-1]?.focus();if(digits.length===6)void verify();});
     });
   }
-  function reset() { state.userId=null;state.challenge=null;state.methods=[];state.method=null;state.verifying=false;clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authPassword').focus(); }
+  function reset() { clearInterval(resendTimer); resendTimer=null; const rb=byId('authResend'); if(rb){rb.disabled=false;rb.textContent='Send a new code';} state.userId=null;state.challenge=null;state.methods=[];state.method=null;state.verifying=false;clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authPassword').focus(); }
   document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authTryAnother').addEventListener('click',buildTryAnotherList);byId('tryAnotherModal').addEventListener('show.bs.modal',buildTryAnotherList);byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
 })();
