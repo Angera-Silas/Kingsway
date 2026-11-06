@@ -2561,6 +2561,26 @@ class SystemController extends BaseController
         }
     }
 
+    /**
+     * POST /api/system/prune-rate-limit — drop expired rate-limit buckets.
+     *
+     * The file limiter writes one JSON-lines bucket per minute, so without
+     * housekeeping the directory grows without bound. Called from the
+     * scheduler manifest (schedules.yaml) rather than its own crontab line.
+     */
+    public function postPruneRateLimit($id = null, $data = [], $segments = [])
+    {
+        if (!$this->validWorkerSecret()) return $this->unauthorized('Invalid worker secret');
+        try {
+            $keepDays = isset($data['keep_days']) ? max(1, min(30, (int) $data['keep_days'])) : 2;
+            $removed = \App\API\Services\FileRateLimiter::prune($keepDays);
+            return $this->success(['removed' => $removed, 'keep_days' => $keepDays], 'Rate-limit buckets pruned');
+        } catch (\Throwable $e) {
+            Logger::error('security', 'Rate-limit bucket pruning failed');
+            return $this->serverError('Rate-limit pruning failed');
+        }
+    }
+
     private function validWorkerSecret(): bool
     {
         $secret = (string) ($_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '');

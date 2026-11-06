@@ -4,7 +4,7 @@
  * Max 10 API calls, aggregated server-side where possible
  */
 
-const directorDashboardController = {
+window.directorDashboardController = {
   formatCurrency: function (value) {
     if (typeof value !== "number") {
       value = parseFloat(value);

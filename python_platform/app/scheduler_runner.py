@@ -66,7 +66,7 @@ class SchedulerRunner:
             with connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT table_name FROM information_schema.TABLES "
-                    "WHERE table_schema=%s AND table_name LIKE 'mmv_%'",
+                    "WHERE table_schema=%s AND table_name LIKE 'mmv_%%'",
                     (reads,),
                 )
                 present = {str(row[0]) for row in cursor.fetchall()}
@@ -75,14 +75,36 @@ class SchedulerRunner:
                     "WHERE refreshed_at IS NULL"
                 )
                 unpublished = {str(row[0]) for row in cursor.fetchall()}
-        except Exception:  # noqa: BLE001
+                # A projection is also due when it is past its freshness budget:
+                # that is exactly what ReadReplicaService's gate enforces, so a
+                # stale row here means the read path is refusing it. Catching it
+                # keeps the scheduler aligned with what readers actually need.
+                cursor.execute(
+                    "SELECT projection FROM " + reads + ".reads_meta "
+                    "WHERE refreshed_at IS NOT NULL "
+                    "AND TIMESTAMPDIFF(SECOND, refreshed_at, NOW()) > max_age_seconds"
+                )
+                stale = {str(row[0]) for row in cursor.fetchall()}
+        except Exception:
+            # A silent return here is how this check failed invisibly for two
+            # whole deploys (a `LIKE 'mmv_%'` that pymysql read as a parameter
+            # marker). Log it so a broken recovery is never invisible again.
+            import logging
+
+            logging.getLogger("kingsway.python_worker").exception(
+                "scheduler recovery check failed"
+            )
             return []
 
         return [
             job.name
             for job in self.scheduler._jobs
             if job.kind == "projection"
-            and (f"mmv_{job.name}" not in present or job.name in unpublished)
+            and (
+                f"mmv_{job.name}" not in present
+                or job.name in unpublished
+                or job.name in stale
+            )
         ]
 
     def run_bounded(
@@ -110,7 +132,7 @@ class SchedulerRunner:
                 if job is not None:
                     due.append(job)
                     due_by_name[name] = job
-        due.sort(key=lambda job: self._last_run.get(job.name, 0.0))
+        due.sort(key=lambda job: self.scheduler._last_run.get(job.name, 0.0))
 
         attempted = len(due)
         processed = succeeded = failed = 0

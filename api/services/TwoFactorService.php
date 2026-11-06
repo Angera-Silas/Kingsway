@@ -31,6 +31,11 @@ class TwoFactorService
     private const OTP_LENGTH = 6;
     private const OTP_TTL_MINUTES = 10;
     private const OTP_MAX_ATTEMPTS = 5;
+    // Aggregate send budget, counted across EVERY method for the same
+    // account. Per-method limits alone let a user cycle SMS -> email ->
+    // WhatsApp and send 15 paid messages per login attempt.
+    private const OTP_MAX_SENDS_PER_WINDOW = 8;
+    private const OTP_SEND_WINDOW_MINUTES = 15;
 
     /** Backup codes */
     private const BACKUP_CODE_COUNT = 10;
@@ -216,7 +221,19 @@ class TwoFactorService
             throw new \RuntimeException('Please wait 60 seconds before requesting another verification code.', 429);
         }
         if ((int)($rate['window_count'] ?? 0) >= 5) {
-            throw new \RuntimeException('Too many verification codes requested. Try again in 15 minutes.', 429);
+            throw new \RuntimeException('Too many verification codes for this method. Try again in 15 minutes.', 429);
+        }
+
+        // Aggregate budget across all methods on the same account. Without it a
+        // user could spend three per-method allowances in one login attempt.
+        $total = $this->db->prepare(
+            "SELECT COUNT(*) FROM user_2fa_otp_sessions
+             WHERE user_id=? AND otp_type=?
+               AND created_at >= DATE_SUB(NOW(), INTERVAL " . self::OTP_SEND_WINDOW_MINUTES . " MINUTE)"
+        );
+        $total->execute([$userId, $otpType]);
+        if ((int)$total->fetchColumn() >= self::OTP_MAX_SENDS_PER_WINDOW) {
+            throw new \RuntimeException('Too many verification codes requested. Wait a few minutes, or contact the school office if you cannot sign in.', 429);
         }
 
         $code = str_pad(
@@ -228,12 +245,13 @@ class TwoFactorService
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? null;
 
-        // Invalidate any previous unverified OTPs for this user/type
+        // Invalidate only the previous codes for THIS method, so switching to
+        // another method does not burn the code already sent for it.
         $this->db->prepare(
             "UPDATE user_2fa_otp_sessions
              SET verified = 1
-             WHERE user_id = ? AND otp_type = ? AND verified = 0"
-        )->execute([$userId, $otpType]);
+             WHERE user_id = ? AND otp_type = ? AND method = ? AND verified = 0"
+        )->execute([$userId, $otpType, $method]);
 
         $stmt = $this->db->prepare(
             "INSERT INTO user_2fa_otp_sessions
@@ -267,16 +285,19 @@ class TwoFactorService
     /**
      * Verify an OTP code. Returns true on success.
      */
-    public function verifyOTP(int $userId, string $code, string $otpType = 'login'): bool
+    public function verifyOTP(int $userId, string $code, string $otpType = 'login', ?string $method = null): bool
     {
         $stmt = $this->db->prepare(
             "SELECT id, otp_code, attempts
              FROM user_2fa_otp_sessions
              WHERE user_id = ? AND otp_type = ? AND verified = 0
              AND otp_expires_at > NOW()
+             " . ($method === null ? "" : " AND method = ?") . "
              ORDER BY id DESC LIMIT 1"
         );
-        $stmt->execute([$userId, $otpType]);
+        $params = [$userId, $otpType];
+        if ($method !== null) $params[] = $method;
+        $stmt->execute($params);
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$session) return false;

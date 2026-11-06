@@ -3,7 +3,7 @@
  * Page: system_administrator_dashboard.php
  * Displays System Domain identity, security and platform telemetry.
  */
-const SystemAdministratorDashboardController = {
+window.SystemAdministratorDashboardController = {
   state: {
     initialized: false,
     eventsBound: false,

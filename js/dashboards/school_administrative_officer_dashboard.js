@@ -29,7 +29,10 @@
  * @since 2025-01-06
  */
 
-const schoolAdminDashboardController = {
+// Assignment (not `const`): soft_navigation re-injects a fragment's scripts
+// when the cache-busting version changes, and redeclaring a const twice in
+// one document is a fatal SyntaxError. Idempotent assignment survives it.
+window.schoolAdminDashboardController = {
   // =========================================================================
   // STATE MANAGEMENT
   // =========================================================================
@@ -1315,4 +1318,4 @@ if (window.__APP_BOOTED__) {
 }
 
 // Also support legacy name for backward compatibility
-const adminOfficerDashboardController = schoolAdminDashboardController;
+window.adminOfficerDashboardController = window.schoolAdminDashboardController;

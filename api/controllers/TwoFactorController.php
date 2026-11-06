@@ -448,7 +448,7 @@ class TwoFactorController extends BaseController
             case 'email':
             case 'sms':
             case 'whatsapp':
-                $verified = $this->tfa->verifyOTP($targetUserId, $code, 'login');
+                $verified = $this->tfa->verifyOTP($targetUserId, $code, 'login', $method);
                 break;
 
             case 'passkey':

@@ -12,7 +12,10 @@
  * 5. Graceful fallback for unrecognized roles
  */
 
-const DashboardRouter = {
+// Assignment, not `const`: soft_navigation re-injects a fragment's scripts
+// on a cache-busting version change, and a redeclared const is a fatal
+// SyntaxError.
+window.DashboardRouter = {
   /**
    * Cached role-to-dashboard config from PHP DashboardAPI
    * Fetched on init and cached in sessionStorage with version check
