@@ -1240,6 +1240,22 @@ final class ReadReplicaService
                     } catch (\Throwable $e) {
                         $fallbackExists = false;
                     }
+                    // The fallback is resilience for a snapshot that has gone
+                    // stale, not a way to serve a projection that has never
+                    // been built. `refreshed_at IS NULL` makes the age NULL,
+                    // and NULL > max_age_seconds is falsy, so without this
+                    // guard a brand-new (or freshly wiped) reads schema happily
+                    // serves an empty legacy table to every caller.
+                    if ($fallbackExists) {
+                        $fallbackMeta = $pdo->prepare(
+                            "SELECT refreshed_at FROM `{$replicaSchema}`.`reads_meta` WHERE projection = ? LIMIT 1"
+                        );
+                        $fallbackMeta->execute([$projection]);
+                        $everPublished = !empty($fallbackMeta->fetchColumn());
+                        if (!$everPublished) {
+                            $fallbackExists = false;
+                        }
+                    }
                     if ($fallbackExists) {
                         \App\API\Includes\FileLogger::write('reads', [
                             'event' => 'projection_read_fallback_to_table',

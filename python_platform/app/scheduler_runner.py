@@ -40,14 +40,19 @@ class SchedulerRunner:
     # -------------------------------------------------------------------- run
 
     def _missing_projections(self) -> list[str]:
-        """Projections whose target table is absent or empty.
+        """Projections whose target is absent or was never published.
 
         The scheduler's last-run state lives in a JSON file that survives a
-        schema wipe. After the reads namespace is rebuilt, every entry still
+        schema wipe. After the reads namespace is rebuilt every entry still
         claims "ran recently", so an interval-based check alone leaves those
-        projections unpublished for their full interval (or forever, if the
-        interval is long). The target table is therefore verified directly
-        before the state file is trusted.
+        projections unpublished for their full interval (or forever, when the
+        interval is long). The target is therefore verified before the state
+        file is trusted.
+
+        An EMPTY target is deliberately NOT treated as missing. Many
+        projections are legitimately empty in a given environment (no payroll
+        runs, no bank sync, no AI insights yet); requeueing them every tick
+        just burned the whole batch on busywork.
 
         Runs on the same cached connection the batch already opened.
         """
@@ -60,22 +65,25 @@ class SchedulerRunner:
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT table_name, table_rows FROM information_schema.TABLES "
+                    "SELECT table_name FROM information_schema.TABLES "
                     "WHERE table_schema=%s AND table_name LIKE 'mmv_%'",
                     (reads,),
                 )
-                rows = {str(row[0]): int(row[1] or 0) for row in cursor.fetchall()}
+                present = {str(row[0]) for row in cursor.fetchall()}
+                cursor.execute(
+                    "SELECT projection FROM " + reads + ".reads_meta "
+                    "WHERE refreshed_at IS NULL"
+                )
+                unpublished = {str(row[0]) for row in cursor.fetchall()}
         except Exception:  # noqa: BLE001
             return []
 
-        missing = []
-        for job in self.scheduler._jobs:
-            if job.kind != "projection":
-                continue
-            target = f"mmv_{job.name}"
-            if target not in rows or rows[target] == 0:
-                missing.append(job.name)
-        return missing
+        return [
+            job.name
+            for job in self.scheduler._jobs
+            if job.kind == "projection"
+            and (f"mmv_{job.name}" not in present or job.name in unpublished)
+        ]
 
     def run_bounded(
         self,
