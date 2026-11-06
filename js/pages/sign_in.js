@@ -46,13 +46,41 @@
   async function beginVerification(result) {
     state.userId=Number(result.user_id); state.challenge=result.challenge_token;
     state.methods=Array.isArray(result.available_methods)&&result.available_methods.length?result.available_methods:[result.method||'sms'];
-    const picker=byId('verificationMethod'); picker.replaceChildren();
+    // The user's configured primary factor is the default. The server already
+    // resolves it (users.two_factor_method, honouring two_factor_verified_at),
+    // so the UI never asks the user to choose up front.
+    state.method=state.methods.includes(result.method)?result.method:state.methods[0];
+    byId('verificationMethod').value=state.method;
+
+    // Build the fallback picker. It stays hidden until "Try another method"
+    // is pressed, and it offers every other enrolled method for the account.
+    const picker=byId('tryAnotherSelect'); picker.replaceChildren();
     state.methods.forEach((method)=>{const option=document.createElement('option');option.value=method;option.textContent=methodLabels[method]||method;picker.appendChild(option);});
-    byId('verificationMethodWrap').classList.toggle('d-none',state.methods.length<2);
-    state.method=state.methods.includes(result.method)?result.method:state.methods[0]; picker.value=state.method;
+    picker.value=state.method;
+
+    // With a single method there is nothing to switch to.
+    const canTryAnother=state.methods.length>1;
+    byId('tryAnotherWrap').classList.toggle('d-none',!canTryAnother);
+    byId('tryAnotherPanel').classList.add('d-none');
+    byId('authTryAnother').setAttribute('aria-expanded','false');
+
     byId('signInStep').classList.add('d-none'); byId('verificationStep').classList.remove('d-none');
     state.methodStarted=null;
     updateMethodView(state.method);
+    // Start the default method immediately: the user should only ever see a
+    // code entry box, never a method chooser.
+    await activateMethod(state.method);
+  }
+
+  function toggleTryAnother() {
+    const panel=byId('tryAnotherPanel');
+    const hidden=panel.classList.contains('d-none');
+    panel.classList.toggle('d-none',!hidden);
+    byId('authTryAnother').setAttribute('aria-expanded',hidden?'true':'false');
+    byId('authTryAnother').innerHTML=hidden
+      ? '<i class="bi bi-arrow-repeat me-1"></i>Hide other methods'
+      : '<i class="bi bi-arrow-repeat me-1"></i>Try another method';
+    if(hidden) byId('tryAnotherSelect').focus();
   }
   async function activateMethod(method) {
     if(!state.methods.includes(method)) throw new Error('That verification method is not available for this account.');
@@ -114,5 +142,5 @@
     });
   }
   function reset() { state.userId=null;state.challenge=null;state.methods=[];state.method=null;state.methodStarted=null;state.recovery=false;state.verifying=false;clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authPassword').focus(); }
-  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authStartMethod').addEventListener('click',()=>{void activateMethod(state.method);});byId('verificationMethod').addEventListener('change',(event)=>{state.methodStarted=null;state.recovery=false;clearMessages();clearOtp();byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');updateMethodView(event.target.value);});byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authUseRecovery').addEventListener('click',()=>{state.recovery=true;byId('verificationTitle').textContent='Use a recovery code';byId('verificationDescription').textContent='Enter one unused recovery code saved during MFA setup.';byId('authOtpGrid').classList.add('d-none');byId('authAutoStatus').classList.add('d-none');byId('verificationCode').classList.remove('d-none');byId('verifySubmit').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').removeAttribute('inputmode');byId('verificationCode').focus();});byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
+  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authStartMethod').addEventListener('click',()=>{void activateMethod(state.method);});byId('authTryAnother').addEventListener('click',toggleTryAnother);byId('tryAnotherSelect').addEventListener('change',(event)=>{const method=event.target.value;if(method&&method!==state.method){void activateMethod(method);}});byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authUseRecovery').addEventListener('click',()=>{state.recovery=true;byId('verificationTitle').textContent='Use a recovery code';byId('verificationDescription').textContent='Enter one unused recovery code saved during MFA setup.';byId('authOtpGrid').classList.add('d-none');byId('authAutoStatus').classList.add('d-none');byId('verificationCode').classList.remove('d-none');byId('verifySubmit').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').removeAttribute('inputmode');byId('verificationCode').focus();});byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
 })();

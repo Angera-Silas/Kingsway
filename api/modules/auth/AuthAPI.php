@@ -342,7 +342,13 @@ class AuthAPI extends BaseAPI
             $testMfaBypassAllowed = $isTestUser
                 && (new TestAccountAccessService($this->db))->mfaBypassAllowed($userId);
 
-            if (!$testMfaBypassAllowed) {
+            // A policy mandate outranks the user's own switch, but the switch
+            // must still be able to disable the step on its own. $stepActive
+            // used to be read for its log line only, so an account with
+            // two_factor_enabled = 0 was pushed through the challenge anyway.
+            $secondFactorRequired = $stepActive || $policyForced;
+
+            if ($secondFactorRequired && !$testMfaBypassAllowed) {
                 // Every non-test account completes a second factor. A verified
                 // account preference is honored; otherwise SMS is the default,
                 // with email and enrolled factors available in the chooser.
