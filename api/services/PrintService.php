@@ -4414,32 +4414,17 @@ final class PrintService
     }
 
     /**
-     * Get a PDO connection (reuses the app's DB config).
+     * Get the shared PDO connection.
+     *
+     * This used to parse config/.env and open its own PDO, which meant every
+     * print request held a second MySQL connection alongside the app's
+     * singleton — a direct doubling of the connection budget on exactly the
+     * heavy, long-running report endpoints. It now reuses the process
+     * singleton (which is persistent, so it is reused across requests too).
      */
     private function getDb(): \PDO
     {
-        static $pdo = null;
-        if ($pdo !== null) return $pdo;
-        $configPath = dirname(__DIR__, 2) . '/config/.env';
-        $env = [];
-        if (is_file($configPath)) {
-            foreach (file($configPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-                if ($line[0] === '#' || strpos($line, '=') === false) continue;
-                [$k, $v] = explode('=', $line, 2);
-                $env[trim($k)] = trim($v);
-            }
-        }
-        $host = $env['DB_HOST'] ?? '127.0.0.1';
-        $port = $env['DB_PORT'] ?? '3306';
-        $name = $env['DB_NAME'] ?? 'KingsWayAcademy';
-        $user = $env['DB_USER'] ?? 'root';
-        $pass = $env['DB_PASS'] ?? '';
-        $pdo = new \PDO("mysql:host={$host};port={$port};dbname={$name}", $user, $pass, [
-            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-            \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-        ]);
-        $pdo->exec("SET time_zone = '+03:00'");
-        return $pdo;
+        return \App\Database\Database::getInstance()->getConnection();
     }
 
     /**

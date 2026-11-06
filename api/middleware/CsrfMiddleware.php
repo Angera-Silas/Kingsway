@@ -100,7 +100,6 @@ class CsrfMiddleware
         'realtime/worker',
         'realtime/cleanup',
         'realtime/maintenance',
-        'realtime/sync-projection',
         'realtime/python-job-claim',
         'realtime/python-job-input',
         'realtime/python-job-heartbeat',
