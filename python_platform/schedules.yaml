@@ -855,3 +855,47 @@ jobs:
     endpoint: /api/dashboard/kicd-policy-watch
     payload: {}
     interval: 300
+
+# --- short-budget projections (max_age_seconds <= 300) ---
+# batchQueueSlice() deliberately EXCLUDES these from the projection_batch
+# lines, and the old per-projection crontab lines were removed when the
+# schedule moved into this manifest. Without this section they would have
+# no schedule at all: students, persons and student_fee_balances are core
+# read paths and would drift stale immediately.
+
+  - name: student_fee_balances
+    kind: projection
+    interval: 120
+  - name: student_fee_ledger
+    kind: projection
+    interval: 120
+  - name: parent_student_dashboard
+    kind: projection
+    interval: 120
+  - name: fee_statement_context
+    kind: projection
+    interval: 120
+  - name: student_academic_enrollments
+    kind: projection
+    interval: 300
+  - name: students
+    kind: projection
+    interval: 300
+  - name: persons
+    kind: projection
+    interval: 300
+  - name: attendance_register_context
+    kind: projection
+    interval: 300
+  - name: internal_conversation_member
+    kind: projection
+    interval: 300
+  - name: internal_message_recipient
+    kind: projection
+    interval: 300
+  - name: internal_message_recipient_directory
+    kind: projection
+    interval: 300
+  - name: staff_daily_register
+    kind: projection
+    interval: 300
