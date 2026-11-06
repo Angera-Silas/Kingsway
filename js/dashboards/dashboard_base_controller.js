@@ -5,7 +5,7 @@
  * Every concrete dashboard remains a named controller and supplies one
  * canonical API method from js/api.js.
  */
-const DashboardBaseController = {
+window.DashboardBaseController = {
     create(definition) {
         const controller = {
             initialized: false,

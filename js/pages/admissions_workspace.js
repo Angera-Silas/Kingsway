@@ -1019,7 +1019,7 @@ const admissionsWorkspaceController = {
                     <button type="button" class="btn btn-success" onclick="admissionsWorkspaceController.createAdmissionWindow()"><i class="bi bi-plus-circle me-1"></i>Create Window</button>
                 </div>
                 <div class="modal fade" id="admissionWindowModal" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                    <div class="modal-dialog modal-xl modal-dialog-scrollable">
                         <div class="modal-content">
                             <div class="modal-header"><h5 class="modal-title" id="admissionWindowModalTitle">Create Admission Window</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                             <div class="modal-body">
