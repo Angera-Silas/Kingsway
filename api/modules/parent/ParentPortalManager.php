@@ -242,7 +242,15 @@ class ParentPortalManager extends BaseAPI
             if ($method === 'sms' && \App\API\Services\PhoneNumberNormalizer::normalize($phone) === null) {
                 return $this->errorResponse('No usable email address or phone number is recorded for this account. Contact the school office to update your details.', 422);
             }
-            $otp = $this->sendParentLoginOtp((int)$parent['user_id'], $method, $destination);
+            // The send budget is scoped to THIS sign-in attempt, so a parent
+            // who signs in again after a mistyped code is not punished by the
+            // previous attempt's sends.
+            $otp = $this->sendParentLoginOtp(
+                (int)$parent['user_id'],
+                $method,
+                $destination,
+                date('Y-m-d H:i:s')
+            );
             if (!$otp) return $this->errorResponse('The verification code could not be delivered. Please try again later.', 503);
             return $this->successResponse([
                 'requires_otp' => true,
@@ -322,6 +330,11 @@ class ParentPortalManager extends BaseAPI
             );
             $consume->execute([$sessionId]);
             if ($consume->rowCount() !== 1) return $this->errorResponse('OTP session was already used.', 409);
+
+            // The login is complete. Drop the one-time login codes so they
+            // cannot be replayed or count against the next sign-in.
+            (new \App\API\Services\TwoFactorService($this->db))
+                ->clearLoginOtpHistory((int)$session['user_id']);
 
             $parent = $this->getParentByUserId((int)$session['user_id']);
             if (!$parent) {
@@ -434,11 +447,11 @@ class ParentPortalManager extends BaseAPI
         return rtrim($baseUrl, '/') . '/index.php?route=r6d394ab20b0b';
     }
 
-    private function sendParentLoginOtp(int $userId, string $method, string $destination): ?array
+    private function sendParentLoginOtp(int $userId, string $method, string $destination, ?string $sessionStartedAt = null): ?array
     {
         try {
             $tfa = new \App\API\Services\TwoFactorService($this->db);
-            $code = $tfa->generateOTP($userId, $method, 'login');
+            $code = $tfa->generateOTP($userId, $method, 'login', $sessionStartedAt);
             if (!$code) return null;
             $delivery = new OTPDeliveryService();
             $sent = $method === 'email'

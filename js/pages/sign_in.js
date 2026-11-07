@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const state = { userId: null, method: null, methods: [], challenge: null, remember: false, identifier: '', password: '', verifying: false, redirecting: false };
+  const state = { userId: null, method: null, methods: [], challenge: null, remember: false, identifier: '', password: '', verifying: false, redirecting: false, recovery: false, hints: {}, sent: {} };
   const byId = (id) => document.getElementById(id);
   const showError = (id, message) => { const el=byId(id); if(!el)return; el.textContent=message; el.classList.remove('d-none'); };
   const clearMessages = () => ['authError','verifyError','verifySuccess'].forEach((id)=>byId(id)?.classList.add('d-none'));
@@ -20,9 +20,44 @@
   const otpCells = () => Array.from(document.querySelectorAll('.auth-otp-cell'));
   const otpValue = () => otpCells().map((cell)=>cell.value).join('');
   const clearOtp = () => otpCells().forEach((cell)=>{cell.value='';cell.classList.remove('is-complete');});
-  const methodLabels = { email:'Email code', sms:'Text message code', whatsapp:'WhatsApp code', totp:'Authenticator app', passkey:'Passkey (fingerprint, face, device or security key)' };
+  const methodLabels = { email:'Email code', sms:'Text message code', whatsapp:'WhatsApp code', totp:'Authenticator app', passkey:'Passkey (fingerprint, face, device or security key)', backup:'Recovery code (one-time)' };
+  const methodIcons = { email:'bi-envelope', sms:'bi-phone', whatsapp:'bi-whatsapp', totp:'bi-shield-lock', passkey:'bi-fingerprint', backup:'bi-key' };
+  // GitHub-style headlines: name the place the user has to look, instead of
+  // describing a factor in technical words.
+  const methodHeadlines = { email:'Check your email', sms:'Check your phone', whatsapp:'Check WhatsApp', totp:'Open your authenticator app', passkey:'Use your passkey', backup:'Use a recovery code' };
+  const methodDetails = {
+    email:'Enter the six-digit code we sent to your email address.',
+    sms:'Enter the six-digit code we sent to your phone.',
+    whatsapp:'Enter the six-digit code we sent to your WhatsApp number.',
+    totp:'Enter the current six-digit code from your authenticator app.',
+    passkey:'Use your fingerprint, face unlock, device PIN or security key.',
+    backup:'Enter one of the recovery codes you saved. Each code works once.'
+  };
   function methodDescription(method) {
-    return ({email:'Enter the six-digit code sent to your registered email address.',sms:'Enter the six-digit code sent to your registered phone number.',whatsapp:'Enter the six-digit code sent to your registered WhatsApp number.',totp:'Enter the current code from your authenticator app, such as Google Authenticator or Microsoft Authenticator.',passkey:'Use an enrolled passkey with your fingerprint, face, device lock, or security key.'})[method] || 'Choose an enrolled method to verify your identity.';
+    return methodDetails[method] || 'Choose an enrolled method to verify your identity.';
+  }
+  /**
+   * The secondary line of a method row, and the line under the active
+   * method. For the channels that deliver a code it is the masked
+   * destination, so the user can see the code went where they expect.
+   */
+  function methodDetail(method) {
+    const hint=state.hints[method];
+    if(method==='email'||method==='sms'||method==='whatsapp') return hint||'Not set up on this account';
+    if(method==='totp') return 'Google or Microsoft Authenticator';
+    if(method==='passkey') return 'Fingerprint, face, device PIN or security key';
+    if(method==='backup') return 'One of the codes you saved';
+    return '';
+  }
+  /** Update the line that tells the user where the code went. */
+  function renderDestination(method) {
+    const el=byId('authMethodDestination'); if(!el) return;
+    const hint=state.hints[method];
+    if(method==='email'||method==='sms'||method==='whatsapp') {
+      el.textContent=hint ? (state.sent[method] ? `Sent to ${hint}` : `Code goes to ${hint}`) : 'Your code is on its way';
+      return;
+    }
+    el.textContent=hint||methodDetail(method);
   }
   function updateMethodView(method) {
     state.method=method;
@@ -32,17 +67,35 @@
     // shown for a code method, so the panel looks identical in every state.
 
     const passkey=method==='passkey';
+    const recovery=method==='backup';
+    state.recovery=recovery;
     const code=method==='email'||method==='sms'||method==='whatsapp'||method==='totp';
-    byId('verificationTitle').textContent=passkey?'Passkey verification':method==='totp'?'Authenticator verification':'Verify your identity';
+    byId('verificationTitle').textContent=methodHeadlines[method]||'Verify your identity';
     byId('verificationDescription').textContent=methodDescription(method);
+    // The method card names the channel in use and where the code went.
+    const icon=byId('authMethodIcon');
+    if(icon) icon.innerHTML=`<i class="bi ${methodIcons[method]||'bi-shield-check'}"></i>`;
+    byId('authMethodName').textContent=methodLabels[method]||method;
+    renderDestination(method);
     // The code entry stays visible before the send resolves: hiding it on
     // failure replaced the whole form with a single button and made the
     // verification step look like two different screens.
-    byId('verificationForm').classList.toggle('d-none',!code);
+    byId('verificationForm').classList.toggle('d-none',!code&&!recovery);
     byId('authVerifyPasskey').classList.toggle('d-none',!passkey);
     byId('authResend').classList.toggle('d-none',!['email','sms','whatsapp'].includes(method));
     byId('authUseRecovery').classList.toggle('d-none',passkey);
-    byId('authAutoStatus').classList.toggle('d-none',method==='totp'||passkey);
+    byId('authAutoStatus').classList.toggle('d-none',method==='totp'||passkey||recovery);
+    // A recovery code is typed as one word, so it uses the plain text field
+    // instead of the six single-digit boxes.
+    byId('authOtpGrid').classList.toggle('d-none',recovery);
+    byId('verificationCode').classList.toggle('d-none',!recovery);
+    byId('verificationCodeLabel').classList.toggle('d-none',!recovery);
+    byId('verifySubmit').classList.toggle('d-none',!recovery);
+    if(recovery) {
+      byId('verificationCodeLabel').textContent='Enter one of your recovery codes';
+      byId('verificationCode').value='';
+      byId('verificationCode').focus();
+    }
   }
 
   function dashboard(response) {
@@ -61,15 +114,22 @@
   async function beginVerification(result) {
     state.userId=Number(result.user_id); state.challenge=result.challenge_token;
     state.methods=Array.isArray(result.available_methods)&&result.available_methods.length?result.available_methods:[result.method||'sms'];
+    // Recovery codes are offered alongside the enrolled factors, but only
+    // when the account still holds unused ones.
+    if(Number(result.backup_codes_remaining)>0 && !state.methods.includes('backup')) state.methods.push('backup');
     // The user's configured primary factor is the default. The server already
     // resolves it (users.two_factor_method, honouring two_factor_verified_at),
     // so the UI never asks the user to choose up front.
     state.method=state.methods.includes(result.method)?result.method:state.methods[0];
 
-    // The fallback is a MODAL listing every method on the account. The button
-    // is always visible: a user who cannot receive the default code needs a way
-    // out even when only one method is enrolled.
-    buildTryAnotherList();
+    // Where each code would be delivered, masked by the server. The screen
+    // shows it so the user can see the code went to the address they expect.
+    state.hints=(result.method_hints&&typeof result.method_hints==='object')?result.method_hints:{};
+    state.sent={};
+    // The fallback is an INLINE list of every method on the account. The
+    // button is always visible: a user who cannot receive the default code
+    // needs a way out even when only one method is enrolled.
+    buildMethodList();
 
     // Send the challenge BEFORE revealing the step, so the panel is only ever
     // seen in its final state. Revealing first and then activating made the
@@ -80,62 +140,105 @@
     byId('verificationStep').classList.remove('d-none');
   }
 
-  function buildTryAnotherList() {
-    const list=byId('tryAnotherList'); if(!list) return;
+  /**
+   * Build the inline list of verification methods.
+   *
+   * It sits in the page, under the active method, instead of behind a
+   * dialog: switching factor keeps the sign-in session in view, which is how
+   * GitHub, Figma and the rest of the good examples handle it. The active
+   * method is marked with a gold ring and a check.
+   */
+  function buildMethodList() {
+    const list=byId('authMethodList'); if(!list) return;
     list.replaceChildren();
     if(state.methods.length===0) {
-      const empty=document.createElement('div');
-      empty.className='list-group-item text-muted small';
-      empty.textContent='No other verification method is available on this account. Contact the school office to update your sign-in settings.';
+      const empty=document.createElement('p');
+      empty.className='auth-method-empty mb-0';
+      empty.textContent='No verification method is available on this account. Contact the school office to update your sign-in settings.';
       list.appendChild(empty);
       return;
     }
     state.methods.forEach((method)=>{
       const item=document.createElement('button');
       item.type='button';
-      item.className='list-group-item list-group-item-action d-flex justify-content-between align-items-center';
-      if(method===state.method) {
-        item.classList.add('active');
-        item.setAttribute('aria-current','true');
-        const badge=document.createElement('span');
-        badge.className='badge bg-light text-dark';
-        badge.textContent='Already tried';
-        item.appendChild(badge);
-      }
+      item.className='auth-method-option';
+      item.setAttribute('role','radio');
+      item.setAttribute('aria-checked',method===state.method?'true':'false');
+
+      const icon=document.createElement('span');
+      icon.className='auth-method-option-icon';
+      const glyph=document.createElement('i');
+      glyph.className='bi '+(methodIcons[method]||'bi-shield-check');
+      icon.appendChild(glyph);
+
       const label=document.createElement('span');
-      const icon=document.createElement('i');
-      icon.className='bi ' + ({email:'bi-envelope',sms:'bi-phone',whatsapp:'bi-whatsapp',totp:'bi-shield-lock',passkey:'bi-fingerprint'}[method]||'bi-shield-check') + ' me-2';
-      label.appendChild(icon);
-      label.appendChild(document.createTextNode(methodLabels[method]||method));
-      item.prepend(label);
+      label.className='auth-method-option-label';
+      const title=document.createElement('strong');
+      title.textContent=methodLabels[method]||method;
+      const detail=document.createElement('small');
+      detail.textContent=methodDetail(method);
+      label.append(title,detail);
+
+      const check=document.createElement('span');
+      check.className='auth-method-option-check';
+      const tick=document.createElement('i');
+      tick.className='bi bi-check-lg';
+      check.appendChild(tick);
+
+      item.append(icon,label,check);
       item.addEventListener('click',()=>{
-        hideTryAnotherModal();
+        toggleMethodList(false);
+        // Any enrolled factor may complete THIS sign-in: the session stays
+        // open while the user switches channel, exactly like the standard
+        // "use another method" step.
         if(method!==state.method) void activateMethod(method);
       });
       list.appendChild(item);
     });
   }
 
-  function hideTryAnotherModal() {
-    const modalEl=byId('tryAnotherModal');
-    if(modalEl && window.bootstrap?.Modal) {
-      window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+  /** Open or close the inline method list. */
+  function toggleMethodList(expand) {
+    const list=byId('authMethodList'); if(!list) return;
+    const open=expand===undefined ? list.classList.contains('d-none') : expand;
+    list.classList.toggle('d-none',!open);
+    byId('authTryAnother')?.setAttribute('aria-expanded',open?'true':'false');
+    if(open) {
+      buildMethodList();
+      list.querySelector('.auth-method-option')?.focus();
     }
   }
 
   async function activateMethod(method) {
     if(!state.methods.includes(method)) throw new Error('That verification method is not available for this account.');
-    clearMessages(); clearOtp(); updateMethodView(method);
+    clearMessages(); clearOtp(); updateMethodView(method); buildMethodList();
     if(method==='passkey') { await verifyPasskey(); return; }
+    if(method==='backup') {
+      // A recovery code is entered by the user; nothing is sent, so the
+      // challenge is not touched.
+      byId('verificationCode')?.focus();
+      return;
+    }
     try {
-      await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method});
+      // The challenge belongs to this sign-in session, so switching channel
+      // never invalidates the codes already sent on the other channels and
+      // never asks for the password again.
+      const sent=await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method});
+      state.method = method;  // Update method after challenge creation
+      if(sent?.destination) state.hints[method]=sent.destination;
+      state.sent[method]=true;
+      renderDestination(method);
+      const el=byId('verifySuccess');
       if(['email','sms','whatsapp'].includes(method)) {
-        const label=method==='email'?'email address':method==='sms'?'phone':'WhatsApp';
-        const el=byId('verifySuccess');
-        el.textContent=`A verification code was sent to your ${label}. It can take a moment to arrive; only the newest code works.`;
+        const where=state.hints[method] ? ` to ${state.hints[method]}` : '';
+        el.textContent=`A verification code was sent${where}. It can take a moment to arrive; only the newest code works.`;
+        el.classList.remove('d-none');
         startResendCooldown(60);
+      } else {
+        el.textContent='Enter the current six-digit code from your authenticator app.';
+        el.classList.remove('d-none');
       }
-      if(method!=='totp') otpCells()[0]?.focus();
+      otpCells()[0]?.focus();
     } catch(error) { showError('verifyError',error.message||'This verification method could not be started.'); }
   }
   async function login(event) {
@@ -149,18 +252,46 @@
   async function verify(event) {
     event?.preventDefault?.();
     if(state.verifying)return;
-    clearMessages(); const code=otpValue(); if(!code||code.length!==6)return;
-    const method=state.method; const button=byId('verifySubmit'); button.disabled=true;
+    clearMessages();
+    const recovery=state.recovery;
+    // A recovery code is one word; the normal factors use the six boxes.
+    const code=recovery
+      ? (byId('verificationCode')?.value||'').trim().replace(/\s+/g,'').toUpperCase()
+      : otpValue();
+    if(recovery) { if(!code) return; }
+    else if(!code||code.length!==6) return;
+    const method=recovery?'backup':state.method;
+    const button=byId('verifySubmit'); button.disabled=true;
     const status=byId('authAutoStatus'); state.verifying=true; otpCells().forEach((cell)=>cell.disabled=true); if(status)status.innerHTML='<span class="spinner-border spinner-border-sm me-2"></span>Verifying securely…';
-    try { const result=await api('/twofactor/verify','POST',{challenge_token:state.challenge,method,code}); if(!result?.verified)throw new Error('Verification failed.'); await finish(state.userId,state.challenge); }
-    catch(error) {
-      const text = /expired|invalid|verification/i.test(error.message || '')
-        ? 'That code is no longer valid. Each new code replaces the one before it, so use the digits from the most recent message, or ask for a new code.'
-        : (error.message || 'The code is invalid or expired.');
+    try {
+      const result=await api('/twofactor/verify','POST',{challenge_token:state.challenge,method,code});
+      if(!result?.verified)throw new Error('Verification failed.');
+    } catch(error) {
+      const message=String(error?.message||'');
+      const text = /invalid or expired 2fa challenge|challenge.*expired/i.test(message)
+        ? 'Your verification session expired. Go back and sign in again to receive a fresh code.'
+        : /too many 2fa attempts/i.test(message)
+          ? 'Too many incorrect codes. Go back and sign in again to start a fresh verification session.'
+          : recovery
+            ? (message || 'That recovery code is not valid. Check the codes you saved, or ask the school office for help.')
+            : /expired|invalid|verification/i.test(message)
+              ? 'That code is no longer valid. Each new code replaces the one before it, so use the digits from the most recent message, or ask for a new code.'
+              : (message || 'The code is invalid or expired.');
       showError('verifyError', text);
-      clearOtp(); otpCells()[0]?.focus();
+      if(recovery) { byId('verificationCode').value=''; byId('verificationCode').focus(); }
+      else { clearOtp(); otpCells()[0]?.focus(); }
+      return;
+    } finally {
+      state.verifying=false;button.disabled=false;otpCells().forEach((cell)=>cell.disabled=false);
+      if(status)status.innerHTML='<i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.';
     }
-    finally{state.verifying=false;button.disabled=false;otpCells().forEach((cell)=>cell.disabled=false);if(status)status.innerHTML='<i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.';}
+    // The code was accepted. A failure from this point is a session-creation
+    // problem, not a bad code; do not tell the user their code is invalid.
+    try {
+      await finish(state.userId,state.challenge);
+    } catch(error) {
+      showError('verifyError', error.message || 'Your code was accepted, but the session could not be started. Please sign in again.');
+    }
   }
   let resendTimer = null;
 
@@ -193,9 +324,13 @@
       return;
     }
     try {
-      await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method:state.method});
+      const sent=await api('/twofactor/challenge','POST',{challenge_token:state.challenge,method:state.method});
+      if(sent?.destination) state.hints[state.method]=sent.destination;
+      state.sent[state.method]=true;
+      renderDestination(state.method);
       const el=byId('verifySuccess');
-      el.textContent=`A new code was sent by ${state.method==='sms'?'text message':state.method==='whatsapp'?'WhatsApp':'email'}. Only the newest code works.`;
+      const where=state.hints[state.method] ? ` to ${state.hints[state.method]}` : '';
+      el.textContent=`A new code was sent${where}. Only the newest code works.`;
       el.classList.remove('d-none');
       startResendCooldown(60);
     } catch(error){
@@ -220,6 +355,17 @@
       cell.addEventListener('paste',(event)=>{const digits=(event.clipboardData?.getData('text')||'').replace(/\D/g,'').slice(0,6);if(!digits)return;event.preventDefault();clearOtp();digits.split('').forEach((digit,i)=>{if(cells[i]){cells[i].value=digit;cells[i].classList.add('is-complete');}});cells[Math.min(digits.length,6)-1]?.focus();if(digits.length===6)void verify();});
     });
   }
-  function reset() { clearInterval(resendTimer); resendTimer=null; const rb=byId('authResend'); if(rb){rb.disabled=false;rb.textContent='Send a new code';} state.userId=null;state.challenge=null;state.methods=[];state.method=null;state.verifying=false;clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authPassword').focus(); }
-  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authTryAnother').addEventListener('click',buildTryAnotherList);byId('tryAnotherModal').addEventListener('show.bs.modal',buildTryAnotherList);byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
+  /**
+   * Recovery codes are typed from a printout or a photo, so the entry is
+   * upper-cased and the dash is inserted for the user.
+   */
+  function setupRecoveryInput(){
+    const input=byId('verificationCode'); if(!input) return;
+    input.addEventListener('input',()=>{
+      const raw=input.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8);
+      input.value=raw.length>4 ? raw.slice(0,4)+'-'+raw.slice(4) : raw;
+    });
+  }
+  function reset() { clearInterval(resendTimer); resendTimer=null; const rb=byId('authResend'); if(rb){rb.disabled=false;rb.textContent='Send a new code';} state.userId=null;state.challenge=null;state.methods=[];state.method=null;state.verifying=false;state.recovery=false;state.hints={};state.sent={};clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('verificationCodeLabel').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authMethodList')?.classList.add('d-none');byId('authTryAnother')?.setAttribute('aria-expanded','false');byId('authMethodName').textContent='Verification code';byId('authMethodDestination').textContent='Your code is on its way';byId('authPassword').focus(); }
+  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs(); setupRecoveryInput();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authTryAnother').addEventListener('click',()=>toggleMethodList());byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
 })();

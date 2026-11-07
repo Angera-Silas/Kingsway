@@ -8,7 +8,11 @@ class RateLimitMiddleware
 {
     // Anonymous traffic remains conservative, authenticated users get a larger
     // per-user bucket so normal multi-tab work does not collide on one IP.
-    const ANONYMOUS_REQUESTS_LIMIT = 120;
+    // The anonymous bucket is keyed by the real client address, and the whole
+    // school shares one address behind its NAT, so it has to carry every
+    // browser on that connection. The tight buckets (login, verification,
+    // public AI, leads) are keyed per browser session instead.
+    const ANONYMOUS_REQUESTS_LIMIT = 600;
     const AUTHENTICATED_REQUESTS_LIMIT = 600;
     const REFRESH_REQUESTS_LIMIT = 60;
     const LOGIN_REQUESTS_LIMIT = 60;
@@ -27,12 +31,16 @@ class RateLimitMiddleware
     ];
 
     // Each call to these can send a PAID SMS/WhatsApp message, so they get
-    // their own tight bucket rather than the general authenticated default.
+    // their own bucket rather than the general authenticated default. The
+    // bucket is keyed by the browser session (not the IP): a school network is
+    // NAT'd, so one IP bucket was shared by every staff member and unrelated
+    // sign-ins consumed each other's allowance. The per-account OTP send
+    // budget in TwoFactorService remains the real cost control.
     const VERIFICATION_PATHS = [
         '/twofactor/challenge',
         '/twofactor/verify',
     ];
-    const VERIFICATION_REQUESTS_LIMIT = 10;
+    const VERIFICATION_REQUESTS_LIMIT = 30;
 
     /**
      * Check rate limiting by authenticated user when a bearer token is present,
@@ -41,7 +49,7 @@ class RateLimitMiddleware
      */
     public static function handle()
     {
-        $ipAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $ipAddress = self::clientIp();
         $rateKey = self::resolveRateKey($ipAddress);
         $limit = self::resolveLimit($rateKey);
         $now = time();
@@ -136,7 +144,56 @@ class RateLimitMiddleware
             return 'user:' . $userId;
         }
 
+        // Auth endpoints are per browser tab/session, not per IP. The browser
+        // already sends X-Browser-Session-Id on every request; using it keeps
+        // one person's retries from spending a colleague's allowance on the
+        // same NAT'd school network. The header is only a fairness key — the
+        // per-account challenge/OTP limits remain the brute-force control.
+        if (self::isLoginEndpoint() || self::isVerificationEndpoint()) {
+            $browserSession = (string) ($_SERVER['browser_session_id']
+                ?? $_SERVER['HTTP_X_BROWSER_SESSION_ID']
+                ?? '');
+            if ($browserSession !== ''
+                && preg_match('/^[A-Za-z0-9._-]{1,128}$/', $browserSession)) {
+                return 'browser:' . $browserSession;
+            }
+        }
+
         return 'ip:' . $ipAddress;
+    }
+
+    /**
+     * Real client address behind the nginx -> Apache load balancer.
+     *
+     * Apache listens on loopback only and nginx sets X-Forwarded-For. Without
+     * this, every request reached PHP as 127.0.0.1 and the whole school shared
+     * a single anonymous bucket. Forwarded headers are trusted only when the
+     * direct peer is loopback, so a remote client cannot spoof the key.
+     */
+    private static function clientIp(): string
+    {
+        $remote = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        if ($remote !== '' && !in_array($remote, ['127.0.0.1', '::1'], true)) {
+            return $remote;
+        }
+
+        // nginx always overwrites X-Real-IP with $remote_addr, so prefer it.
+        $realIp = trim((string) ($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+        if (filter_var($realIp, FILTER_VALIDATE_IP)) {
+            return $realIp;
+        }
+
+        $forwarded = trim((string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+        if ($forwarded !== '') {
+            // With one trusted proxy the last entry is the address nginx saw.
+            $parts = array_values(array_filter(array_map('trim', explode(',', $forwarded)), 'strlen'));
+            $last = $parts !== [] ? end($parts) : '';
+            if (filter_var($last, FILTER_VALIDATE_IP)) {
+                return $last;
+            }
+        }
+
+        return $remote !== '' ? $remote : 'unknown';
     }
 
     private static function bearerUserId()

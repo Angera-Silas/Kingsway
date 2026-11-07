@@ -52,12 +52,29 @@ try {
                 <p class="text-center mt-3 mb-0"><a href="<?= htmlspecialchars($appBase) ?>/parent_portal.php"><i class="bi bi-people me-1"></i>Login as parent or guardian</a></p>
             </div>
             <div class="d-none" id="verificationStep">
-                <span class="auth-step-label">Identity verification</span><h2 id="verificationTitle">Two-factor authentication 🔑</h2><p class="auth-intro" id="verificationDescription">Use your device to get the code.</p>
-                <div class="alert alert-danger d-none" id="verifyError" role="alert"></div><div class="alert alert-success d-none" id="verifySuccess" role="status"></div>
-                <form id="verificationForm"><label class="form-label" id="verificationCodeLabel">Enter the six-digit code</label><div class="auth-otp-grid" id="authOtpGrid" role="group" aria-labelledby="verificationCodeLabel"><input class="auth-otp-cell" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 2"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 3"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 4"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 5"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 6"></div><input class="form-control form-control-lg auth-code d-none" id="verificationCode" autocomplete="one-time-code" maxlength="32"><p class="auth-auto-status" id="authAutoStatus"><i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.</p><button class="btn btn-warning w-100 mt-3 auth-submit d-none" id="verifySubmit" type="submit">Verify recovery code</button></form>
-                <button class="btn btn-success w-100 d-none" id="authVerifyPasskey" type="button"><i class="bi bi-fingerprint me-2"></i>Verify with this device</button>
-                <div class="row g-2 mt-4"><div class="col-12 col-sm-4"><button class="btn btn-outline-secondary btn-sm w-100" id="authBack" type="button"><i class="bi bi-arrow-left me-1"></i>Back to login</button></div><div class="col-12 col-sm-4"><button class="btn btn-outline-primary btn-sm w-100" id="authResend" type="button">Send a new code</button></div><div class="col-12 col-sm-4"><button class="btn btn-outline-danger btn-sm w-100" id="authUseRecovery" type="button" data-bs-toggle="modal" data-bs-target="#noAccessModal">I don't have my 2FA</button></div><div class="col-12 col-sm-4 mt-0"><button class="btn btn-outline-warning btn-sm w-100" id="authTryAnother" type="button" data-bs-toggle="modal" data-bs-target="#tryAnotherModal"><i class="bi bi-arrow-repeat me-1"></i>Try another method</button></div></div>
+                <ol class="auth-rail" aria-label="Sign-in progress">
+                    <li class="auth-rail-step is-done"><span class="auth-rail-mark"><i class="bi bi-check-lg"></i></span><span class="auth-rail-text">Password</span></li>
+                    <li class="auth-rail-sep is-done" aria-hidden="true"></li>
+                    <li class="auth-rail-step is-active" aria-current="step"><span class="auth-rail-mark">2</span><span class="auth-rail-text">Verification</span></li>
+                </ol>
+                <span class="auth-step-label">Identity verification</span><h2 id="verificationTitle">Verify your identity</h2><p class="auth-intro" id="verificationDescription">Enter the code we sent you.</p>
 
+                <div class="auth-method-card" id="authMethodCard">
+                    <span class="auth-method-icon" id="authMethodIcon"><i class="bi bi-shield-check"></i></span>
+                    <span class="auth-method-text"><strong id="authMethodName">Verification code</strong><small id="authMethodDestination">Your code is on its way</small></span>
+                    <button class="btn btn-link auth-method-change" id="authTryAnother" type="button" aria-expanded="false" aria-controls="authMethodList">Change</button>
+                </div>
+                <div class="auth-method-list d-none" id="authMethodList" role="radiogroup" aria-label="Choose a verification method"></div>
+
+                <div class="alert alert-danger d-none" id="verifyError" role="alert"></div><div class="alert alert-success d-none" id="verifySuccess" role="status"></div>
+                <form id="verificationForm" novalidate><label class="form-label" id="verificationCodeLabel">Enter the six-digit code</label><div class="auth-otp-grid" id="authOtpGrid" role="group" aria-labelledby="verificationCodeLabel"><input class="auth-otp-cell" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 2"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 3"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 4"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 5"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 6"></div><input class="form-control form-control-lg auth-code d-none" id="verificationCode" name="verificationCode" placeholder="XXXX-XXXX" autocomplete="one-time-code" maxlength="9" spellcheck="false" autocapitalize="characters" aria-labelledby="verificationCodeLabel"><p class="auth-auto-status" id="authAutoStatus" role="status" aria-live="polite"><i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.</p><button class="btn btn-warning w-100 mt-3 auth-submit d-none" id="verifySubmit" type="submit">Verify recovery code</button></form>
+                <button class="btn btn-outline-light w-100 d-none" id="authVerifyPasskey" type="button"><i class="bi bi-fingerprint me-2"></i>Verify with this device</button>
+
+                <div class="auth-actions">
+                    <button class="btn btn-outline-light btn-sm" id="authBack" type="button"><i class="bi bi-arrow-left me-1"></i>Back</button>
+                    <button class="btn btn-outline-light btn-sm" id="authResend" type="button">Send a new code</button>
+                    <button class="btn btn-link btn-sm auth-help-link" id="authUseRecovery" type="button" data-bs-toggle="modal" data-bs-target="#noAccessModal">Lost access?</button>
+                </div>
             </div>
         </div>
         <p class="auth-help"><i class="bi bi-shield-lock"></i> Kingsway will never ask you to share a verification code.</p>
@@ -72,12 +89,12 @@ try {
                   <div class="modal-dialog modal-dialog-centered">
                     <div class="modal-content">
                       <div class="modal-header">
-                        <h6 class="modal-title" id="noAccessModalLabel">Contact the system administrator</h6>
+                        <h6 class="modal-title" id="noAccessModalLabel">Lost access to your verification?</h6>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                       </div>
                       <div class="modal-body">
-                        <p class="mb-2">You cannot restore your own sign-in on this system. Verification is arranged by the school, not by the account holder.</p>
-                        <p class="mb-2">Contact the system administrator, who can re-enrol your second factor or unlock the account for you.</p>
+                        <p class="mb-2">If you saved recovery codes when you turned on two-factor authentication, choose <strong>Change</strong> &rarr; <strong>Recovery code</strong> and enter one of them. Each recovery code works only once.</p>
+                        <p class="mb-2">If you have no recovery code left, contact the school office, who can re-enrol your second factor or unlock the account for you.</p>
                         <hr>
                         <ul class="list-unstyled small mb-0">
                           <?php if (defined('SCHOOL_PHONE') && SCHOOL_PHONE !== ''): ?><li class="mb-1"><i class="bi bi-telephone me-2"></i><?= htmlspecialchars(SCHOOL_PHONE, ENT_QUOTES) ?></li><?php endif; ?>
@@ -87,23 +104,6 @@ try {
                       </div>
                       <div class="modal-footer">
                         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-<div class="modal fade" id="tryAnotherModal" tabindex="-1" aria-labelledby="tryAnotherModalLabel" aria-hidden="true">
-                  <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                      <div class="modal-header">
-                        <h6 class="modal-title" id="tryAnotherModalLabel">Choose how to verify</h6>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                      </div>
-                      <div class="modal-body" id="tryAnotherModalBody">
-                        <p class="text-muted small mb-3">Pick any method available on this account. Your default was already tried.</p>
-                        <div class="list-group" id="tryAnotherList" role="listbox" aria-label="Available verification methods"></div>
-                      </div>
-                      <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
                       </div>
                     </div>
                   </div>
