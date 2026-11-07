@@ -374,6 +374,14 @@ class AuthAPI extends BaseAPI
                             'requires_2fa' => true,
                             'method' => $requiredMethod,
                             'available_methods' => $availableMethods,
+                            // Where each code would be delivered, masked. The
+                            // verification screen shows it so the user can see
+                            // the code went to the address they expect.
+                            'method_hints' => $tfa->getMethodContactHints($userId),
+                            // Recovery codes are offered as a way to finish the
+                            // sign-in only when the account still holds unused
+                            // ones.
+                            'backup_codes_remaining' => $tfa->getBackupCodeCount($userId),
                             'challenge_token' => $challengeToken,
                         ],
                         $this->parentPortalLoginMarker($userData)
