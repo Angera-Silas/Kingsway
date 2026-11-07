@@ -1252,8 +1252,16 @@ final class ReadReplicaService
                         );
                         $fallbackMeta->execute([$projection]);
                         $everPublished = !empty($fallbackMeta->fetchColumn());
-                        if (!$everPublished) {
-                            $fallbackExists = false;
+                        if (!$everPublished && $fallbackExists) {
+                            // Check if the fallback table has any rows.
+                            // A fresh/deployed schema may have the table but no
+                            // meta row yet, so serving data is better than rejecting.
+                            $rowCount = $pdo->query(
+                                'SELECT COUNT(*) FROM `' . $replicaSchema . '`.`' . $fallbackView . '`'
+                            )->fetchColumn();
+                            if ((int) $rowCount === 0) {
+                                $fallbackExists = false;
+                            }
                         }
                     }
                     if ($fallbackExists) {

@@ -148,7 +148,12 @@ const resetDefaultPasswordController = {
         });
 
         if (window.KINGSWAY_SETUP_RESUME_OTP) {
-            document.getElementById('rdpOtpResend')?.click();
+            // Do not auto-resend here. Reloading the page used to fire
+            // resendInvitationSetupOtp(), which invalidated the code already
+            // in the user's inbox and made every older code look "invalid".
+            // The OTP form is already visible; the user can request a new code
+            // deliberately with the Resend button.
+            document.getElementById('rdpOtpCode')?.focus();
         }
     }
 };

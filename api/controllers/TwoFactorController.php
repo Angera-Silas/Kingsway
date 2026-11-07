@@ -392,9 +392,19 @@ class TwoFactorController extends BaseController
 
         $contact = $this->tfa->getUserContact($targetUserId);
 
-        if ((int) $challenge['attempts'] >= 5) return $this->forbidden('Too many 2FA attempts');
+        if ((int) $challenge['attempts'] >= TwoFactorService::CHALLENGE_MAX_ATTEMPTS) {
+            return $this->forbidden('Too many 2FA attempts. Sign in again to start a fresh verification session.');
+        }
         try {
-            $code = $this->tfa->generateOTP($targetUserId, $method, 'login');
+            // Scope the send budget to this login challenge. A previous
+            // sign-in (including a successful one) must not spend this
+            // sign-in's allowance.
+            $code = $this->tfa->generateOTP(
+                $targetUserId,
+                $method,
+                'login',
+                (string) ($challenge['created_at'] ?? '')
+            );
         } catch (\RuntimeException $e) {
             return $this->respond(null, $e->getMessage(), $e->getCode() === 429 ? 429 : 400, false);
         }
@@ -414,11 +424,17 @@ class TwoFactorController extends BaseController
             return $this->serverError("Failed to send {$method} verification code");
         }
 
+        // Tell the caller where the code landed. The verification screen shows
+        // it so the user can confirm the code went to the address they expect.
+        $destination = ($this->tfa->getMethodContactHints($targetUserId))[$method] ?? null;
+        $sentTo = $destination ? " to {$destination}" : '';
+
         return $this->success([
             'method' => $method,
             'challenge_sent' => true,
             'expires_in' => 600,
-        ], "A verification code has been sent to your {$method}.");
+            'destination' => $destination,
+        ], "A verification code has been sent{$sentTo}.");
     }
 
     /**
@@ -430,48 +446,90 @@ class TwoFactorController extends BaseController
     {
         $challengeToken = trim((string) ($data['challenge_token'] ?? ''));
         $code = trim($data['code'] ?? '');
-        $method = $data['method'] ?? 'totp';
 
         $challenge = $challengeToken ? $this->tfa->getLoginChallenge($challengeToken) : null;
         if (!$challenge) return $this->badRequest('Invalid or expired 2FA challenge');
         $targetUserId = (int) $challenge['user_id'];
-        if ($method !== $challenge['method'] && !($method === 'backup')) return $this->badRequest('Challenge method mismatch');
         if (!$code) return $this->badRequest('Verification code is required');
 
+        // Backup codes are a recovery factor: a one-time code the user keeps
+        // for the day the phone or the authenticator app is unavailable. It
+        // completes the same challenge as any other factor and is consumed on
+        // use.
+        $requested = strtolower(trim((string) ($data['method'] ?? '')));
+        if ($requested === 'backup') {
+            $verified = $this->tfa->verifyBackupCode($targetUserId, $code);
+            $verifiedMethod = 'backup';
+            if (!$verified) {
+                $this->tfa->registerChallengeFailure($challengeToken, $targetUserId);
+                return $this->forbidden('That recovery code is not valid. Check the codes you saved, or ask the school office for help.');
+            }
+            return $this->completeVerification($challengeToken, $targetUserId, $challenge, $verifiedMethod);
+        }
+
+        $available = $this->tfa->getAvailableLoginMethods($targetUserId);
+        if ($requested !== '' && !in_array($requested, $available, true)) {
+            // The browser may still be pointing at a channel the account no
+            // longer offers. That must not fail the sign-in, so the request
+            // falls through to the factors that are actually enrolled.
+            $requested = '';
+        }
+
         $verified = false;
+        $verifiedMethod = null;
 
-        switch ($method) {
-            case 'totp':
-                $verified = $this->tfa->verifyUserTOTP($targetUserId, $code);
-                break;
+        $credential = (array) ($data['credential'] ?? []);
+        if ($credential !== []) {
+            // A passkey assertion carries its own proof; it is checked on its
+            // own and never mixed with the one-time codes.
+            $verified = $this->passkeys->finishAuthentication($targetUserId, $credential);
+            $verifiedMethod = 'passkey';
+        } else {
+            // GitHub-style: the sign-in session accepts ANY factor enrolled on
+            // the account. The channel the browser asked for is tried first,
+            // then the remaining ones, so a user who typed a code from a
+            // different channel (or whose screen was one step behind) still
+            // completes the sign-in instead of being told the code is invalid.
+            $candidates = [];
+            if ($requested !== '') $candidates[] = $requested;
+            foreach ($available as $method) {
+                if ($method === 'passkey') continue;
+                if (!in_array($method, $candidates, true)) $candidates[] = $method;
+            }
 
-            case 'email':
-            case 'sms':
-            case 'whatsapp':
-                $verified = $this->tfa->verifyOTP($targetUserId, $code, 'login', $method);
-                break;
+            foreach ($candidates as $candidate) {
+                if ($this->verifyWithMethod($targetUserId, $candidate, $code)) {
+                    $verified = true;
+                    $verifiedMethod = $candidate;
+                    break;
+                }
+            }
 
-            case 'passkey':
-                $verified = $this->passkeys->finishAuthentication($targetUserId, (array) ($data['credential'] ?? []));
-                break;
-
-            case 'backup':
-                // Self-service recovery is not permitted: a lost factor is
-                // resolved by an administrator who re-enrols the user. The
-                // codes remain usable by administrativeReset(), which is the
-                // only sanctioned way back into an account.
-                return $this->forbidden(
-                    'Backup codes are not accepted for self-service sign-in on this system. '
-                    . 'Contact the system administrator, who can restore your verification method.'
-                );
-
-            default:
-                return $this->badRequest('Invalid 2FA method');
+            // A recovery code pasted into the code box still completes the
+            // sign-in, even when the browser labelled it as a normal code.
+            if (!$verified && $this->looksLikeBackupCode($code)) {
+                $verified = $this->tfa->verifyBackupCode($targetUserId, $code);
+                if ($verified) $verifiedMethod = 'backup';
+            }
         }
 
         if (!$verified) {
             $this->tfa->registerChallengeFailure($challengeToken, $targetUserId);
             return $this->forbidden('Invalid verification code');
+        }
+
+        return $this->completeVerification($challengeToken, $targetUserId, $challenge, $verifiedMethod);
+    }
+
+    /**
+     * Mark the challenge verified and hand the sign-in back to the caller.
+     */
+    private function completeVerification(string $challengeToken, int $targetUserId, array $challenge, ?string $verifiedMethod): array
+    {
+        // Record the factor that actually completed the sign-in so the audit
+        // trail matches the method the user really used.
+        if ($verifiedMethod !== null && $verifiedMethod !== (string) $challenge['method']) {
+            $this->tfa->recordChallengeMethod($challengeToken, $targetUserId, $verifiedMethod);
         }
 
         if (!$this->tfa->markChallengeVerified($challengeToken, $targetUserId)) {
@@ -481,7 +539,40 @@ class TwoFactorController extends BaseController
         return $this->success([
             'verified' => true,
             'user_id' => $targetUserId,
+            'method' => $verifiedMethod,
             'challenge_token' => $challengeToken,
         ], 'Verification successful.');
+    }
+
+    /**
+     * A recovery code is eight characters in two groups of four.
+     */
+    private function looksLikeBackupCode(string $code): bool
+    {
+        return (bool) preg_match('/^[A-Za-z0-9]{4}\s*-?\s*[A-Za-z0-9]{4}$/', trim($code));
+    }
+
+    /**
+     * Check a one-time code against a single factor.
+     */
+    private function verifyWithMethod(int $userId, string $method, string $code): bool
+    {
+        switch ($method) {
+            case 'totp':
+                try {
+                    return $this->tfa->verifyUserTOTP($userId, $code);
+                } catch (\Throwable $error) {
+                    // A broken authenticator secret must not block a sign-in
+                    // that can be completed with another enrolled factor.
+                    \App\API\Services\Logger::legacyError('[TwoFactor] TOTP verification failed: ' . $error->getMessage());
+                    return false;
+                }
+            case 'email':
+            case 'sms':
+            case 'whatsapp':
+                return $this->tfa->verifyOTP($userId, $code, 'login', $method);
+            default:
+                return false;
+        }
     }
 }
