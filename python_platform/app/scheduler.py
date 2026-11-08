@@ -135,6 +135,17 @@ class Scheduler:
 
     # ------------------------------------------------------------- evaluation
 
+    def jobs(self) -> list[ScheduledJob]:
+        """Immutable snapshot of the manifest for the refresh engine."""
+        return list(self._jobs)
+
+    def interval_for(self, name: str) -> int:
+        """Configured cadence in seconds, or 0 when the job is not in the manifest."""
+        for job in self._jobs:
+            if job.name == name:
+                return int(job.interval)
+        return 0
+
     def due_jobs(self, now: float | None = None) -> list[ScheduledJob]:
         """Jobs whose interval has elapsed since their last successful run.
 

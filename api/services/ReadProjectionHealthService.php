@@ -67,12 +67,13 @@ final class ReadProjectionHealthService
                 $report['never_synced'][] = $projection;
                 continue;
             }
-            $maxAge = (int) (ReadReplicaService::POLICIES[$projection]['max_age_seconds'] ?? 600);
+            // Python schedules.yaml is the sole authority on refresh cadence.
+            // PHP health check reports age but does not enforce max_age.
             $age = (int) ($row['age_seconds'] ?? -1);
-            if ($age < 0 || $age > $maxAge) {
-                $report['stale'][] = $projection . " (age {$age}s > {$maxAge}s)";
+            if ($age < 0) {
+                $report['stale'][] = $projection . " (age unknown)";
             } else {
-                $report['fresh']++;
+                $report['stale'][] = $projection . " (age {$age}s; freshness enforced by Python)";
             }
         }
 
