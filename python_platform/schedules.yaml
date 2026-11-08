@@ -1,908 +1,873 @@
-# Kingsway schedule manifest - consumed by python_platform/app/scheduler.py
-#
-# ONE crontab line pokes /internal/tick once a minute. This file is the
-# schedule. Adding a job never adds a cron line, so the MySQL connection count
-# stays constant regardless of how many jobs are listed.
-#
-# interval = seconds between runs, derived from each projection's max_age_seconds
-# freshness budget so it is refreshed exactly as often as the read model allows.
-
 jobs:
-
-# --- freshness budget 600s ---
-  - name: academic_class_progression
-    kind: projection
-    interval: 600
-  - name: academic_term_terms
-    kind: projection
-    interval: 600
-  - name: academic_year_calendar
-    kind: projection
-    interval: 600
-  - name: academic_year_calendar_days
-    kind: projection
-    interval: 600
-  - name: academic_year_calendar_days_typed
-    kind: projection
-    interval: 600
-  - name: academic_year_class_learning_area_teachers
-    kind: projection
-    interval: 600
-  - name: academic_year_class_learning_areas
-    kind: projection
-    interval: 600
-  - name: academic_year_class_stream_learning_area_teachers
-    kind: projection
-    interval: 600
-  - name: academic_year_class_stream_learning_areas
-    kind: projection
-    interval: 600
-  - name: academic_year_class_stream_learning_areas_detailed
-    kind: projection
-    interval: 600
-  - name: academic_year_classes
-    kind: projection
-    interval: 600
-  - name: academic_year_classes_streams
-    kind: projection
-    interval: 600
-  - name: academic_year_fee_schedules
-    kind: projection
-    interval: 600
-  - name: academic_years
-    kind: projection
-    interval: 600
-  - name: activity_categories
-    kind: projection
-    interval: 600
-  - name: activity_category_summary
-    kind: projection
-    interval: 600
-  - name: activity_participants
-    kind: projection
-    interval: 600
-  - name: activity_resources
-    kind: projection
-    interval: 600
-  - name: activity_schedule
-    kind: projection
-    interval: 600
-  - name: activity_schedule_directory
-    kind: projection
-    interval: 600
-  - name: admission_application_workflow
-    kind: projection
-    interval: 600
-  - name: admission_applications
-    kind: projection
-    interval: 600
-  - name: admission_applications_interviews
-    kind: projection
-    interval: 600
-  - name: admission_documents
-    kind: projection
-    interval: 600
-  - name: admission_interview_assessment_items
-    kind: projection
-    interval: 600
-  - name: admission_placement_tests
-    kind: projection
-    interval: 600
-  - name: admission_windows
-    kind: projection
-    interval: 600
-  - name: admission_workflow_context
-    kind: projection
-    interval: 600
-  - name: analytics_report_metrics
-    kind: projection
-    interval: 600
-  - name: analytics_report_runs
-    kind: projection
-    interval: 600
-  - name: announcements_bulletin
-    kind: projection
-    interval: 600
-  - name: assessment_learning_outcomes
-    kind: projection
-    interval: 600
-  - name: assessment_policy_documents
-    kind: projection
-    interval: 600
-  - name: assessment_policy_schedule_rules
-    kind: projection
-    interval: 600
-  - name: assessment_results
-    kind: projection
-    interval: 600
-  - name: assessment_results_detailed
-    kind: projection
-    interval: 600
-  - name: assessment_rubric_criteria
-    kind: projection
-    interval: 600
-  - name: assessment_rubrics
-    kind: projection
-    interval: 600
-  - name: assessment_tools
-    kind: projection
-    interval: 600
-  - name: attendance_sessions
-    kind: projection
-    interval: 600
-  - name: attendance_sessions_config
-    kind: projection
-    interval: 600
-  - name: bank_transactions
-    kind: projection
-    interval: 600
-  - name: blocked_devices
-    kind: projection
-    interval: 600
-  - name: boarding_dorm_context
-    kind: projection
-    interval: 600
-  - name: budget_line_items
-    kind: projection
-    interval: 600
-  - name: budget_utilization
-    kind: projection
-    interval: 600
-  - name: budgets
-    kind: projection
-    interval: 600
-  - name: cash_reconciliation_sessions
-    kind: projection
-    interval: 600
-  - name: catalog_order_items
-    kind: projection
-    interval: 600
-  - name: catalog_orders
-    kind: projection
-    interval: 600
-  - name: catalog_reviews
-    kind: projection
-    interval: 600
-  - name: catalog_stock_units
-    kind: projection
-    interval: 600
-  - name: catalog_wishlists
-    kind: projection
-    interval: 600
-  - name: chapel_program_sessions
-    kind: projection
-    interval: 600
-  - name: chaplaincy_volunteers
-    kind: projection
-    interval: 600
-  - name: chart_of_accounts
-    kind: projection
-    interval: 600
-  - name: class_stream_directory
-    kind: projection
-    interval: 600
-  - name: classes
-    kind: projection
-    interval: 600
-  - name: collection_rate_by_class
-    kind: projection
-    interval: 600
-  - name: communication_attachments
-    kind: projection
-    interval: 600
-  - name: communication_threads
-    kind: projection
-    interval: 600
-  - name: core_competencies
-    kind: projection
-    interval: 600
-  - name: core_values
-    kind: projection
-    interval: 600
-  - name: counseling_sessions
-    kind: projection
-    interval: 600
-  - name: dashboards
-    kind: projection
-    interval: 600
-  - name: departments
-    kind: projection
-    interval: 600
-  - name: dormitories
-    kind: projection
-    interval: 600
-  - name: dormitory_occupancy
-    kind: projection
-    interval: 600
-  - name: duty_roster_drafts
-    kind: projection
-    interval: 600
-  - name: enrollment_membership
-    kind: projection
-    interval: 600
-  - name: equipment_maintenance
-    kind: projection
-    interval: 600
-  - name: exam_context
-    kind: projection
-    interval: 600
-  - name: exam_timetable_draft_entries
-    kind: projection
-    interval: 600
-  - name: exam_timetable_drafts
-    kind: projection
-    interval: 600
-  - name: expense_directory
-    kind: projection
-    interval: 600
-  - name: expenses
-    kind: projection
-    interval: 600
-  - name: extra_charge_classes
-    kind: projection
-    interval: 600
-  - name: extra_charges
-    kind: projection
-    interval: 600
-  - name: fee_credit_notes
-    kind: projection
-    interval: 600
-  - name: fee_status_summary
-    kind: projection
-    interval: 600
-  - name: financial_source_trace
-    kind: projection
-    interval: 600
-  - name: financial_statement_lines
-    kind: projection
-    interval: 600
-  - name: fixed_assets
-    kind: projection
-    interval: 600
-  - name: food_consumption_records
-    kind: projection
-    interval: 600
-  - name: grade_rules
-    kind: projection
-    interval: 600
-  - name: grading_scales
-    kind: projection
-    interval: 600
-  - name: guardian_link
-    kind: projection
-    interval: 600
-  - name: inventory_categories
-    kind: projection
-    interval: 600
-  - name: inventory_items
-    kind: projection
-    interval: 600
-  - name: inventory_locations
-    kind: projection
-    interval: 600
-  - name: inventory_transactions
-    kind: projection
-    interval: 600
-  - name: inventory_transactions_items
-    kind: projection
-    interval: 600
-  - name: job_vacancies
-    kind: projection
-    interval: 600
-  - name: leadership_positions
-    kind: projection
-    interval: 600
-  - name: leadership_positions_categories
-    kind: projection
-    interval: 600
-  - name: learner_competencies
-    kind: projection
-    interval: 600
-  - name: learner_guardian
-    kind: projection
-    interval: 600
-  - name: learner_placement
-    kind: projection
-    interval: 600
-  - name: learner_values_acquisition
-    kind: projection
-    interval: 600
-  - name: learner_values_acquisition_values
-    kind: projection
-    interval: 600
-  - name: learning_areas
-    kind: projection
-    interval: 600
-  - name: learning_outcomes
-    kind: projection
-    interval: 600
-  - name: leave_types
-    kind: projection
-    interval: 600
-  - name: lesson_plan_assessment_rubrics
-    kind: projection
-    interval: 600
-  - name: lesson_plan_assessment_tools
-    kind: projection
-    interval: 600
-  - name: lesson_plan_competencies
-    kind: projection
-    interval: 600
-  - name: lesson_plan_learner_evidence_questions
-    kind: projection
-    interval: 600
-  - name: lesson_plan_learner_evidence_resources
-    kind: projection
-    interval: 600
-  - name: lesson_plan_outcomes
-    kind: projection
-    interval: 600
-  - name: lesson_plan_rubrics
-    kind: projection
-    interval: 600
-  - name: lesson_plans
-    kind: projection
-    interval: 600
-  - name: library_books
-    kind: projection
-    interval: 600
-  - name: library_categories
-    kind: projection
-    interval: 600
-  - name: library_issues
-    kind: projection
-    interval: 600
-  - name: meal_plans
-    kind: projection
-    interval: 600
-  - name: mpesa_transactions
-    kind: projection
-    interval: 600
-  - name: mpesa_transactions_payments
-    kind: projection
-    interval: 600
-  - name: national_assessment_windows
-    kind: projection
-    interval: 600
-  - name: parent_meeting_targets
-    kind: projection
-    interval: 600
-  - name: parents
-    kind: projection
-    interval: 600
-  - name: past_papers
-    kind: projection
-    interval: 600
-  - name: payment_collection_route_channels
-    kind: projection
-    interval: 600
-  - name: payment_collection_routes
-    kind: projection
-    interval: 600
-  - name: payment_directory
-    kind: projection
-    interval: 600
-  - name: payment_pos_terminals
-    kind: projection
-    interval: 600
-  - name: payment_reconciliations
-    kind: projection
-    interval: 600
-  - name: payment_unmatched_cases
-    kind: projection
-    interval: 600
-  - name: payments
-    kind: projection
-    interval: 600
-  - name: payroll_runs
-    kind: projection
-    interval: 600
-  - name: payslips
-    kind: projection
-    interval: 600
-  - name: performance_review_kpis
-    kind: projection
-    interval: 600
-  - name: person_directory
-    kind: projection
-    interval: 600
-  - name: portfolio_artifacts
-    kind: projection
-    interval: 600
-  - name: portfolio_artifacts_portfolios
-    kind: projection
-    interval: 600
-  - name: portfolio_hub_class
-    kind: projection
-    interval: 600
-  - name: promotion_batches
-    kind: projection
-    interval: 600
-  - name: purchase_orders
-    kind: projection
-    interval: 600
-  - name: requisition_items
-    kind: projection
-    interval: 600
-  - name: requisitions
-    kind: projection
-    interval: 600
-  - name: rooms
-    kind: projection
-    interval: 600
-  - name: routes_registry
-    kind: projection
-    interval: 600
-  - name: scheme_templates
-    kind: projection
-    interval: 600
-  - name: scheme_workbook_items
-    kind: projection
-    interval: 600
-  - name: scheme_workbook_weeks
-    kind: projection
-    interval: 600
-  - name: scheme_workbooks
-    kind: projection
-    interval: 600
-  - name: schemes_of_work
-    kind: projection
-    interval: 600
-  - name: school_financial_account_channels
-    kind: projection
-    interval: 600
-  - name: school_financial_accounts
-    kind: projection
-    interval: 600
-  - name: sidebar_menu_items
-    kind: projection
-    interval: 600
-  - name: staff
-    kind: projection
-    interval: 600
-  - name: staff_appointments
-    kind: projection
-    interval: 600
-  - name: staff_categories
-    kind: projection
-    interval: 600
-  - name: staff_children
-    kind: projection
-    interval: 600
-  - name: staff_daily_register
-    kind: projection
-    interval: 600
-  - name: staff_deductions
-    kind: projection
-    interval: 600
-  - name: staff_department_assignments
-    kind: projection
-    interval: 600
-  - name: staff_directory
-    kind: projection
-    interval: 600
-  - name: staff_duty_roster
-    kind: projection
-    interval: 600
-  - name: staff_meeting_member
-    kind: projection
-    interval: 600
-  - name: staff_meeting_summary
-    kind: projection
-    interval: 600
-  - name: staff_offboarding
-    kind: projection
-    interval: 600
-  - name: staff_payroll_award_recipients
-    kind: projection
-    interval: 600
-  - name: staff_qualifications
-    kind: projection
-    interval: 600
-  - name: staff_role_default_positions
-    kind: projection
-    interval: 600
-  - name: staff_specialization_qualifications
-    kind: projection
-    interval: 600
-  - name: staff_types
-    kind: projection
-    interval: 600
-  - name: strand_competency
-    kind: projection
-    interval: 600
-  - name: strands
-    kind: projection
-    interval: 600
-  - name: strands_learning_areas
-    kind: projection
-    interval: 600
-  - name: strands_sub_strands
-    kind: projection
-    interval: 600
-  - name: streams
-    kind: projection
-    interval: 600
-  - name: student_academic_enrollments_fees
-    kind: projection
-    interval: 600
-  - name: student_academic_enrollments_streams
-    kind: projection
-    interval: 600
-  - name: student_attendance
-    kind: projection
-    interval: 600
-  - name: student_attendance_analytics
-    kind: projection
-    interval: 600
-  - name: student_attendance_enrollment
-    kind: projection
-    interval: 600
-  - name: student_attendance_summary
-    kind: projection
-    interval: 600
-  - name: student_award_categories
-    kind: projection
-    interval: 600
-  - name: student_award_types
-    kind: projection
-    interval: 600
-  - name: student_clearances
-    kind: projection
-    interval: 600
-  - name: student_dashboard_summary
-    kind: projection
-    interval: 600
-  - name: student_directory
-    kind: projection
-    interval: 600
-  - name: student_fee_migration_snapshots
-    kind: projection
-    interval: 600
-  - name: student_fee_obligations
-    kind: projection
-    interval: 600
-  - name: student_fee_obligations_enrolled
-    kind: projection
-    interval: 600
-  - name: student_fee_rollover_balances
-    kind: projection
-    interval: 600
-  - name: student_health_records
-    kind: projection
-    interval: 600
-  - name: student_health_summary
-    kind: projection
-    interval: 600
-  - name: student_health_visits
-    kind: projection
-    interval: 600
-  - name: student_parents
-    kind: projection
-    interval: 600
-  - name: student_permissions
-    kind: projection
-    interval: 600
-  - name: student_scholarship_awards
-    kind: projection
-    interval: 600
-  - name: student_term_placement
-    kind: projection
-    interval: 600
-  - name: student_transitions
-    kind: projection
-    interval: 600
-  - name: student_transport_assignments
-    kind: projection
-    interval: 600
-  - name: student_transport_attendance
-    kind: projection
-    interval: 600
-  - name: student_transport_entitlements
-    kind: projection
-    interval: 600
-  - name: student_transport_roster
-    kind: projection
-    interval: 600
-  - name: student_transport_summary
-    kind: projection
-    interval: 600
-  - name: student_types
-    kind: projection
-    interval: 600
-  - name: student_vaccinations
-    kind: projection
-    interval: 600
-  - name: sub_strand_competencies
-    kind: projection
-    interval: 600
-  - name: sub_strands
-    kind: projection
-    interval: 600
-  - name: suppliers
-    kind: projection
-    interval: 600
-  - name: term_subject_scores
-    kind: projection
-    interval: 600
-  - name: time_slots
-    kind: projection
-    interval: 600
-  - name: timetable_conflict
-    kind: projection
-    interval: 600
-  - name: timetable_drafts
-    kind: projection
-    interval: 600
-  - name: timetable_entries
-    kind: projection
-    interval: 600
-  - name: transport_assignment_context
-    kind: projection
-    interval: 600
-  - name: transport_entitlement_payment_allocations
-    kind: projection
-    interval: 600
-  - name: transport_monthly_bills
-    kind: projection
-    interval: 600
-  - name: transport_payment_intents
-    kind: projection
-    interval: 600
-  - name: transport_routes
-    kind: projection
-    interval: 600
-  - name: transport_vehicle_routes
-    kind: projection
-    interval: 600
-  - name: uniform_catalog_images
-    kind: projection
-    interval: 600
-  - name: uniform_catalog_products
-    kind: projection
-    interval: 600
-  - name: uniform_payment_intents
-    kind: projection
-    interval: 600
-  - name: uniform_payment_records
-    kind: projection
-    interval: 600
-  - name: uniform_sales
-    kind: projection
-    interval: 600
-  - name: uniform_sizes
-    kind: projection
-    interval: 600
-  - name: vehicles
-    kind: projection
-    interval: 600
-  - name: workflow_definitions
-    kind: projection
-    interval: 600
-  - name: workflow_instances
-    kind: projection
-    interval: 600
-  - name: workflow_stage_history
-    kind: projection
-    interval: 600
-  - name: workflow_stages
-    kind: projection
-    interval: 600
-
-# --- freshness budget 900s ---
-  - name: academic_calendar
-    kind: projection
-    interval: 900
-  - name: academic_class_directory
-    kind: projection
-    interval: 900
-  - name: academic_term
-    kind: projection
-    interval: 900
-  - name: academic_term_summary
-    kind: projection
-    interval: 900
-  - name: academic_year_class_streams
-    kind: projection
-    interval: 900
-  - name: academic_year_terms
-    kind: projection
-    interval: 900
-  - name: assessments
-    kind: projection
-    interval: 900
-  - name: calendar_day_type
-    kind: projection
-    interval: 900
-  - name: class_learning_area_performance
-    kind: projection
-    interval: 900
-  - name: competency_catalog
-    kind: projection
-    interval: 900
-  - name: dashboard_catalog
-    kind: projection
-    interval: 900
-  - name: deputy_class_formative_performance
-    kind: projection
-    interval: 900
-  - name: exam_schedules
-    kind: projection
-    interval: 900
-  - name: fee_collection_monthly_trend
-    kind: projection
-    interval: 900
-  - name: learner_competency
-    kind: projection
-    interval: 900
-  - name: lesson_plan_context
-    kind: projection
-    interval: 900
-  - name: payslip
-    kind: projection
-    interval: 900
-  - name: portfolio_hub_summary
-    kind: projection
-    interval: 900
-  - name: scheme_lesson_context
-    kind: projection
-    interval: 900
-  - name: staff_context
-    kind: projection
-    interval: 900
-  - name: staff_profile_assignment
-    kind: projection
-    interval: 900
-  - name: staff_workload
-    kind: projection
-    interval: 900
-  - name: student_growth_trend
-    kind: projection
-    interval: 900
-  - name: student_learning_progress
-    kind: projection
-    interval: 900
-  - name: student_term_performance
-    kind: projection
-    interval: 900
-  - name: student_timeline_subject_scores
-    kind: projection
-    interval: 900
-  - name: uniform_catalog
-    kind: projection
-    interval: 900
-
-# --- freshness budget 3600s ---
-  - name: curriculum_taxonomy
-    kind: projection
-    interval: 3600
-
-# --- operational workers ---
-  - name: queue_drain
-    kind: http
-    endpoint: /api/realtime/worker
-    payload: {"limit":30}
-    interval: 60
-  - name: outbox
-    kind: http
-    endpoint: /api/communications/process-outbox
-    payload: {"limit":25}
-    interval: 60
-
-# --- operational workers (dispatched over HTTP; no DB connection from cron) ---
-# These were the remaining lines from the old per-endpoint crontab. They are
-# dispatched by the scheduler on its existing connection budget: the tick
-# process holds no MySQL connection for an HTTP job, and the PHP endpoint it
-# calls is a normal request that opens its own (persistent) connection like any
-# other user request.
-
-  - name: staff_invitations
-    kind: http
-    endpoint: /api/staff-migration/process-invitation-email
-    payload: {"limit":25}
-    interval: 300
-
-  - name: attendance_reminders
-    kind: http
-    endpoint: /api/attendance/process-register-reminders
-    payload: {}
-    interval: 300
-
-  - name: kcb_reconciliation
-    kind: http
-    endpoint: /api/finance/kcb-reconciliation-worker
-    payload: {"limit":25}
-    interval: 300
-
-  - name: stk_sweep
-    kind: http
-    endpoint: /api/payments/stk-sweep-worker
-    payload: {"limit":25,"stall_minutes":30}
-    interval: 600
-
-  - name: sms_contact_sync
-    kind: http
-    endpoint: /api/communications/sync-sms-contacts
-    payload: {}
-    interval: 900
-
-  - name: realtime_cleanup
-    kind: http
-    endpoint: /api/realtime/cleanup
-    payload: {}
-    interval: 300
-
-  - name: insight_brief_daily
-    kind: http
-    endpoint: /api/dashboard/insight-brief-queue
-    payload: {"cadence":"daily"}
-    interval: 300
-
-  - name: insight_brief_weekly
-    kind: http
-    endpoint: /api/dashboard/insight-brief-queue
-    payload: {"cadence":"weekly"}
-    interval: 300
-
-  - name: agent_digest
-    kind: http
-    endpoint: /api/dashboard/agent-digest-worker
-    payload: {}
-    interval: 300
-
-  - name: kicd_policy_watch
-    kind: http
-    endpoint: /api/dashboard/kicd-policy-watch
-    payload: {}
-    interval: 300
-
-# --- short-budget projections (max_age_seconds <= 300) ---
-# batchQueueSlice() deliberately EXCLUDES these from the projection_batch
-# lines, and the old per-projection crontab lines were removed when the
-# schedule moved into this manifest. Without this section they would have
-# no schedule at all: students, persons and student_fee_balances are core
-# read paths and would drift stale immediately.
-
-  - name: student_fee_balances
-    kind: projection
-    interval: 120
-  - name: student_fee_ledger
-    kind: projection
-    interval: 120
-  - name: parent_student_dashboard
-    kind: projection
-    interval: 120
-  - name: fee_statement_context
-    kind: projection
-    interval: 120
-  - name: student_academic_enrollments
-    kind: projection
-    interval: 300
-  - name: students
-    kind: projection
-    interval: 300
-  - name: persons
-    kind: projection
-    interval: 300
-  - name: attendance_register_context
-    kind: projection
-    interval: 300
-  - name: internal_conversation_member
-    kind: projection
-    interval: 300
-  - name: internal_message_recipient
-    kind: projection
-    interval: 300
-  - name: internal_message_recipient_directory
-    kind: projection
-    interval: 300
-  - name: staff_daily_register
-    kind: projection
-    interval: 300
-
-# --- housekeeping ---
-  - name: prune_rate_limit_buckets
-    kind: http
-    endpoint: /api/system/prune-rate-limit
-    payload: {"keep_days":2}
-    interval: 21600
+- name: academic_class_progression
+  kind: projection
+  interval: 60
+- name: academic_term_terms
+  kind: projection
+  interval: 60
+- name: academic_year_calendar
+  kind: projection
+  interval: 60
+- name: academic_year_calendar_days
+  kind: projection
+  interval: 60
+- name: academic_year_calendar_days_typed
+  kind: projection
+  interval: 60
+- name: academic_year_class_learning_area_teachers
+  kind: projection
+  interval: 60
+- name: academic_year_class_learning_areas
+  kind: projection
+  interval: 60
+- name: academic_year_class_stream_learning_area_teachers
+  kind: projection
+  interval: 60
+- name: academic_year_class_stream_learning_areas
+  kind: projection
+  interval: 60
+- name: academic_year_class_stream_learning_areas_detailed
+  kind: projection
+  interval: 60
+- name: academic_year_classes
+  kind: projection
+  interval: 60
+- name: academic_year_classes_streams
+  kind: projection
+  interval: 60
+- name: academic_year_fee_schedules
+  kind: projection
+  interval: 60
+- name: academic_years
+  kind: projection
+  interval: 60
+- name: activity_categories
+  kind: projection
+  interval: 60
+- name: activity_category_summary
+  kind: projection
+  interval: 60
+- name: activity_participants
+  kind: projection
+  interval: 60
+- name: activity_resources
+  kind: projection
+  interval: 60
+- name: activity_schedule
+  kind: projection
+  interval: 60
+- name: activity_schedule_directory
+  kind: projection
+  interval: 60
+- name: admission_application_workflow
+  kind: projection
+  interval: 60
+- name: admission_applications
+  kind: projection
+  interval: 60
+- name: admission_applications_interviews
+  kind: projection
+  interval: 60
+- name: admission_documents
+  kind: projection
+  interval: 60
+- name: admission_interview_assessment_items
+  kind: projection
+  interval: 60
+- name: admission_placement_tests
+  kind: projection
+  interval: 60
+- name: admission_windows
+  kind: projection
+  interval: 60
+- name: admission_workflow_context
+  kind: projection
+  interval: 60
+- name: analytics_report_metrics
+  kind: projection
+  interval: 60
+- name: analytics_report_runs
+  kind: projection
+  interval: 60
+- name: announcements_bulletin
+  kind: projection
+  interval: 60
+- name: assessment_learning_outcomes
+  kind: projection
+  interval: 60
+- name: assessment_policy_documents
+  kind: projection
+  interval: 60
+- name: assessment_policy_schedule_rules
+  kind: projection
+  interval: 60
+- name: assessment_results
+  kind: projection
+  interval: 60
+- name: assessment_results_detailed
+  kind: projection
+  interval: 60
+- name: assessment_rubric_criteria
+  kind: projection
+  interval: 60
+- name: assessment_rubrics
+  kind: projection
+  interval: 60
+- name: assessment_tools
+  kind: projection
+  interval: 60
+- name: attendance_sessions
+  kind: projection
+  interval: 60
+- name: attendance_sessions_config
+  kind: projection
+  interval: 60
+- name: bank_transactions
+  kind: projection
+  interval: 60
+- name: blocked_devices
+  kind: projection
+  interval: 60
+- name: boarding_dorm_context
+  kind: projection
+  interval: 60
+- name: budget_line_items
+  kind: projection
+  interval: 60
+- name: budget_utilization
+  kind: projection
+  interval: 60
+- name: budgets
+  kind: projection
+  interval: 60
+- name: cash_reconciliation_sessions
+  kind: projection
+  interval: 60
+- name: catalog_order_items
+  kind: projection
+  interval: 60
+- name: catalog_orders
+  kind: projection
+  interval: 60
+- name: catalog_reviews
+  kind: projection
+  interval: 60
+- name: catalog_stock_units
+  kind: projection
+  interval: 60
+- name: catalog_wishlists
+  kind: projection
+  interval: 60
+- name: chapel_program_sessions
+  kind: projection
+  interval: 60
+- name: chaplaincy_volunteers
+  kind: projection
+  interval: 60
+- name: chart_of_accounts
+  kind: projection
+  interval: 60
+- name: class_stream_directory
+  kind: projection
+  interval: 60
+- name: classes
+  kind: projection
+  interval: 60
+- name: collection_rate_by_class
+  kind: projection
+  interval: 60
+- name: communication_attachments
+  kind: projection
+  interval: 60
+- name: communication_threads
+  kind: projection
+  interval: 60
+- name: core_competencies
+  kind: projection
+  interval: 60
+- name: core_values
+  kind: projection
+  interval: 60
+- name: counseling_sessions
+  kind: projection
+  interval: 60
+- name: dashboards
+  kind: projection
+  interval: 60
+- name: departments
+  kind: projection
+  interval: 60
+- name: dormitories
+  kind: projection
+  interval: 60
+- name: dormitory_occupancy
+  kind: projection
+  interval: 60
+- name: duty_roster_drafts
+  kind: projection
+  interval: 60
+- name: enrollment_membership
+  kind: projection
+  interval: 60
+- name: equipment_maintenance
+  kind: projection
+  interval: 60
+- name: exam_context
+  kind: projection
+  interval: 60
+- name: exam_timetable_draft_entries
+  kind: projection
+  interval: 60
+- name: exam_timetable_drafts
+  kind: projection
+  interval: 60
+- name: expense_directory
+  kind: projection
+  interval: 60
+- name: expenses
+  kind: projection
+  interval: 60
+- name: extra_charge_classes
+  kind: projection
+  interval: 60
+- name: extra_charges
+  kind: projection
+  interval: 60
+- name: fee_credit_notes
+  kind: projection
+  interval: 60
+- name: fee_status_summary
+  kind: projection
+  interval: 60
+- name: financial_source_trace
+  kind: projection
+  interval: 60
+- name: financial_statement_lines
+  kind: projection
+  interval: 60
+- name: fixed_assets
+  kind: projection
+  interval: 60
+- name: food_consumption_records
+  kind: projection
+  interval: 60
+- name: grade_rules
+  kind: projection
+  interval: 60
+- name: grading_scales
+  kind: projection
+  interval: 60
+- name: guardian_link
+  kind: projection
+  interval: 60
+- name: inventory_categories
+  kind: projection
+  interval: 60
+- name: inventory_items
+  kind: projection
+  interval: 60
+- name: inventory_locations
+  kind: projection
+  interval: 60
+- name: inventory_transactions
+  kind: projection
+  interval: 60
+- name: inventory_transactions_items
+  kind: projection
+  interval: 60
+- name: job_vacancies
+  kind: projection
+  interval: 60
+- name: leadership_positions
+  kind: projection
+  interval: 60
+- name: leadership_positions_categories
+  kind: projection
+  interval: 60
+- name: learner_competencies
+  kind: projection
+  interval: 60
+- name: learner_guardian
+  kind: projection
+  interval: 60
+- name: learner_placement
+  kind: projection
+  interval: 60
+- name: learner_values_acquisition
+  kind: projection
+  interval: 60
+- name: learner_values_acquisition_values
+  kind: projection
+  interval: 60
+- name: learning_areas
+  kind: projection
+  interval: 60
+- name: learning_outcomes
+  kind: projection
+  interval: 60
+- name: leave_types
+  kind: projection
+  interval: 60
+- name: lesson_plan_assessment_rubrics
+  kind: projection
+  interval: 60
+- name: lesson_plan_assessment_tools
+  kind: projection
+  interval: 60
+- name: lesson_plan_competencies
+  kind: projection
+  interval: 60
+- name: lesson_plan_learner_evidence_questions
+  kind: projection
+  interval: 60
+- name: lesson_plan_learner_evidence_resources
+  kind: projection
+  interval: 60
+- name: lesson_plan_outcomes
+  kind: projection
+  interval: 60
+- name: lesson_plan_rubrics
+  kind: projection
+  interval: 60
+- name: lesson_plans
+  kind: projection
+  interval: 60
+- name: library_books
+  kind: projection
+  interval: 60
+- name: library_categories
+  kind: projection
+  interval: 60
+- name: library_issues
+  kind: projection
+  interval: 60
+- name: meal_plans
+  kind: projection
+  interval: 60
+- name: mpesa_transactions
+  kind: projection
+  interval: 60
+- name: mpesa_transactions_payments
+  kind: projection
+  interval: 60
+- name: national_assessment_windows
+  kind: projection
+  interval: 60
+- name: parent_meeting_targets
+  kind: projection
+  interval: 60
+- name: parents
+  kind: projection
+  interval: 60
+- name: past_papers
+  kind: projection
+  interval: 60
+- name: payment_collection_route_channels
+  kind: projection
+  interval: 60
+- name: payment_collection_routes
+  kind: projection
+  interval: 60
+- name: payment_directory
+  kind: projection
+  interval: 60
+- name: payment_pos_terminals
+  kind: projection
+  interval: 60
+- name: payment_reconciliations
+  kind: projection
+  interval: 60
+- name: payment_unmatched_cases
+  kind: projection
+  interval: 60
+- name: payments
+  kind: projection
+  interval: 60
+- name: payroll_runs
+  kind: projection
+  interval: 60
+- name: payslips
+  kind: projection
+  interval: 60
+- name: performance_review_kpis
+  kind: projection
+  interval: 60
+- name: person_directory
+  kind: projection
+  interval: 60
+- name: portfolio_artifacts
+  kind: projection
+  interval: 60
+- name: portfolio_artifacts_portfolios
+  kind: projection
+  interval: 60
+- name: portfolio_hub_class
+  kind: projection
+  interval: 60
+- name: promotion_batches
+  kind: projection
+  interval: 60
+- name: purchase_orders
+  kind: projection
+  interval: 60
+- name: requisition_items
+  kind: projection
+  interval: 60
+- name: requisitions
+  kind: projection
+  interval: 60
+- name: rooms
+  kind: projection
+  interval: 60
+- name: routes_registry
+  kind: projection
+  interval: 60
+- name: scheme_templates
+  kind: projection
+  interval: 60
+- name: scheme_workbook_items
+  kind: projection
+  interval: 60
+- name: scheme_workbook_weeks
+  kind: projection
+  interval: 60
+- name: scheme_workbooks
+  kind: projection
+  interval: 60
+- name: schemes_of_work
+  kind: projection
+  interval: 60
+- name: school_financial_account_channels
+  kind: projection
+  interval: 60
+- name: school_financial_accounts
+  kind: projection
+  interval: 60
+- name: sidebar_menu_items
+  kind: projection
+  interval: 60
+- name: staff
+  kind: projection
+  interval: 60
+- name: staff_appointments
+  kind: projection
+  interval: 60
+- name: staff_categories
+  kind: projection
+  interval: 60
+- name: staff_children
+  kind: projection
+  interval: 60
+- name: staff_daily_register
+  kind: projection
+  interval: 60
+- name: staff_deductions
+  kind: projection
+  interval: 60
+- name: staff_department_assignments
+  kind: projection
+  interval: 60
+- name: staff_directory
+  kind: projection
+  interval: 60
+- name: staff_duty_roster
+  kind: projection
+  interval: 60
+- name: staff_meeting_member
+  kind: projection
+  interval: 60
+- name: staff_meeting_summary
+  kind: projection
+  interval: 60
+- name: staff_offboarding
+  kind: projection
+  interval: 60
+- name: staff_payroll_award_recipients
+  kind: projection
+  interval: 60
+- name: staff_qualifications
+  kind: projection
+  interval: 60
+- name: staff_role_default_positions
+  kind: projection
+  interval: 60
+- name: staff_specialization_qualifications
+  kind: projection
+  interval: 60
+- name: staff_types
+  kind: projection
+  interval: 60
+- name: strand_competency
+  kind: projection
+  interval: 60
+- name: strands
+  kind: projection
+  interval: 60
+- name: strands_learning_areas
+  kind: projection
+  interval: 60
+- name: strands_sub_strands
+  kind: projection
+  interval: 60
+- name: streams
+  kind: projection
+  interval: 60
+- name: student_academic_enrollments_fees
+  kind: projection
+  interval: 60
+- name: student_academic_enrollments_streams
+  kind: projection
+  interval: 60
+- name: student_attendance
+  kind: projection
+  interval: 60
+- name: student_attendance_analytics
+  kind: projection
+  interval: 60
+- name: student_attendance_enrollment
+  kind: projection
+  interval: 60
+- name: student_attendance_summary
+  kind: projection
+  interval: 60
+- name: student_award_categories
+  kind: projection
+  interval: 60
+- name: student_award_types
+  kind: projection
+  interval: 60
+- name: student_clearances
+  kind: projection
+  interval: 60
+- name: student_dashboard_summary
+  kind: projection
+  interval: 60
+- name: student_directory
+  kind: projection
+  interval: 60
+- name: student_fee_migration_snapshots
+  kind: projection
+  interval: 60
+- name: student_fee_obligations
+  kind: projection
+  interval: 60
+- name: student_fee_obligations_enrolled
+  kind: projection
+  interval: 60
+- name: student_fee_rollover_balances
+  kind: projection
+  interval: 60
+- name: student_health_records
+  kind: projection
+  interval: 60
+- name: student_health_summary
+  kind: projection
+  interval: 60
+- name: student_health_visits
+  kind: projection
+  interval: 60
+- name: student_parents
+  kind: projection
+  interval: 60
+- name: student_permissions
+  kind: projection
+  interval: 60
+- name: student_scholarship_awards
+  kind: projection
+  interval: 60
+- name: student_term_placement
+  kind: projection
+  interval: 60
+- name: student_transitions
+  kind: projection
+  interval: 60
+- name: student_transport_assignments
+  kind: projection
+  interval: 60
+- name: student_transport_attendance
+  kind: projection
+  interval: 60
+- name: student_transport_entitlements
+  kind: projection
+  interval: 60
+- name: student_transport_roster
+  kind: projection
+  interval: 60
+- name: student_transport_summary
+  kind: projection
+  interval: 60
+- name: student_types
+  kind: projection
+  interval: 60
+- name: student_vaccinations
+  kind: projection
+  interval: 60
+- name: sub_strand_competencies
+  kind: projection
+  interval: 60
+- name: sub_strands
+  kind: projection
+  interval: 60
+- name: suppliers
+  kind: projection
+  interval: 60
+- name: term_subject_scores
+  kind: projection
+  interval: 60
+- name: time_slots
+  kind: projection
+  interval: 60
+- name: timetable_conflict
+  kind: projection
+  interval: 60
+- name: timetable_drafts
+  kind: projection
+  interval: 60
+- name: timetable_entries
+  kind: projection
+  interval: 60
+- name: transport_assignment_context
+  kind: projection
+  interval: 60
+- name: transport_entitlement_payment_allocations
+  kind: projection
+  interval: 60
+- name: transport_monthly_bills
+  kind: projection
+  interval: 60
+- name: transport_payment_intents
+  kind: projection
+  interval: 60
+- name: transport_routes
+  kind: projection
+  interval: 60
+- name: transport_vehicle_routes
+  kind: projection
+  interval: 60
+- name: uniform_catalog_images
+  kind: projection
+  interval: 60
+- name: uniform_catalog_products
+  kind: projection
+  interval: 60
+- name: uniform_payment_intents
+  kind: projection
+  interval: 60
+- name: uniform_payment_records
+  kind: projection
+  interval: 60
+- name: uniform_sales
+  kind: projection
+  interval: 60
+- name: uniform_sizes
+  kind: projection
+  interval: 60
+- name: vehicles
+  kind: projection
+  interval: 60
+- name: workflow_definitions
+  kind: projection
+  interval: 60
+- name: workflow_instances
+  kind: projection
+  interval: 60
+- name: workflow_stage_history
+  kind: projection
+  interval: 60
+- name: workflow_stages
+  kind: projection
+  interval: 60
+- name: academic_calendar
+  kind: projection
+  interval: 120
+- name: academic_class_directory
+  kind: projection
+  interval: 120
+- name: academic_term
+  kind: projection
+  interval: 120
+- name: academic_term_summary
+  kind: projection
+  interval: 120
+- name: academic_year_class_streams
+  kind: projection
+  interval: 120
+- name: academic_year_terms
+  kind: projection
+  interval: 120
+- name: assessments
+  kind: projection
+  interval: 120
+- name: calendar_day_type
+  kind: projection
+  interval: 120
+- name: class_learning_area_performance
+  kind: projection
+  interval: 120
+- name: competency_catalog
+  kind: projection
+  interval: 120
+- name: dashboard_catalog
+  kind: projection
+  interval: 120
+- name: deputy_class_formative_performance
+  kind: projection
+  interval: 120
+- name: exam_schedules
+  kind: projection
+  interval: 120
+- name: fee_collection_monthly_trend
+  kind: projection
+  interval: 120
+- name: learner_competency
+  kind: projection
+  interval: 120
+- name: lesson_plan_context
+  kind: projection
+  interval: 120
+- name: payslip
+  kind: projection
+  interval: 120
+- name: portfolio_hub_summary
+  kind: projection
+  interval: 120
+- name: scheme_lesson_context
+  kind: projection
+  interval: 120
+- name: staff_context
+  kind: projection
+  interval: 120
+- name: staff_profile_assignment
+  kind: projection
+  interval: 120
+- name: staff_workload
+  kind: projection
+  interval: 120
+- name: student_growth_trend
+  kind: projection
+  interval: 120
+- name: student_learning_progress
+  kind: projection
+  interval: 120
+- name: student_term_performance
+  kind: projection
+  interval: 120
+- name: student_timeline_subject_scores
+  kind: projection
+  interval: 120
+- name: uniform_catalog
+  kind: projection
+  interval: 120
+- name: curriculum_taxonomy
+  kind: projection
+  interval: 300
+- name: queue_drain
+  kind: http
+  endpoint: /api/realtime/worker
+  payload:
+    limit: 30
+  interval: 30
+- name: outbox
+  kind: http
+  endpoint: /api/communications/process-outbox
+  payload:
+    limit: 25
+  interval: 30
+- name: staff_invitations
+  kind: http
+  endpoint: /api/staff-migration/process-invitation-email
+  payload:
+    limit: 25
+  interval: 60
+- name: attendance_reminders
+  kind: http
+  endpoint: /api/attendance/process-register-reminders
+  payload: {}
+  interval: 60
+- name: kcb_reconciliation
+  kind: http
+  endpoint: /api/finance/kcb-reconciliation-worker
+  payload:
+    limit: 25
+  interval: 60
+- name: stk_sweep
+  kind: http
+  endpoint: /api/payments/stk-sweep-worker
+  payload:
+    limit: 25
+    stall_minutes: 30
+  interval: 60
+- name: sms_contact_sync
+  kind: http
+  endpoint: /api/communications/sync-sms-contacts
+  payload: {}
+  interval: 120
+- name: realtime_cleanup
+  kind: http
+  endpoint: /api/realtime/cleanup
+  payload: {}
+  interval: 60
+- name: insight_brief_daily
+  kind: http
+  endpoint: /api/dashboard/insight-brief-queue
+  payload:
+    cadence: daily
+  interval: 60
+- name: insight_brief_weekly
+  kind: http
+  endpoint: /api/dashboard/insight-brief-queue
+  payload:
+    cadence: weekly
+  interval: 60
+- name: agent_digest
+  kind: http
+  endpoint: /api/dashboard/agent-digest-worker
+  payload: {}
+  interval: 60
+- name: kicd_policy_watch
+  kind: http
+  endpoint: /api/dashboard/kicd-policy-watch
+  payload: {}
+  interval: 60
+- name: student_fee_balances
+  kind: projection
+  interval: 60
+- name: student_fee_ledger
+  kind: projection
+  interval: 60
+- name: parent_student_dashboard
+  kind: projection
+  interval: 60
+- name: fee_statement_context
+  kind: projection
+  interval: 60
+- name: student_academic_enrollments
+  kind: projection
+  interval: 60
+- name: students
+  kind: projection
+  interval: 60
+- name: persons
+  kind: projection
+  interval: 60
+- name: attendance_register_context
+  kind: projection
+  interval: 60
+- name: internal_conversation_member
+  kind: projection
+  interval: 60
+- name: internal_message_recipient
+  kind: projection
+  interval: 60
+- name: internal_message_recipient_directory
+  kind: projection
+  interval: 60
+- name: staff_daily_register
+  kind: projection
+  interval: 60
+- name: prune_rate_limit_buckets
+  kind: http
+  endpoint: /api/system/prune-rate-limit
+  payload:
+    keep_days: 2
+  interval: 900

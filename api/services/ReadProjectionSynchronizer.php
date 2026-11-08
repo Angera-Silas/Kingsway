@@ -663,14 +663,7 @@ final class ReadProjectionSynchronizer
      */
     public static function batchQueueSlice(int $batch, int $modulus = 5): array
     {
-        $queueable = [];
-        foreach (array_keys(ReadReplicaService::MATERIALIZED_TARGETS) as $projection) {
-            $budget = ReadReplicaService::POLICIES[$projection]['max_age_seconds'] ?? 600;
-            if ($budget <= self::INLINE_REFRESH_BUDGET_SECONDS) {
-                continue;
-            }
-            $queueable[] = $projection;
-        }
+        $queueable = array_keys(ReadReplicaService::MATERIALIZED_TARGETS);
         sort($queueable);
 
         return array_values(array_filter(
@@ -683,11 +676,14 @@ final class ReadProjectionSynchronizer
     /**
      * Whether a projection is refreshed inline by its own crontab line
      * instead of through the queued batch path.
+     *
+     * Python schedules.yaml is the sole authority on refresh cadence.
+     * This method is retained for backward compatibility but always
+     * returns false since Python handles all scheduling.
      */
     public static function usesInlineRefresh(string $projection): bool
     {
-        $budget = ReadReplicaService::POLICIES[$projection]['max_age_seconds'] ?? 600;
-        return $budget <= self::INLINE_REFRESH_BUDGET_SECONDS;
+        return false;
     }
 
     /**
@@ -897,7 +893,6 @@ final class ReadProjectionSynchronizer
 
     private static function writeMeta(PDO $pdo, string $reads, string $projection, string $source, int $rows, ?string $watermark, ?string $error): void
     {
-        $policy = ReadReplicaService::policy($projection);
         $stmt = $pdo->prepare(
             'INSERT INTO ' . self::qid($reads, 'reads_meta') . ' '
             . '(projection, source_view, rows_count, source_watermark, as_of, refreshed_at, status, storage_mode, sensitivity, max_age_seconds, last_error) '
@@ -915,8 +910,8 @@ final class ReadProjectionSynchronizer
             ':source_watermark' => $watermark,
             ':status' => $error === null ? 'live' : 'failed',
             ':storage_mode' => 'materialized_table',
-            ':sensitivity' => $policy['sensitivity'],
-            ':max_age_seconds' => $policy['max_age_seconds'],
+            ':sensitivity' => null,
+            ':max_age_seconds' => 0,
             ':last_error' => $error,
         ]);
     }

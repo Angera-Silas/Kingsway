@@ -1,0 +1,64 @@
+# Read projection registry - SINGLE SOURCE OF TRUTH
+#
+# Both Python refresh engine and PHP ReadReplicaService read these definitions.
+# Python uses this for refresh scheduling; PHP reads synced values from reads_meta.
+#
+# Changes to this file take effect when Python service reloads config.
+
+projections:
+  # Academic
+  academic_calendar:
+    source: vw_academic_calendar
+    target: mmv_academic_calendar
+    sensitivity: normal
+    max_age_seconds: 900
+
+  academic_class_directory:
+    source: vw_academic_class_directory
+    target: mmv_academic_class_directory
+    sensitivity: normal
+    max_age_seconds: 900
+
+  academic_term:
+    source: vw_academic_term
+    target: mmv_academic_term
+    sensitivity: normal
+    max_age_seconds: 900
+
+  academic_term_summary:
+    source: vw_academic_term_summary
+    target: mmv_academic_term_summary
+    sensitivity: normal
+    max_age_seconds: 900
+
+  # Financial
+  student_fee_balances:
+    source: vw_student_fee_balances
+    target: mmv_student_fee_balances
+    sensitivity: financial
+    max_age_seconds: 120
+
+  student_fee_ledger:
+    source: vw_student_fee_ledger
+    target: mmv_student_fee_ledger
+    sensitivity: financial
+    max_age_seconds: 120
+
+  fee_status_summary:
+    source: vw_fee_status_summary
+    target: mmv_fee_status_summary
+    sensitivity: financial
+    max_age_seconds: 600
+
+  # Student
+  student_directory:
+    source: vw_student_directory
+    target: mmv_student_directory
+    sensitivity: personal
+    max_age_seconds: 600
+
+  # ... (all other projections)
+  # This file should contain all 265 projections
+
+# Default refresh interval when not specified per-projection
+default_max_age_seconds: 900

@@ -182,12 +182,18 @@ class Config:
         # Set to false ONLY for local development with a self-signed cert.
         self.php_verify_tls = _env_bool("KINGSWAY_PHP_VERIFY_TLS", True)
 
-        # Deterministic read-model worker. Disabled until deployment installs
-        # PyMySQL and supplies a least-privilege account for the source and
-        # reads schemas. These credentials are never forwarded to an LLM.
+        # Deterministic read-model worker. Enabled by default - the Python refresh
+        # engine handles all projection updates via triggers or scheduled sweeps.
+        # Only disable this if you have a separate system managing projections.
         self.read_models_enabled = _env_bool(
-            "KINGSWAY_PYTHON_READ_MODELS_ENABLED", False
+            "KINGSWAY_PYTHON_READ_MODELS_ENABLED", True
         )
+        # Change-capture triggers make a projection rebuild follow a write
+        # within seconds. They are installed lazily by the Python refresh
+        # engine; when the database account lacks TRIGGER privilege the engine
+        # falls back to table update timestamps without touching application
+        # writes. Set to false to use only the scheduled sweep.
+        self.read_change_triggers = _env_bool("KINGSWAY_MV_CHANGE_TRIGGERS", True)
         self.db_host = _env("KINGSWAY_DB_HOST")
         self.db_port = _env_int("KINGSWAY_DB_PORT", 3306)
         self.db_user = _env("KINGSWAY_DB_USER")
