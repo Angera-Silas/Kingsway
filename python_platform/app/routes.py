@@ -6456,77 +6456,8 @@ def create_app(config: Config | None = None) -> Flask:
             }
         )
 
-    @app.post("/internal/tick")
-    def internal_tick():
-        """Curl-cron entry for the schedule-driven dispatcher.
-
-        ONE crontab line calls this once a minute. The schedule lives in
-        schedules.yaml, so the connection count is independent of job count:
-        every projection that is due runs inside this single request against
-        the process-wide cached MySQL connection.
-        """
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-
-        with queue_state_lock:
-            if queue_state["active"]:
-                return jsonify(
-                    {
-                        "success": True,
-                        "data": {"status": "busy"},
-                        "message": "Scheduler is already running a bounded batch",
-                    }
-                ), 202
-            queue_state["active"] = True
-
-        payload = request.get_json(force=True, silent=True) or {}
-        max_jobs = payload.get("max_jobs")
-        max_seconds = payload.get("max_seconds")
-
-        try:
-            from .scheduler import Scheduler
-            from .scheduler_runner import SchedulerRunner
-
-            scheduler = Scheduler(cfg)
-            runner = SchedulerRunner(cfg, scheduler)
-            outcome = runner.run_bounded(
-                max_jobs=int(max_jobs) if str(max_jobs or "").isdigit() else 25,
-                max_seconds=float(max_seconds) if str(max_seconds or "").replace(".", "", 1).isdigit() else 45.0,
-            )
-            journal.write(
-                "reads",
-                {
-                    "type": "scheduler_tick_finished",
-                    **{k: v for k, v in outcome.items() if k != "failures"},
-                    "failures": outcome.get("failures", []),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": outcome,
-                    "message": "Scheduler tick complete",
-                }
-            ), 200
-        except Exception as error:  # noqa: BLE001 - report, never crash Passenger
-            journal.write(
-                "reads",
-                {
-                    "type": "scheduler_tick_failed",
-                    "error_class": type(error).__name__,
-                },
-            )
-            return jsonify(
-                {
-                    "success": False,
-                    "data": None,
-                    "message": f"Scheduler tick failed: {error}",
-                }
-            ), 503
-        finally:
-            with queue_state_lock:
-                queue_state["active"] = False
+    queue_state = {"active": False}
+    queue_state_lock = Lock()
 
     @app.post("/internal/worker")
     def internal_worker():
@@ -6603,6 +6534,78 @@ def create_app(config: Config | None = None) -> Flask:
                 "message": "worker batch complete",
             }
         )
+
+    @app.post("/internal/tick")
+    def internal_tick():
+        """Change-driven projection refresh (Python only).
+
+        ONE crontab line calls this. The engine:
+
+        1. Ensures change-capture triggers are installed on every source table.
+        2. Reads the change log and marks affected projections dirty.
+        3. Runs a bounded batch: dirty projections first, then overdue safety sweeps.
+        4. Falls back to table UPDATE_TIME when triggers unavailable.
+
+        Users always see data: a missing or stale projection falls back to source
+        view via ReadReplicaService::qualifiedRef(). No "unavailable or stale" errors.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+
+        with queue_state_lock:
+            if queue_state["active"]:
+                return jsonify(
+                    {
+                        "success": True,
+                        "data": {"status": "busy"},
+                        "message": "Refresh engine is already running a bounded batch",
+                    }
+                ), 202
+            queue_state["active"] = True
+
+        payload = request.get_json(force=True, silent=True) or {}
+        max_jobs = payload.get("max_jobs")
+        max_seconds = payload.get("max_seconds")
+
+        try:
+            from .refresh_engine import RefreshEngine
+
+            scheduler = Scheduler(cfg)
+            engine = RefreshEngine(cfg, scheduler, journal)
+            outcome = engine.tick(
+                max_jobs=int(max_jobs) if str(max_jobs or "").isdigit() else 50,
+                max_seconds=(
+                    float(max_seconds)
+                    if str(max_seconds or "").replace(".", "", 1).isdigit()
+                    else 15.0
+                ),
+            )
+            journal.write("reads", outcome)
+            return jsonify(
+                {
+                    "success": True,
+                    "data": outcome,
+                    "message": "Refresh engine tick complete",
+                }
+            ), 200
+        except Exception as error:  # noqa: BLE001 - report, never crash Passenger
+            journal.write(
+                {
+                    "type": "refresh_engine_tick_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "data": None,
+                    "message": f"Refresh engine tick failed: {error}",
+                }
+            ), 503
+        finally:
+            with queue_state_lock:
+                queue_state["active"] = False
 
     @app.post("/internal/behavior/forget")
     def behavior_forget():

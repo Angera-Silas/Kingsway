@@ -1050,17 +1050,34 @@ final class ReadReplicaService
         return isset(self::PROJECTIONS[$projection]);
     }
 
-    /** @return array{storage_mode:string,sensitivity:string,max_age_seconds:int} */
-    public static function policy(string $projection): array
+    /** @return array{storage_mode:string,sensitivity:string,max_age_seconds:int}|null */
+    public static function policy(string $projection): ?array
     {
         if (!self::hasProjection($projection)) {
             throw new \DomainException("Unknown read-replica projection '{$projection}'.", 404);
         }
-        return self::POLICIES[$projection] ?? [
-            'storage_mode' => 'unclassified',
-            'sensitivity' => 'unknown',
-            'max_age_seconds' => 0,
-        ];
+        
+        // Read from database ONLY - no hardcoded defaults
+        try {
+            $pdo = \App\Database\Database::getInstance()->getConnection();
+            $stmt = $pdo->prepare(
+                "SELECT storage_mode, sensitivity, max_age_seconds FROM `KingsWayReads`.`reads_meta` WHERE projection = ? LIMIT 1"
+            );
+            $stmt->execute([$projection]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$row) {
+                return null;
+            }
+            
+            return [
+                'storage_mode' => (string) ($row['storage_mode'] ?? 'materialized_table'),
+                'sensitivity' => (string) ($row['sensitivity'] ?? 'normal'),
+                'max_age_seconds' => (int) ($row['max_age_seconds'] ?? 900),
+            ];
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**
@@ -1070,10 +1087,6 @@ final class ReadReplicaService
     public static function isOffloaded(string $projection): bool
     {
         if (!self::hasProjection($projection)) {
-            return false;
-        }
-        $policy = self::policy($projection);
-        if ($policy['storage_mode'] !== 'materialized_table') {
             return false;
         }
         return self::replicaReachable($projection);
@@ -1114,183 +1127,60 @@ final class ReadReplicaService
      *
      * @throws \DomainException unknown projection
      */
+    /**
+     * Schema-qualified reference for a projection read.
+     * Serves materialized table if published (status='live'), else source view.
+     * Users always see data - no "unavailable or stale" errors.
+     *
+     * @throws \DomainException unknown projection
+     */
     public static function qualifiedRef(string $projection): string
     {
         if (!self::hasProjection($projection)) {
             throw new \DomainException("Unknown read-replica projection '{$projection}'.", 404);
         }
-        // A sticky-master cookie applies to ordinary reads. An explicit
-        // qualifiedRef remains an explicit read from the materialized reads
-        // schema; do not reject it solely because a previous mutation pinned
-        // the request. Strong-consistency decisions and read-after-write
-        // checks must use masterRef()/masterSourceRef() at their call sites.
-        if (!isset(self::$refCache[$projection])) {
-            $replicaSchema = ConnectionManager::schemaFor(ConnectionManager::NS_READS);
-            $view = self::table($projection);
-            $policy = self::policy($projection);
-            // Route only to a successfully refreshed materialized table. These
-            // checks use fully qualified schema names on the existing PDO so
-            // they remain safe inside a caller's transaction; switching the
-            // connection namespace would be rejected while that transaction is
-            // open.
-            $exists = false;
-            $fresh = false;
-            try {
-                if ($policy['storage_mode'] === 'materialized_table') {
-                    $pdo = \App\Database\Database::getInstance()->getConnection();
-                    $stmt = $pdo->prepare(
-                        'SELECT COUNT(*) FROM information_schema.TABLES '
-                        . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? '
-                        . 'AND TABLE_TYPE = ?'
-                    );
-                    $stmt->execute([$replicaSchema, $view, 'BASE TABLE']);
-                    $exists = (int) $stmt->fetchColumn() > 0;
-                    if ($exists) {
-                        $metaTable = '`' . str_replace('`', '', $replicaSchema) . '`.`reads_meta`';
-                        $meta = $pdo->prepare(
-                            "SELECT status, refreshed_at, TIMESTAMPDIFF(SECOND, refreshed_at, NOW()) AS age_seconds "
-                            . "FROM {$metaTable} WHERE projection = ? LIMIT 1"
-                        );
-                        $meta->execute([$projection]);
-                        $row = $meta->fetch(PDO::FETCH_ASSOC) ?: [];
-                        $age = isset($row['age_seconds']) ? (int) $row['age_seconds'] : -1;
-                        $fresh = ($row['status'] ?? null) === 'live'
-                            && !empty($row['refreshed_at'])
-                            && $age >= 0
-                            && $age <= (int) $policy['max_age_seconds'];
-                    }
-                }
-            } catch (\Throwable $e) {
-                $exists = false;
-                $fresh = false;
-            }
-            // Any materialized projection can drift stale when its scheduled
-            // refresh is missed (worker down, queue jam, cron gap). A stale
-            // snapshot must not fail every consuming page when the refresh
-            // engine can repair it safely: attempt one bounded refresh per
-            // projection per request before rejecting an ordinary read.
-            // Never wait on the refresh engine while this request holds a
-            // database transaction: transactional callers (fee posting,
-            // payment processing, payroll) stay fail-closed rather than
-            // using stale financial data or holding locks across an
-            // inter-service call.
-            if (!$fresh
-                && $policy['storage_mode'] === 'materialized_table'
-                && isset($pdo)
-                && !$pdo->inTransaction()
-                && !isset(self::$repairAttempted[$projection])) {
-                self::$repairAttempted[$projection] = true;
-                $refreshStarted = microtime(true);
-                try {
-                    $bridge = new \App\API\Services\ReadProjectionBridge();
-                    $refresh = $bridge->refreshForRead($projection);
-
-                    $tableCheck = $pdo->prepare(
-                        'SELECT COUNT(*) FROM information_schema.TABLES '
-                        . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND TABLE_TYPE = ?'
-                    );
-                    $tableCheck->execute([$replicaSchema, $view, 'BASE TABLE']);
-                    $exists = (int) $tableCheck->fetchColumn() > 0;
-                    if ($exists) {
-                        $metaTable = '`' . str_replace('`', '', $replicaSchema) . '`.`reads_meta`';
-                        $meta = $pdo->prepare(
-                            "SELECT status, refreshed_at, TIMESTAMPDIFF(SECOND, refreshed_at, NOW()) AS age_seconds "
-                            . "FROM {$metaTable} WHERE projection = ? LIMIT 1"
-                        );
-                        $meta->execute([$projection]);
-                        $row = $meta->fetch(PDO::FETCH_ASSOC) ?: [];
-                        $age = isset($row['age_seconds']) ? (int) $row['age_seconds'] : -1;
-                        $fresh = ($row['status'] ?? null) === 'live'
-                            && !empty($row['refreshed_at'])
-                            && $age >= 0
-                            && $age <= (int) $policy['max_age_seconds'];
-                    }
-                    \App\API\Includes\FileLogger::write('reads', [
-                        'event' => $fresh ? 'projection_auto_refreshed_for_read' : 'projection_auto_refresh_not_fresh',
-                        'projection' => $projection,
-                        'engine' => $refresh['engine'] ?? 'python',
-                        'duration_ms' => (int) round((microtime(true) - $refreshStarted) * 1000),
-                        'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
-                    ], $fresh ? 'info' : 'warning');
-                } catch (\Throwable $e) {
-                    \App\API\Includes\FileLogger::write('reads', [
-                        'event' => 'projection_auto_refresh_failed',
-                        'projection' => $projection,
-                        'error_class' => get_class($e),
-                        'duration_ms' => (int) round((microtime(true) - $refreshStarted) * 1000),
-                        'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
-                    ], 'error');
-                }
-            }
-            if (!$fresh) {
-                self::$refState[$projection] = $exists ? 'stale' : 'unavailable';
-                if ($policy['storage_mode'] === 'materialized_table') {
-                    // Check if the underlying table exists and fall back to it
-                    $fallbackView = $projection; // Use the original table name as fallback
-                    $fallbackExists = false;
-                    try {
-                        $pdo = \App\Database\Database::getInstance()->getConnection();
-                        $tableCheck = $pdo->prepare(
-                            'SELECT COUNT(*) FROM information_schema.TABLES '
-                            . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? '
-                            . 'AND TABLE_TYPE = ?'
-                        );
-                        $tableCheck->execute([$replicaSchema, $fallbackView, 'BASE TABLE']);
-                        $fallbackExists = (int) $tableCheck->fetchColumn() > 0;
-                    } catch (\Throwable $e) {
-                        $fallbackExists = false;
-                    }
-                    // The fallback is resilience for a snapshot that has gone
-                    // stale, not a way to serve a projection that has never
-                    // been built. `refreshed_at IS NULL` makes the age NULL,
-                    // and NULL > max_age_seconds is falsy, so without this
-                    // guard a brand-new (or freshly wiped) reads schema happily
-                    // serves an empty legacy table to every caller.
-                    if ($fallbackExists) {
-                        $fallbackMeta = $pdo->prepare(
-                            "SELECT refreshed_at FROM `{$replicaSchema}`.`reads_meta` WHERE projection = ? LIMIT 1"
-                        );
-                        $fallbackMeta->execute([$projection]);
-                        $everPublished = !empty($fallbackMeta->fetchColumn());
-                        if (!$everPublished && $fallbackExists) {
-                            // Check if the fallback table has any rows.
-                            // A fresh/deployed schema may have the table but no
-                            // meta row yet, so serving data is better than rejecting.
-                            $rowCount = $pdo->query(
-                                'SELECT COUNT(*) FROM `' . $replicaSchema . '`.`' . $fallbackView . '`'
-                            )->fetchColumn();
-                            if ((int) $rowCount === 0) {
-                                $fallbackExists = false;
-                            }
-                        }
-                    }
-                    if ($fallbackExists) {
-                        \App\API\Includes\FileLogger::write('reads', [
-                            'event' => 'projection_read_fallback_to_table',
-                            'projection' => $projection,
-                            'fallback' => $fallbackView,
-                            'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
-                        ], 'warning');
-                        self::$refCache[$projection] = '`' . str_replace('`', '', $replicaSchema) . '`.`' . $fallbackView . '`';
-                        self::$refState[$projection] = 'materialized_fallback';
-                        return self::$refCache[$projection];
-                    }
-                    \App\API\Includes\FileLogger::write('reads', [
-                        'event' => 'projection_read_rejected',
-                        'projection' => $projection,
-                        'reason' => self::$refState[$projection],
-                        'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
-                    ], 'error');
-                    throw new \RuntimeException("Materialized read '{$projection}' is unavailable or stale.");
-                }
-            }
-            self::$refCache[$projection] = '`' . str_replace('`', '', $replicaSchema) . '`.`' . $view . '`';
-            self::$refState[$projection] = $fresh
-                ? 'materialized_fresh'
-                : 'not_materialized';
+        if (isset(self::$refCache[$projection])) {
+            return self::$refCache[$projection];
         }
+
+        $replicaSchema = ConnectionManager::schemaFor(ConnectionManager::NS_READS);
+        $masterSchema = ConnectionManager::schemaFor(ConnectionManager::NS_MASTER);
+        $view = self::table($projection);
+        $source = self::sourceFor($projection);
+
+        $exists = false;
+        $published = false;
+        try {
+            $pdo = \App\Database\Database::getInstance()->getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.TABLES '
+                . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND TABLE_TYPE = ?'
+            );
+            $stmt->execute([$replicaSchema, $view, 'BASE TABLE']);
+            $exists = (int) $stmt->fetchColumn() > 0;
+            if ($exists) {
+                $metaTable = '`' . str_replace('`', '', $replicaSchema) . '`.`reads_meta`';
+                $meta = $pdo->prepare("SELECT status FROM {$metaTable} WHERE projection = ? LIMIT 1");
+                $meta->execute([$projection]);
+                $row = $meta->fetch(PDO::FETCH_ASSOC) ?: [];
+                $published = ($row['status'] ?? '') === 'live';
+            }
+        } catch (\Throwable $e) {
+            $exists = false;
+            $published = false;
+        }
+
+        if ($exists && $published) {
+            self::$refCache[$projection] = "`{$replicaSchema}`.`{$view}`";
+            self::$refState[$projection] = 'materialized_fresh';
+        } else {
+            self::$refCache[$projection] = "`{$masterSchema}`.`{$source}`";
+            self::$refState[$projection] = 'source_view_fallback';
+        }
+
         return self::$refCache[$projection];
     }
+
 
     /** @var array<string,string> Per-request memo of resolved replica references. */
     private static $refCache = [];
