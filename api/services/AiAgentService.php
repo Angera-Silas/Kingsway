@@ -411,6 +411,9 @@ class AiAgentService
             (string) ($base['question'] ?? ''),
             (string) ($base['route'] ?? ''),
             $window,
+            // Include permission hint hash to prevent conflicts when the same
+            // user requests the same operation with different permissions.
+            hash('sha256', json_encode($hint['permissions'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
         ]));
         return JobQueue::push(self::JOB_TYPE, $base, 0, 3, 60);
     }
