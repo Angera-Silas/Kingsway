@@ -986,10 +986,12 @@ class DashboardController extends BaseController
             }
             // No grant list in the queue payload: the worker re-resolves the
             // operator's permissions before briefing generation.
+            // Use deterministic request_id for idempotency: briefing jobs are
+            // per-user/per-route, not per-HTTP-request.
             $agent->enqueue($userId, [], [
                 'mode' => 'briefing',
                 'route' => $route,
-                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                'request_id' => 'briefing:' . $userId . ':' . $route . ':' . gmdate('Y-m-d\THi'),
                 'broadcast' => true,
             ]);
             return $this->success([
