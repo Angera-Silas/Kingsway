@@ -1,6 +1,6 @@
 <?php
 /** Dedicated academic/class attendance register for teaching staff. */
-if (!isset($appBase)) { $appBase = ''; }
+$appBase = app_base_path();
 ?>
 <div class="container-fluid py-4" id="classMarkAttendancePage">
   <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">

@@ -1,7 +1,6 @@
 <?php
 /* Food Low Stock — food items at or below reorder with attention flags. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">

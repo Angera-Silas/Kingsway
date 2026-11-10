@@ -1,7 +1,6 @@
 <?php
 /* Inventory Reports — stock levels, requisition status, adjustment logs. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">

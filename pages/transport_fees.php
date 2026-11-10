@@ -1,7 +1,6 @@
 <?php
 /* Transport Fees — transport fee collection overview for management. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

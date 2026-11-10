@@ -1,7 +1,6 @@
 <?php
 /* Discipline Reports — disciplinary analytics and case trends. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">

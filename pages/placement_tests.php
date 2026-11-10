@@ -6,9 +6,7 @@
  * Used by Deputy Academic to create tests, assign applicants, record scores,
  * and make placement recommendations based on test results.
  */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.')
-    $appBase = '';
+
 ?>
 <style>
     .placement-tests-page {

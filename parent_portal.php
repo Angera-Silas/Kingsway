@@ -7,7 +7,7 @@ declare(strict_types=1);
 $familyStaffMode = $familyStaffMode ?? false;
 $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
 $appBase = $appBaseOverride ?? rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
-if ($appBase === '.') $appBase = '';
+
 
 // Parent/guardian portal front controller. Sections are reached as
 // parent_portal.php?route=<key>; direct *.php access is denied by .htaccess.

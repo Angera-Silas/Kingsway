@@ -5,9 +5,7 @@
  * Dedicated interface for class placement management with capacity tracking,
  * stream assignment, and placement analytics.
  */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.')
-    $appBase = '';
+
 ?>
 <style>
     .class-placement-page {

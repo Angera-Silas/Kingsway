@@ -1,7 +1,6 @@
 <?php
 /* Manage School Fee Structure — approved grade/student-type/term matrix. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

@@ -45,7 +45,24 @@ class Config
         // Step 3: Load environment-specific config file
         self::loadEnvironmentConfig();
 
+        // Step 4: Define global $appBase from BASE_URL
+        self::defineAppBase();
+
         self::$loaded = true;
+    }
+
+    /**
+     * Define global $appBase from BASE_URL.
+     * This ensures all PHP templates have consistent access to the app base path.
+     */
+    private static function defineAppBase(): void
+    {
+        $baseUrl = self::$config['BASE_URL'] ?? $_ENV['BASE_URL'] ?? '';
+        if ($baseUrl) {
+            $path = parse_url($baseUrl, PHP_URL_PATH);
+            $appBase = $path ? rtrim($path, '/') : '';
+            $GLOBALS['appBase'] = $appBase;
+        }
     }
 
     private static function configureRuntimeLogging(): void

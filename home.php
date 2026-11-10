@@ -4,14 +4,9 @@
 require_once __DIR__ . '/vendor/autoload.php';
 \App\Config\Config::init();
 
-$appBase = rtrim(
-    str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')),
-    '/'
-);
-
-if ($appBase === '.') {
-    $appBase = '';
-}
+// URL path prefix comes from the configured BASE_URL (config/.env), never from
+// the request path, so it is identical on every route and every surface.
+$appBase = app_base_path();
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
 // Browser-facing realtime origin: environment-agnostic resolver — public URL

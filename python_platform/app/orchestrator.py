@@ -22,7 +22,12 @@ from .chat_sessions import ChatSessionStore
 from .conversation import ConversationStore
 from .journal import Journal, hash_text
 from .providers import Provider, ProviderError
-from .tools import ANALYTICS_CHART_TYPES, ToolBridge, SYSTEM_ADMIN_PERMISSION
+from .tools import (
+    ANALYTICS_CHART_TYPES,
+    DOCUMENT_TOOL,
+    ToolBridge,
+    SYSTEM_ADMIN_PERMISSION,
+)
 
 MAX_TOOL_STEPS = 2
 MAX_TOOL_EXECUTIONS = 6
@@ -80,6 +85,11 @@ TOOL_RESULT_FIELDS = (
     "explanation",
     "intent",
     "preview_limited",
+    # What the document producer may report about a file it wrote: its format,
+    # its name and its size. The bytes themselves are deliberately absent.
+    "format",
+    "download_name",
+    "size_bytes",
     # Governed report rows. They are dicts, which the generic list filter
     # would drop, so they are flattened to "column=value" lines below. The
     # same rows are what analytics.chart draws from.
@@ -209,6 +219,46 @@ def _analytics_artifact(tool_id: str, result: Any) -> dict[str, Any] | None:
     }
 
 
+# What each produced format is called in the render window, so the browser
+# knows which element to draw (a PDF iframe is not a video element).
+_ARTIFACT_KINDS = {
+    "pdf": "document",
+    "docx": "document",
+    "video": "video",
+    "audio": "audio",
+}
+
+
+def _document_artifact(tool_id: str, result: Any) -> dict[str, Any] | None:
+    """Extract a produced PDF, DOCX, video or audio from documents.produce.
+
+    The file itself is a base64 data URI, which is display-only: it is never
+    added to TOOL_RESULT_FIELDS, so the model learns that a document exists and
+    how large it is, but never receives the bytes.
+    """
+    if tool_id != DOCUMENT_TOOL or not isinstance(result, dict):
+        return None
+    if result.get("status") != "answered":
+        return None
+    data_uri = result.get("data_uri")
+    if not isinstance(data_uri, str) or not data_uri.startswith("data:"):
+        return None
+    if len(data_uri) > MAX_ARTIFACT_BYTES:
+        return None
+    fmt = str(result.get("format") or "pdf")
+    mime = str(result.get("mime_type") or "application/octet-stream")
+    title = str(result.get("title") or "Document")[:120]
+    return {
+        "kind": _ARTIFACT_KINDS.get(fmt, "file"),
+        "mime_type": mime,
+        "title": title,
+        "url": data_uri,
+        "summary": str(result.get("summary") or "")[:400],
+        "download_name": str(result.get("download_name") or "download"),
+        "size_bytes": int(result.get("size_bytes") or 0),
+    }
+
+
 def _artifact_filename(title: str, extension: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60] or "chart"
     return f"{slug}.{extension}"
@@ -226,6 +276,7 @@ _TOOL_LABELS = {
     "analytics.summary": "data summary",
     "analytics.forecast": "trend projection",
     "drafts.create": "draft prepared for review",
+    DOCUMENT_TOOL: "document prepared for download",
     "reports.insight_brief": "intelligence briefing",
     "assistant.catalog": "workflow catalogue",
     "web.search": "public web search",
@@ -771,6 +822,8 @@ class Orchestrator:
         definition = commands.COMMANDS.get(invocation.name)
         if definition is not None and definition.follow_up:
             context["forced_follow_up"] = definition.follow_up
+            if definition.follow_up_input:
+                context["forced_follow_up_input"] = dict(definition.follow_up_input)
         return agent, routing, context
 
     def _run_forced_tool(
@@ -847,7 +900,20 @@ class Orchestrator:
         # so nothing has to be copied through the prompt here. The only thing
         # worth carrying across is the chart type the governed report already
         # chose, so the figure matches what the reports screen would draw.
-        payload: dict[str, Any] = {}
+        # Input the command itself declared for its follow-up: "/pdf" tells the
+        # producer which format to render, not the report.
+        payload: dict[str, Any] = dict(context.get("forced_follow_up_input") or {})
+        if follow_up == DOCUMENT_TOOL and isinstance(source_result, dict):
+            # The document is named after the report it renders, so it does not
+            # arrive called "School report".
+            answer = source_result.get("answer")
+            if isinstance(answer, dict):
+                report_title = str(answer.get("report_title") or "")
+                if report_title:
+                    payload.setdefault("title", report_title)
+                summary = answer.get("summary")
+                if isinstance(summary, str) and summary.strip():
+                    payload.setdefault("summary", summary[:800])
         if isinstance(source_result, dict):
             spec = _bounded_chart_result(
                 str(context.get("forced_tool") or ""), source_result
@@ -868,10 +934,9 @@ class Orchestrator:
             roles=context.get("roles"),
             role_ids=context.get("role_ids"),
         )
-        if isinstance(result, dict) and result.get("status") == "unavailable":
-            # No authorized rows reached the bridge: the command's own tool
-            # result may still carry them, and that is a legitimate source.
-            return None
+        # A follow-up that could not run (no rows released yet, or a rendering
+        # dependency this deployment lacks) still has a message worth relaying:
+        # the staff member must be told why there is no file, not shown silence.
         return follow_up, result
 
     def _command_help_answer(self) -> dict[str, Any]:
@@ -1698,7 +1763,11 @@ class Orchestrator:
         artifacts = [
             artifact
             for tool_id, result in prefetched
-            if (artifact := _analytics_artifact(tool_id, result)) is not None
+            if (
+                artifact := _analytics_artifact(tool_id, result)
+                or _document_artifact(tool_id, result)
+            )
+            is not None
         ][:3]
 
         # A slash action command runs its governed tool before the model speaks,
@@ -1722,7 +1791,9 @@ class Orchestrator:
             chart = _bounded_chart_result(forced_tool, forced_result)
             if chart is not None and len(charts) < 3:
                 charts.append(chart)
-            artifact = _analytics_artifact(forced_tool, forced_result)
+            artifact = _analytics_artifact(forced_tool, forced_result) or _document_artifact(
+                forced_tool, forced_result
+            )
             if artifact is not None and len(artifacts) < 3:
                 artifacts.append(artifact)
         elif context.get("forced_tool"):
@@ -1751,13 +1822,14 @@ class Orchestrator:
             )
             if follow_up is not None:
                 follow_up_tool, follow_up_result = follow_up
-                tools_used.append(follow_up_tool)
+                if self._tool_succeeded(follow_up_result):
+                    tools_used.append(follow_up_tool)
                 tool_results.append(
                     self._compact_result(follow_up_tool, follow_up_result)
                 )
                 follow_up_artifact = _analytics_artifact(
                     follow_up_tool, follow_up_result
-                )
+                ) or _document_artifact(follow_up_tool, follow_up_result)
                 if follow_up_artifact is not None and len(artifacts) < 3:
                     artifacts.append(follow_up_artifact)
 
@@ -2053,7 +2125,7 @@ class Orchestrator:
                         chart = _bounded_chart_result(tool_id, result)
                         if chart is not None and len(charts) < 3:
                             charts.append(chart)
-                        artifact = _analytics_artifact(tool_id, result)
+                        artifact = _analytics_artifact(tool_id, result) or _document_artifact(tool_id, result)
                         if artifact is not None and len(artifacts) < 3:
                             artifacts.append(artifact)
                         tool_results.append(self._compact_result(tool_id, result))
@@ -2231,7 +2303,7 @@ class Orchestrator:
             "degraded": degraded,
             "tools_used": _public_tool_labels(tools_used),
             "charts": output_guard.scrub(charts),
-            "artifacts": output_guard.scrub(artifacts),
+            "artifacts": output_guard.scrub_artifact(artifacts),
             "provider_calls": 1,
             "routing": routing,
             "agent": {
@@ -3137,7 +3209,7 @@ class Orchestrator:
             chart = _bounded_chart_result(tool_id, result)
             if chart is not None:
                 charts.append(chart)
-            artifact = _analytics_artifact(tool_id, result)
+            artifact = _analytics_artifact(tool_id, result) or _document_artifact(tool_id, result)
             if artifact is not None:
                 artifacts.append(artifact)
             rows_bearing = _rows_bearing_result(result)
@@ -3178,7 +3250,9 @@ class Orchestrator:
             chart = _bounded_chart_result(forced_tool, forced_result)
             if chart is not None:
                 charts.append(chart)
-            artifact = _analytics_artifact(forced_tool, forced_result)
+            artifact = _analytics_artifact(forced_tool, forced_result) or _document_artifact(
+                forced_tool, forced_result
+            )
             if artifact is not None:
                 artifacts.append(artifact)
             rows_bearing = _rows_bearing_result(forced_result)
@@ -3212,13 +3286,14 @@ class Orchestrator:
             )
             if follow_up is not None:
                 follow_up_tool, follow_up_result = follow_up
-                tools_used.append(follow_up_tool)
+                if self._tool_succeeded(follow_up_result):
+                    tools_used.append(follow_up_tool)
                 tool_results.append(
                     self._compact_result(follow_up_tool, follow_up_result)
                 )
                 follow_up_artifact = _analytics_artifact(
                     follow_up_tool, follow_up_result
-                )
+                ) or _document_artifact(follow_up_tool, follow_up_result)
                 if follow_up_artifact is not None and len(artifacts) < 3:
                     artifacts.append(follow_up_artifact)
 
@@ -3495,7 +3570,9 @@ class Orchestrator:
                     chart = _bounded_chart_result(tool_id, tool_result)
                     if chart is not None:
                         charts.append(chart)
-                    artifact = _analytics_artifact(tool_id, tool_result)
+                    artifact = _analytics_artifact(tool_id, tool_result) or _document_artifact(
+                        tool_id, tool_result
+                    )
                     if artifact is not None:
                         artifacts.append(artifact)
                     rows_bearing = _rows_bearing_result(tool_result)
@@ -3550,7 +3627,7 @@ class Orchestrator:
             "answer": output_guard.scrub(answer),
             "tools_used": _public_tool_labels(tools_used),
             "charts": output_guard.scrub(charts[:3]),
-            "artifacts": output_guard.scrub(artifacts[:3]),
+            "artifacts": output_guard.scrub_artifact(artifacts[:3]),
             "scope_checks": scope_checks,
             "provider_calls": provider_calls,
         }

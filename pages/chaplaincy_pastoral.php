@@ -2,8 +2,8 @@
 /* Chaplaincy Pastoral — recurring spiritual groups, confidential learner
    spiritual profiles & milestones, and the pastoral care visit log.
    Sensitive data is served only to authorized pastoral roles (see controller). */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
+
 ?>
 
 <div class="container-fluid px-4 py-4">

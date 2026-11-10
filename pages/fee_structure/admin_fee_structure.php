@@ -1,11 +1,6 @@
 <?php
 // When loaded as AJAX sub-template, $appBase is not inherited from app_layout.php.
 // Compute it locally: go up 3 levels from pages/fee_structure/this_file.php → /Kingsway
-if (!isset($appBase)) {
-    $p = $_SERVER['SCRIPT_NAME'] ?? '';
-    $appBase = rtrim(dirname(dirname(dirname($p))), '/');
-    if ($appBase === '.' || $appBase === '/') $appBase = '';
-}
 ?>
 <div class="admin-layout fee-director-page" data-user-role="director_owner">
 <style>

@@ -1,7 +1,6 @@
 <?php
 /* Uniform Sales Records — read-only list of uniform item sales. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">
