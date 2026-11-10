@@ -35,11 +35,8 @@ class NlqQueryService
     private const MAX_ROWS = 25;
     private const MAX_FILTER_ITEMS = 10;
 
-    /** @var AiCompletionProvider */
-    private $provider;
-
-    /** @var AiPromptTemplateService */
-    private $templates;
+    /** @var AgentEngineClient */
+    private $bridge;
 
     /** @var callable|null fn(array $user): array */
     private $catalogueProvider;
@@ -54,15 +51,16 @@ class NlqQueryService
     private bool $cacheResolved = false;
 
     public function __construct(
-        ?AiCompletionProvider $provider = null,
-        ?AiPromptTemplateService $templates = null,
+        ?AgentEngineClient $bridge = null,
         ?callable $catalogueProvider = null,
         ?callable $executor = null,
         ?SharedCache $cache = null
     ) {
         $this->cache = $cache;
-        $this->provider = $provider ?: new AiProviderGateway();
-        $this->templates = $templates ?: new AiPromptTemplateService();
+        // Intent classification belongs to the reasoning engine. PHP keeps the
+        // catalogue, the permissions and the execution; the engine only picks
+        // a catalogue code, and PHP re-validates it before anything runs.
+        $this->bridge = $bridge ?: new PythonAiBridge();
         $this->catalogueProvider = $catalogueProvider;
         $this->executor = $executor;
     }
@@ -83,7 +81,7 @@ class NlqQueryService
         }
 
         // The user-supplied portion passes through the audience policy first.
-        $clean = AiPromptPolicy::minimize(self::WORKFLOW, [
+        $clean = PythonAiBridge::minimize(self::WORKFLOW, [
             'question' => $question,
             'audience' => $audience,
         ]);
@@ -124,7 +122,7 @@ class NlqQueryService
                 // Short-lived: the catalogue can change under a deploy.
                 $cache->set($this->cacheKey($user, $fingerprint), $intent, 900);
             }
-        } catch (AiProviderException $e) {
+        } catch (\RuntimeException $e) {
             $this->journal($context, $question, null, 'unavailable', 0);
             return [
                 'status' => 'unavailable',
@@ -192,7 +190,14 @@ class NlqQueryService
             return [
                 'status' => 'cannot_answer',
                 'reason' => 'execution_rejected',
-                'message' => 'That report could not be generated within your authorized scope.',
+                // A broken report is not an authorization problem. Saying "within
+                // your authorized scope" sent a fully-authorized school
+                // administrator off to ask for permissions they already had, so
+                // the message now separates the two: only a genuine permission
+                // denial mentions scope.
+                'message' => str_contains(strtolower($e->getMessage()), 'authorized') || str_contains(strtolower($e->getMessage()), 'permission')
+                    ? 'That report could not be generated within your authorized scope.'
+                    : 'That report could not be produced just now. It may need a projection refresh, or a filter to be set.',
             ];
         }
 
@@ -233,7 +238,7 @@ class NlqQueryService
         }
 
         // Same authorization as ask()
-        $clean = AiPromptPolicy::minimize(self::WORKFLOW, [
+        $clean = PythonAiBridge::minimize(self::WORKFLOW, [
             'question' => $question,
             'audience' => 'staff',
         ]);
@@ -266,7 +271,7 @@ class NlqQueryService
             if (!$hit && $cache !== null) {
                 $cache->set($this->cacheKey($user, $fingerprint), $intent, 900);
             }
-        } catch (AiProviderException $e) {
+        } catch (\RuntimeException $e) {
             return [
                 'status' => 'unavailable',
                 'reason' => 'provider_unavailable',
@@ -366,7 +371,7 @@ class NlqQueryService
         }
 
         // Same authorization flow
-        $clean = AiPromptPolicy::minimize(self::WORKFLOW, [
+        $clean = PythonAiBridge::minimize(self::WORKFLOW, [
             'question' => $question,
             'audience' => 'staff',
         ]);
@@ -399,7 +404,7 @@ class NlqQueryService
             if (!$hit && $cache !== null) {
                 $cache->set($this->cacheKey($user, $fingerprint), $intent, 900);
             }
-        } catch (AiProviderException $e) {
+        } catch (\RuntimeException $e) {
             return [
                 'status' => 'unavailable',
                 'reason' => 'provider_unavailable',
@@ -697,38 +702,44 @@ class NlqQueryService
             // constrained intent parser resolve it against the allowed report.
         }
 
-        $prompt = $this->templates->resolve(self::WORKFLOW);
-        $payload = json_encode([
-            'question' => $question,
-            'audience' => $audience,
-            'reports' => $catalogue,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($payload === false) {
-            throw new DomainException('The question could not be prepared.', 500);
-        }
-        if (strlen($payload) > 28000) {
-            throw new DomainException('The report catalogue is too large for this question.', 422);
-        }
-
-        // Intent parsing is a classification task, not an essay: a bounded
-        // ceiling keeps it near ~2s instead of the ~32s an unbounded
-        // generation costs, and a short timeout degrades to `unavailable`
-        // rather than stalling the assistant.
-        $intent = $this->provider->complete([
-            ['role' => 'system', 'content' => (string) $prompt['content']],
-            ['role' => 'user', 'content' => $payload],
-        ], [
-            'task' => 'intent',
-            'max_tokens' => 300,
-            'timeout' => 10,
-            '_provider_retries' => 1,
-            '_provider_retry_delay_ms' => 120,
-            'allow_thinking' => false,
-        ]);
+        $intent = $this->classifyIntent($question, $audience, $catalogue);
         if (!is_array($intent)) {
-            throw new AiProviderException('AI provider returned an unusable intent.');
+            throw new \RuntimeException('AI provider returned an unusable intent.');
         }
         $intent['cannot_answer'] = !empty($intent['cannot_answer']);
+        return $intent;
+    }
+
+    /**
+     * Classify the question into a report intent using the AI engine.
+     *
+     * The engine receives only the catalogue PHP already authorized for this
+     * operator and returns one catalogue code plus a small filter map. It
+     * never sees school data and never runs a governed tool, so this hop
+     * cannot cycle back into the data layer.
+     *
+     * @param array<int,array<string,mixed>> $catalogue
+     * @return array<string,mixed>|null
+     */
+    private function classifyIntent(string $question, string $audience, array $catalogue): ?array
+    {
+        try {
+            $intent = $this->bridge->call('/api/agents/intent', [
+                'question' => $question,
+                'audience' => $audience,
+                'reports' => $catalogue,
+            ], 'POST', [], 20);
+        } catch (\Throwable $e) {
+            FileLogger::write('ai_generation', [
+                'type' => 'nlq_intent_unavailable',
+                'error_class' => get_class($e),
+                'message' => $this->boundedText($e->getMessage(), 200),
+            ], 'error');
+            throw new \RuntimeException('AI provider returned an unusable intent.');
+        }
+        if (!is_array($intent)) {
+            return null;
+        }
         return $intent;
     }
 
@@ -1039,6 +1050,9 @@ class NlqQueryService
             'report_code' => (string) ($result['report']['code'] ?? ''),
             'report_title' => $this->boundedText((string) ($result['report']['title'] ?? ''), 200),
             'decision_purpose' => $this->boundedText((string) ($result['report']['decision_purpose'] ?? ''), 300),
+            // The grain states what one row IS (a class, a term, a cohort).
+            // The engine needs it to decide whether a row may leave PHP.
+            'grain' => $this->boundedText((string) ($result['report']['grain'] ?? ''), 60),
             'as_of' => (string) ($result['as_of'] ?? ''),
             'freshness_minutes' => (int) ($result['report']['data_currency']['freshness_minutes'] ?? 0),
             'filters' => is_array($result['filters'] ?? null) ? $result['filters'] : $filters,

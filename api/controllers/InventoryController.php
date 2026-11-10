@@ -6,8 +6,8 @@ use App\Database\Database;
 use App\API\Services\payments\UniformPaymentService;
 use App\API\Services\payments\UniformCatalogService;
 use App\API\Services\UploadService;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 use Exception;
 
@@ -84,7 +84,7 @@ class InventoryController extends BaseController
                 'category_exception_count' => (string) count(array_filter($categories, static fn(array $row): bool => in_array(strtoupper((string) ($row['stock_status'] ?? '')), ['OUT OF STOCK', 'REORDER', 'LOW STOCK'], true))),
                 'follow_up_intent' => 'Prepare replenishment review; staff must verify stock, budget, supplier, and procurement approvals.',
             ];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'inventory.replenishment_review', $this->aiInventoryContext(), $input,
                 ['subject_type' => 'inventory_replenishment_review', 'scope' => 'authorized_inventory_aggregate']
             );
@@ -100,7 +100,7 @@ class InventoryController extends BaseController
     {
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiInventory()) return $this->forbidden('Inventory review permission is required');
-        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'inventory'), 'scope' => $review ? 'review' : 'own'], 'Inventory AI reviews retrieved');
+        return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'inventory'), 'scope' => $review ? 'review' : 'own'], 'Inventory AI reviews retrieved');
     }
 
     public function postAiReplenishmentReviewApprove($id = null, $data = [], $segments = [])
@@ -109,7 +109,7 @@ class InventoryController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'inventory.replenishment_review');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'inventory.replenishment_review');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Inventory review approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -122,7 +122,7 @@ class InventoryController extends BaseController
     }
     private function canUseAiInventory(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('inventory.replenishment_review', $this->aiInventoryContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('inventory.replenishment_review', $this->aiInventoryContext()); return true; } catch (DomainException $e) { return false; }
     }
     private function canApproveAiInventory(): bool
     {

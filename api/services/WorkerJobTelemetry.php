@@ -72,7 +72,7 @@ final class WorkerJobTelemetry
 
         $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
         $requestId = trim((string) ($payload['request_id'] ?? ''));
-        $failureMessage = $failure === null ? '' : AiOutputGuard::scrubText($failure->getMessage());
+        $failureMessage = $failure === null ? '' : \RuntimeException::class;
         FileLogger::write('jobs', [
             'type' => 'ai_job_transition',
             'job_id' => (int) ($job['id'] ?? 0),

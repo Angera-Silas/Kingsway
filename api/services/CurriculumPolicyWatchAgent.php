@@ -24,7 +24,7 @@ use Throwable;
  *     provider.
  *
  *  2. interpret(PDO, payload) - worker stage. Re-authorizes the governed
- *     workflow with the recorded operator and creates a reviewable AiDraftService
+ *     workflow with the recorded operator and creates a reviewable DraftRepository
  *     draft so staff decide what (if anything) to do with the change. The
  *     provider call happens here, safely inside the background job.
  *
@@ -60,20 +60,20 @@ final class CurriculumPolicyWatchAgent
     /** @var string absolute path of the baseline state file */
     private $stateFile;
 
-    /** @var AiDraftService|null */
+    /** @var DraftRepository|null */
     private $drafts;
 
     /**
      * @param callable(string,array):int   $queuer pushes a background job; tests inject a recorder.
      * @param string|null                  $stateFile override the baseline state file path (tests).
-     * @param AiDraftService|null          $drafts override the draft service (tests).
+     * @param DraftRepository|null          $drafts override the draft service (tests).
      * @param callable|null                $broadcaster override the realtime dispatch (tests).
      * @param callable(PDO,int):list<string>|null $permissionResolver authoritative worker permission resolver (tests).
      */
     public function __construct(
         ?callable $queuer = null,
         ?string $stateFile = null,
-        ?AiDraftService $drafts = null,
+        ?DraftRepository $drafts = null,
         ?callable $broadcaster = null,
         ?callable $permissionResolver = null
     ) {
@@ -252,7 +252,7 @@ final class CurriculumPolicyWatchAgent
         }
         $permissions = $this->permissionResolver !== null
             ? (array) call_user_func($this->permissionResolver, $pdo, $userId)
-            : (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
+            : (new AgentAssistant())->resolveEffectivePermissions($pdo, $userId);
         if ($permissions === []) {
             throw new DomainException('Current operator permissions could not be resolved.', 403);
         }
@@ -265,7 +265,7 @@ final class CurriculumPolicyWatchAgent
         $requestId = $context['request_id'];
 
         if ($this->drafts === null) {
-            $this->drafts = new AiDraftService();
+            $this->drafts = new DraftRepository();
         }
         try {
             $draft = $this->drafts->create($pdo, self::WORKFLOW, $context, $input, [
@@ -336,7 +336,7 @@ final class CurriculumPolicyWatchAgent
     /**
      * Pick the staff operator for the interpretation draft. Only users who
      * hold the workflow permission (academic_view) - or the '*' superuser
-     * marker - are eligible, mirroring AiWorkflowService::authorize. The SQL
+     * marker - are eligible, mirroring WorkflowAuthorization::authorize. The SQL
      * projection derives a compact JSON list rather than exposing row details.
      *
      * @return array{0:int,1:array<int,string>}|null

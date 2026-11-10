@@ -3,8 +3,8 @@ namespace App\API\Controllers;
 
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Modules\communications\TemplatesAPI;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use App\API\Services\DataScopeService;
 use App\API\Services\EmailProfileService;
 use App\API\Services\EmailInboxService;
@@ -506,7 +506,7 @@ class CommunicationsController extends BaseController
     {
         $context = $this->aiCommunicationContext();
         try {
-            $this->contract(AiWorkflowService::class)->authorize('communications.parent_message_draft', $context);
+            $this->contract(WorkflowAuthorization::class)->authorize('communications.parent_message_draft', $context);
         } catch (DomainException $e) {
             return $this->forbidden('Communication AI assistance is not available for your account');
         }
@@ -535,7 +535,7 @@ class CommunicationsController extends BaseController
         }
 
         try {
-            $service = $this->contract(AiDraftService::class);
+            $service = $this->contract(DraftRepository::class);
             $queued = $service->queue(
                 'communications.parent_message_draft',
                 $context,
@@ -566,7 +566,7 @@ class CommunicationsController extends BaseController
         }
 
         try {
-            $service = $this->contract(AiDraftService::class);
+            $service = $this->contract(DraftRepository::class);
             return $this->success([
                 'drafts' => $service->listForReview(
                     $this->getDb()->getConnection(),
@@ -592,7 +592,7 @@ class CommunicationsController extends BaseController
         if ($draftId < 1) return $this->badRequest('draft_id is required');
 
         try {
-            $service = $this->contract(AiDraftService::class);
+            $service = $this->contract(DraftRepository::class);
             $approved = $service->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'communications.parent_message_draft');
             $metadata = (array) ($approved['metadata'] ?? []);
             if (!empty($metadata['materialized_communication_id'])) {
@@ -652,7 +652,7 @@ class CommunicationsController extends BaseController
     {
         $context = $this->aiCommunicationContext();
         try {
-            $this->contract(AiWorkflowService::class)->authorize(
+            $this->contract(WorkflowAuthorization::class)->authorize(
                 'communications.parent_message_draft',
                 $context
             );

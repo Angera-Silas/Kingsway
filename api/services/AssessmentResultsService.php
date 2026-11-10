@@ -23,11 +23,57 @@ final class AssessmentResultsService
     private ?bool $classReviewSchema = null;
     private CbcGradingService $grading;
 
-    public function __construct(PDO $db, int $userId)
-    {
+    /**
+     * Period guard, injected so results entry/test never has to construct the
+     * exam-period service (which constructs this one back). That made the two
+     * services mutually dependent; the caller that owns the publication flow
+     * now supplies the guard, and tests can supply a stub.
+     *
+     * @var callable(int, string, array):mixed|null
+     */
+    private $periodAccessChecker;
+
+    /** @var callable(int):mixed|null */
+    private $periodRefresh;
+
+    /** @var callable(int):mixed|null */
+    private $periodSubmit;
+
+    public function __construct(
+        PDO $db,
+        int $userId,
+        ?callable $periodAccessChecker = null,
+        ?callable $periodRefresh = null,
+        ?callable $periodSubmit = null
+    ) {
         $this->db = $db;
         $this->userId = $userId;
         $this->grading = new CbcGradingService($db);
+        $this->periodAccessChecker = $periodAccessChecker;
+        $this->periodRefresh = $periodRefresh;
+        $this->periodSubmit = $periodSubmit;
+    }
+
+    /**
+     * The exam-period guard, lazily built only when no checker was injected.
+     * Kept as a single accessor so every call site stops repeating the
+     * constructor call that closed the service cycle.
+     */
+    private function periodAccess(int $assessmentId): mixed
+    {
+        if ($this->periodAccessChecker !== null) {
+            return call_user_func($this->periodAccessChecker, $assessmentId, 'access', []);
+        }
+        return (new ExamPeriodService($this->db, $this->userId))->periodAccess($assessmentId);
+    }
+
+    private function refreshPeriodCompletion(int $assessmentId): void
+    {
+        if ($this->periodRefresh !== null) {
+            call_user_func($this->periodRefresh, $assessmentId);
+            return;
+        }
+        (new ExamPeriodService($this->db, $this->userId))->refreshCompletion($assessmentId);
     }
 
     public function examEntryContext(int $examScheduleId): array
@@ -254,7 +300,7 @@ final class AssessmentResultsService
                 $stmt=$this->db->prepare('UPDATE assessments SET status=?,submitted_by=?,submitted_at=? WHERE id=?');
                 $stmt->execute([$status,$submit ? $this->staffId() : null,$submit ? date('Y-m-d H:i:s') : null,$assessmentId]);
             }
-            if ($submit) (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
+            if ($submit) $this->markPeriodSubmitted($assessmentId);
 
             $this->db->commit();
             return [
@@ -937,7 +983,7 @@ final class AssessmentResultsService
                 'UPDATE assessments SET status=?,submitted_by=?,submitted_at=?,class_review_status=?,class_reviewed_by=NULL,class_reviewed_at=NULL,class_review_note=NULL WHERE id=?'
             )->execute(['submitted', $this->staffId(), $submittedAt, $reviewStatus, $assessmentId]);
 
-            (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
+            $this->markPeriodSubmitted($assessmentId);
             (new TermResultsService($this->db))->compute($streamId, (int) $assessment['academic_year_term_id'], (int) $assessment['learning_area_id']);
 
             $this->db->commit();
@@ -1085,8 +1131,7 @@ final class AssessmentResultsService
                 $assessmentId,
             ]);
 
-            $periodService = new ExamPeriodService($this->db, $this->userId);
-            if ($approve) $periodService->refreshCompletion($assessmentId);
+            if ($approve) $this->refreshPeriodCompletion($assessmentId);
             else $this->db->prepare("UPDATE exam_periods ep JOIN exam_period_classes epc ON epc.exam_period_id=ep.id JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=ept.exam_schedule_id SET ep.status='results_open' WHERE esa.assessment_id=? AND ep.status='moderation'")->execute([$assessmentId]);
 
             if ($nextStatus === 'approved') {
@@ -1269,10 +1314,20 @@ final class AssessmentResultsService
 
     private function assertPeriodAllowsEntry(int $assessmentId): void
     {
-        $status = (new ExamPeriodService($this->db, $this->userId))->periodAccess($assessmentId);
+        $status = $this->periodAccess($assessmentId);
         if ($status !== null && !in_array($status, ['results_open', 'moderation'], true)) {
             throw new RuntimeException('The Headteacher or School Administrator has not opened result entry for this exam period', 409);
         }
+    }
+
+    /** Mark a register submitted, via the injected guard when one was supplied. */
+    private function markPeriodSubmitted(int $assessmentId): void
+    {
+        if ($this->periodSubmit !== null) {
+            call_user_func($this->periodSubmit, $assessmentId);
+            return;
+        }
+        (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
     }
 
     private function staffId(): ?int

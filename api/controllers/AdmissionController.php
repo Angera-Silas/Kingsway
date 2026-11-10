@@ -4,7 +4,7 @@ namespace App\API\Controllers;
 use App\API\Modules\admission\AdmissionAdminManager;
 use App\API\Modules\admission\AdmissionPolicy;
 use App\API\Modules\payments\PaymentsAPI;
-use App\API\Services\AiDraftService;
+use App\API\Services\DraftRepository;
 use DomainException;
 use Exception;
 
@@ -677,7 +677,7 @@ class AdmissionController extends BaseController
         ];
 
         try {
-            $service = $this->contract(AiDraftService::class);
+            $service = $this->contract(DraftRepository::class);
             $queued = $service->queue(
                 'admissions.application_followup_draft',
                 $workflowContext,
@@ -736,7 +736,7 @@ class AdmissionController extends BaseController
         $context = $this->buildAdmissionContext(); $application = $this->admin->getApplicationScopeRecord($applicationId);
         if (!$application || !$this->admin->canViewApplicationRecord($application, $context)) return $this->notFound('Application not found');
         $workflowContext = ['user_id' => (int) ($context['user_id'] ?? 0), 'permissions' => array_values(array_unique((array) ($context['effective_permissions'] ?? $context['permission_codes'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
-        try { return $this->accepted($this->contract(AiDraftService::class)->queue($workflow, $workflowContext, $builder($application, $data, $context, $applicationId), ['subject_type' => $subjectType, 'subject_id' => $applicationId, 'scope' => 'authorized_admission_application']), 'Admissions AI review queued'); }
+        try { return $this->accepted($this->contract(DraftRepository::class)->queue($workflow, $workflowContext, $builder($application, $data, $context, $applicationId), ['subject_type' => $subjectType, 'subject_id' => $applicationId, 'scope' => 'authorized_admission_application']), 'Admissions AI review queued'); }
         catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (Exception $e) { return $this->serverError('Unable to queue admissions AI review'); }
     }
@@ -762,7 +762,7 @@ class AdmissionController extends BaseController
         }
 
         try {
-            $service = $this->contract(AiDraftService::class);
+            $service = $this->contract(DraftRepository::class);
             return $this->success([
                 'drafts' => $service->listForReview(
                     $this->getDb()->getConnection(),
@@ -827,7 +827,7 @@ class AdmissionController extends BaseController
     private function approveAdmissionsAiDraft(int $draftId, string $workflow): array
     {
         try {
-            $service = $this->contract(AiDraftService::class);
+            $service = $this->contract(DraftRepository::class);
             $pdo = $this->getDb()->getConnection();
             $reference = $service->getDraftReference($pdo, $draftId);
             $expectedSubjectType = [

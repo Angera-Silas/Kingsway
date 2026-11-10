@@ -12,7 +12,7 @@ final class ResearchAiAssistantService
 {
     public const WORKFLOW = 'research.external_knowledge';
 
-    public function __construct(private ?AiCompletionProvider $provider = null) {}
+    public function __construct(private ?AgentEngineClient $bridge = null) {}
 
     public function ask(string $question, array $sources): array
     {
@@ -30,11 +30,13 @@ final class ResearchAiAssistantService
             $safe[] = ['id' => mb_substr($id, 0, 100), 'title' => mb_substr(trim((string) ($source['title'] ?? '')), 0, 200), 'date' => mb_substr(trim((string) ($source['date'] ?? '')), 0, 30), 'url' => mb_substr($url, 0, 500), 'content' => mb_substr($content, 0, 4500)];
         }
         if ($safe === []) return ['status' => 'escalate', 'reason' => 'no_approved_source', 'message' => 'No approved research source is available.'];
-        $input = AiPromptPolicy::minimize(self::WORKFLOW, ['question' => $question, 'audience' => 'authorized_staff', 'sources' => json_encode($safe, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
-        $template = (new AiPromptTemplateService())->resolve(self::WORKFLOW);
-        $result = ($this->provider ?: new AiProviderGateway())->complete([
-            ['role' => 'system', 'content' => $template['content']],
-            ['role' => 'user', 'content' => json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+        $input = PythonAiBridge::minimize(self::WORKFLOW, ['question' => $question, 'audience' => 'authorized_staff', 'sources' => json_encode($safe, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+        // Template, provider call and output scrub are engine-owned; PHP
+        // authorizes the staff member and forwards the approved sources.
+        $result = $this->bridge->call('/api/research/ask', [
+            'question' => $question,
+            'sources' => $safe,
+            'audience' => 'authorized_staff',
         ]);
         if (!is_string($result['title'] ?? null) || !is_string($result['body'] ?? null)) throw new DomainException('The research assistant returned an invalid answer.', 502);
         $allowed = array_fill_keys(array_column($safe, 'id'), true);

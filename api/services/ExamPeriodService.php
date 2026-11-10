@@ -15,11 +15,26 @@ final class ExamPeriodService
     private int $userId;
     private ?AssessmentPolicyService $sbaPolicy = null;
 
-    public function __construct(PDO $db, int $userId, ?AssessmentPolicyService $sbaPolicy = null)
-    {
+    /**
+     * Results publisher, injected so publication never constructs the results
+     * service (which constructs this one back for its period guard). That
+     * mutual construction is the cycle; the publication flow is owned here, so
+     * the collaborator is supplied by the caller and is mockable in tests.
+     *
+     * @var AssessmentResultsService|null
+     */
+    private ?AssessmentResultsService $resultsPublisher = null;
+
+    public function __construct(
+        PDO $db,
+        int $userId,
+        ?AssessmentPolicyService $sbaPolicy = null,
+        ?AssessmentResultsService $resultsPublisher = null
+    ) {
         $this->db = $db;
         $this->userId = $userId;
         $this->sbaPolicy = $sbaPolicy;
+        $this->resultsPublisher = $resultsPublisher;
     }
 
     /**
@@ -918,7 +933,8 @@ final class ExamPeriodService
         try{
             $assessmentIds=array_map(static fn(array $a):int=>(int)$a['id'],$assessments);
             $marks=implode(',',array_fill(0,count($assessmentIds),'?'));
-            $resultsService=new AssessmentResultsService($this->db,$this->userId);
+            $resultsService = $this->resultsPublisher
+                ?? new AssessmentResultsService($this->db, $this->userId);
             foreach($assessmentIds as $assessmentId)$resultsService->publishAssessment($assessmentId);
             $staffId=$this->staffId();
             $this->db->prepare("UPDATE assessments SET status='approved',approved_by=?,moderated_by=?,moderated_at=NOW() WHERE id IN ({$marks}) AND status='submitted'")->execute(array_merge([$staffId,$staffId],$assessmentIds));

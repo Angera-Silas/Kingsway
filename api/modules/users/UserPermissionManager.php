@@ -57,6 +57,39 @@ class UserPermissionManager
         return $byUser;
     }
 
+    /**
+     * Active role names for one user.
+     *
+     * Lives here (not in a service) because it is the JOIN-bearing role read,
+     * and because background job runners need it without instantiating the
+     * agent assistant — that dependency is what made the AI layer circular.
+     *
+     * Read directly from the primary: role grants are deliberately never
+     * registered as read projections (a just-revoked role must take effect
+     * immediately, not after a projection refresh).
+     *
+     * @return list<string>
+     */
+    public function activeRoleNames(int $userId): array
+    {
+        if ($userId < 1) {
+            return [];
+        }
+        try {
+            $stmt = $this->db->prepare(
+                'SELECT r.name FROM roles r
+                 JOIN user_roles ur ON ur.role_id = r.id
+                 WHERE ur.user_id = ? AND r.is_active = 1
+                 ORDER BY r.name'
+            );
+            $stmt->execute([$userId]);
+            $names = array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+            return array_values(array_unique(array_filter($names, static fn (string $n): bool => trim($n) !== '')));
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
     // ============================================================================
     // SECTION 1: Permission Assignment & Revocation
     // ============================================================================

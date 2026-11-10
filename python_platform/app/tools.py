@@ -10,6 +10,12 @@ System-administrator tools (system.*) are executed locally and are guarded
 behind the ``system_admin`` permission. They read allowlisted repo and log
 files so an administrator can diagnose the platform without a model ever
 touching school data directly.
+
+Web tools (web.*) are also executed locally: a Kenyan CBC school needs current
+world information (KICD/KNEC/Ministry guidance, teaching resources) that the
+school database cannot hold. They are outbound, so they are bounded hard and
+journalled; they never carry school data because the only input is the
+operator's own question.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ import os
 import re
 import ssl
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections import deque
@@ -37,6 +44,15 @@ ALLOWED_TOOLS = (
     "assistant.workspace_scan",
     "charts.generate",
     "drafts.create",
+    # web.* tools are outbound public-internet reads executed by the engine.
+    "web.search",
+    "web.fetch",
+    "web.crawl",
+    # Analytics: real figures from governed rows. The rows are already
+    # authorized when they arrive here; the skill only draws them.
+    "analytics.summary",
+    "analytics.chart",
+    "analytics.forecast",
     # System-administrator tools — guarded by the system_admin permission.
     "system.code_read",
     "system.log_read",
@@ -44,6 +60,40 @@ ALLOWED_TOOLS = (
     "system.fix_suggest",
 )
 VALID_CADENCES = ("daily", "weekly", "term")
+
+# Tools that run inside Python instead of being relayed to the governed PHP
+# data service. Split by guard: system.* needs the system_admin permission,
+# web.* is open to every authenticated staff member but is outbound traffic
+# and therefore rate-limited.
+SYSTEM_TOOL_PREFIX = "system."
+WEB_TOOL_PREFIX = "web."
+WEB_TOOLS = ("web.search", "web.fetch", "web.crawl")
+ANALYTICS_TOOLS = ("analytics.summary", "analytics.chart", "analytics.forecast")
+# Governed tools whose result may contain the rows the engine analyses.
+ROW_RELEASING_TOOLS = ("reports.nlq", "reports.aggregate", "charts.generate")
+# How long an operator's released rows may be reused for a figure.
+ANALYTICS_ROW_TTL_SECONDS = 300
+ANALYTICS_CHART_TYPES = (
+    "bar",
+    "line",
+    "pie",
+    "doughnut",
+    "area",
+    "scatter",
+    "histogram",
+    "box",
+)
+ANALYTICS_MAX_ROWS = 40
+
+# Outbound web search bounds. A staff question must never fan out into a
+# scrape: one query, a bounded result count, a bounded character budget.
+WEB_MAX_QUERY_CHARS = 200
+WEB_MAX_RESULTS = 8
+WEB_FETCH_TIMEOUT = 8
+
+# An unreachable search engine must not be retried inside a single turn, or
+# one flaky DNS lookup would burn the whole provider-call budget.
+_WEB_FAILURE_COOLDOWN_SECONDS = 30
 
 # System tool permission: only an operator holding this permission may execute
 # system.* tools. Checked in execute() before any file is read.
@@ -94,6 +144,17 @@ class ToolBridge:
         self._transport = transport
         # Remembers which address answered, mirroring InterServiceClient in PHP.
         self._link: tuple[str, str] | None = None
+        # monotonic deadline until which a failed web search is not retried.
+        self._web_unavailable_until: float = 0.0
+        # The most recent governed rows PHP released for an operator.
+        #
+        # The engine never queries the database. It can only analyse rows PHP
+        # already authorised for that operator, and this cache holds exactly
+        # those rows, keyed by operator id, so a figure can be drawn from the
+        # data the assistant is already looking at without the model having to
+        # copy rows back and forth through the prompt.
+        self._recent_rows: dict[int, list[dict[str, Any]]] = {}
+        self._recent_rows_at: dict[int, float] = {}
 
     def _candidates(self) -> list[tuple[str, str]]:
         """(base_url, host_header) pairs, internal loopback first."""
@@ -187,6 +248,12 @@ class ToolBridge:
             return self._execute_system_tool(
                 user_id, permissions, str(tool), tool_input, request_id
             )
+        # Web tools also run locally, but they reach the public internet, so
+        # they are bounded separately and never carry school data or PHP.
+        if str(tool or "").startswith("web."):
+            return self._execute_web_tool(user_id, str(tool), tool_input or {})
+        if str(tool or "") in ANALYTICS_TOOLS:
+            return self._execute_analytics_tool(str(tool), tool_input or {}, user_id)
         if tool not in ALLOWED_TOOLS:
             return {"status": "unknown_tool"}
         operator: dict[str, Any] = {"user_id": user_id, "permissions": permissions}
@@ -234,6 +301,7 @@ class ToolBridge:
             and success is not False
             and isinstance(data, dict)
         ):
+            self._remember_rows(user_id, tool, data)
             return data
         message = decoded.get("message") if isinstance(decoded, dict) else None
         return {
@@ -242,6 +310,235 @@ class ToolBridge:
                 message or "the governed data service rejected the tool request"
             )[:200],
         }
+
+    # ------------------------------------------------------------------ web tools
+    def _execute_web_tool(
+        self, user_id: int, tool: str, tool_input: dict
+    ) -> dict[str, Any]:
+        """Search the public web for current world information.
+
+        This is the capability the school asked for: a Kenyan CBC school needs
+        the latest KICD/KNEC/Ministry guidance, teaching resources and news,
+        none of which can live in the school database. Search results are
+        untrusted public content, so they are bounded hard, journalled, and
+        returned as pre-flattened strings that the answer guard can scrub.
+
+        No school data ever leaves this process: the query is the only input,
+        and it is the operator's own question text, already bounded by
+        security.bound_question on the orchestrator side.
+        """
+        if tool not in WEB_TOOLS:
+            return {"status": "unknown_tool"}
+
+        # Imported lazily so a platform without the skill module still boots.
+        from .skills.web_search import WebSearchSkill
+
+        skill = WebSearchSkill(self.journal)
+
+        if tool == "web.fetch":
+            bounded = self._bound_input(tool, tool_input)
+            url = bounded.get("url") or ""
+            if not url:
+                return {"status": "unavailable", "message": "a url is required"}
+            return skill.fetch(url, bounded.get("max_chars", 6000))
+
+        if tool == "web.crawl":
+            bounded = self._bound_input(tool, tool_input)
+            url = bounded.get("url") or ""
+            if not url:
+                return {"status": "unavailable", "message": "a url is required"}
+            return skill.crawl(
+                url,
+                depth=bounded.get("depth", 1),
+                max_pages=bounded.get("max_pages", 4),
+                max_chars=bounded.get("max_chars", 2000),
+                same_site=bounded.get("same_site", True),
+            )
+
+        now = time.monotonic()
+        if self._web_unavailable_until > now:
+            return {
+                "status": "unavailable",
+                "message": "web search is briefly unavailable after a failed attempt",
+            }
+
+        bounded = self._bound_input(tool, tool_input)
+        query = bounded.get("query") or ""
+        if not query:
+            return {"status": "unavailable", "message": "a search query is required"}
+
+        started = time.monotonic()
+        try:
+            results = skill.search(query, bounded.get("limit", WEB_MAX_RESULTS))
+        except Exception as error:  # noqa: BLE001 - search must never break a turn
+            self._web_unavailable_until = (
+                time.monotonic() + _WEB_FAILURE_COOLDOWN_SECONDS
+            )
+            if self.journal is not None:
+                self.journal.write(
+                    "ai_generation",
+                    {
+                        "type": "web_search_tool_failed",
+                        "operator_id": user_id,
+                        "error_class": type(error).__name__,
+                    },
+                )
+            return {
+                "status": "unavailable",
+                "message": "web search could not be completed",
+            }
+
+        # Flatten to strings: the orchestrator's _compact_result only keeps
+        # scalar list items, and a dict would silently vanish from the prompt.
+        # The URL is embedded so the model cites provenance instead of
+        # restating an unsourced claim.
+        findings: list[str] = []
+        sources: list[str] = []
+        for item in results[:WEB_MAX_RESULTS]:
+            title = str(item.get("title") or "").strip()
+            url = str(item.get("url") or "").strip()
+            snippet = str(item.get("snippet") or "").strip()
+            if not url:
+                continue
+            label = title or url
+            if snippet:
+                label = f"{label} — {snippet}"
+            findings.append(label[:400])
+            sources.append(url[:300])
+
+        if self.journal is not None:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "web_search_tool",
+                    "operator_id": user_id,
+                    "result_count": len(findings),
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+
+        if not findings:
+            return {
+                "status": "answered",
+                "query": query[:WEB_MAX_QUERY_CHARS],
+                "results": [],
+                "source_count": 0,
+                "summary": "no public results were found for this query",
+            }
+        return {
+            "status": "answered",
+            "query": query[:WEB_MAX_QUERY_CHARS],
+            "results": findings,
+            "sources": sources,
+            "source_count": len(findings),
+        }
+
+    # ------------------------------------------------------------------ analytics
+    def _remember_rows(self, user_id: int, tool: str, data: dict[str, Any]) -> None:
+        """Keep the governed rows PHP just released for this operator.
+
+        Only reports release rows, only for the operator who asked, and the
+        rows are replaced (never merged) so a figure can never mix two
+        different scopes.
+        """
+        if tool not in ROW_RELEASING_TOOLS:
+            return
+        rows = data.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return
+        bounded = [
+            {
+                str(key): value
+                for key, value in row.items()
+                if isinstance(value, (int, float, str, bool)) or value is None
+            }
+            for row in rows[:ANALYTICS_MAX_ROWS]
+            if isinstance(row, dict)
+        ]
+        if not bounded:
+            return
+        self._recent_rows[int(user_id)] = bounded
+        self._recent_rows_at[int(user_id)] = time.monotonic()
+
+    def _rows_for(self, user_id: int) -> list[dict[str, Any]]:
+        """The rows this operator's last governed report released."""
+        rows = self._recent_rows.get(int(user_id))
+        if not rows:
+            return []
+        # A stale row set is worse than none: it would draw a figure of old
+        # data. The cache is short-lived on purpose.
+        seen_at = self._recent_rows_at.get(int(user_id), 0.0)
+        if time.monotonic() - seen_at > ANALYTICS_ROW_TTL_SECONDS:
+            return []
+        return rows
+
+    def _execute_analytics_tool(
+        self, tool: str, tool_input: dict, user_id: int = 0
+    ) -> dict[str, Any]:
+        """Draw a real figure, statistics or a trend from authorized rows.
+
+        The rows must come from a governed tool the caller already ran: this
+        module never queries the database, so a chart can only ever contain
+        what PHP authorised for that operator. Imported lazily so a deployment
+        without matplotlib still boots and degrades to a numeric summary.
+        """
+        try:
+            from .skills import analytics
+        except ImportError:
+            return {
+                "status": "unavailable",
+                "message": "the analytics libraries are not installed on this server",
+            }
+
+        bounded = self._bound_input(tool, tool_input)
+        rows = bounded.get("rows")
+        if not isinstance(rows, list) or not rows:
+            # The assistant does not have to copy rows through the prompt: the
+            # rows PHP authorised for this operator are already held here.
+            rows = self._rows_for(user_id)
+        if not isinstance(rows, list):
+            rows = []
+        rows = [row for row in rows if isinstance(row, dict)][:ANALYTICS_MAX_ROWS]
+        if not rows:
+            return {
+                "status": "unavailable",
+                "message": (
+                    "run a governed report first so the figure is drawn from "
+                    "authorized rows"
+                ),
+            }
+
+        try:
+            if tool == "analytics.chart":
+                return analytics.chart(
+                    rows,
+                    chart_type=bounded.get("chart_type", "bar"),
+                    x=str(bounded.get("x") or ""),
+                    y=str(bounded.get("y") or ""),
+                    title=str(bounded.get("title") or ""),
+                    focus=str(bounded.get("focus") or ""),
+                )
+            if tool == "analytics.forecast":
+                return analytics.forecast(
+                    rows,
+                    periods=int(bounded.get("periods") or 3),
+                    column=str(bounded.get("column") or ""),
+                )
+            return analytics.summarize(rows, focus=str(bounded.get("focus") or ""))
+        except Exception as error:  # noqa: BLE001 - one tool must not fail the turn
+            if self.journal is not None:
+                self.journal.write(
+                    "ai_generation",
+                    {
+                        "type": "analytics_tool_failed",
+                        "tool": tool,
+                        "error_class": type(error).__name__,
+                    },
+                )
+            return {
+                "status": "unavailable",
+                "message": "that figure could not be drawn from the supplied rows",
+            }
 
     # ------------------------------------------------------------------ system tools
     def _execute_system_tool(
@@ -336,14 +633,20 @@ class ToolBridge:
             r'\1"[REDACTED]"',
             value,
         )
-        value = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
+        value = re.sub(
+            r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", value
+        )
         value = re.sub(
             r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b",
             "[REDACTED_TOKEN]",
             value,
         )
-        value = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[REDACTED_EMAIL]", value)
-        value = re.sub(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)", "[REDACTED_PHONE]", value)
+        value = re.sub(
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[REDACTED_EMAIL]", value
+        )
+        value = re.sub(
+            r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)", "[REDACTED_PHONE]", value
+        )
         return value
 
     def _system_code_read(self, path: str = "", max_chars: int = 0) -> dict[str, Any]:
@@ -392,7 +695,9 @@ class ToolBridge:
             1, min(int(tail_lines or _SYSTEM_MAX_LOG_LINES), _SYSTEM_MAX_LOG_LINES)
         )
         try:
-            with open(candidate_path, "r", encoding="utf-8", errors="replace") as handle:
+            with open(
+                candidate_path, "r", encoding="utf-8", errors="replace"
+            ) as handle:
                 lines = list(deque(handle, maxlen=tail))
         except OSError as error:
             return {"status": "error", "message": str(error)[:200]}
@@ -400,7 +705,9 @@ class ToolBridge:
         return {
             "status": "ok",
             "path": str(candidate_path.relative_to(log_dir)),
-            "lines": [self._system_redact(line.rstrip("\n"))[:4000] for line in selected],
+            "lines": [
+                self._system_redact(line.rstrip("\n"))[:4000] for line in selected
+            ],
             "line_count": len(selected),
         }
 
@@ -539,6 +846,76 @@ class ToolBridge:
             if template:
                 bounded["template"] = template
                 bounded["context"] = context
+        elif tool == "web.search":
+            query = str(tool_input.get("query") or "").strip()
+            if query:
+                bounded["query"] = query[:WEB_MAX_QUERY_CHARS]
+            try:
+                bounded["limit"] = max(
+                    1, min(int(tool_input.get("limit") or 0), WEB_MAX_RESULTS)
+                )
+            except (TypeError, ValueError):
+                bounded["limit"] = WEB_MAX_RESULTS
+        elif tool == "web.fetch":
+            url = str(tool_input.get("url") or "").strip()
+            if url:
+                bounded["url"] = url[:500]
+            try:
+                bounded["max_chars"] = max(
+                    200, min(int(tool_input.get("max_chars") or 0), 8000)
+                )
+            except (TypeError, ValueError):
+                bounded["max_chars"] = 6000
+        elif tool == "web.crawl":
+            url = str(tool_input.get("url") or "").strip()
+            if url:
+                bounded["url"] = url[:500]
+            try:
+                bounded["depth"] = max(0, min(int(tool_input.get("depth") or 0), 2))
+            except (TypeError, ValueError):
+                bounded["depth"] = 1
+            try:
+                bounded["max_pages"] = max(
+                    1, min(int(tool_input.get("max_pages") or 0), 6)
+                )
+            except (TypeError, ValueError):
+                bounded["max_pages"] = 4
+            try:
+                bounded["max_chars"] = max(
+                    400, min(int(tool_input.get("max_chars") or 0), 4000)
+                )
+            except (TypeError, ValueError):
+                bounded["max_chars"] = 2000
+            bounded["same_site"] = bool(tool_input.get("same_site", True))
+        elif tool.startswith("analytics."):
+            # Only scalar rows survive: a nested object is dropped rather than
+            # flattened, so a chart cannot become a disclosure channel.
+            bounded["rows"] = [
+                {
+                    k: v
+                    for k, v in row.items()
+                    if isinstance(v, (int, float, str, bool)) or v is None
+                }
+                for row in (tool_input.get("rows") or [])[:ANALYTICS_MAX_ROWS]
+                if isinstance(row, dict)
+            ]
+            if str(tool) == "analytics.chart":
+                bounded["chart_type"] = (
+                    str(tool_input.get("chart_type") or "bar")
+                    if str(tool_input.get("chart_type") or "bar")
+                    in ANALYTICS_CHART_TYPES
+                    else "bar"
+                )
+            for key in ("x", "y", "column", "title", "focus"):
+                value = str(tool_input.get(key) or "").strip()
+                if value:
+                    bounded[key] = value[:120]
+            try:
+                bounded["periods"] = max(
+                    1, min(int(tool_input.get("periods") or 0), 12)
+                )
+            except (TypeError, ValueError):
+                bounded["periods"] = 3
         elif tool == "system.code_read":
             bounded["path"] = str(tool_input.get("path") or "")[:200]
             try:

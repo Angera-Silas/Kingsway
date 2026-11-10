@@ -37,6 +37,30 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PHP_ENV = REPO_ROOT / "config" / ".env"
+# Python's own native environment (KINGSWAY_* names), used in local dev.
+# In production Passenger supplies the same names directly, so this file is a
+# development convenience and never the source of truth for deployed runs.
+PYTHON_ENV = Path(__file__).resolve().parent / ".env"
+
+
+def _load_python_env() -> None:
+    """Load python_platform/.env (native KINGSWAY_* names).
+
+    Runs BEFORE the PHP remap so an explicitly configured Python value wins:
+    the file wins over the PHP-derived default, which is what a developer who
+    edited python_platform/.env expects.
+    """
+    if not PYTHON_ENV.exists():  # pragma: no cover - env file present in dev only
+        return
+    for raw_line in PYTHON_ENV.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ[key] = value
 
 
 def _load_php_env() -> None:
@@ -98,6 +122,9 @@ def _load_php_env() -> None:
 
 
 if __name__ == "__main__":
+    # Python's own environment first, then the PHP edge's shared secrets. The
+    # PHP remap only fills gaps, so python_platform/.env stays authoritative.
+    _load_python_env()
     _load_php_env()
     os.environ.setdefault("KINGSWAY_AI_PRODUCTION", "false")
 

@@ -8,13 +8,10 @@ use PDO;
 use DomainException;
 
 /** Generates and persists reviewable drafts for approved domain adapters. */
-class AiDraftService
+class DraftRepository
 {
-    /** @var AiCompletionProvider */
-    private $provider;
-
-    /** @var AiPromptTemplateService */
-    private $templates;
+    /** @var AgentEngineClient */
+    private $bridge;
 
     /** @var callable(PDO,int):list<string>|null */
     private $permissionResolver;
@@ -38,8 +35,7 @@ class AiDraftService
     private $notificationService;
 
     public function __construct(
-        ?AiCompletionProvider $provider = null,
-        ?AiPromptTemplateService $templates = null,
+        ?AgentEngineClient $bridge = null,
         ?callable $permissionResolver = null,
         ?callable $admissionScopeChecker = null,
         ?callable $academicClassScopeChecker = null,
@@ -47,8 +43,7 @@ class AiDraftService
         ?callable $learnerSupportInputBuilder = null,
         ?callable $learnerSupportRoleResolver = null
     ) {
-        $this->provider = $provider ?: new AiProviderGateway();
-        $this->templates = $templates ?: new AiPromptTemplateService();
+        $this->bridge = $bridge ?: new PythonAiBridge();
         $this->permissionResolver = $permissionResolver;
         $this->admissionScopeChecker = $admissionScopeChecker;
         $this->academicClassScopeChecker = $academicClassScopeChecker;
@@ -107,7 +102,7 @@ class AiDraftService
         }
         $permissions = $this->permissionResolver !== null
             ? (array) call_user_func($this->permissionResolver, $pdo, $operatorId)
-            : (new AiAgentService())->resolveEffectivePermissions($pdo, $operatorId);
+            : (new OperatorScopeResolver($pdo))->permissions($operatorId);
         if ($permissions === []) {
             throw new DomainException('Current operator permissions could not be resolved.', 403);
         }
@@ -115,14 +110,14 @@ class AiDraftService
         // caller. Reauthorize from the authoritative grants at execution time.
         $context['permissions'] = $permissions;
         $context['effective_permissions'] = $permissions;
-        $workflow = (new AiWorkflowService())->authorize($workflowId, $context);
+        $workflow = (new WorkflowAuthorization())->authorize($workflowId, $context);
         $this->assertAdmissionApplicationScope($pdo, $workflowId, $context, $metadata);
         $this->assertAcademicSourceScope($pdo, $workflowId, $context, $metadata);
         $this->assertAttendanceSourceScope($pdo, $workflowId, $context, $metadata);
         if ($workflowId === 'learners.support_planning' && (int) ($metadata['queue_job_id'] ?? 0) > 0) {
             $context['roles'] = $this->learnerSupportRoleResolver !== null
                 ? (array) call_user_func($this->learnerSupportRoleResolver, $pdo, $operatorId)
-                : (new AiAgentService())->resolveEffectiveRoles($pdo, $operatorId);
+                : (new OperatorScopeResolver($pdo))->roles($operatorId);
             $builder = $this->learnerSupportInputBuilder !== null
                 ? new LearnerSupportAiScopeService($this->learnerSupportInputBuilder)
                 : new LearnerSupportAiScopeService();
@@ -135,7 +130,7 @@ class AiDraftService
                 (array) ($metadata['support_filters'] ?? [])
             );
         }
-        $clean = AiPromptPolicy::minimize($workflowId, $input);
+        $clean = PythonAiBridge::minimize($workflowId, $input);
         $queueJobId = (int) ($metadata['queue_job_id'] ?? 0);
         if ($queueJobId > 0) {
             // A worker may lose its lease after persisting the draft but before
@@ -160,12 +155,24 @@ class AiDraftService
                 ];
             }
         }
-        $prompt = $this->templates->resolve($workflowId);
-        $messages = [
-            ['role' => 'system', 'content' => $prompt['content']],
-            ['role' => 'user', 'content' => json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-        ];
-        $draft = $this->provider->complete($messages);
+        $prompt = ['role' => 'system', 'content' => ''];
+        // The prompt template and the provider call are engine-owned. PHP
+        // delegates the whole workflow to Python, which applies the versioned
+        // template, the field allowlist and the provider contract, then returns
+        // a validated draft body for PHP to persist as a school record.
+        $draft = $this->bridge->call('/api/workflows/draft', [
+            'workflow_id' => $workflowId,
+            'context' => [
+                'user_id' => (int) ($context['user_id'] ?? 0),
+                'permissions' => array_values(array_unique(array_map('strval', (array) (
+                    $context['effective_permissions'] ?? $context['permissions'] ?? []
+                )))),
+                'request_id' => (string) ($context['request_id'] ?? 'ai-draft'),
+                'audience' => (string) ($context['audience'] ?? 'staff'),
+            ],
+            'input' => $clean,
+            'metadata' => $metadata,
+        ]);
         $validated = $this->validateDraft($draft, $workflowId, $clean);
         $inputHash = hash('sha256', json_encode($clean));
         $stmt = $pdo->prepare(
@@ -217,7 +224,7 @@ class AiDraftService
 
         // Emit realtime notification for draft creation
         try {
-            $this->notificationService = new NotificationService($pdo);
+            
             $this->notificationService->push(
                 $operatorId,
                 'draft_created',
@@ -254,7 +261,7 @@ class AiDraftService
         if ($this->admissionScopeChecker !== null) {
             $allowed = (bool) call_user_func($this->admissionScopeChecker, $pdo, $applicationId, $scopeContext);
         } else {
-            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $operatorId);
+            $roles = (new OperatorScopeResolver($pdo))->roles($operatorId);
             $scopeContext['role_ids'] = array_values(array_map('intval', array_column($roles, 'id')));
             $scopeContext['role_names'] = array_values(array_map('strval', array_column($roles, 'name')));
             $scopeContext['effective_permissions'] = $scopeContext['permission_codes'];
@@ -294,7 +301,7 @@ class AiDraftService
                     (array) ($context['permissions'] ?? [])
                 );
             } else {
-                $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+                $roles = (new OperatorScopeResolver($pdo))->roles($userId);
                 $roleIds = array_values(array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles));
                 $allowed = (new TeacherCurriculumScopeService($pdo))
                     ->canAccessAcademicYearClass($userId, $roleIds, $subjectId);
@@ -310,7 +317,7 @@ class AiDraftService
                 || trim((string) ($metadata['grade_level'] ?? '')) === '') {
                 throw new DomainException('The scheme-planning scope is no longer valid.', 403);
             }
-            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+            $roles = (new OperatorScopeResolver($pdo))->roles($userId);
             $roleIds = array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles);
             if (!array_intersect([2, 3, 4, 5, 6], $roleIds)) {
                 $scope = (new TeacherCurriculumScopeService($pdo))->resolve($userId, $roleIds);
@@ -332,7 +339,7 @@ class AiDraftService
             if (!$row || (string) $row['status'] !== 'approved') {
                 throw new DomainException('The approved scheme is no longer available.', 403);
             }
-            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+            $roles = (new OperatorScopeResolver($pdo))->roles($userId);
             $roleIds = array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles);
             if (!array_intersect([2, 3, 4, 5, 6], $roleIds)) {
                 $staffId = StaffRecordsService::staffIdForUserId($pdo, $userId, true);
@@ -358,7 +365,7 @@ class AiDraftService
             if (!$row) {
                 throw new DomainException('The selected learning outcome is no longer available.', 403);
             }
-            $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+            $roles = (new OperatorScopeResolver($pdo))->roles($userId);
             $roleIds = array_map(static fn(array $role): int => (int) ($role['id'] ?? 0), $roles);
             if (!array_intersect([2, 3, 4, 5, 6], $roleIds)) {
                 $scope = (new TeacherCurriculumScopeService($pdo))->resolve($userId, $roleIds);
@@ -380,7 +387,7 @@ class AiDraftService
         if ($userId < 1 || $subjectType !== 'attendance_lateness_pattern' || !array_key_exists('attendance_restricted', $metadata)) {
             throw new DomainException('The attendance review scope is no longer valid.', 403);
         }
-        $roles = (new AiAgentService())->resolveEffectiveRoles($pdo, $userId);
+        $roles = (new OperatorScopeResolver($pdo))->roles($userId);
         $roleNames = array_values(array_map(static fn(array $role): string => (string) ($role['name'] ?? ''), $roles));
         $streamIds = array_values(array_map('intval', (array) ($metadata['attendance_stream_ids'] ?? [])));
         $checker = $this->attendanceScopeChecker;
@@ -460,8 +467,8 @@ class AiDraftService
 
     public function queue(string $workflowId, array $context, array $input, array $metadata = []): array
     {
-        $workflow = (new AiWorkflowService())->authorize($workflowId, $context);
-        $clean = AiPromptPolicy::minimize($workflowId, $input);
+        $workflow = (new WorkflowAuthorization())->authorize($workflowId, $context);
+        $clean = PythonAiBridge::minimize($workflowId, $input);
         $inputHash = hash('sha256', json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $operatorId = (int) ($context['user_id'] ?? 0);
         $idempotencyKey = $this->draftIdempotencyKey(
@@ -572,7 +579,7 @@ class AiDraftService
             // Emit realtime notification for draft approval
             $workflowId = $row['workflow_id'] ?? '';
             try {
-                $this->notificationService = new NotificationService($pdo);
+                
                 $this->notificationService->push(
                     (int) ($row['operator_id'] ?? 0),
                     'draft_approved',
@@ -613,7 +620,7 @@ class AiDraftService
             // Emit realtime notification for draft approval denial/failure
             $outcome = $e instanceof DomainException ? 'draft_approval_denied' : 'draft_approval_failed';
             try {
-                $this->notificationService = new NotificationService($pdo);
+                
                 $this->notificationService->push(
                 (int) ($row['operator_id'] ?? 0),
                 $outcome,

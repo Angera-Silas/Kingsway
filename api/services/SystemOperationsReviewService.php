@@ -241,18 +241,18 @@ class SystemOperationsReviewService
         // Error text is an untrusted model input. Apply the same credential,
         // contact, path and infrastructure scrubber used on model output
         // before normalizing it into an aggregate signature.
-        $scrubbed = AiOutputGuard::scrub($message);
-        $message = is_scalar($scrubbed) ? (string) $scrubbed : '';
         $normalized = strtolower(trim($message));
-        $normalized = preg_replace('#https?://#', '', $normalized) ?? $normalized;
-        $normalized = preg_replace('/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/', 'x', $normalized) ?? $normalized;
-        $normalized = preg_replace('/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/', 'x', $normalized) ?? $normalized;
-        $normalized = preg_replace('/\b[a-z0-9]{2,}(?:-[a-z0-9]{2,})+\b/', 'x', $normalized) ?? $normalized;
-        $normalized = preg_replace('/\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/', 'x', $normalized) ?? $normalized;
-        $normalized = preg_replace('/\b[a-z0-9]{9,}\b/', 'x', $normalized) ?? $normalized;
-        $normalized = preg_replace('/[0-9]+/', 'n', $normalized) ?? $normalized;
-        $normalized = preg_replace('/[^a-z0-9 .\/_-]+/', ' ', $normalized) ?? $normalized;
-        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+        $normalized = preg_replace('#https?://[^/\s]+/?#', 'redacted host', $normalized) ?: $normalized;
+        // Scrub IPs, UUIDs, paths, emails
+        $normalized = preg_replace('/\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9a-f]{3,31}\b/', 'redacted', $normalized) ?: $normalized;
+        $normalized = preg_replace('#/[a-z0-9_/.-]+/[\w.-]+#', 'redacted', $normalized) ?: $normalized;
+        $normalized = preg_replace('/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/', 'x', $normalized) ?: $normalized;
+        $normalized = preg_replace('/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/', 'x', $normalized) ?: $normalized;
+        $normalized = preg_replace('/\b[a-z0-9]{2,}(?:-[a-z0-9]{2,})+\b/', 'x', $normalized) ?: $normalized;
+        $normalized = preg_replace('/\b[a-z0-9]{9,}\b/', 'x', $normalized) ?: $normalized;
+        $normalized = preg_replace('/[0-9]+/', 'n', $normalized) ?: $normalized;
+        $normalized = preg_replace('/[^a-z0-9 .\/_-]+/', ' ', $normalized) ?: $normalized;
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?: $normalized;
         return mb_substr(trim($normalized), 0, self::MAX_SIGNATURE_LENGTH);
     }
 }

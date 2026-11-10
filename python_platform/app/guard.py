@@ -279,6 +279,14 @@ def wants_enrollment_count(question: str) -> bool:
     return bool(_STUDENT_STATUS_RE.search(question))
 
 
+def slash_catalogue() -> list[dict[str, str]]:
+    """The style commands, for the /help answer and the command menu."""
+    return [
+        {"command": token, "description": instruction}
+        for token, instruction in _SLASH_COMMANDS.items()
+    ]
+
+
 def extract_slash(question: str) -> tuple[str, str | None]:
     """Extract a slash command (/recap, /step by step, ...) if present.
 

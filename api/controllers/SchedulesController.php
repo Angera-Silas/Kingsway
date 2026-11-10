@@ -878,7 +878,7 @@ class SchedulesController extends BaseController
             // Authorize before opening a conversation or writing any user input.
             // The workflow remains unavailable until its server-owned timetable
             // candidate scope and end-to-end lifecycle gates are complete.
-            $this->contract('App\\API\\Services\\AiWorkflowService')->authorize(
+            $this->contract('App\\API\\Services\\WorkflowAuthorization')->authorize(
                 'academics.timetable_planning',
                 ['user_id' => $ownerId, 'effective_permissions' => $permissions]
             );
@@ -924,7 +924,7 @@ class SchedulesController extends BaseController
             // No candidate tuples are accepted from this request. The server
             // resolver will supply verified tuples when this workflow is enabled.
             [, $input] = $conversation->input($sessionId, $ownerId, $message, []);
-            $queued = $this->contract('App\\API\\Services\\AiDraftService')->queue(
+            $queued = $this->contract('App\\API\\Services\\DraftRepository')->queue(
                     'academics.timetable_planning',
                     $context,
                     $input,

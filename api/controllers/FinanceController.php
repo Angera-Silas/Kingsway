@@ -18,8 +18,8 @@ use App\API\Services\payments\PaymentRoutingService;
 use App\API\Services\payments\KcbFundsTransferService;
 use App\API\Services\payments\KcbTransferReconciliationService;
 use App\API\Services\FinancialReconciliationService;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 
 /**
@@ -595,7 +595,7 @@ class FinanceController extends BaseController
                 'provider' => implode(', ', array_slice($providers, 0, 10)) ?: 'mixed providers',
                 'reconciliation_rule' => 'Review reference, account routing, duplicate risk, and missing evidence before deterministic resolution.',
             ];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'finance.reconciliation_review',
                 $this->aiFinanceContext(),
                 $input,
@@ -626,7 +626,7 @@ class FinanceController extends BaseController
         if ($review && !$this->canApproveAiReconciliation()) return $this->forbidden('Senior finance reconciliation permission is required');
         try {
             return $this->success([
-                'drafts' => $this->contract(AiDraftService::class)->listForReview(
+                'drafts' => $this->contract(DraftRepository::class)->listForReview(
                     $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'finance'
                 ),
                 'scope' => $review ? 'review' : 'own',
@@ -644,7 +644,7 @@ class FinanceController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'finance.reconciliation_review');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'finance.reconciliation_review');
             return $this->success([
                 'draft_id' => $draftId,
                 'status' => 'approved',
@@ -672,7 +672,7 @@ class FinanceController extends BaseController
 
     private function canUseAiReconciliation(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('finance.reconciliation_review', $this->aiFinanceContext()); return true; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('finance.reconciliation_review', $this->aiFinanceContext()); return true; }
         catch (DomainException $e) { return false; }
     }
 
