@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
+use App\API\Includes\FileLogger;
 use App\API\Modules\students\StudentsAPI;
 use App\API\Modules\system\SystemAPI;
 use DomainException;
@@ -409,6 +410,77 @@ class DashboardController extends BaseController
         }
 
         return $this->success(['context' => $context], 'Assistant context authorized');
+    }
+
+    /**
+     * POST /api/dashboard/agent-suggest
+     *
+     * The page-aware nudge the assistant offers when a workspace sits idle.
+     * The engine answers deterministically from authored hints, so this costs
+     * no provider call and states no figure; each hint is filtered against the
+     * operator's permissions before it is offered. The browser shows at most
+     * one per page state.
+     */
+    public function postAgentSuggest($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) return $this->unauthorized('A valid session is required');
+
+        $context = $this->buildAssistantContext((array) $data, $userId);
+        $permissions = array_values(array_unique(array_map('strval', (array) (
+            $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
+        ))));
+        $context['permissions'] = $permissions;
+        $context['effective_permissions'] = $permissions;
+        $context['system_admin'] = in_array('system_admin', $permissions, true);
+        $context['assistant_domain'] = $context['system_admin'] ? 'system_admin' : 'staff';
+
+        try {
+            $this->contract(WorkflowAuthorization::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            // No engine, no nudge. An empty list is the correct answer: the
+            // browser simply never shows one.
+            return $this->success(['suggestions' => [], 'signature' => ''], 'No suggestions available');
+        }
+
+        try {
+            $result = $bridge->call(
+                '/api/agents/suggest',
+                [
+                    'context' => $context,
+                    'page_context' => [
+                        'page_entity' => $data['page_entity'] ?? null,
+                        'filters' => $data['filters'] ?? null,
+                    ],
+                ],
+                'POST',
+                [],
+                8
+            );
+        } catch (\RuntimeException $e) {
+            FileLogger::write('ai_generation', [
+                'event' => 'agent_suggest_failed',
+                'user_id' => $userId,
+                'error_class' => get_class($e),
+            ], 'error');
+            return $this->success(['suggestions' => [], 'signature' => ''], 'No suggestions available');
+        }
+
+        $payload = is_array($result['data'] ?? null) ? $result['data'] : $result;
+        $suggestions = is_array($payload['suggestions'] ?? null) ? $payload['suggestions'] : [];
+        return $this->success(
+            [
+                'suggestions' => array_slice(array_values(array_filter($suggestions, 'is_array')), 0, 3),
+                'signature' => (string) ($payload['signature'] ?? ''),
+            ],
+            'Suggestions prepared'
+        );
     }
 
     private function assistantDomainForCurrentUser(): string

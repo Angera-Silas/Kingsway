@@ -2151,6 +2151,237 @@
     }
   }
 
+  // ---------------------------------------------------------------- proactive
+  //
+  // A workspace that sits idle, or a long page that stops scrolling, is a
+  // moment where the staff member is thinking rather than clicking. That is
+  // when one concrete next question is useful and when a chat launcher is
+  // least intrusive. The nudge is deliberately quiet:
+  //
+  //   * one hint at a time, at most once per page state per browser session;
+  //   * never while the panel is open, a modal is up, text is selected, the
+  //     tab is hidden, or an answer is streaming;
+  //   * never a claim - the server sends a question offer, not a figure.
+  const PROACTIVE_IDLE_MS = 30000;
+  const PROACTIVE_SCROLL_SETTLE_MS = 2500;
+  const PROACTIVE_MIN_SCROLL = 500;
+  const PROACTIVE_SEEN_KEY = "kw_assistant_nudge_seen";
+  const PROACTIVE_OFF_KEY = "kw_assistant_nudge_off";
+
+  let proactiveIdleTimer = null;
+  let proactiveScrollTimer = null;
+  let proactiveInFlight = false;
+  let proactiveBound = false;
+  let proactiveCurrent = null;
+
+  function proactiveSeen() {
+    try {
+      return new Set(JSON.parse(sessionStorage.getItem(PROACTIVE_SEEN_KEY) || "[]"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function markProactiveSeen(signature) {
+    if (!signature) return;
+    try {
+      const seen = proactiveSeen();
+      seen.add(signature);
+      // A session can wander many pages; keep the ring small.
+      sessionStorage.setItem(
+        PROACTIVE_SEEN_KEY,
+        JSON.stringify(Array.from(seen).slice(-40))
+      );
+    } catch {
+      /* private mode: the nudge simply repeats, which is harmless */
+    }
+  }
+
+  function proactiveDisabled() {
+    try {
+      return localStorage.getItem(PROACTIVE_OFF_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function assistantPanelOpen() {
+    return Boolean(document.querySelector("#globalAiAssistantPanel.show"));
+  }
+
+  function proactiveBlocked() {
+    if (proactiveDisabled() || proactiveInFlight) return true;
+    if (document.hidden || assistantPanelOpen()) return true;
+    if (document.querySelector(".modal.show")) return true;
+    if (assistantGenerating) return true;
+    if (window.getSelection?.()?.toString?.().trim()) return true;
+    const active = document.activeElement;
+    if (
+      active &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT" ||
+        active.isContentEditable)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function hideProactiveNudge() {
+    proactiveCurrent = null;
+    document.getElementById("assistant-proactive-nudge")?.remove();
+  }
+
+  function openAssistantWith(question) {
+    const panel = document.getElementById("globalAiAssistantPanel");
+    if (!panel) return;
+    try {
+      window.bootstrap?.Offcanvas?.getOrCreateInstance(panel)?.show();
+    } catch {
+      /* the header button remains the fallback */
+    }
+    window.setTimeout(() => {
+      const input = document.getElementById("global-ai-assistant-question");
+      const form = document.getElementById("global-ai-assistant-query");
+      if (!input || !form) return;
+      input.value = question;
+      if (typeof input.dispatchEvent === "function") {
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      }
+    }, 420);
+  }
+
+  function renderProactiveNudge(suggestion, signature) {
+    hideProactiveNudge();
+    const title = String(suggestion?.title || "").trim().slice(0, 120);
+    const prompt = String(suggestion?.prompt || "").trim().slice(0, 300);
+    const reason = String(suggestion?.reason || "").trim().slice(0, 160);
+    if (!title || !prompt) return;
+
+    const nudge = document.createElement("div");
+    nudge.id = "assistant-proactive-nudge";
+    nudge.className = "ai-nudge";
+    nudge.setAttribute("role", "status");
+    nudge.innerHTML = `
+      <div class="ai-nudge-head">
+        <span class="ai-nudge-label"><i class="bi bi-stars me-1" aria-hidden="true"></i>Suggested next step</span>
+        <button type="button" class="btn-close btn-close-sm" data-ai-nudge-dismiss aria-label="Dismiss suggestion"></button>
+      </div>
+      <p class="ai-nudge-title">${escapeHtml(title)}</p>
+      ${reason ? `<p class="ai-nudge-reason">${escapeHtml(reason)}</p>` : ""}
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-primary" data-ai-nudge-ask>Ask this</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-ai-nudge-dismiss>Not now</button>
+      </div>`;
+
+    nudge.querySelector("[data-ai-nudge-ask]")?.addEventListener("click", () => {
+      markProactiveSeen(signature);
+      hideProactiveNudge();
+      openAssistantWith(prompt);
+    });
+    nudge.querySelectorAll("[data-ai-nudge-dismiss]").forEach((button) => {
+      button.addEventListener("click", () => {
+        markProactiveSeen(signature);
+        hideProactiveNudge();
+      });
+    });
+
+    document.body.appendChild(nudge);
+    proactiveCurrent = { suggestion, signature };
+  }
+
+  async function requestProactiveNudge() {
+    if (proactiveBlocked()) return;
+    const suggest = window.API?.dashboard?.agentSuggest;
+    if (typeof suggest !== "function") return;
+    proactiveInFlight = true;
+    try {
+      const response = await suggest(
+        String(window.REQUESTED_ROUTE || ""),
+        "dashboard",
+        getAssistantPageContext()
+      );
+      const payload = response?.data ?? response ?? {};
+      const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+      const signature = String(payload.signature || "");
+      if (!suggestions.length) return;
+      if (signature && proactiveSeen().has(signature)) return;
+      if (proactiveBlocked()) return;
+      const first = suggestions.find((item) => item && item.title && item.prompt);
+      if (!first) return;
+      renderProactiveNudge(first, signature);
+    } catch {
+      /* a nudge is never worth surfacing an error */
+    } finally {
+      proactiveInFlight = false;
+    }
+  }
+
+  function scheduleProactiveNudge(delay = PROACTIVE_IDLE_MS) {
+    window.clearTimeout(proactiveIdleTimer);
+    if (proactiveDisabled()) return;
+    proactiveIdleTimer = window.setTimeout(() => {
+      void requestProactiveNudge();
+      // If the moment was not right (a modal, a selection), try once more
+      // after a full idle window rather than on a tight loop.
+      scheduleProactiveNudge();
+    }, Math.max(5000, delay));
+  }
+
+  function initProactiveAssistant() {
+    if (proactiveBound) return;
+    proactiveBound = true;
+
+    // A hint belongs to the page it was offered on. Navigation clears it and
+    // restarts the idle clock on the new workspace.
+    const resetForPage = () => {
+      hideProactiveNudge();
+      scheduleProactiveNudge();
+    };
+    window.addEventListener("kingsway:page-loaded", resetForPage);
+    window.addEventListener("hashchange", resetForPage);
+    window.addEventListener("popstate", resetForPage);
+
+    const noteActivity = () => {
+      if (proactiveCurrent) return;
+      scheduleProactiveNudge();
+    };
+    document.addEventListener("pointerdown", noteActivity, { passive: true, capture: true });
+    document.addEventListener("keydown", noteActivity, { capture: true });
+
+    let lastScrollY = window.scrollY || 0;
+    window.addEventListener(
+      "scroll",
+      () => {
+        const now = window.scrollY || 0;
+        const travelled = Math.abs(now - lastScrollY);
+        if (travelled > 24) {
+          lastScrollY = now;
+          hideProactiveNudge();
+        }
+        window.clearTimeout(proactiveScrollTimer);
+        proactiveScrollTimer = window.setTimeout(() => {
+          if (now < PROACTIVE_MIN_SCROLL) return;
+          void requestProactiveNudge();
+        }, PROACTIVE_SCROLL_SETTLE_MS);
+        scheduleProactiveNudge();
+      },
+      { passive: true }
+    );
+
+    document
+      .getElementById("globalAiAssistantPanel")
+      ?.addEventListener("show.bs.offcanvas", () => {
+        hideProactiveNudge();
+      });
+
+    scheduleProactiveNudge();
+  }
+
   function initAiAssistantQuery() {
     const form = $("#global-ai-assistant-query");
     if (!form || aiAssistantQueryBound) return;
@@ -3044,6 +3275,7 @@
         initAssistantChrome();
         renderAssistantHistory();
         initAiAssistantQuery();
+        initProactiveAssistant();
         void loadWorkspaceBriefing(0);
         void restoreDelegatedTask();
       }
@@ -3214,6 +3446,7 @@
         // if the offcanvas show event never fires (e.g. Bootstrap not ready).
         initAssistantChrome();
         initAiAssistantQuery();
+        initProactiveAssistant();
       },
       { once: true }
     );
@@ -3221,5 +3454,6 @@
     initialize();
     initAssistantChrome();
     initAiAssistantQuery();
+    initProactiveAssistant();
   }
 })();
