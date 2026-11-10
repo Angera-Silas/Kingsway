@@ -69,9 +69,14 @@ class TransportAPI extends BaseAPI
             if ($routeId <= 0) {
                 $routeStmt = $this->db->prepare(
                     "SELECT tvr.route_id
-                     FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-                     WHERE u.id = ? AND s.status IN ('active', 'on_leave')
-                     LIMIT 1"
+                     FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                     INNER JOIN transport_vehicles v ON v.driver_id = s.id
+                     INNER JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr
+                             ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+                     INNER JOIN users u ON u.person_id = s.person_id
+                    WHERE u.id = ?
+                      AND s.status IN ('active', 'on_leave')
+                    LIMIT 1"
                 );
                 $routeStmt->execute([(int) $userId]);
                 $routeId = (int) $routeStmt->fetchColumn();
@@ -127,7 +132,13 @@ class TransportAPI extends BaseAPI
 
     public function userHasAssignedRoute(int $userId, int $routeId): bool
     {
-        $stmt = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE u.id=? AND tvr.route_id=? AND s.status IN ('active','on_leave') LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1
+            FROM " . ReadReplicaService::masterRef("staff") . " s
+            INNER JOIN transport_vehicles v ON v.driver_id = s.id
+            INNER JOIN " . ReadReplicaService::masterRef("transport_vehicle_routes") . " tvr
+                    ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+            INNER JOIN users u ON u.person_id = s.person_id
+           WHERE u.id = ? AND tvr.route_id = ? AND s.status IN ('active','on_leave') LIMIT 1");
         $stmt->execute([$userId, $routeId]);
         return (bool)$stmt->fetchColumn();
     }

@@ -458,8 +458,10 @@ class StaffMeetingManager
         }
         $in = implode(',', array_fill(0, count($staffIds), '?'));
         $stmt = $this->db->prepare(
-            "SELECT DISTINCT u.id FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-             WHERE s.id IN ($in) AND u.status = 'active'"
+            "SELECT DISTINCT u.id
+               FROM users u
+               JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.person_id = u.person_id
+              WHERE s.id IN ($in) AND u.status = 'active'"
         );
         $stmt->execute($staffIds);
         $userIds = $stmt->fetchAll(PDO::FETCH_COLUMN);

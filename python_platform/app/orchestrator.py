@@ -507,6 +507,33 @@ def _command_outcome_answer(tool: str, result: Any) -> dict[str, Any] | None:
     return None
 
 
+def _expanded_agent_tools(agent: dict[str, Any], tools: Any) -> list[str]:
+    """An agent's tool list with any ``mcp.*`` placeholder expanded.
+
+    External MCP tool ids are deployment configuration, not code: the operator
+    names the servers and the tools in ``AI_MCP_SERVERS``. An agent declares
+    ``mcp.*`` to mean "whatever this deployment has enabled", and the envelope
+    and the proposal check both see the concrete ids.
+    """
+    declared = list(agent.get("tools") or ())
+    expanded: list[str] = []
+    for tool_id in declared:
+        if str(tool_id) == "mcp.*":
+            mcp = getattr(tools, "mcp", None)
+            known = mcp.known_tools() if mcp is not None else {}
+            expanded.extend(sorted(known))
+        else:
+            expanded.append(str(tool_id))
+    # De-duplicate while keeping the declared order.
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for tool_id in expanded:
+        if tool_id not in seen:
+            seen.add(tool_id)
+            ordered.append(tool_id)
+    return ordered
+
+
 def _rows_bearing_result(result: Any) -> dict[str, Any] | None:
     """The dict inside a governed result that carries the report rows.
 
@@ -1637,7 +1664,7 @@ class Orchestrator:
             )
 
         started = time.monotonic()
-        allowed_tools = list(agent["tools"])
+        allowed_tools = _expanded_agent_tools(agent, self.tools)
         yield {"kind": "status", "text": "I'm checking the relevant school records..."}
         prefetched = self._prefetch_context(
             agent,
@@ -3058,7 +3085,7 @@ class Orchestrator:
         module = context.get("module", "dashboard")
         session_id = str(context.get("session_id") or "")
         hints = self.behavior.hints(user_id)
-        tools = list(agent["tools"])
+        tools = _expanded_agent_tools(agent, self.tools)
 
         prefs = self._preferences(user_id, context)
         topics = self._session_topics(user_id, session_id, context)
