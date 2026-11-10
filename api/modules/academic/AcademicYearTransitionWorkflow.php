@@ -239,12 +239,17 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     /** Load editable annual curriculum, staffing-continuity, and fee drafts. */
     public function getSetupDrafts(int $instanceId): array
     {
-        $instance = $this->getWorkflowInstance($instanceId);
+        // Read from primary directly to avoid replica lag after workflow creation
+        $stmt = $this->db->prepare(
+            'SELECT id, current_stage, status, data_json FROM workflow_instances WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$instanceId]);
+        $instance = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$instance) return formatResponse(false, null, 'Year transition workflow was not found.');
         $workflowData = json_decode((string) ($instance['data_json'] ?? ''), true) ?: [];
         $yearId = (int) ($workflowData['academic_year_id'] ?? 0)
             ?: $this->resolveYearIdFromCode($workflowData['to_year_code'] ?? $workflowData['to_year'] ?? '');
-        if (!$yearId) return formatResponse(false, null, 'Prepare the target year’s classes and streams first.');
+        if (!$yearId) return formatResponse(false, null, 'Prepare the target year\'s classes and streams first.');
 
         $learningAreas = $this->db->query(
             "SELECT id, name, code, level_band, levels FROM learning_areas
@@ -502,7 +507,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     /** Save editable setup rows while enforcing target-year ownership. */
     public function saveSetupDrafts(int $instanceId, array $drafts): array
     {
-        $instance = $this->getWorkflowInstance($instanceId);
+        // Read from primary directly to avoid replica lag after workflow creation
+        $stmt = $this->db->prepare(
+            'SELECT id, current_stage, status, data_json FROM workflow_instances WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$instanceId]);
+        $instance = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$instance) return formatResponse(false, null, 'Year transition workflow was not found.');
         $workflowData = json_decode((string) ($instance['data_json'] ?? ''), true) ?: [];
         $yearId = (int) ($workflowData['academic_year_id'] ?? 0)
@@ -2617,7 +2627,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     public function setupNewYear(int $instance_id, array $setup_config): array
     {
         try {
-            $instance = $this->getWorkflowInstance($instance_id);
+            // Read from primary directly to avoid replica lag after workflow creation
+            $stmt = $this->db->prepare(
+                'SELECT id, current_stage, status, data_json FROM workflow_instances WHERE id = ? LIMIT 1'
+            );
+            $stmt->execute([$instance_id]);
+            $instance = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$instance) {
                 return formatResponse(false, null, 'Workflow instance not found');
             }
