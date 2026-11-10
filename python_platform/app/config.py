@@ -178,6 +178,12 @@ class Config:
             ),
         )
 
+        # External MCP servers the assistant may consume tools from. A JSON
+        # list of {name, base_url, token, tools:[...]}; absent or empty means
+        # the MCP client is dormant and no external capability exists. The tool
+        # list is the operator's, never the model's.
+        self.mcp_servers_raw = _env("AI_MCP_SERVERS")
+
         # TLS verification for calls back into the PHP edge. Default ON.
         # Set to false ONLY for local development with a self-signed cert.
         self.php_verify_tls = _env_bool("KINGSWAY_PHP_VERIFY_TLS", True)

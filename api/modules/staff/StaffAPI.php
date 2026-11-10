@@ -1308,7 +1308,7 @@ class StaffAPI extends BaseAPI {
                 throw new InvalidArgumentException('Enter a valid employment date.');
             }
             if (!empty($staffInfo['supervisor_id'])) {
-                $supervisorCheck = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "   WHERE id=? AND status='active' AND data_scope='live' LIMIT 1");
+                $supervisorCheck = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::masterRef("staff") . "  WHERE id=? AND status='active' AND data_scope='live' LIMIT 1");
                 $supervisorCheck->execute([(int)$staffInfo['supervisor_id']]);
                 if (!$supervisorCheck->fetchColumn()) throw new InvalidArgumentException('Choose an active school staff supervisor.');
             }
