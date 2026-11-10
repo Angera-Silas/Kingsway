@@ -6,11 +6,11 @@ use App\API\Includes\FileLogger;
 use DomainException;
 
 /** Policy boundary between staff requests and AI workflow execution. */
-class AiWorkflowService
+class WorkflowAuthorization
 {
     public function describe(): array
     {
-        return array_values(AiWorkflowRegistry::all());
+        return array_values(WorkflowRegistry::all());
     }
 
     /** Return only workflows suitable for the authenticated staff shell. */
@@ -169,7 +169,7 @@ class AiWorkflowService
 
     public function authorize(string $workflowId, array $context): array
     {
-        $workflow = AiWorkflowRegistry::resolve($workflowId);
+        $workflow = WorkflowRegistry::resolve($workflowId);
         if ($workflow === null) {
             throw new DomainException('AI workflow not found.', 404);
         }
@@ -203,7 +203,7 @@ class AiWorkflowService
     public function prepare(string $workflowId, array $context, array $input): array
     {
         $workflow = $this->authorize($workflowId, $context);
-        $minimized = AiPromptPolicy::minimize($workflowId, $input);
+        $minimized = PythonAiBridge::minimize($workflowId, $input);
         $payload = [
             'workflow_id' => $workflowId,
             'action_level' => $workflow['action_level'],

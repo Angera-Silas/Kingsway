@@ -12,7 +12,7 @@ namespace App\API\Services;
  * session, permission, row-level scope, CSRF and financial mutation, and
  * Python provides the raw compute that PHP is slow at — file generation, batch
  * transformation, aggregation, reconciliation formatting, import assembly. An
- * automation is defined ONLY here (versioned in source like AiAgentRegistry):
+ * automation is defined ONLY here (versioned in source like AgentCatalog):
  * adding one is a registry row plus tests, never a controller change.
  *
  * Security model, identical to the AI bridge:

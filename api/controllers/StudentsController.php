@@ -2621,14 +2621,14 @@ return $this->badRequest('An internal error occurred.');
         if (!$contextRes['allowed']) return $this->forbidden($contextRes['message'] ?? 'Forbidden');
         $aiContext = ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
         try {
-            $this->contract('App\\API\\Services\\AiWorkflowService')->authorize('learners.support_planning', $aiContext);
+            $this->contract('App\\API\\Services\\WorkflowAuthorization')->authorize('learners.support_planning', $aiContext);
             $filters = \App\API\Services\LearnerSupportAiScopeService::sanitizeFilters(array_merge($_GET, $data));
             $input = $this->studentInsightsService->buildSupportPlanningInput(
                 $this->user,
                 $contextRes['context'],
                 $filters
             );
-            return $this->accepted($this->contract('App\\API\\Services\\AiDraftService')->queue('learners.support_planning', $aiContext, $input, [
+            return $this->accepted($this->contract('App\\API\\Services\\DraftRepository')->queue('learners.support_planning', $aiContext, $input, [
                 'subject_type' => 'learner_support_planning',
                 'scope' => 'authorized_aggregate_learner_signals',
                 'support_context' => (string) $contextRes['context'],
@@ -2648,7 +2648,7 @@ return $this->badRequest('An internal error occurred.');
         }
         try {
             return $this->success([
-                'drafts' => $this->contract('App\\API\\Services\\AiDraftService')->listForReview(
+                'drafts' => $this->contract('App\\API\\Services\\DraftRepository')->listForReview(
                     $this->getDb()->getConnection(),
                     (int) ($this->getUserId() ?? 0),
                     $review,
@@ -2672,7 +2672,7 @@ return $this->badRequest('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract('App\\API\\Services\\AiDraftService')->approve(
+            $approved = $this->contract('App\\API\\Services\\DraftRepository')->approve(
                 $this->getDb()->getConnection(),
                 $draftId,
                 (int) ($this->getUserId() ?? 0),

@@ -36,6 +36,7 @@ from typing import Any
 from flask import Flask, Response, jsonify, request
 
 from . import agents as agent_registry
+from . import intent
 from .agents import default_agent
 from .behavior import BehaviorStore
 from .conversation import ConversationStore
@@ -48,6 +49,7 @@ from .security import bearer_authorized, ensure_staff_context, bound_question
 from .automations import AutomationEngine, AutomationError
 from .tools import ToolBridge
 from .read_models import ReadModelError, ReadModelRefresher, PolarsReadModelRefresher
+from .scheduler import Scheduler
 from .queue_worker import PythonQueueWorker
 from .sms_provider import SmsProviderError, execute as sms_provider_execute
 from .payhero_provider import PayheroProviderError, execute as payhero_provider_execute
@@ -403,6 +405,128 @@ def create_app(config: Config | None = None) -> Flask:
             return jsonify(
                 {"success": False, "message": "ID-card PDF rendering failed"}
             ), 503
+
+    def _auth_or_worker():
+        if bearer_authorized(request.headers, cfg.secret):
+            return None
+        supplied = request.headers.get("X-Kingsway-Worker-Secret", "")
+        if (
+            supplied
+            and cfg.php_worker_secret
+            and hmac.compare_digest(supplied, cfg.php_worker_secret)
+        ):
+            return None
+        return jsonify({"success": False, "message": "unauthorized"}), 401
+
+    def _assistants():
+        from .assistants import (
+            ParentAssistantSkill,
+            PublicAssistantSkill,
+            ResearchAssistantSkill,
+        )
+
+        return {
+            "public": PublicAssistantSkill(provider, journal),
+            "parent": ParentAssistantSkill(provider, journal),
+            "research": ResearchAssistantSkill(provider, journal),
+        }
+
+    def _planning():
+        from .skills.academic_planning import AcademicPlanningSkill
+
+        return AcademicPlanningSkill(provider, journal)
+
+    @app.post("/api/public/ai-faq")
+    def public_assistant():
+        """Public FAQ assistant. PHP authenticates the anonymous caller and
+        supplies the approved corpus; Python owns policy, prompt, provider call
+        and output scrub."""
+        denied = _auth_or_worker()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question") or "")
+        corpus = (
+            payload.get("corpus") if isinstance(payload.get("corpus"), list) else []
+        )
+        conversation = (
+            payload.get("conversation")
+            if isinstance(payload.get("conversation"), list)
+            else []
+        )
+        try:
+            result = _assistants()["public"].ask(question, corpus, conversation)
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/parents/ai-assistant")
+    def parent_assistant():
+        """Parent portal assistant. PHP has already authorized the linked family
+        and supplied the bounded child summaries."""
+        denied = _auth_or_worker()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question") or "")
+        context = (
+            payload.get("context") if isinstance(payload.get("context"), dict) else {}
+        )
+        try:
+            result = _assistants()["parent"].ask(question, context)
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/research/ask")
+    def research_assistant():
+        """Staff research assistant over approved source snapshots."""
+        denied = auth_guard()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question") or "")
+        sources = (
+            payload.get("sources") if isinstance(payload.get("sources"), list) else []
+        )
+        try:
+            result = _assistants()["research"].ask(question, sources)
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/academic/plan")
+    def academic_plan():
+        """Academic planning: lesson plans, schemes of work, assessments, notes.
+
+        Python searches the web for ideas and grounds them in the school context
+        PHP supplies (KICD outcomes, available resources)."""
+        denied = auth_guard()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        result = _planning().plan(payload)
+        if result.get("status") == "unavailable":
+            return jsonify({"success": False, "message": result.get("reason")}), 503
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/web/search")
+    def web_search():
+        """Direct web search for staff assistant surfaces."""
+        denied = auth_guard()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        query = str(payload.get("query") or "")
+        limit = int(payload.get("limit") or 8)
+        from .skills.web_search import WebSearchSkill
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {"results": WebSearchSkill(journal).search(query, limit)},
+            }
+        )
 
     @app.post("/api/documents/render-batch")
     def render_document_batch():
@@ -5883,6 +6007,57 @@ def create_app(config: Config | None = None) -> Flask:
         # authenticated /v1/models route instead.
         return jsonify({"status": "ok", "engine": "python"})
 
+    @app.post("/api/agents/intent")
+    def agent_intent():
+        """Classify a staff question into a governed report intent.
+
+        Called by PHP's NLQ engine when its deterministic classifier cannot
+        resolve the question. The engine only classifies: it receives the
+        report catalogue PHP already authorized for this operator, returns one
+        catalogue code and a small filter map, and PHP re-validates and
+        executes the report itself. No school data crosses this boundary and
+        no governed tool is called from here, so the hop cannot cycle.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            question = bound_question(payload.get("question"))
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        reports = payload.get("reports")
+        if not isinstance(reports, list) or not reports:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "no authorized report catalogue was supplied",
+                }
+            ), 422
+        try:
+            result = intent.parse_intent(
+                provider,
+                journal,
+                question,
+                str(payload.get("audience") or "staff"),
+                reports,
+            )
+        except Exception as error:  # noqa: BLE001 - bounded relay surface
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_intent_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "the question could not be matched to a governed report",
+                }
+            ), 503
+        return jsonify({"success": True, "data": result, "message": "Intent parsed"})
+
     @app.post("/api/agents/assist")
     def agent_assist():
         guard = auth_guard()
@@ -5941,7 +6116,6 @@ def create_app(config: Config | None = None) -> Flask:
                 (403 if isinstance(error, PermissionError) else 422),
             )
             return jsonify({"success": False, "message": message}), code
-
         def _event(name: str, data: dict) -> str:
             return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -6590,7 +6764,10 @@ def create_app(config: Config | None = None) -> Flask:
                 }
             ), 200
         except Exception as error:  # noqa: BLE001 - report, never crash Passenger
+            # Journal.write() takes (category, entry); a bare entry dict is a
+            # TypeError that masks the real failure it was meant to record.
             journal.write(
+                "reads",
                 {
                     "type": "refresh_engine_tick_failed",
                     "error_class": type(error).__name__,

@@ -51,6 +51,17 @@ def _humanize_snake(match: re.Match[str]) -> str:
 # identifiers built from two or more underscore segments.
 _REGISTRY_CODE_RE = re.compile(r"\b[A-Z]{2,}(?:_[A-Z0-9]+){2,}\b")
 
+# Governed tool and job identifiers. They look like "drafts.create" or
+# "reports.nlq": two short lowercase segments joined by a dot. Ordinary school
+# prose never contains that shape, so replacing it costs nothing and it is the
+# one leak a chat surface actually produced - the model quoted the workflow id
+# back to the staff member as if it were part of the answer.
+_TOOL_ID_RE = re.compile(
+    r"\b(?:reports|drafts|academics|admissions|communications|analytics|assistant|"
+    r"attendance|boarding|finance|research|system|web|finance|charts|payments|"
+    r"sms|documents|students)\.[a-z][a-z0-9_]{2,40}\b"
+)
+
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # Credentials and secrets.
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}\b"), "[redacted credential]"),
@@ -104,10 +115,17 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     # Explicit source citation phrasing, which is not allowed on screen or in a
     # conversational answer.
+    #
+    # This must NOT consume a public URL. The web skills deliberately require
+    # a source URL to be cited ("Every result carries a source URL so answers
+    # cite provenance"), so redacting "Source: https://kicd.ac.ke/..." would
+    # destroy exactly the provenance we ask for. The pattern therefore only
+    # fires when what follows the colon is an internal identifier, never a URL.
     (
         re.compile(
             r"\b(?:Source|Data source|Source view|Source table|Backed by|"
-            r"Pulled from|Fetched from)\s*:[^\n.;]{0,120}",
+            r"Pulled from|Fetched from)\s*:(?!\s*(?:https?://|www\.|[a-z0-9\-]+\.(?:com|org|net|edu|gov|ke|co\.ke|ac\.ke|go\.ke)\b))"
+            r"[^\n.;]{0,120}",
             re.I,
         ),
         "Based on school records",
@@ -155,6 +173,7 @@ def scrub_text(text: str) -> str:
     if len(text) > MAX_STRING:
         text = text[:MAX_STRING] + "…"
 
+    text = _TOOL_ID_RE.sub("the school system", text)
     text = _OBJECT_RE.sub("school data", text)
     text = _REGISTRY_CODE_RE.sub("the school report", text)
     # Humanize snake_case identifiers (table/column names) to Title Case

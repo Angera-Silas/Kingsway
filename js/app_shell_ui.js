@@ -1817,6 +1817,82 @@
     return getAssistantDomain() === "system_admin";
   }
 
+  // ---------------------------------------------------------------- page context
+  // Co-worker awareness: the assistant should know what the operator is looking
+  // at without a second data path. We report only labels the page already
+  // shows — the record last opened, the open dialog, selected text, visible KPI
+  // names and filter labels. Values still come from governed tools.
+  const assistantPageState = { entity: null };
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target?.closest?.("[data-ai-entity]");
+      if (!target) return;
+      const label = String(
+        target.getAttribute("data-ai-entity") || target.textContent || ""
+      )
+        .trim()
+        .slice(0, 80);
+      if (!label) return;
+      assistantPageState.entity = {
+        kind: target.getAttribute("data-ai-entity-kind") || "record",
+        label,
+        id: target.getAttribute("data-ai-id") || "",
+        status: target.getAttribute("data-ai-status") || "",
+      };
+    },
+    true,
+  );
+
+  function getAssistantPageContext() {
+    const context = {};
+    const entity = assistantPageState.entity;
+    if (entity && entity.label) {
+      context.page_entity = {
+        kind: entity.kind,
+        label: entity.label,
+        ...(entity.id ? { id: entity.id } : {}),
+        ...(entity.status ? { status: entity.status } : {}),
+      };
+    }
+    const modal = document.querySelector(".modal.show");
+    if (modal) {
+      const title = String(
+        modal.querySelector(".modal-title")?.textContent || ""
+      )
+        .trim()
+        .slice(0, 100);
+      if (title) {
+        context.modal = title;
+        if (!context.page_entity) {
+          context.page_entity = { kind: "modal", label: title };
+        }
+      }
+    }
+    const selection = window.getSelection?.()?.toString?.().trim() || "";
+    if (selection) {
+      context.selection = { text: selection.slice(0, 200) };
+    }
+    const metrics = Array.from(document.querySelectorAll("[data-ai-metric]"))
+      .map((node) => String(node.textContent || "").trim().slice(0, 60))
+      .filter(Boolean)
+      .slice(0, 10);
+    if (metrics.length) {
+      context.visible_metrics = metrics;
+    }
+    const filters = {};
+    document.querySelectorAll("[data-ai-filter]").forEach((node) => {
+      const key = node.getAttribute("data-ai-filter");
+      const value = String(node.value ?? node.textContent ?? "").trim();
+      if (key && value) filters[key] = value.slice(0, 60);
+    });
+    if (Object.keys(filters).length) {
+      context.filters = filters;
+    }
+    return context;
+  }
+
   function getAssistantPreferences() {
     try {
       const raw = localStorage.getItem("kw_assistant_prefs");
@@ -2164,6 +2240,7 @@
           preferences: getAssistantPreferences(),
           system_admin: canSystemAssistant(),
           assistant_domain: getAssistantDomain(),
+          ...getAssistantPageContext(),
         };
 
         const stream = window.API?.dashboard?.agentAssistStream;
@@ -2405,6 +2482,7 @@
         </div>`
       : "";
     const chartsHtml = renderAiCharts(result);
+    const artifactsHtml = renderAiArtifacts(result);
 
     const insufficientHtml = isInsufficient
       ? `<div class="alert alert-info small mb-2">
@@ -2439,6 +2517,9 @@
         </button>
         <button type="button" class="btn btn-sm btn-outline-secondary ai-copy-btn" title="Copy answer">
           <i class="bi bi-clipboard"></i> Copy
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-download-btn" title="Download answer">
+          <i class="bi bi-download"></i> Download
         </button>
       </div>`;
 
@@ -2483,6 +2564,7 @@
       ${tools}
       ${citationsHtml}
       ${chartsHtml}
+      ${artifactsHtml}
       ${escalation}
       ${followUps}
       ${actionButtons}
@@ -2533,8 +2615,143 @@
             });
           })
         );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-download-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const card = button.closest(".card");
+            const body = card?.querySelector(".assistant-answer-body")?.textContent || "";
+            const heading = card?.querySelector("h6")?.textContent?.trim() || "Assistant answer";
+            const slug = heading.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "answer";
+            downloadBlob(
+              `${slug}.md`,
+              new Blob([`# ${heading}\n\n${body}\n`], { type: "text/markdown;charset=utf-8" })
+            );
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-artifact-download")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const artifact = aiArtifactStore.get(button.getAttribute("data-artifact-key"));
+            if (!artifact) return;
+            downloadBlob(
+              String(artifact.download_name || "artifact.txt"),
+              new Blob([String(artifact.content || "")], {
+                type: String(artifact.mime_type || "text/plain") + ";charset=utf-8",
+              })
+            );
+          })
+        );
     });
     return rendered;
+  }
+
+  const aiArtifactStore = new Map();
+  let aiArtifactSequence = 0;
+
+  function downloadBlob(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename || "download";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  // The render window. An answer may carry a real figure (PNG data URI from
+  // analytics.chart), a PDF/DOCX/audio/video URL, or plain text, and each is
+  // rendered with the right element plus a download control — the coworker
+  // produces deliverables, not only prose.
+  function renderAiArtifacts(result) {
+    const artifacts = Array.isArray(result?.artifacts) ? result.artifacts.slice(0, 4) : [];
+    if (!artifacts.length) return "";
+    const blocks = artifacts.map((artifact) => {
+      if (!artifact || typeof artifact !== "object") return "";
+      const mime = String(artifact.mime_type || "").toLowerCase();
+      const url = String(artifact.url || artifact.image || "");
+      const name = String(artifact.download_name || "artifact");
+      const title = String(artifact.title || "Attachment").slice(0, 120);
+      const summary = artifact.summary
+        ? `<p class="small text-muted mb-1">${escapeHtml(String(artifact.summary))}</p>`
+        : "";
+
+      if (url && (artifact.image || mime.startsWith("image/"))) {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <img src="${escapeHtml(url)}" alt="${escapeHtml(title)}" class="img-fluid rounded border" loading="lazy" />
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">
+            <i class="bi bi-download me-1"></i>Download image
+          </a>
+        </figure>`;
+      }
+      if (url && mime.startsWith("audio/")) {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <audio controls preload="none" class="w-100" src="${escapeHtml(url)}"></audio>
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download audio</a>
+        </figure>`;
+      }
+      if (url && mime.startsWith("video/")) {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <video controls preload="metadata" class="w-100 rounded border" src="${escapeHtml(url)}"></video>
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download video</a>
+        </figure>`;
+      }
+      if (url && mime === "application/pdf") {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <iframe src="${escapeHtml(url)}" title="${escapeHtml(title)}" class="w-100 rounded border" style="height:420px"></iframe>
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download PDF</a>
+        </figure>`;
+      }
+      // Anything else that carries a URL (DOCX, XLSX, a ZIP of exports) is a
+      // download rather than something a browser can render inline. Without
+      // this branch a non-previewable attachment silently vanished from the
+      // render window.
+      if (url) {
+        const key = `ai-artifact-${++aiArtifactSequence}`;
+        aiArtifactStore.set(key, artifact);
+        while (aiArtifactStore.size > 20) {
+          aiArtifactStore.delete(aiArtifactStore.keys().next().value);
+        }
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge text-bg-light border">${escapeHtml(name)}</span>
+            <a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(url)}" download="${escapeHtml(name)}">
+              <i class="bi bi-download me-1"></i>Download
+            </a>
+          </div>
+        </figure>`;
+      }
+      if (artifact.content) {
+        const key = `ai-artifact-${++aiArtifactSequence}`;
+        aiArtifactStore.set(key, artifact);
+        while (aiArtifactStore.size > 20) {
+          aiArtifactStore.delete(aiArtifactStore.keys().next().value);
+        }
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <pre class="small bg-light border rounded p-2" style="max-height:260px;overflow:auto;white-space:pre-wrap">${escapeHtml(String(artifact.content))}</pre>
+          <button type="button" class="btn btn-sm btn-outline-secondary ai-artifact-download" data-artifact-key="${key}">
+            <i class="bi bi-download me-1"></i>Download ${escapeHtml(name)}
+          </button>
+        </figure>`;
+      }
+      return "";
+    });
+    const rendered = blocks.filter(Boolean).join("");
+    return rendered ? `<div class="ai-artifacts mt-2">${rendered}</div>` : "";
   }
 
   function renderAiCharts(result) {

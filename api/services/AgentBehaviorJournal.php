@@ -30,7 +30,7 @@ use Throwable;
  * the buffer namespace validator independently rejects sensitive
  * namespaces as a second guard.
  */
-final class AiBehaviorProfiler
+final class AgentBehaviorJournal
 {
     public const NAMESPACE = 'ai.behavior';
     public const TTL_SECONDS = 2592000; // 30-day rolling window

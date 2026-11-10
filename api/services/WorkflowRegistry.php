@@ -5,7 +5,7 @@ namespace App\API\Services;
 use LogicException;
 
 /** Central catalogue of governed staff-assistance workflows. */
-class AiWorkflowRegistry
+class WorkflowRegistry
 {
     private static $workflows = null;
 
@@ -83,11 +83,27 @@ class AiWorkflowRegistry
             ['id' => 'curriculum.kicd_change_interpretation', 'domain' => 'curriculum', 'summary' => 'Interpret a changed KICD/curriculum policy fragment for staff review without asserting official status.', 'action_level' => 'recommend', 'permission' => 'academic_view', 'status' => 'implemented'],
             ['id' => 'finance.reconciliation_review', 'domain' => 'finance', 'summary' => 'Prepare review notes for unmatched or suspicious payment records.', 'action_level' => 'prepare', 'permission' => 'finance_view', 'status' => 'implemented'],
             ['id' => 'communications.parent_message_draft', 'domain' => 'communications', 'summary' => 'Draft a role-appropriate school communication for approval.', 'permission' => 'communications_view', 'status' => 'implemented'],
+            // The assistant's /draft command. Every governed tool the engine may
+            // ask for has to exist here before the executor will run it: an
+            // unregistered id answered "unknown_tool", so the draft the staff
+            // member asked for never reached the drafts inbox.
+            ['id' => 'drafts.create', 'domain' => 'communications', 'summary' => 'Queue a staff-authored message, notice or announcement as a reviewable draft.', 'action_level' => 'prepare', 'requires_approval' => true, 'permission' => 'communications_view', 'status' => 'implemented'],
             ['id' => 'communications.parent_portal_assistant', 'domain' => 'communications', 'summary' => 'Answer a parent question using only linked-child portal summaries and public school facts.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => true, 'permission' => '', 'audiences' => ['parent'], 'status' => 'implemented'],
             ['id' => 'public.faq_assistant', 'domain' => 'public', 'summary' => 'Answer public school questions from the approved published corpus and route visitors to a human when needed.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => '', 'audiences' => ['public'], 'status' => 'implemented'],
             ['id' => 'research.external_knowledge', 'domain' => 'research', 'summary' => 'Answer research questions only from approved, cached external sources with citations and provenance.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => 'ai_research', 'audiences' => ['staff'], 'status' => 'implemented'],
             ['id' => 'reports.kpi_brief', 'domain' => 'reports', 'summary' => 'Explain governed KPI results using authorized aggregate data.', 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
+            // The assistant's briefing, catalogue and workspace-scan tools. The
+            // executor implements all three, but a workflow id that is not
+            // registered here is rejected as unknown_tool before that code is
+            // reached - which is why the intelligence briefing a staff member
+            // asked for had been coming back empty.
+            ['id' => 'reports.insight_brief', 'domain' => 'reports', 'summary' => 'Return the deterministic intelligence briefing for this operator and cadence.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
+            ['id' => 'assistant.catalog', 'domain' => 'system', 'summary' => 'Describe the governed workflows this operator is authorized to use.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => '', 'status' => 'implemented'],
+            ['id' => 'assistant.workspace_scan', 'domain' => 'system', 'summary' => 'Summarize the deterministic signals available for the current workspace.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => '', 'status' => 'implemented'],
             ['id' => 'reports.school_brief', 'domain' => 'reports', 'summary' => 'Summarize deterministic intelligence signals as a reviewable daily, weekly, or term briefing for staff.', 'action_level' => 'recommend', 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
+            ['id' => 'reports.nlq', 'domain' => 'reports', 'summary' => 'Answer a staff data question by running one authorized governed report and returning its bounded rows.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
+            ['id' => 'reports.aggregate', 'domain' => 'reports', 'summary' => 'Compute a governed aggregation (count, sum, avg, min, max) over one authorized governed report.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
+            ['id' => 'charts.generate', 'domain' => 'reports', 'summary' => 'Return the authorized rows and chart specification a figure is drawn from.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
             ['id' => 'system.nlq_query', 'domain' => 'system', 'summary' => 'Answer a natural-language staff question by routing it to an authorized governed report.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
             ['id' => 'system.operations_brief', 'domain' => 'system', 'summary' => 'Summarize queue, health, and data-quality signals for administrators.', 'action_level' => 'recommend', 'permission' => 'system_view', 'status' => 'implemented'],
             ['id' => 'system.security_brief', 'domain' => 'system', 'summary' => 'Summarize aggregate authentication and authorization anomaly signals for administrators.', 'action_level' => 'recommend', 'permission' => 'system_view', 'status' => 'implemented'],

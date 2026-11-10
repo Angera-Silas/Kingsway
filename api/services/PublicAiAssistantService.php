@@ -7,12 +7,25 @@ namespace App\API\Services;
 use App\API\Includes\FileLogger;
 use DomainException;
 
-/** Public-only FAQ assistant; it never receives authenticated school data. */
+/**
+ * Public-only FAQ assistant — PHP validates and delegates.
+ *
+ * PHP handles: input validation, corpus/conversation bounding, greeting
+ * short-circuit (no provider cost), and citation enforcement.
+ * Python handles: prompt policy, template resolution, provider call, and
+ * output scrubbing for the public.faq_assistant workflow.
+ */
 final class PublicAiAssistantService
 {
     public const WORKFLOW = 'public.faq_assistant';
+    public const ENDPOINT = '/api/public/ai-faq';
 
-    public function __construct(private ?AiCompletionProvider $provider = null) {}
+    private AgentEngineClient $bridge;
+
+    public function __construct(?AgentEngineClient $bridge = null)
+    {
+        $this->bridge = $bridge ?? new PythonAiBridge();
+    }
 
     public function ask(string $question, array $corpus, array $conversation = []): array
     {
@@ -39,9 +52,6 @@ final class PublicAiAssistantService
             ];
         }
         $safeCorpus = [];
-        // The caller sends the published site's short factual sections first,
-        // so 60 entries still fit AiPromptPolicy::minimize()'s 15k-character
-        // corpus budget while covering every visitor-facing section.
         foreach (array_slice($corpus, 0, 60) as $source) {
             if (!is_array($source) || trim((string) ($source['id'] ?? '')) === '' || trim((string) ($source['content'] ?? '')) === '') continue;
             $safeCorpus[] = [
@@ -61,24 +71,15 @@ final class PublicAiAssistantService
             if (!in_array($role, ['user', 'assistant'], true) || $content === '') continue;
             $safeConversation[] = ['role' => $role, 'content' => mb_substr($content, 0, 300)];
         }
-        $input = AiPromptPolicy::minimize(self::WORKFLOW, [
+
+        // Python performs prompt minimization, template resolution, the
+        // provider call and output scrubbing. PHP only enforces citations.
+        $result = $this->bridge->call(self::ENDPOINT, [
             'question' => $question,
-            'audience' => 'public_visitor',
-            'corpus' => json_encode($safeCorpus, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'conversation' => json_encode($safeConversation, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'corpus' => $safeCorpus,
+            'conversation' => $safeConversation,
         ]);
-        $template = (new AiPromptTemplateService())->resolve(self::WORKFLOW);
-        $result = ($this->provider ?: new AiProviderGateway())->complete([
-            ['role' => 'system', 'content' => $template['content']],
-            ['role' => 'user', 'content' => json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-        ], [
-            // Public FAQ is a strict application contract. Explicit JSON mode
-            // prevents a provider's prose/markdown fallback from becoming a
-            // user-facing 503 after the bounded repair attempt.
-            'response_format' => 'json_object',
-            'temperature' => 0.1,
-            'max_tokens' => 1000,
-        ]);
+
         if (!is_string($result['title'] ?? null) || !is_string($result['body'] ?? null)) {
             throw new DomainException('The public assistant returned an invalid answer.', 502);
         }

@@ -9,7 +9,7 @@ use PDO;
 use Throwable;
 
 /**
- * AiInsightOrchestrator - decides WHEN and WHETHER deterministic intelligence
+ * InsightScheduler - decides WHEN and WHETHER deterministic intelligence
  * findings become a reviewable insight briefing (roadmap P3b).
  *
  * This service owns the "three proactive trigger patterns" for the briefing
@@ -28,7 +28,7 @@ use Throwable;
  *
  * Governance rules enforced here (see AGENTS.md):
  *   - The service decides only WHEN/WHETHER to call the provider; it never holds
- *     a provider credential and delegates all drafting to AiDraftService under
+ *     a provider credential and delegates all drafting to DraftRepository under
  *     the governed reports.school_brief workflow (prompt policy allowlist +
  *     reviewable draft lifecycle + approval separation).
  *   - Findings are computed by the deterministic IntelligenceEngine (no LLM);
@@ -39,7 +39,7 @@ use Throwable;
  *   - All batches, drafts, and skips are journaled to the ai_generation file
  *     journal (never a database log table).
  */
-final class AiInsightOrchestrator
+final class InsightScheduler
 {
     public const JOB_TYPE = 'ai.insight.generate';
     public const WORKFLOW = 'reports.school_brief';
@@ -61,7 +61,7 @@ final class AiInsightOrchestrator
     /** @var IntelligenceEngine|null */
     private $engine;
 
-    /** @var AiDraftService|null */
+    /** @var DraftRepository|null */
     private $drafts;
 
     /** @var callable():bool provider-enabled gate (injectable for hermetic tests) */
@@ -74,7 +74,7 @@ final class AiInsightOrchestrator
     private $permissionResolver;
 
     /**
-     * @param AiDraftService|null  $drafts null disables narrative drafting;
+     * @param DraftRepository|null  $drafts null disables narrative drafting;
      * @param callable():bool|null $providerEnabled
      * @param array<string,mixed>  $engineOptions
      * @param callable(PDO,int):list<string>|null $permissionResolver
@@ -83,7 +83,7 @@ final class AiInsightOrchestrator
         ?SharedCache $cache = null,
         ?callable $queuer = null,
         ?IntelligenceEngine $engine = null,
-        ?AiDraftService $drafts = null,
+        ?DraftRepository $drafts = null,
         ?callable $providerEnabled = null,
         array $engineOptions = [],
         ?callable $permissionResolver = null
@@ -222,7 +222,7 @@ final class AiInsightOrchestrator
     /**
      * Worker execution for ai.insight.generate: re-authorizes with the recorded
      * operator, runs the deterministic engine, then - when the provider is
-     * enabled - creates a reviewable draft via AiDraftService. The deterministic
+     * enabled - creates a reviewable draft via DraftRepository. The deterministic
      * summary is always cached so page-load and the notification bell get data
      * even when the provider is unavailable.
      *
@@ -237,7 +237,11 @@ final class AiInsightOrchestrator
         }
         $permissions = $this->permissionResolver !== null
             ? (array) call_user_func($this->permissionResolver, $pdo, $userId)
-            : (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
+            // Resolved through the leaf scope resolver, not the agent
+            // assistant: instantiating the assistant from here completed a
+            // cycle (AgentAssistant -> AgentToolExecutor -> InsightScheduler
+            // -> AgentAssistant) that made every background brief unsafe to run.
+            : (new OperatorScopeResolver($pdo))->permissions($userId);
         if ($permissions === []) {
             throw new DomainException('Current operator permissions could not be resolved.', 403);
         }

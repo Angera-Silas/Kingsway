@@ -2668,8 +2668,19 @@ _CONNECTION_CACHE: dict = {}
 # a projection. Keying the cache on the user rather than the schema is what
 # keeps the tick at exactly one connection.
 def _open_mysql_connection(config, database, connector=None):
-    """Open (or reuse) a single autocommit connection."""
-    key = ("singleton", getattr(config, "db_user", ""))
+    """Open (or reuse) a single autocommit connection.
+
+    The connection is POOLED: the returned object is owned by this module
+    cache, not by the caller. Callers must never close it — use
+    close_all_connections() at shutdown. Closing a pooled connection kills it
+    for every later caller, which surfaced as
+    "pymysql.err.Error: Already closed" on the next projection.
+
+    The cache key includes the schema. Keying on the user alone made the
+    master connection and the reads connection the SAME object, which silently
+    defeats schema separation between KingsWayAcademy and KingsWayReads.
+    """
+    key = (getattr(config, "db_user", ""), (database or "").lower())
     cached = _CONNECTION_CACHE.get(key)
     if cached is not None:
         try:
@@ -2936,7 +2947,9 @@ class ReadModelRefresher:
                         cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
                 except Exception:
                     pass
-            connection.close()
+            # The connection belongs to the module cache and is shared with the
+            # next projection; closing it here breaks that caller. Lifetime is
+            # owned by close_all_connections() at worker shutdown.
 
 
 class PolarsReadModelRefresher:
@@ -3115,5 +3128,7 @@ class PolarsReadModelRefresher:
                         cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
                 except Exception:
                     pass
-            master.close()
-            reads.close()
+            # master/reads belong to the module cache and are reused by the
+            # next projection in the same tick; closing them here breaks that
+            # caller with "Already closed". Lifetime is owned by
+            # close_all_connections() at worker shutdown.

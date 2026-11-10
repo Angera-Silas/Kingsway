@@ -23,8 +23,8 @@ use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use Exception;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 
 /**
@@ -1336,7 +1336,7 @@ return $this->serverError('An internal error occurred.');
         try {
             $service = $this->contract(\App\API\Services\ExamPeriodService::class, $this->db->getConnection(), (int) ($this->getUserId() ?? 0));
             $plan = $service->aiTimetableInput($periodId, (array) $data);
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.exam_timetable_planning', $this->aiAcademicContext(), $plan['input'],
                 ['subject_type' => 'exam_period_timetable', 'subject_id' => $periodId, 'scope' => 'class_level_exam_period', 'scope_hash' => $plan['scope_hash'], 'planning' => $plan['planning']]
             );
@@ -1358,7 +1358,7 @@ return $this->serverError('An internal error occurred.');
         if ($periodId < 1) return $this->badRequest('period_id is required');
         try {
             $pdo = $this->db->getConnection();
-            $drafts = $this->contract(AiDraftService::class)->listForReview($pdo, (int) ($this->getUserId() ?? 0), false, 'academics');
+            $drafts = $this->contract(DraftRepository::class)->listForReview($pdo, (int) ($this->getUserId() ?? 0), false, 'academics');
             foreach ($drafts as $record) {
                 if (($record['workflow_id'] ?? '') !== 'academics.exam_timetable_planning'
                     || ($record['metadata']['subject_type'] ?? '') !== 'exam_period_timetable'
@@ -3359,7 +3359,7 @@ return $this->serverError('An internal error occurred.');
         if (!$this->canUseAiSchemeDraft()) return $this->forbidden('Academic curriculum permission is required');
         try {
             $input = $this->buildAiSchemeInput($data);
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.scheme_draft', $this->aiAcademicContext(), $input,
                 [
                     'subject_type' => 'academic_scheme_draft', 'subject_id' => 0,
@@ -3383,7 +3383,7 @@ return $this->serverError('An internal error occurred.');
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiSchemeDraft()) return $this->forbidden('Academic approval permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
             ), 'scope' => $review ? 'review' : 'own'], 'CBC AI drafts retrieved');
         } catch (Exception $e) {
@@ -3399,7 +3399,7 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.scheme_draft');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.scheme_draft');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'CBC draft approved for teacher editing; existing academic approval remains required');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -3417,7 +3417,7 @@ return $this->serverError('An internal error occurred.');
             $schemeId = (int) ($data['scheme_of_work_id'] ?? $id ?? 0);
             if ($schemeId < 1) throw new DomainException('An approved scheme row is required.', 422);
             $input = $this->buildAiLessonPlanInput($schemeId, $data);
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.lesson_plan_draft', $this->aiAcademicContext(), $input,
                 ['subject_type' => 'academic_lesson_plan_draft', 'subject_id' => $schemeId, 'scope' => 'approved_scheme_context']
             );
@@ -3436,7 +3436,7 @@ return $this->serverError('An internal error occurred.');
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiLessonPlanDraft()) return $this->forbidden('Academic approval permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
             ), 'scope' => $review ? 'review' : 'own'], 'Lesson-plan AI drafts retrieved');
         } catch (Exception $e) {
@@ -3452,7 +3452,7 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.lesson_plan_draft');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.lesson_plan_draft');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Lesson-plan draft approved for teacher editing');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -3464,7 +3464,7 @@ return $this->serverError('An internal error occurred.');
 
     private function canUseAiLessonPlanDraft(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.lesson_plan_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.lesson_plan_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiLessonPlanDraft(): bool
@@ -3525,7 +3525,7 @@ return $this->serverError('An internal error occurred.');
                 'learning_outcome' => (string) ($outcomePayload['outcome'] ?? ''),
                 'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create a fair, age-appropriate assessment with clear evidence of the outcome.')), 0, 500),
             ];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.assessment_draft', $this->aiAcademicContext(), $input,
                 ['subject_type' => 'academic_assessment_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']
             );
@@ -3544,7 +3544,7 @@ return $this->serverError('An internal error occurred.');
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiAssessmentDraft()) return $this->forbidden('Academic approval permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
             ), 'scope' => $review ? 'review' : 'own'], 'Assessment AI drafts retrieved');
         } catch (Exception $e) {
@@ -3560,7 +3560,7 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.assessment_draft');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.assessment_draft');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Assessment draft approved for teacher editing');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -3573,7 +3573,7 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/ai-coverage-review-queue */
     public function postAiCoverageReviewQueue($id = null, $data = [], $segments = [])
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.coverage_review', $this->aiAcademicContext()); }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.coverage_review', $this->aiAcademicContext()); }
         catch (DomainException $e) { return $this->forbidden('Academic curriculum permission is required'); }
         $classId = (int) ($data['academic_year_class_id'] ?? $id ?? 0);
         if ($classId < 1) return $this->badRequest('academic_year_class_id is required');
@@ -3588,7 +3588,7 @@ return $this->serverError('An internal error occurred.');
             $raw = $this->api->getClassLearningAreaCoverage(['academic_year_class_id' => $classId]);
             if (!is_array($raw)) throw new DomainException('Curriculum mapping data is unavailable for this class.', 422);
             $input = $this->contract('App\\API\\Services\\CurriculumMappingSummaryService')->aiPayloadFromResponse($raw);
-            $queued = $this->contract(AiDraftService::class)->queue('academics.coverage_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_coverage_review', 'subject_id' => $classId, 'scope' => 'authorized_class_curriculum_aggregate']);
+            $queued = $this->contract(DraftRepository::class)->queue('academics.coverage_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_coverage_review', 'subject_id' => $classId, 'scope' => 'authorized_class_curriculum_aggregate']);
             return $this->accepted($queued, 'Curriculum mapping completeness review queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (Exception $e) { return $this->serverError('Unable to queue curriculum mapping review'); }
@@ -3606,7 +3606,7 @@ return $this->serverError('An internal error occurred.');
             if (isset($outcome['data']) && is_array($outcome['data'])) $outcome = $outcome['data'];
             if (empty($outcome['id'])) throw new DomainException('The selected learning outcome is outside your academic scope.', 403);
             $input = ['learning_area' => (string) ($outcome['learning_area_name'] ?? ''), 'grade_level' => (string) ($outcome['grade_level'] ?? ''), 'term_name' => mb_substr(trim((string) ($data['term_name'] ?? '')), 0, 100), 'learning_outcome' => (string) ($outcome['outcome'] ?? ''), 'criterion_count' => (string) max(1, min(12, (int) ($data['criterion_count'] ?? 4))), 'performance_levels' => mb_substr(trim((string) ($data['performance_levels'] ?? 'Beginning, Developing, Meeting, Exceeding')), 0, 300), 'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create observable, age-appropriate criteria.')), 0, 500)];
-            return $this->accepted($this->contract(AiDraftService::class)->queue('academics.rubric_draft', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_rubric_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']), 'CBC rubric draft queued');
+            return $this->accepted($this->contract(DraftRepository::class)->queue('academics.rubric_draft', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_rubric_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']), 'CBC rubric draft queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (Exception $e) { return $this->serverError('Unable to queue rubric assistance'); }
     }
@@ -3644,7 +3644,7 @@ return $this->serverError('An internal error occurred.');
                 if (count($pageRows) < 500) break;
                 if ($page === 20) throw new DomainException('The selected class is too large to summarize safely.', 422);
             }
-            $draftService = $this->contract(AiDraftService::class);
+            $draftService = $this->contract(DraftRepository::class);
             $input = $draftService->buildLearningGapReviewInput($rows, (string) ($classYear['grade_level'] ?? ''));
             return $this->accepted($draftService->queue(
                 'academics.learning_gap_review', $this->aiAcademicContext(), $input,
@@ -3671,7 +3671,7 @@ return $this->serverError('An internal error occurred.');
 
     private function canUseAcademicAi(string $workflow): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize($workflow, $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize($workflow, $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     public function postAiRubricDraftApprove($id = null, $data = [], $segments = [])
@@ -3695,14 +3695,14 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], ucfirst($label) . ' review approved for teacher editing');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
     }
 
     private function canUseAiAssessmentDraft(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.assessment_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.assessment_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiAssessmentDraft(): bool
@@ -3717,7 +3717,7 @@ return $this->serverError('An internal error occurred.');
 
     private function canUseAiSchemeDraft(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.scheme_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.scheme_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiSchemeDraft(): bool

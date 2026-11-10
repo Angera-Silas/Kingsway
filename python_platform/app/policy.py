@@ -38,6 +38,11 @@ FIELDS: dict[str, list[str]] = {
         "session_topics",
         "preferences",
         "navigation",
+        # What the operator is looking at right now: the record open in a modal,
+        # the rows they selected, visible KPI labels and active filters. Short
+        # labels only, so the assistant can offer page-relevant help without
+        # receiving a second copy of the page's data.
+        "page_context",
         "instruction",
         "question",
     ],
@@ -50,7 +55,21 @@ FIELDS: dict[str, list[str]] = {
     ],
 }
 
-MAX_CONTEXT_BYTES = 10_000
+# Byte budget for a prompt and for one envelope payload.
+#
+# This number used to be 10,000, which is barely larger than the guardrail
+# block plus the agent contract that every staff prompt must carry. The
+# consequence was deterministic: the prompt-size trimmer in the orchestrator
+# removed the governed tool_results on EVERY turn, so the model answered fee
+# arrears, attendance and enrolment questions with no evidence in front of it -
+# and a staff member was answered with a refusal for rows the server had
+# already released to them. The budget has to leave room for the evidence,
+# which is the only part of the prompt that is actually about this question.
+#
+# 24,000 bytes is still a hard bound (roughly 6,000 tokens of prompt), and it
+# is small next to the models the provider chain serves, which carry contexts
+# two orders of magnitude larger.
+MAX_CONTEXT_BYTES = 24_000
 MAX_ARRAY_ITEMS = 20
 MAX_SCALAR_CHARS = 500
 

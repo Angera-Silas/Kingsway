@@ -6,7 +6,7 @@ use App\API\Includes\FileLogger;
 use App\API\Includes\RpcSchemaValidator;
 use App\API\Services\McpTokenService;
 use App\API\Services\RpcRegistry;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\WorkflowAuthorization;
 use App\API\Services\McpDataToolsService;
 use App\Database\Database;
 use DomainException;
@@ -178,7 +178,7 @@ class McpController extends BaseController
         }
 
         if ($name === 'ai_workflows_list') {
-            $workflowService = $this->contract(AiWorkflowService::class);
+            $workflowService = $this->contract(WorkflowAuthorization::class);
             $visible = array_values(array_filter(
                 $workflowService->describeForContext($client['scopes'], '', 'dashboard', 'staff'),
                 static function (array $workflow) use ($client): bool {
@@ -194,7 +194,7 @@ class McpController extends BaseController
             if ($workflowId === '' || !is_array($input) || strlen(json_encode($input)) > 30000) {
                 return $this->rawError($id, -32602, 'workflow_id and bounded object input are required.');
             }
-            $workflowService = $this->contract(AiWorkflowService::class);
+            $workflowService = $this->contract(WorkflowAuthorization::class);
             $result = $workflowService->prepare($workflowId, [
                 'user_id' => 0,
                 'permissions' => $client['scopes'],

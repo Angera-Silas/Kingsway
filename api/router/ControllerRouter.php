@@ -238,8 +238,19 @@ class ControllerRouter
             return $this->abort(400, $e->getMessage());
         } catch (\RuntimeException $e) {
             \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            if ($e->getCode() === 404) {
+            $code = (int) $e->getCode();
+            if ($code === 404) {
                 return $this->abort(404, $e->getMessage());
+            }
+            // Service unavailable errors should return 503, not 400
+            // This includes: Python AI platform not responding, AI platform unavailable, etc.
+            if (
+                $code === 503 ||
+                stripos($e->getMessage(), 'did not respond') !== false ||
+                stripos($e->getMessage(), 'unavailable') !== false ||
+                stripos($e->getMessage(), 'not configured') !== false
+            ) {
+                return $this->abort(503, $e->getMessage());
             }
             return $this->abort(400, $e->getMessage());
         } catch (Exception $e) {
@@ -414,7 +425,7 @@ class ControllerRouter
             $code = 200;
             $success = true;
             if (is_array($result)) {
-                $code = (int) ($result['code'] ?? (($result['success'] ?? true) ? 200 : 400));
+                $code = (int) ($result['code'] ?? 200);
                 $success = ((bool) ($result['success'] ?? false)) || $code < 400;
             }
             if (!is_array($result)) {
