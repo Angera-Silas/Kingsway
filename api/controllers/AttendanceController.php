@@ -8,8 +8,8 @@ use App\API\Modules\attendance\AttendanceStudentService;
 use App\API\Modules\attendance\AttendanceStaffService;
 use App\API\Modules\attendance\AttendancePermissionService;
 use App\API\Services\StaffDomainAccessService;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 use RuntimeException;
 use Exception;
@@ -584,7 +584,7 @@ return $this->serverError('An internal error occurred.');
             $result = $registerService->list($filters);
             $registers = is_array($result['registers'] ?? null) ? $result['registers'] : [];
             $input = $registerService->buildAiExceptionSummaryInput($date, $registers);
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'attendance.exception_summary',
                 $this->aiAttendanceContext(),
                 $input,
@@ -626,7 +626,7 @@ return $this->serverError('An internal error occurred.');
             }
             $input = $this->contract('App\API\Services\AttendanceRegisterService', $this->getDb()->getConnection())
                 ->buildAiLatenessPatternInput($from, $to, $students, $className);
-            return $this->accepted($this->contract(AiDraftService::class)->queue(
+            return $this->accepted($this->contract(DraftRepository::class)->queue(
                 'attendance.lateness_pattern_review', $this->aiAttendanceContext(), $input,
                 [
                     'subject_type' => 'attendance_lateness_pattern',
@@ -645,7 +645,7 @@ return $this->serverError('An internal error occurred.');
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiAttendance()) return $this->forbidden('Attendance review permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'attendance'
             ), 'scope' => $review ? 'review' : 'own'], 'Attendance AI summaries retrieved');
         } catch (\Throwable $e) {
@@ -660,11 +660,11 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $workflow = $this->contract(AiDraftService::class)->workflowIdForDraft($this->getDb()->getConnection(), $draftId);
+            $workflow = $this->contract(DraftRepository::class)->workflowIdForDraft($this->getDb()->getConnection(), $draftId);
             if (!in_array($workflow, ['attendance.exception_summary', 'attendance.lateness_pattern_review'], true)) {
                 return $this->respond(null, 'This draft does not belong to an attendance review workflow.', 409, false);
             }
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Attendance summary approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -678,12 +678,12 @@ return $this->serverError('An internal error occurred.');
 
     private function canUseAiAttendance(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('attendance.exception_summary', $this->aiAttendanceContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('attendance.exception_summary', $this->aiAttendanceContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canUseAiAttendanceWorkflow(string $workflow): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize($workflow, $this->aiAttendanceContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize($workflow, $this->aiAttendanceContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiAttendance(): bool

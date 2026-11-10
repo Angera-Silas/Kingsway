@@ -2,8 +2,8 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\boarding\BoardingManager;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use App\API\Services\Logger;
 use DomainException;
 use Exception;
@@ -65,7 +65,7 @@ class BoardingController extends BaseController
             $inputResponse = $this->manager->getAiExceptionSummaryInput($dateFrom, $dateTo);
             if (($inputResponse['success'] ?? false) !== true) return $this->handleApiResponse($inputResponse);
             $input = is_array($inputResponse['data'] ?? null) ? $inputResponse['data'] : [];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'boarding.exception_summary', $this->aiBoardingContext(), $input,
                 ['subject_type' => 'boarding_exception_summary', 'scope' => 'authorized_boarding_operations']
             );
@@ -86,7 +86,7 @@ class BoardingController extends BaseController
     {
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiBoarding()) return $this->forbidden('Boarding review permission is required');
-        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'boarding'), 'scope' => $review ? 'review' : 'own'], 'Boarding AI summaries retrieved');
+        return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'boarding'), 'scope' => $review ? 'review' : 'own'], 'Boarding AI summaries retrieved');
     }
 
     public function postAiExceptionSummaryApprove($id = null, $data = [], $segments = [])
@@ -95,7 +95,7 @@ class BoardingController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'boarding.exception_summary');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'boarding.exception_summary');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Boarding summary approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -108,7 +108,7 @@ class BoardingController extends BaseController
     }
     private function canUseAiBoarding(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('boarding.exception_summary', $this->aiBoardingContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('boarding.exception_summary', $this->aiBoardingContext()); return true; } catch (DomainException $e) { return false; }
     }
     private function canApproveAiBoarding(): bool
     {

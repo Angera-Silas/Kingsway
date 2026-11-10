@@ -16,17 +16,26 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from . import agents, guard, output_guard, policy
+from . import agents, commands, guard, output_guard, policy
 from .behavior import BehaviorStore
 from .chat_sessions import ChatSessionStore
 from .conversation import ConversationStore
 from .journal import Journal, hash_text
 from .providers import Provider, ProviderError
-from .tools import ToolBridge, SYSTEM_ADMIN_PERMISSION
+from .tools import ANALYTICS_CHART_TYPES, ToolBridge, SYSTEM_ADMIN_PERMISSION
 
 MAX_TOOL_STEPS = 2
 MAX_TOOL_EXECUTIONS = 6
-MAX_PROVIDER_CALLS = 2
+# Three provider calls per turn: one to propose tools, one to answer
+# after those tools ran, and one spare for a follow-up (a chart drawn
+# from a report, or a specialist's answer folded in). Two calls left a
+# tool-heavy question with no answer at all.
+MAX_PROVIDER_CALLS = 3
+# Streamed rounds and mid-stream tool steps. The streamed surface is
+# bound tighter than the buffered one only because prose must keep moving;
+# the numbers are high enough for report -> chart source -> figure.
+MAX_STREAM_ROUNDS = 4
+MAX_STREAM_TOOL_STEPS = 3
 # Retained follow-up turns supplied by the client for conversational context.
 MAX_HISTORY_TURNS = 12
 CONVERSATION_PROMPT_TURNS = 12
@@ -35,10 +44,26 @@ HISTORY_CHAR_BUDGET = 5000
 SUMMARY_LINES = 8
 MAX_TOOLS_PER_STEP = 3
 MAX_TOOL_RESULT_CHARS = 4000
+# Sub-agent delegation. A primary agent may hand one bounded sub-question to a
+# specialist and fold the result back into its own turn. Budgets are smaller
+# than the parent's so a chain of delegations cannot outrun the request, and
+# depth is capped so a delegate can never delegate again into an unbounded fan
+# out. Every sub-turn inherits the SAME operator permissions — delegation is a
+# reasoning tool, never a scope-widening one.
+MAX_DELEGATIONS = 2
+# A sub-turn may run one governed tool round, then must answer from it.
+MAX_DELEGATE_TOOL_ROUNDS = 1
+# Fields of a governed tool result that reach the model.
+#
+# Internal identifiers are deliberately absent: `workflow_id`, `draft_job_id`,
+# `run_id` and `action_level` describe how the platform is wired, not what the
+# staff member asked. Passing them through meant the model echoed "workflow_id:
+# drafts.create" back into a chat answer, which is exactly the disclosure the
+# confidentiality guard exists to prevent. A staff member needs the draft's
+# title and its review state, never the tool id that produced it.
 TOOL_RESULT_FIELDS = (
     "status",
     "draft_id",
-    "workflow_id",
     "report_code",
     "report_title",
     "row_count",
@@ -55,42 +80,481 @@ TOOL_RESULT_FIELDS = (
     "explanation",
     "intent",
     "preview_limited",
+    # Governed report rows. They are dicts, which the generic list filter
+    # would drop, so they are flattened to "column=value" lines below. The
+    # same rows are what analytics.chart draws from.
+    "rows_withheld",
+    # Web-search results. Tools._execute_web_tool flattens each finding to a
+    # "Title — snippet" string carrying its source URL, because this filter
+    # only keeps scalar list items: a dict would silently vanish from the
+    # prompt and the agent would answer from model knowledge alone.
+    "query",
+    "results",
+    "sources",
+    "source_count",
+    # web.fetch fields: the title and the page text itself. Without these a
+    # fetched page reaches the agent as a bare "answered" and it answers from
+    # model memory instead of the source it just retrieved.
+    "url",
+    "title",
+    "content",
+    "char_count",
+    "truncated",
+    # web.crawl fields: the bounded multi-page reading session. `pages` is a
+    # list of "Title — URL" strings and `content` is the concatenated excerpts,
+    # so both survive _compact_result and the answer can cite each page.
+    "seed",
+    "pages",
+    "page_count",
 )
 
 
 def _bounded_chart_result(tool_id: str, result: Any) -> dict[str, Any] | None:
     """Extract a small, display-only chart from the governed PHP report tool."""
-    if tool_id != "charts.generate" or not isinstance(result, dict) or result.get("status") != "answered":
+    if (
+        tool_id != "charts.generate"
+        or not isinstance(result, dict)
+        or result.get("status") != "answered"
+    ):
         return None
     answer = result.get("answer") if isinstance(result.get("answer"), dict) else {}
     chart = answer.get("chart")
-    if not isinstance(chart, dict) or chart.get("type") not in {"bar", "line", "pie", "doughnut", "area"}:
+    if not isinstance(chart, dict) or chart.get("type") not in {
+        "bar",
+        "line",
+        "pie",
+        "doughnut",
+        "area",
+    }:
         return None
     labels = chart.get("labels") if isinstance(chart.get("labels"), list) else []
     labels = [str(label)[:120] for label in labels[:25]]
     datasets = []
-    for dataset in (chart.get("datasets") if isinstance(chart.get("datasets"), list) else [])[:4]:
+    for dataset in (
+        chart.get("datasets") if isinstance(chart.get("datasets"), list) else []
+    )[:4]:
         if not isinstance(dataset, dict):
             continue
         values = dataset.get("data") if isinstance(dataset.get("data"), list) else []
         data = []
         for value in values[: len(labels)]:
             if isinstance(value, (int, float)) and not isinstance(value, bool):
-                data.append(value if value == value and abs(value) != float("inf") else None)
+                data.append(
+                    value if value == value and abs(value) != float("inf") else None
+                )
             else:
                 data.append(None)
-        datasets.append({"label": str(dataset.get("label") or "Values")[:80], "data": data})
+        datasets.append(
+            {"label": str(dataset.get("label") or "Values")[:80], "data": data}
+        )
     if not labels or not datasets:
         return None
-    scope = answer.get("effective_scope") if isinstance(answer.get("effective_scope"), dict) else {}
-    allowed_scope = {key: scope[key] for key in ("type", "academic_year_id", "academic_year_term_id", "class_id", "stream_id", "learning_area_id", "user_id") if key in scope}
+    scope = (
+        answer.get("effective_scope")
+        if isinstance(answer.get("effective_scope"), dict)
+        else {}
+    )
+    allowed_scope = {
+        key: scope[key]
+        for key in (
+            "type",
+            "academic_year_id",
+            "academic_year_term_id",
+            "class_id",
+            "stream_id",
+            "learning_area_id",
+            "user_id",
+        )
+        if key in scope
+    }
     return {
-        "chart": {"type": chart["type"], "title": str(chart.get("title") or "Report chart")[:120], "labels": labels, "datasets": datasets},
+        "chart": {
+            "type": chart["type"],
+            "title": str(chart.get("title") or "Report chart")[:120],
+            "labels": labels,
+            "datasets": datasets,
+        },
         "report_code": str(answer.get("report_code") or "")[:100],
         "row_count": int(answer.get("row_count") or len(labels)),
         "preview_limited": bool(answer.get("preview_limited")),
         "effective_scope": allowed_scope,
     }
+
+
+# A rendered analytics figure is a PNG data URI. It is shown, never spoken:
+# the image must NOT enter the prompt (base64 would consume the whole context
+# budget), so it is carried alongside `charts` in a separate display-only field.
+_IMAGE_DATA_URI = re.compile(r"^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$")
+MAX_ARTIFACT_BYTES = 2_000_000
+
+
+def _analytics_artifact(tool_id: str, result: Any) -> dict[str, Any] | None:
+    """Extract a display-only figure produced by analytics.chart."""
+    if tool_id != "analytics.chart" or not isinstance(result, dict):
+        return None
+    if result.get("status") != "answered":
+        return None
+    image = result.get("image")
+    if not isinstance(image, str) or not _IMAGE_DATA_URI.match(image):
+        return None
+    if len(image) > MAX_ARTIFACT_BYTES:
+        return None
+    return {
+        "kind": "image",
+        "mime_type": "image/png",
+        "title": str(result.get("title") or "Chart")[:120],
+        "image": image,
+        "summary": str(result.get("summary") or "")[:400],
+        "download_name": _artifact_filename(str(result.get("title") or "chart"), "png"),
+    }
+
+
+def _artifact_filename(title: str, extension: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60] or "chart"
+    return f"{slug}.{extension}"
+
+
+# Staff-facing labels for the governed tools an answer used. The ids themselves
+# ("reports.nlq", "charts.generate") are internal: they disclose how the
+# platform is built, which the confidentiality guard is there to prevent. The
+# labels describe what the staff member got, which is all a chat surface needs.
+_TOOL_LABELS = {
+    "reports.nlq": "governed school report",
+    "reports.aggregate": "governed aggregation",
+    "charts.generate": "chart source report",
+    "analytics.chart": "chart",
+    "analytics.summary": "data summary",
+    "analytics.forecast": "trend projection",
+    "drafts.create": "draft prepared for review",
+    "reports.insight_brief": "intelligence briefing",
+    "assistant.catalog": "workflow catalogue",
+    "web.search": "public web search",
+    "web.fetch": "public web page",
+    "web.crawl": "public website review",
+}
+
+
+def _public_tool_labels(tools_used: list[str]) -> list[str]:
+    """Human labels for the tools an answer used, in order, deduplicated."""
+    labels: list[str] = []
+    for tool_id in tools_used:
+        if tool_id.startswith("delegate:"):
+            labels.append("specialist advice")
+            continue
+        label = _TOOL_LABELS.get(tool_id)
+        if label is None:
+            # An unknown tool id is never shown: the label falls back to a
+            # generic description rather than exposing the identifier.
+            label = "governed school data"
+        if label not in labels:
+            labels.append(label)
+    return labels
+
+
+# Words that make a claim about an extreme. A sentence naming one of these
+# and a class label is checkable against the authorized rows, so a swapped
+# "highest"/"lowest" is detectable rather than silently delivered.
+_SUPERLATIVE_WORDS = (
+    "highest",
+    "lowest",
+    "largest",
+    "smallest",
+    "biggest",
+    "greatest",
+    "most",
+    "least",
+    "top",
+)
+
+
+def _sentences(text: str) -> list[str]:
+    """Split prose into sentences without importing a sentence tokenizer."""
+    parts = re.split(r"(?<=[.!?])\s+|\n+", str(text or ""))
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _number_tokens(text: str) -> list[float]:
+    """Every number written in the prose, as floats."""
+    found: list[float] = []
+    for match in re.finditer(r"\d[\d,]*(?:\.\d+)?", str(text or "")):
+        raw = match.group(0).replace(",", "")
+        try:
+            found.append(float(raw))
+        except ValueError:
+            continue
+    return found
+
+
+def _close(value: float, numbers: list[float], tolerance: float = 0.02) -> bool:
+    for candidate in numbers:
+        if candidate == 0:
+            if abs(value) < 1e-9:
+                return True
+            continue
+        if abs(value - candidate) / abs(candidate) <= tolerance:
+            return True
+    return False
+
+
+# Which numeric column a sentence is claiming about. The words the school
+# actually uses map onto the governed column names, so "how many students are
+# in arrears" is read as the student-count column and "total arrears" as the
+# money column.
+_COLUMN_WORDS = {
+    "total_arrears": ("arrears", "total", "outstanding", "balance", "owed"),
+    "students_in_arrears": ("students", "pupils", "learners", "count", "families"),
+    "attendance_rate": ("rate", "attendance", "percent", "present"),
+    "present": ("present", "attended"),
+    "absent": ("absent", "missed"),
+}
+
+
+def _column_for(sentence: str, numeric_columns: list[str], superlatives: list[int]) -> str:
+    """Which numeric column a superlative sentence is claiming about.
+
+    Picked by proximity, not by first match: "highest total arrears ... 48
+    students" contains both the money word and the count word, and the claim is
+    about the one standing next to the superlative. Matching the first keyword
+    instead read every "total arrears" sentence as a student-count claim and
+    flagged correct answers as contradictions.
+    """
+    lowered = sentence.lower()
+    best_column = numeric_columns[0]
+    best_distance: int | None = None
+    for column in numeric_columns:
+        for word in _COLUMN_WORDS.get(column, ()):
+            position = lowered.find(word)
+            if position < 0:
+                continue
+            distance = min(
+                (abs(position - marker) for marker in superlatives), default=None
+            )
+            if distance is None:
+                continue
+            if best_distance is None or distance < best_distance:
+                best_distance = distance
+                best_column = column
+    return best_column
+
+
+def _claims_contradict_rows(rows: list[dict[str, Any]], body: str) -> bool:
+    """True when the prose points at the wrong row as the extreme.
+
+    The model is allowed to explain the authorized rows; it is not allowed to
+    name the wrong one as the biggest. A live turn delivered "Grade 2 has the
+    highest total arrears ... while Grade 7 has the lowest" for data in which
+    Grade 7 is the highest and PP3 is the lowest. Each superlative sentence is
+    therefore checked against the rows it was given, and when it fails the
+    deterministic rendering is used instead - the figures the staff member
+    sees are then the ones the server actually authorized.
+    """
+    if not rows or not body:
+        return False
+    numeric_columns: list[str] = []
+    for row in rows:
+        for key, value in row.items():
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float)) or (
+                isinstance(value, str) and _number_tokens(value)
+            ):
+                if key not in numeric_columns:
+                    numeric_columns.append(str(key))
+    if not numeric_columns:
+        return False
+
+    labels: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        for key, value in row.items():
+            if isinstance(value, str) and value.strip():
+                labels.setdefault(value.strip(), row)
+    if not labels:
+        return False
+
+    for sentence in _sentences(body):
+        lowered = sentence.lower()
+        asks_high = any(
+            word in lowered
+            for word in ("highest", "largest", "biggest", "greatest", "most", "top")
+        )
+        asks_low = any(
+            word in lowered
+            for word in ("lowest", "smallest", "least")
+        )
+        if not asks_high and not asks_low:
+            continue
+        superlatives = [
+            lowered.find(word)
+            for word in _SUPERLATIVE_WORDS
+            if lowered.find(word) >= 0
+        ]
+        mentioned = [label for label in labels if label and label in sentence]
+        numbers = _number_tokens(sentence)
+        if not mentioned and not numbers:
+            continue
+        column = _column_for(sentence, numeric_columns, superlatives)
+        values = [
+            (label, number)
+            for label, row in labels.items()
+            if (number := _first_number(row.get(column))) is not None
+        ]
+        if len(values) < 2:
+            continue
+        if mentioned:
+            # The sentence names rows: the row the data calls the extreme must
+            # be one of them. This is the reliable signal - a swapped
+            # "highest"/"lowest" always names the wrong row.
+            for wants_high in (True, False) if (asks_high and asks_low) else (asks_high,):
+                truth_label, _truth_value = (
+                    max(values, key=lambda item: item[1])
+                    if wants_high
+                    else min(values, key=lambda item: item[1])
+                )
+                if truth_label not in mentioned:
+                    return True
+            continue
+        if numbers:
+            # A value-only claim ("the highest figure is 1,485,730"): it stands
+            # when any number in the sentence is an extreme of any numeric
+            # column. A "highest X and lowest Y" sentence therefore only has to
+            # quote two real extremes, whichever columns they come from.
+            extremes: list[float] = []
+            for candidate_column in numeric_columns:
+                candidate_values = [
+                    number
+                    for row in rows
+                    if (number := _first_number(row.get(candidate_column))) is not None
+                ]
+                if len(candidate_values) >= 2:
+                    extremes.extend([max(candidate_values), min(candidate_values)])
+            if any(_close(value, extremes) for value in numbers):
+                continue
+            return True
+    return False
+
+
+def _first_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        numbers = _number_tokens(value)
+        return numbers[0] if numbers else None
+    return None
+
+
+# The first words of the guardrail block's own refusal sentence. A weak model
+# reaches for it as a default "safe" answer whenever it has nothing solid to
+# say - a queued draft, a report with no rows, a projection with too few
+# observations all produced "I cannot fulfill this request" for staff who were
+# fully authorized. Detecting it lets the deterministic rendering of the
+# command's own result take over.
+_REFUSAL_OPENING = "i cannot fulfill this request"
+
+
+def _looks_like_refusal(body: str) -> bool:
+    text = str(body or "").strip().lower()
+    return text.startswith(_REFUSAL_OPENING) or (
+        "does not have authorization" in text and "cannot fulfill" in text
+    )
+
+
+def _command_outcome_answer(tool: str, result: Any) -> dict[str, Any] | None:
+    """Deterministic answer from a slash command's own tool result.
+
+    A command is a promise: "/draft notice closing arrangements" has to end with
+    a draft, whatever the model decides to say. When the model refuses or says
+    nothing, the tool's own outcome is rendered instead - it is the authoritative
+    record of what the platform actually did.
+    """
+    if not isinstance(result, dict):
+        return None
+    status = str(result.get("status") or "")
+    message = str(result.get("message") or "").strip()
+    draft_id = result.get("draft_id")
+    if status == "queued" or draft_id:
+        body = (
+            "A draft has been prepared and queued for your review. "
+            "Open the drafts inbox to read the full text, adjust anything you "
+            "want changed, and approve it. Nothing is sent until you approve."
+        )
+        if draft_id:
+            body = f"Draft #{int(draft_id)} is queued for your review. " + body.split(
+                "A draft has been prepared and queued for your review. ", 1
+            )[-1]
+        return {
+            "title": "Draft queued for review",
+            "body": body,
+            "next_steps": [
+                "Open the drafts inbox to review and approve it.",
+                "Nothing is applied or sent until you approve.",
+            ],
+            "suggested_questions": [],
+            "escalation_required": False,
+        }
+    if status in {"unavailable", "not_authorized", "unknown_tool"}:
+        return {
+            "title": "That could not be completed",
+            "body": message
+            or "The governed tool could not complete this request just now.",
+            "next_steps": [
+                "Try again, or open the related workspace and check it directly."
+            ],
+            "suggested_questions": [],
+            "escalation_required": False,
+        }
+    return None
+
+
+def _rows_bearing_result(result: Any) -> dict[str, Any] | None:
+    """The dict inside a governed result that carries the report rows.
+
+    PHP's tool envelope wraps the report in "answer" and keeps the status beside
+    it. Both the rows themselves and the deterministic rendering live on that
+    inner dict, so anything that wants to render or verify the rows - the
+    grounded-claim guard, the rows fallback - has to look there rather than at
+    the top level, where "rows" simply does not exist.
+    """
+    if not isinstance(result, dict):
+        return None
+    for candidate in (result, result.get("answer")):
+        if isinstance(candidate, dict) and isinstance(candidate.get("rows"), list):
+            if candidate.get("rows"):
+                return candidate
+    return None
+
+
+def _proposed_tool_ids(proposal: dict[str, Any]) -> set[str]:
+    """Tool ids a proposal asks for, named or batched."""
+    ids: set[str] = set()
+    raw = proposal.get("tools")
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict) and str(item.get("tool") or "").strip():
+                ids.add(str(item.get("tool")).strip())
+    single = str(proposal.get("tool") or "").strip()
+    if single:
+        ids.add(single)
+    return ids
+
+
+def _flatten_row(row: dict[str, Any]) -> str:
+    """One bounded, readable line per governed report row."""
+    parts: list[str] = []
+    for key, value in list(row.items())[:12]:
+        if isinstance(value, bool):
+            text = "yes" if value else "no"
+        elif isinstance(value, (int, float)):
+            text = str(value)
+        elif isinstance(value, str):
+            text = value.strip()[:80]
+        elif value is None:
+            continue
+        else:
+            continue
+        parts.append(f"{str(key)[:40]}={text}")
+    return "; ".join(parts)[:400]
 
 
 def _decode_partial_json_string(value: str, cursor: int) -> tuple[str, int, bool]:
@@ -170,25 +634,16 @@ class Orchestrator:
         self.config = getattr(provider, "config", None)
 
     # ------------------------------------------------------------------ assist
-    def assist(self, context: dict, question: str) -> dict[str, Any]:
-        from .security import bound_question
+    def _select_agent(
+        self, question: str, route: str, module: str, skip_triage: bool = False
+    ) -> tuple[dict[str, Any], str]:
+        """Pick the agent for a question. One implementation for both surfaces.
 
-        question_raw = question
-        question_clean, slash_instr = guard.extract_slash(question_raw)
-        question = bound_question(question_clean or question_raw)
-        instruction = slash_instr or (context.get("instruction") or "")
-        context = {**context, "instruction": instruction}
-        user_id = int(context["user_id"])
-        permissions = list(context["permissions"])
-        route = context.get("route", "")
-        module = context.get("module", "dashboard")
-        request_id = context.get("request_id", "")
-        session_id = str(context.get("session_id") or "")
-        assistant_domain = str(context.get("assistant_domain") or "staff")
-
-        # Intent-first agent selection. A governed report query is the most
-        # specific intent; otherwise prefer an explicit lexical signal, then
-        # the current workspace, provider triage, and finally the default.
+        Order: governed-report intent, then a lexical hint that agrees with the
+        workspace, then the lexical hint alone, then the workspace agent, then
+        provider triage, then the default. Buffered and streamed answers used to
+        carry two copies of this and could route the same question differently.
+        """
         agent = None
         routing = "default"
         if self._is_report_query(question):
@@ -196,7 +651,12 @@ class Orchestrator:
             routing = "report_query"
         routed_agent = agents.for_route(route)
         hinted = agents.route_hint_for(question)
-        if agent is None and hinted is not None and routed_agent is not None and hinted[0] == routed_agent["id"]:
+        if (
+            agent is None
+            and hinted is not None
+            and routed_agent is not None
+            and hinted[0] == routed_agent["id"]
+        ):
             agent = routed_agent
             routing = "route_match"
         if agent is None and hinted is not None:
@@ -205,13 +665,242 @@ class Orchestrator:
         if agent is None and routed_agent is not None:
             agent = routed_agent
             routing = "route_match"
-        if agent is None:
+        if agent is None and not skip_triage:
             agent = self._triage(question, route, module)
             if agent is not None:
                 routing = "triage"
         if agent is None:
             agent = agents.default_agent()
             routing = "default"
+        return agent, routing
+
+    def _apply_identity(
+        self,
+        agent: dict[str, Any],
+        routing: str,
+        context: dict,
+        assistant_domain: str,
+    ) -> tuple[dict[str, Any], str]:
+        """Apply the admin / audience persona overrides. One implementation.
+
+        The system_admin agent and its file/log tools are reserved for verified
+        administrators; an explicit parent/public persona is honoured only for
+        its own audience. Everything else keeps normal staff routing.
+        """
+        wants_admin = bool(context.get("system_admin"))
+        if agent["id"] == "system_admin.agent":
+            if not (wants_admin and self._is_system_admin(context)):
+                agent = agents.default_agent()
+                routing = "not_authorized" if wants_admin else routing
+        elif wants_admin and self._is_system_admin(context):
+            resolved = agents.resolve("system_admin.agent")
+            if resolved is not None:
+                agent = resolved
+                routing = "admin_mode"
+
+        domain = str(assistant_domain or "").lower()
+        if domain and agent["id"] != "system_admin.agent":
+            if domain == "system_admin":
+                if self._is_system_admin(context):
+                    agent = (
+                        agents.resolve("system_admin.agent") or agents.default_agent()
+                    )
+                    routing = "domain:system_admin"
+                else:
+                    agent = agents.default_agent()
+                    routing = "not_authorized"
+            elif domain in ("parent", "public"):
+                resolved = agents.resolve(f"{domain}.agent")
+                if resolved is not None:
+                    agent = resolved
+                    routing = f"domain:{domain}"
+                else:
+                    agent = agents.default_agent()
+                    routing = "default"
+        return agent, routing
+
+    def _apply_command(
+        self,
+        agent: dict[str, Any],
+        routing: str,
+        context: dict,
+        invocation: "commands.Invocation",
+    ) -> tuple[dict[str, Any], str, dict]:
+        """Fold a slash action command into the turn's agent and context."""
+        if invocation.agent:
+            resolved = agents.resolve(invocation.agent)
+            if resolved is not None:
+                agent = resolved
+                routing = f"command:{invocation.name}"
+        context = {
+            **context,
+            "forced_tool": invocation.tool,
+            "forced_tool_input": invocation.tool_input,
+            "command": invocation.name,
+        }
+        # The command's own declared follow-up (the figure for /chart, the
+        # projection for /forecast), read from the same registry the parser
+        # used so the two can never disagree about what a command does.
+        definition = commands.COMMANDS.get(invocation.name)
+        if definition is not None and definition.follow_up:
+            context["forced_follow_up"] = definition.follow_up
+        return agent, routing, context
+
+    def _run_forced_tool(
+        self,
+        context: dict,
+        agent: dict[str, Any],
+        user_id: int,
+        permissions: list[str],
+        request_id: str,
+        already_run: set[str] | None = None,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Execute the tool a slash command selected, once, with normal gates.
+
+        The command only names a tool the chosen agent already owns; PHP still
+        re-authorises it. Returns None when there is nothing to run.
+        """
+        tool = str(context.get("forced_tool") or "")
+        payload = context.get("forced_tool_input")
+        if not tool or tool not in agent["tools"] or not isinstance(payload, dict):
+            return None
+        required = {
+            "web.search": "query",
+            "web.crawl": "url",
+            "reports.nlq": "question",
+            "reports.aggregate": "question",
+            "charts.generate": "question",
+            "drafts.create": "template",
+        }.get(tool)
+        if required and not str(payload.get(required) or "").strip():
+            return None
+        if already_run and tool in already_run:
+            return None
+        result = self.tools.execute(
+            user_id,
+            permissions,
+            tool,
+            payload,
+            request_id,
+            roles=context.get("roles"),
+            role_ids=context.get("role_ids"),
+        )
+        return tool, result
+
+    def _run_follow_up(
+        self,
+        context: dict,
+        agent: dict[str, Any],
+        user_id: int,
+        permissions: list[str],
+        request_id: str,
+        tools_used: list[str],
+        already_run: set[str] | None = None,
+        source_result: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Run the governed follow-up a command declares, once.
+
+        "/chart" asks for a picture. The chart source report gives rows and a
+        chart specification; the figure itself is drawn by analytics.chart.
+        Drawing it here - rather than trusting the model to ask for it - makes
+        the command behave the same on the buffered and the streamed surface,
+        and makes the render window actually receive an image.
+
+        The follow-up only runs when the agent owns it and the rows are in
+        hand, so a command can never become a second, differently-gated path
+        to data.
+        """
+        follow_up = str(context.get("forced_follow_up") or "")
+        if not follow_up or follow_up not in agent["tools"]:
+            return None
+        if already_run and follow_up in set(already_run) | set(tools_used):
+            return None
+        # The rows the tool bridge holds for this operator are the evidence the
+        # figure is drawn from, and analytics.chart picks its own x/y columns,
+        # so nothing has to be copied through the prompt here. The only thing
+        # worth carrying across is the chart type the governed report already
+        # chose, so the figure matches what the reports screen would draw.
+        payload: dict[str, Any] = {}
+        if isinstance(source_result, dict):
+            spec = _bounded_chart_result(
+                str(context.get("forced_tool") or ""), source_result
+            )
+            if spec is not None:
+                chart = spec.get("chart")
+                if isinstance(chart, dict) and chart.get("type") in ANALYTICS_CHART_TYPES:
+                    payload["chart_type"] = str(chart["type"])
+                title = str(spec.get("title") or "")
+                if title:
+                    payload["title"] = title
+        result = self.tools.execute(
+            user_id,
+            permissions,
+            follow_up,
+            payload,
+            request_id,
+            roles=context.get("roles"),
+            role_ids=context.get("role_ids"),
+        )
+        if isinstance(result, dict) and result.get("status") == "unavailable":
+            # No authorized rows reached the bridge: the command's own tool
+            # result may still carry them, and that is a legitimate source.
+            return None
+        return follow_up, result
+
+    def _command_help_answer(self) -> dict[str, Any]:
+        """Deterministic /help answer. No provider call, no data access."""
+        body = commands.help_text(guard.slash_catalogue())
+        return {
+            "status": "answered",
+            "answer": {
+                "title": "Commands",
+                "body": body,
+                "next_steps": ["Type a command, then the question it should act on."],
+                "suggested_questions": [],
+                "escalation_required": False,
+            },
+            "tools_used": [],
+            "charts": [],
+            "artifacts": [],
+            "scope_checks": [],
+            "provider_calls": 0,
+        }
+
+    def assist(self, context: dict, question: str) -> dict[str, Any]:
+        from .security import bound_question
+
+        question_raw = question
+        user_id = int(context["user_id"])
+        permissions = list(context["permissions"])
+        route = context.get("route", "")
+        module = context.get("module", "dashboard")
+        request_id = context.get("request_id", "")
+        session_id = str(context.get("session_id") or "")
+        assistant_domain = str(context.get("assistant_domain") or "staff")
+
+        # Action commands (/web, /crawl, /report ...) preselect a governed tool.
+        # They are honoured for staff audiences only: parent/public sessions
+        # keep their narrower tool set and normal routing.
+        invocation = (
+            commands.parse(question_raw) if assistant_domain in ("", "staff") else None
+        )
+        if invocation is not None and not invocation.help_requested:
+            clean, style_instr = guard.extract_slash(invocation.question)
+            question_clean = clean or invocation.question
+            instruction = style_instr or invocation.instruction
+        else:
+            question_clean, slash_instr = guard.extract_slash(question_raw)
+            instruction = slash_instr or ""
+        instruction = instruction or str(context.get("instruction") or "")
+        context = {**context, "instruction": instruction}
+        question = bound_question(question_clean or question_raw)
+
+        agent, routing = self._select_agent(
+            question,
+            route,
+            module,
+            skip_triage=bool(invocation and invocation.help_requested),
+        )
 
         # Deterministic pre-flight, before any provider call:
         #   - a confidentiality probe is refused locally and never reaches a
@@ -270,49 +959,25 @@ class Orchestrator:
 
         prefs = self._preferences(user_id, context)
 
-        # The system_admin agent and its file/log tools are reserved for
-        # system administrators only. A non-admin request that lands here is
-        # demoted to the default agent; an explicit admin-mode request from a
-        # verified administrator is honoured.
-        wants_admin = bool(context.get("system_admin"))
-        if agent["id"] == "system_admin.agent":
-            if not (wants_admin and self._is_system_admin(context)):
-                agent = agents.default_agent()
-                routing = "not_authorized" if wants_admin else routing
-        elif wants_admin and self._is_system_admin(context):
-            resolved = agents.resolve("system_admin.agent")
-            if resolved is not None:
-                agent = resolved
-                routing = "admin_mode"
+        agent, routing = self._apply_identity(agent, routing, context, assistant_domain)
 
-        # Assistant domain routing: explicit persona from the frontend.
-        # system_admin -> system_admin.agent, parent -> parent.agent,
-        # public -> public.agent, staff -> use normal staff routing.
-        assistant_domain = str(context.get("assistant_domain") or "").lower()
-        if assistant_domain and agent["id"] != "system_admin.agent":
-            if assistant_domain == "system_admin":
-                if self._is_system_admin(context):
-                    agent = agents.resolve("system_admin.agent") or agents.default_agent()
-                    routing = "domain:system_admin"
-                else:
-                    agent = agents.default_agent()
-                    routing = "not_authorized"
-                assistant_domain = ""
-        if assistant_domain and agent["id"] != "system_admin.agent":
-            domain_agent_map = {
-                "parent": "parent.agent",
-                "public": "public.agent",
-                "staff": None,  # normal staff routing below
+        if invocation is not None and invocation.help_requested:
+            result = self._command_help_answer()
+            self._observe_outcome(user_id, route, module, agent, [], "instant")
+            return {
+                **result,
+                "routing": routing,
+                "agent": {
+                    "id": agent["id"],
+                    "name": agent["name"],
+                    "domain": agent["domain"],
+                },
             }
-            target = domain_agent_map.get(assistant_domain)
-            if target:
-                resolved = agents.resolve(target)
-                if resolved is not None:
-                    agent = resolved
-                    routing = f"domain:{assistant_domain}"
-                else:
-                    agent = agents.default_agent()
-                    routing = "default"
+
+        if invocation is not None and not invocation.help_requested:
+            agent, routing, context = self._apply_command(
+                agent, routing, context, invocation
+            )
 
         self.behavior.observe(
             user_id,
@@ -891,8 +1556,6 @@ class Orchestrator:
         from .security import bound_question
 
         question_raw = str(question or "").strip()
-        question_clean, slash_instruction = guard.extract_slash(question_raw)
-        question = bound_question(question_clean or question_raw)
         user_id = int(context["user_id"])
         permissions = list(context["permissions"])
         route = context.get("route", "")
@@ -901,27 +1564,23 @@ class Orchestrator:
         session_id = str(context.get("session_id") or "")
         assistant_domain = str(context.get("assistant_domain") or "staff")
 
-        # Intent-first agent selection: use fast lexical hint from question
-        # before falling back to route. This ensures placement_tests questions
-        # about reports go to reports.agent, not admissions.agent.
-        # First, check if the question is a governed-report query that should
-        # go to reports.agent regardless of route hints.
-        agent = None
-        routing = "route_match"
-        if self._is_report_query(question):
-            agent = agents.AGENTS.get("reports.agent")
-            routing = "report_query"
-        routed_agent = agents.for_route(route)
-        hinted = agents.route_hint_for(question)
-        if agent is None and hinted is not None and routed_agent is not None and hinted[0] == routed_agent["id"]:
-            agent = routed_agent
-            routing = "route_match"
-        if agent is None and hinted is not None:
-            agent = agents.AGENTS.get(hinted[0])
-            routing = "lexical"
-        if agent is None and routed_agent is not None:
-            agent = routed_agent
-            routing = "route_match"
+        invocation = (
+            commands.parse(question_raw) if assistant_domain in ("", "staff") else None
+        )
+        if invocation is not None and not invocation.help_requested:
+            clean, style_instr = guard.extract_slash(invocation.question)
+            question_clean = clean or invocation.question
+            slash_instruction = style_instr or invocation.instruction
+        else:
+            question_clean, slash_instruction = guard.extract_slash(question_raw)
+        question = bound_question(question_clean or question_raw)
+
+        agent, routing = self._select_agent(
+            question,
+            route,
+            module,
+            skip_triage=bool(invocation and invocation.help_requested),
+        )
         # Same deterministic pre-flight as the buffered path.
         if guard.is_confidential(question):
             result = guard.confidential_response(agent or agents.default_agent())
@@ -956,45 +1615,26 @@ class Orchestrator:
 
         prefs = self._preferences(user_id, context)
 
-        # The system_admin agent and its file/log tools are reserved for
-        # system administrators only.
-        wants_admin = bool(context.get("system_admin"))
-        if agent["id"] == "system_admin.agent":
-            if not (wants_admin and self._is_system_admin(context)):
-                agent = agents.default_agent()
-                routing = "not_authorized" if wants_admin else routing
-        elif wants_admin and self._is_system_admin(context):
-            resolved = agents.resolve("system_admin.agent")
-            if resolved is not None:
-                agent = resolved
-                routing = "admin_mode"
+        agent, routing = self._apply_identity(agent, routing, context, assistant_domain)
 
-        # Assistant domain routing: explicit persona from the frontend.
-        assistant_domain = str(context.get("assistant_domain") or "").lower()
-        if assistant_domain and agent["id"] != "system_admin.agent":
-            if assistant_domain == "system_admin":
-                if self._is_system_admin(context):
-                    agent = agents.resolve("system_admin.agent") or agents.default_agent()
-                    routing = "domain:system_admin"
-                else:
-                    agent = agents.default_agent()
-                    routing = "not_authorized"
-                assistant_domain = ""
-        if assistant_domain and agent["id"] != "system_admin.agent":
-            domain_agent_map = {
-                "parent": "parent.agent",
-                "public": "public.agent",
-                "staff": None,
+        if invocation is not None and invocation.help_requested:
+            result = self._command_help_answer()
+            yield {
+                "kind": "final",
+                **result,
+                "routing": routing,
+                "agent": {
+                    "id": agent["id"],
+                    "name": agent["name"],
+                    "domain": agent["domain"],
+                },
             }
-            target = domain_agent_map.get(assistant_domain)
-            if target:
-                resolved = agents.resolve(target)
-                if resolved is not None:
-                    agent = resolved
-                    routing = f"domain:{assistant_domain}"
-                else:
-                    agent = agents.default_agent()
-                    routing = "default"
+            return
+
+        if invocation is not None and not invocation.help_requested:
+            agent, routing, context = self._apply_command(
+                agent, routing, context, invocation
+            )
 
         started = time.monotonic()
         allowed_tools = list(agent["tools"])
@@ -1008,6 +1648,7 @@ class Orchestrator:
             question,
             roles=context.get("roles"),
             role_ids=context.get("role_ids"),
+            context=context,
         )
         tool_results = [
             self._compact_result(tool_id, result) for tool_id, result in prefetched
@@ -1015,7 +1656,83 @@ class Orchestrator:
         tools_used = [
             tool_id for tool_id, result in prefetched if self._tool_succeeded(result)
         ]
-        charts = [chart for tool_id, result in prefetched if (chart := _bounded_chart_result(tool_id, result)) is not None][:3]
+        # The last governed result that carried rows, so a streamed turn that
+        # spends its budget on tools can still answer with the real figures.
+        last_rows_result: dict[str, Any] | None = None
+        for _tool_id, _result in prefetched:
+            rows_bearing = _rows_bearing_result(_result)
+            if rows_bearing is not None:
+                last_rows_result = rows_bearing
+        charts = [
+            chart
+            for tool_id, result in prefetched
+            if (chart := _bounded_chart_result(tool_id, result)) is not None
+        ][:3]
+        artifacts = [
+            artifact
+            for tool_id, result in prefetched
+            if (artifact := _analytics_artifact(tool_id, result)) is not None
+        ][:3]
+
+        # A slash action command runs its governed tool before the model speaks,
+        # using the same helper as the buffered path so the two cannot drift.
+        forced_source_result: dict[str, Any] | None = None
+        command_turn = False
+        forced = self._run_forced_tool(
+            context,
+            agent,
+            user_id,
+            permissions,
+            request_id,
+            already_run=set(tools_used),
+        )
+        if forced is not None:
+            forced_tool, forced_result = forced
+            command_turn = True
+            forced_source_result = forced_result
+            tools_used.append(forced_tool)
+            tool_results.append(self._compact_result(forced_tool, forced_result))
+            chart = _bounded_chart_result(forced_tool, forced_result)
+            if chart is not None and len(charts) < 3:
+                charts.append(chart)
+            artifact = _analytics_artifact(forced_tool, forced_result)
+            if artifact is not None and len(artifacts) < 3:
+                artifacts.append(artifact)
+        elif context.get("forced_tool"):
+            # Same rule as the buffered surface: the command's tool may already
+            # have run as a prefetch, and its result is still what the
+            # follow-up draws from.
+            command_turn = True
+            forced_source_result = next(
+                (
+                    result
+                    for tool_id, result in prefetched
+                    if tool_id == str(context.get("forced_tool"))
+                ),
+                None,
+            )
+        if context.get("forced_follow_up"):
+            follow_up = self._run_follow_up(
+                context,
+                agent,
+                user_id,
+                permissions,
+                request_id,
+                tools_used,
+                already_run=set(tools_used),
+                source_result=forced_source_result,
+            )
+            if follow_up is not None:
+                follow_up_tool, follow_up_result = follow_up
+                tools_used.append(follow_up_tool)
+                tool_results.append(
+                    self._compact_result(follow_up_tool, follow_up_result)
+                )
+                follow_up_artifact = _analytics_artifact(
+                    follow_up_tool, follow_up_result
+                )
+                if follow_up_artifact is not None and len(artifacts) < 3:
+                    artifacts.append(follow_up_artifact)
 
         hints = self.behavior.hints(user_id)
         self.behavior.observe(
@@ -1047,140 +1764,47 @@ class Orchestrator:
             and bool((result.get("answer", result)).get("report_code"))
             for tool_id, result in prefetched
         )
+        deterministic_answer = ""
+        deterministic_followups: list[str] = []
+        deterministic_citations: list[dict[str, Any]] = []
+        insufficient_data = False
         if has_nlq_prefetch:
             nlq_result = next(
                 (result for tool_id, result in prefetched if tool_id == "reports.nlq"),
                 {},
             )
-            report_code = nlq_result.get("report_code", "UNKNOWN")
-            if report_code == "UNKNOWN" and "answer" in nlq_result:
-                report_code = nlq_result["answer"].get("report_code", "UNKNOWN")
-            report_title = nlq_result.get("report_title", "")
-            if not report_title and "answer" in nlq_result:
-                report_title = nlq_result["answer"].get("report_title", "")
-            row_count = nlq_result.get("row_count", 0)
-            if not row_count and "answer" in nlq_result:
-                row_count = nlq_result["answer"].get("row_count", 0)
-            columns = nlq_result.get("columns", [])
-            if not columns and "answer" in nlq_result:
-                columns = nlq_result["answer"].get("columns", [])
-            rows = nlq_result.get("rows", [])
-            if not rows and "answer" in nlq_result:
-                rows = nlq_result["answer"].get("rows", [])
-            # Generate deterministic answer directly from data, bypass model
-            deterministic_answer = self._generate_nlq_answer(question, nlq_result)
-            if deterministic_answer:
-                # Generate dynamic follow-up questions based on report data
-                followups = self._generate_followup_questions(
-                    report_code, rows, columns, question
-                )
-            # Stream the deterministic answer and finish
-            yield {
-                "kind": "status",
-                "text": "I'm checking the relevant school records...",
-            }
-
-            # Track TTFT (time to first token)
-            ttft_marked = False
-            ttft_ms = 0
-
-            for piece in deterministic_answer.split():
-                if not ttft_marked:
-                    ttft_ms = int((time.monotonic() - started) * 1000)
-                    ttft_marked = True
-                yield {"kind": "delta", "text": piece + " "}
-
-            # Build citations from report data
-            citations = []
+            answer_data = nlq_result.get("answer") if isinstance(nlq_result.get("answer"), dict) else nlq_result
+            report_code = str(answer_data.get("report_code") or "UNKNOWN")
+            report_title = str(answer_data.get("report_title") or "")
+            row_count = int(answer_data.get("row_count") or 0)
+            columns = answer_data.get("columns") if isinstance(answer_data.get("columns"), list) else []
+            rows = answer_data.get("rows") if isinstance(answer_data.get("rows"), list) else []
+            # The deterministic rendering is the FALLBACK: it is always correct
+            # because it reads the authorized columns, but the model writes the
+            # answer the staff member sees so both surfaces give the same
+            # explanation, insight and next steps.
+            deterministic_answer = self._generate_nlq_answer(question, nlq_result) or ""
+            deterministic_followups = self._generate_followup_questions(
+                report_code, rows, columns, question
+            )
             if report_code and report_code != "UNKNOWN":
-                citations.append(
+                deterministic_citations = [
                     {
                         "title": report_title or "School report",
                         "description": "Based on authorized school records.",
                         "row_count": row_count,
                         "columns": columns,
                     }
-                )
-
-            # Check for insufficient data
+                ]
             insufficient_data = row_count == 0
-
-            total_latency_ms = int((time.monotonic() - started) * 1000)
-
-            # The governed report in hand is a complete answer: persist the turn
-            # to the session store before emitting it. Skipping this left the
-            # session with no messages and no title, so history stayed empty.
-            deterministic_result = {
-                "answer": {
-                    "title": deterministic_answer[:100],
-                    "body": deterministic_answer,
-                    "next_steps": [],
-                    "suggested_questions": followups,
-                    "escalation_required": False,
-                    "insufficient_data": insufficient_data,
-                    "citations": citations,
-                },
-                "status": "answered",
-                "degraded": False,
-                "tools_used": ["reports.nlq"],
-                "provider_calls": 0,
-                "routing": "report_query",
-                "agent": {
-                    "id": agent["id"],
-                    "name": agent["name"],
-                    "domain": agent["domain"],
-                },
-            }
-            self._remember_session(
-                session_id,
-                user_id,
-                route,
-                question,
-                deterministic_result["answer"],
-                save_history=bool(prefs.get("save_history", True)),
-                assistant_domain=assistant_domain,
+            grounding_note = (
+                "The authorized report rows below are your evidence. Quote the "
+                "figures exactly as given, explain the pattern they show, and "
+                "add practical next steps for the staff member. Never invent a "
+                "value that is not in the rows, and never claim a cause the "
+                "rows do not support. Today's date in Africa/Nairobi is "
+                f"{datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
             )
-            self._observe_outcome(
-                user_id, route, module, agent, ["reports.nlq"], "answered"
-            )
-            self.journal.write(
-                "ai_generation",
-                {
-                    "type": "agent_assist_stream",
-                    "operator_id": user_id,
-                    "agent_id": agent["id"],
-                    "route": route,
-                    "outcome": "answered",
-                    "tools_used": ["reports.nlq"],
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                    "request_id": request_id,
-                },
-            )
-            yield {
-                "kind": "final",
-                "answer": deterministic_result["answer"],
-                "status": deterministic_result["status"],
-                "degraded": deterministic_result["degraded"],
-                "tools_used": deterministic_result["tools_used"],
-                "routing": deterministic_result["routing"],
-                "agent": deterministic_result["agent"],
-                "latency": {
-                    "ttft_ms": ttft_ms,
-                    "total_latency_ms": total_latency_ms,
-                    "prefetch_ms": 0,
-                    "provider_calls": 0,
-                    "tool_calls": 1,
-                },
-                **(
-                    {
-                        "session_id": session_id,
-                        "session_title": session.get("title") if session else "",
-                    }
-                    if session_id
-                    else {}
-                ),
-            }
-            return
         else:
             grounding_note = (
                 "Prefetched results may be unrelated to this question. Never use "
@@ -1202,6 +1826,7 @@ class Orchestrator:
             "session_topics": topics,
             "preferences": self._preference_lines(prefs),
             "navigation": navigation,
+            "page_context": self._page_context_lines(context),
         }
         if instruction:
             base_envelope["instruction"] = instruction
@@ -1214,16 +1839,30 @@ class Orchestrator:
         body = ""
         rendered_any = False
 
-        # One governed lookup is allowed mid-stream. The first character decides
+        # A small, bounded number of mill rounds. The first character decides
         # everything: prose streams straight to the browser, while a tool
-        # request is buffered, executed, and answered in a second (final) round.
-        # That keeps raw tool frames out of the chat bubble and still lets a
+        # request is buffered, executed, and answered in a later round. That
+        # keeps raw tool frames out of the chat bubble and still lets a
         # genuinely data-hungry question get its facts.
-        for attempt in range(2):
+        #
+        # The rounds are not "one request only": a question that asks for a
+        # chart needs the report, then the chart source, then the figure. The
+        # first version allowed a tool request on the FIRST round only, so a
+        # model that spent round one consulting a specialist had its second
+        # round's tool request silently dropped and the staff member received
+        # a placeholder instead of the figure they asked for.
+        stream_tool_steps = 0
+        stream_delegations = 0
+        # Tool turns the model already spent are replayed in order, so a second
+        # round reads as a conversation ("you asked for X, X already ran") and
+        # not as the same question asked three times.
+        carried: list[dict[str, str]] = []
+        for attempt in range(MAX_STREAM_ROUNDS):
             messages = [
                 {"role": "system", "content": agents.stream_prompt(agent, context)},
                 *history_messages,
                 {"role": "user", "content": json.dumps(envelope, ensure_ascii=False)},
+                *carried,
             ]
             # An oversized envelope must be trimmed rather than lose the answer.
             self._assert_prompt_fits(messages)
@@ -1244,8 +1883,15 @@ class Orchestrator:
                         if stripped:
                             is_tool_frame = stripped.startswith("{")
                     if is_tool_frame is False:
-                        # Prose: pass every byte straight through as it lands.
-                        yield {"kind": "delta", "text": buffered[emitted:]}
+                        # Prose: pass every byte straight through as it lands,
+                        # through the same confidentiality scrub the buffered
+                        # answer gets. Streamed text reaches the browser through
+                        # the PHP SSE relay untouched, so without this the
+                        # streamed surface could name an internal report code the
+                        # buffered surface redacts.
+                        text = output_guard.scrub(buffered[emitted:])
+                        if text:
+                            yield {"kind": "delta", "text": text}
                         emitted = len(buffered)
                         rendered_any = True
                     elif is_tool_frame:
@@ -1282,6 +1928,7 @@ class Orchestrator:
                                         buffered, answer_body_cursor
                                     )
                                 )
+                                piece = output_guard.scrub(piece)
                                 if piece:
                                     yield {"kind": "delta", "text": piece}
                                     rendered_any = True
@@ -1295,10 +1942,69 @@ class Orchestrator:
 
             if is_tool_frame:
                 proposal = self._json_object(body)
-                requests, _rejected = self._requested_tools(
+                if (
+                    stream_delegations < MAX_DELEGATIONS
+                    and str(proposal.get("action") or "") == "delegate"
+                ):
+                    # Same bounded sub-agent turn as the buffered path, so the
+                    # streamed and buffered surfaces behave identically. One
+                    # delegation, then the parent's final answer.
+                    sub_agent = agents.resolve(
+                        str(proposal.get("agent") or proposal.get("agent_id") or "")
+                    )
+                    sub_question = str(proposal.get("question") or "")[:300]
+                    if sub_agent is not None and sub_question:
+                        yield {
+                            "kind": "status",
+                            "text": f"Consulting the {sub_agent['name']}…",
+                        }
+                        sub = self._run_delegate(
+                            sub_agent,
+                            {**context, "depth": int(context.get("depth") or 0) + 1},
+                            sub_question,
+                        )
+                        tools_used.append(f"delegate:{sub_agent['id']}")
+                        stream_delegations += 1
+                        envelope["delegate_result"] = self._delegate_note(sub)
+                        if stream_delegations >= MAX_DELEGATIONS:
+                            # The delegation budget is spent. Say so plainly so
+                            # the model stops proposing the same specialist and
+                            # writes the reply the staff member is waiting for.
+                            envelope["delegate_note"] = (
+                                "the sub-agent budget is spent; answer now from "
+                                "the governed results in hand"
+                            )
+                        continue
+                requests, rejected = self._requested_tools(
                     proposal, allowed_tools, already_run=set(tools_used)
                 )
-                if requests and attempt == 0:
+                if command_turn and requests:
+                    # Same rule as the buffered surface: the command's tool has
+                    # already run, so the answer is what this turn still owes.
+                    carried.append({"role": "assistant", "content": body[:1500]})
+                    carried.append(
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "question": question,
+                                    "note": (
+                                        "this command's governed tool has already "
+                                        "run and its result is above"
+                                    ),
+                                    "instruction": (
+                                        "This request is in scope and the result "
+                                        "was already authorized for this user. "
+                                        "Answer now from that result, do not refuse, "
+                                        "and do not request any further tool."
+                                    ),
+                                },
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+                    continue
+                if requests and stream_tool_steps < MAX_STREAM_TOOL_STEPS:
                     yield {
                         "kind": "status",
                         "text": "I’m checking those records…",
@@ -1320,51 +2026,142 @@ class Orchestrator:
                         chart = _bounded_chart_result(tool_id, result)
                         if chart is not None and len(charts) < 3:
                             charts.append(chart)
+                        artifact = _analytics_artifact(tool_id, result)
+                        if artifact is not None and len(artifacts) < 3:
+                            artifacts.append(artifact)
                         tool_results.append(self._compact_result(tool_id, result))
+                        rows_bearing = _rows_bearing_result(result)
+                        if rows_bearing is not None:
+                            last_rows_result = rows_bearing
                     envelope["tool_results"] = tool_results
+                    stream_tool_steps += 1
+                    carried = carried[-4:]
                     continue
-                # A second tool request breaches the step budget: fall through
+                proposed_ids = _proposed_tool_ids(proposal)
+                already_run_only = bool(proposed_ids) and proposed_ids <= set(
+                    tools_used
+                )
+                if (
+                    str(proposal.get("action") or "tool") == "tool"
+                    and attempt + 1 < MAX_STREAM_ROUNDS
+                    and (rejected or already_run_only)
+                ):
+                    # The model asked for a governed tool that cannot add
+                    # anything: either it already ran this turn, or it is not
+                    # one the agent owns. Running it again would be a wasted
+                    # round trip, so the turn is answered from the results in
+                    # hand instead of collapsing into a placeholder.
+                    note = (
+                        "these tools are not available to this agent: "
+                        + ", ".join(rejected[:6])
+                        if rejected
+                        else "that governed report already ran in this turn"
+                    )
+                    carried.append({"role": "assistant", "content": body[:1500]})
+                    carried.append(
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    # Restate the question with the note. Without
+                                    # it the model answers a message that only
+                                    # talks about tools and asks the staff member
+                                    # what they wanted.
+                                    "question": question,
+                                    "note": note,
+                                    # Say explicitly that this is an in-scope
+                                    # request. A bare instruction reads as a
+                                    # role violation to a prompt carrying an
+                                    # "if outside scope, refuse" clause, and the
+                                    # model answered a request for data it was
+                                    # already allowed to see with the canned
+                                    # refusal.
+                                    "instruction": (
+                                        "This request is in scope and the data was "
+                                        "already authorized for this user. The "
+                                        "authorized rows are in the envelope above. "
+                                        "Answer the question now from them, do not "
+                                        "refuse, and never ask for the same tool "
+                                        "twice."
+                                    ),
+                                },
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+                    continue
+                # A further tool request breaches the step budget: fall through
                 # and answer from the governed results gathered so far.
 
             parsed = self._parse_answer_text(body)
             if parsed:
-                answer = parsed
+                if command_turn and (
+                    _looks_like_refusal(str(parsed.get("body") or ""))
+                    or not str(parsed.get("body") or "").strip()
+                ):
+                    rendered = _command_outcome_answer(
+                        str(context.get("forced_tool") or ""), forced_source_result
+                    ) or self._rows_answer(last_rows_result)
+                    if rendered is not None:
+                        parsed = {**parsed, **rendered}
+                answer = self._guard_grounded_answer(parsed, last_rows_result)
             break
 
         outcome = "answered" if answer else "unavailable"
         degraded = False
+        answer = self._guard_grounded_answer(answer, last_rows_result)
         if answer is None:
-            fallback = self._fallback_answer(tools_used, tool_results)
-            if provider_error is None:
-                answer = fallback
-                outcome = "answered"
-            elif not rendered_any:
-                # Nothing was shown to the user yet, so the governed facts in
-                # hand are a better answer than an error bubble: the staff
-                # member gets real numbers, flagged as model-degraded.
-                answer = fallback
+            if deterministic_answer:
+                # The provider did not deliver, but the authorized rows are in
+                # hand: render them deterministically so the staff member still
+                # gets the real figures instead of an error bubble.
+                answer = {
+                    "title": deterministic_answer[:100],
+                    "body": deterministic_answer,
+                    "next_steps": [],
+                    "suggested_questions": deterministic_followups,
+                    "escalation_required": False,
+                    "insufficient_data": insufficient_data,
+                    "citations": deterministic_citations,
+                }
                 outcome = "answered"
                 degraded = True
+                for piece in deterministic_answer.split():
+                    piece = output_guard.scrub(piece + " ")
+                    if piece:
+                        yield {"kind": "delta", "text": piece}
             else:
-                yield {
-                    "kind": "final",
-                    "status": "unavailable",
-                    "answer": None,
-                    "message": "the response was interrupted — please try again",
-                    "degraded": True,
-                    "tools_used": tools_used,
-                    "provider_calls": 1,
-                    "routing": routing,
-                    "agent": {
-                        "id": agent["id"],
-                        "name": agent["name"],
-                        "domain": agent["domain"],
-                    },
-                }
-                self._observe_outcome(
-                    user_id, route, module, agent, tools_used, outcome
-                )
-                return
+                fallback = self._fallback_answer(tools_used, tool_results)
+                if provider_error is None:
+                    answer = fallback
+                    outcome = "answered"
+                elif not rendered_any:
+                    # Nothing was shown to the user yet, so the governed facts in
+                    # hand are a better answer than an error bubble: the staff
+                    # member gets real numbers, flagged as model-degraded.
+                    answer = fallback
+                    outcome = "answered"
+                    degraded = True
+                else:
+                    yield {
+                        "kind": "final",
+                        "status": "unavailable",
+                        "answer": None,
+                        "message": "the response was interrupted — please try again",
+                        "degraded": True,
+                        "tools_used": tools_used,
+                        "provider_calls": 1,
+                        "routing": routing,
+                        "agent": {
+                            "id": agent["id"],
+                            "name": agent["name"],
+                            "domain": agent["domain"],
+                        },
+                    }
+                    self._observe_outcome(
+                        user_id, route, module, agent, tools_used, outcome
+                    )
+                    return
 
         self._observe_outcome(user_id, route, module, agent, tools_used, outcome)
         # Record turn to session
@@ -1400,10 +2197,14 @@ class Orchestrator:
         yield {
             "kind": "final",
             "status": "answered",
-            "answer": answer,
+            # The final frame repeats the answer in full, so it needs the same
+            # scrub the deltas received: the streamed relay cannot filter for
+            # us, and the guard has exactly one implementation - this one.
+            "answer": output_guard.scrub(answer),
             "degraded": degraded,
-            "tools_used": tools_used,
+            "tools_used": _public_tool_labels(tools_used),
             "charts": output_guard.scrub(charts),
+            "artifacts": output_guard.scrub(artifacts),
             "provider_calls": 1,
             "routing": routing,
             "agent": {
@@ -1517,6 +2318,55 @@ class Orchestrator:
                     labels.append(label[:60])
             if labels:
                 lines.append(f"Sidebar: {', '.join(labels)}")
+        return lines
+
+    def _page_context_lines(self, context: dict) -> list[str]:
+        """What the operator is looking at, as short labels.
+
+        The browser sends only labels and ids it already displays: the record
+        open in a modal, the rows selected, visible KPI names and active filter
+        labels. No row values are carried here — the governed tool still has to
+        authorise any real data — so this is context, not a second data path.
+        """
+        lines: list[str] = []
+        entity = context.get("page_entity")
+        if isinstance(entity, dict):
+            parts: list[str] = []
+            for key in ("kind", "label", "name", "id", "status"):
+                value = entity.get(key)
+                if isinstance(value, (str, int)) and str(value).strip():
+                    parts.append(f"{key}={str(value).strip()[:80]}")
+            if parts:
+                lines.append("Open record: " + ", ".join(parts))
+        selection = context.get("selection")
+        if isinstance(selection, dict):
+            label = str(selection.get("label") or "").strip()
+            text = str(selection.get("text") or "").strip()
+            if label:
+                lines.append(f"Selected: {label[:100]}")
+            if text:
+                lines.append(f"Selection text: {text[:200]}")
+        modal = str(context.get("modal") or "").strip()
+        if modal:
+            lines.append(f"Open dialog: {modal[:100]}")
+        metrics = context.get("visible_metrics")
+        if isinstance(metrics, list):
+            labels = [
+                str(item).strip()[:60]
+                for item in metrics[:10]
+                if isinstance(item, (str, int, float)) and str(item).strip()
+            ]
+            if labels:
+                lines.append("Visible metrics: " + ", ".join(labels))
+        filters = context.get("filters")
+        if isinstance(filters, dict):
+            labels = [
+                f"{str(key)[:40]}={str(value)[:60]}"
+                for key, value in list(filters.items())[:10]
+                if isinstance(value, (str, int, float)) and str(value).strip()
+            ]
+            if labels:
+                lines.append("Active filters: " + ", ".join(labels))
         return lines
 
     def _conversation_messages(
@@ -1665,17 +2515,34 @@ class Orchestrator:
         except Exception:
             pass
 
+    # Envelope fields, cheapest to lose first. The governed tool_results and
+    # the question are last: they are the only parts of the prompt that are
+    # about this question, so they are the last thing trimmed.
+    _TRIM_ORDER = (
+        "behavior_hints",
+        "navigation",
+        "page_context",
+        "session_topics",
+        "preferences",
+        "conversation",
+    )
+
     def _assert_prompt_fits(self, messages: list[dict[str, str]]) -> None:
         """Trim the prompt rather than fail the whole answer.
 
-        Tool results and native history are the unbounded parts of the prompt.
-        Overflow first drops the oldest governed results, then the oldest
-        history turns, so the current question and the most recent context
-        always survive.
+        Every envelope field above `_TRIM_ORDER` is dropped before a single
+        governed result is touched, then the oldest history turns. The previous
+        order dropped `tool_results` first, which meant that whenever the fixed
+        part of the prompt was large the model answered with no evidence at all
+        and produced refusals for data the server had already released.
         """
         if policy.MAX_CONTEXT_BYTES <= 0:
             return
+        guard = 0
         while self._prompt_bytes(messages) > policy.MAX_CONTEXT_BYTES:
+            guard += 1
+            if guard > 64:
+                return
             user_turn = next(
                 (
                     message
@@ -1692,20 +2559,18 @@ class Orchestrator:
                 payload = None
             changed = False
             if isinstance(payload, dict):
-                results = payload.get("tool_results")
-                if isinstance(results, list) and results:
-                    if len(results) > 1:
-                        payload["tool_results"] = results[1:]
-                    else:
-                        payload.pop("tool_results", None)
-                    changed = True
-                else:
-                    conversation = payload.get("conversation")
-                    if isinstance(conversation, list) and conversation:
-                        if len(conversation) > 2:
-                            payload["conversation"] = conversation[-2:]
+                for field in self._TRIM_ORDER:
+                    if field in payload:
+                        payload.pop(field, None)
+                        changed = True
+                        break
+                if not changed:
+                    results = payload.get("tool_results")
+                    if isinstance(results, list) and results:
+                        if len(results) > 1:
+                            payload["tool_results"] = results[1:]
                         else:
-                            payload.pop("conversation", None)
+                            payload.pop("tool_results", None)
                         changed = True
             if changed and isinstance(payload, dict):
                 user_turn["content"] = json.dumps(payload, ensure_ascii=False)
@@ -1779,130 +2644,138 @@ class Orchestrator:
     def _generate_nlq_answer(
         self, question: str, nlq_result: dict[str, Any]
     ) -> str | None:
-        """Generate a deterministic answer from NLQ results, bypassing the model.
+        """Render the authorized report rows deterministically.
 
-        Returns the answer string or None if the report type isn't handled.
+        The rendering is COLUMN-DRIVEN on purpose. It used to hard-code the
+        column names of a handful of reports ("total", "rate"), so any report
+        that spelled its column differently rendered zeros — the finance report
+        showed "Grade 7: 0" while the data said 1,485,730. Reading the columns
+        that are actually present removes that whole class of mismatch and
+        keeps every new report correct without a code change.
         """
-        # The tool bridge wraps the result in 'answer' key
-        answer_data = nlq_result.get("answer", nlq_result)
-        report_code = answer_data.get("report_code", "")
-        report_title = answer_data.get("report_title", "")
-        row_count = answer_data.get("row_count", 0)
-        columns = answer_data.get("columns", [])
-        rows = answer_data.get("rows", [])
-        summary = answer_data.get("summary", {})
-        filters = answer_data.get("filters", {})
-        display_title = str(report_title or "").strip()
+        answer_data = (
+            nlq_result.get("answer")
+            if isinstance(nlq_result.get("answer"), dict)
+            else nlq_result
+        )
+        report_code = str(answer_data.get("report_code") or "")
+        report_title = str(answer_data.get("report_title") or "").strip()
+        row_count = int(answer_data.get("row_count") or 0)
+        rows = answer_data.get("rows") if isinstance(answer_data.get("rows"), list) else []
+        rows = [row for row in rows if isinstance(row, dict)]
+
+        display_title = report_title
         if not display_title and report_code:
-            prefix = str(report_code).split("_", 1)[0]
-            display_title = {
-                "ATT": "Attendance summary",
-                "ENR": "Enrollment summary",
-                "ADM": "Admissions summary",
-                "FIN": "Finance summary",
-                "CBC": "Learning progress summary",
-                "DISC": "Student wellbeing summary",
-                "HR": "Staff summary",
-                "INV": "Inventory summary",
-                "CAT": "Catering summary",
-                "COMMS": "Communications summary",
-            }.get(prefix, "School summary")
+            display_title = "Governed report"
 
-        if not rows and row_count == 0:
-            # The governed payload nests everything under "answer"; the title
-            # above is already unwrapped. Reading the top level rendered the
-            # empty parentheses in "report **CODE** ()".
+        if not rows:
             label = f" ({display_title})" if display_title else ""
-            return (
-                f"The report{label} returned no data for the "
-                "current filters."
+            return f"The report{label} returned no data for the current filters."
+
+        def _number(value: Any) -> float | None:
+            """A row value as a number, including the strings money columns use."""
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                text = value.strip().replace(",", "")
+                if not text:
+                    return None
+                try:
+                    return float(text)
+                except ValueError:
+                    return None
+            return None
+
+        numeric_columns: list[str] = []
+        label_column = ""
+        for row in rows:
+            for key, value in row.items():
+                name = str(key)
+                if isinstance(value, bool):
+                    continue
+                if name.endswith("_id") or name in ("id", "run_id"):
+                    # An identifier is not a measure; listing it beside the
+                    # label adds noise the staff member never asked for.
+                    continue
+                number = _number(value)
+                if number is not None and name not in numeric_columns:
+                    numeric_columns.append(name)
+                elif isinstance(value, str) and number is None and not label_column:
+                    label_column = name
+        if not numeric_columns:
+            return f"The report{(' (' + display_title + ')') if display_title else ''} returned rows without a numeric value to report."
+
+        parts = [f"**{display_title}**" if display_title else "**Governed report**"]
+
+        def _format(value: Any, column: str = "") -> str:
+            if isinstance(value, bool):
+                return "yes" if value else "no"
+            number = _number(value)
+            if number is not None:
+                # Follow the shape of the authorized value rather than guessing
+                # from the column name: a money column is "1485730.00" in the
+                # data, a count is "48". Guessing by name rendered every count
+                # as "48.00" and every integer as "1,485,730.0".
+                if isinstance(value, str):
+                    text_value = value.strip()
+                    if "." in text_value:
+                        return f"{number:,.2f}"
+                    return f"{int(number):,}"
+                if isinstance(value, int):
+                    return f"{value:,}"
+                lowered = column.lower()
+                money = any(
+                    token in lowered
+                    for token in ("arrears", "amount", "balance", "fee", "cost")
+                )
+                return f"{number:,.2f}" if money else f"{number:,.1f}"
+            text = str(value).strip()
+            return text[:60]
+
+        # Totals are only summed for columns that clearly ARE a total, so a
+        # "class" label or a rate is never added up into nonsense.
+        for column in numeric_columns:
+            lowered = column.lower()
+            if not (
+                lowered.startswith("total")
+                or lowered in ("arrears", "amount", "balance", "sum")
+                or lowered.endswith("_arrears")
+                or lowered.endswith("_amount")
+            ):
+                continue
+            raw_values = [row.get(column) for row in rows]
+            numbers = [n for n in map(_number, raw_values) if n is not None]
+            if not numbers:
+                continue
+            pretty = lowered.replace("_", " ").strip()
+            total = sum(numbers)
+            # A total keeps the shape of the values it adds: a count sums to a
+            # whole number, a money column sums to cents.
+            fractional = any(
+                isinstance(v, str) and "." in v.strip() for v in raw_values
             )
-
-        # Handle common report types with specific formatting
-        q_lower = question.lower()
-
-        # ENR_CURRENT_BY_CLASS - enrollment by class
-        if report_code == "ENR_CURRENT_BY_CLASS":
-            total = sum(r.get("total", 0) for r in rows)
-            boys = sum(r.get("boys", 0) for r in rows)
-            girls = sum(r.get("girls", 0) for r in rows)
-
-            parts = [
-                f"**Current Enrollment: {total:,} learners** ({boys:,} boys, {girls:,} girls) across {row_count} class/streams."
-            ]
-
-            if "boarder" in q_lower or "boarding" in q_lower:
-                # Check if there's a student_type filter or column
-                boarder_rows = [
-                    r for r in rows if str(r.get("student_type", "")).upper() == "BOARD"
-                ]
-                if boarder_rows:
-                    b_total = sum(r.get("total", 0) for r in boarder_rows)
-                    parts.append(f"**Boarders: {b_total:,}**")
-                else:
-                    parts.append("Boarder breakdown not available in this report.")
-
-            # Show top 5 classes
-            if row_count <= 10:
-                parts.append("\n**By class:**")
-                for r in rows:
-                    parts.append(
-                        f"• {r.get('class_name', '')} {r.get('stream_name', '')}: {r.get('total', 0):,} ({r.get('boys', 0):,}B / {r.get('girls', 0):,}G)"
-                    )
+            if not fractional and total == int(total):
+                total_text = f"{int(total):,}"
             else:
-                top5 = sorted(rows, key=lambda x: x.get("total", 0), reverse=True)[:5]
-                parts.append(f"\n**Largest classes:**")
-                for r in top5:
-                    parts.append(
-                        f"• {r.get('class_name', '')} {r.get('stream_name', '')}: {r.get('total', 0):,}"
-                    )
+                money = any(
+                    token in lowered
+                    for token in ("arrears", "amount", "balance", "fee", "cost")
+                )
+                total_text = f"{total:,.2f}" if money else f"{total:,.1f}"
+            parts.append(f"**{pretty.capitalize()}**: {total_text}")
 
-            return "\n".join(parts)
-
-        # ENR_MONTHLY_TREND
-        if report_code == "ENR_MONTHLY_TREND":
-            parts = [f"**Enrollment trend** ({row_count} months)"]
-            for r in rows[:12]:
-                parts.append(f"• {r.get('month', '')}: {r.get('total', 0):,}")
-            return "\n".join(parts)
-
-        # ADM_CONVERSION, ADM_ENROLLED_COHORT
-        if report_code in ("ADM_CONVERSION", "ADM_ENROLLED_COHORT"):
-            parts = [
-                f"**{display_title or 'Admissions'}**"
-            ]
-            for r in rows[:10]:
-                parts.append(f"• {r}")
-            return "\n".join(parts)
-
-        # FIN_FEE_SUMMARY_CLASS, FIN_ARREARS_CLASS
-        if report_code in ("FIN_FEE_SUMMARY_CLASS", "FIN_ARREARS_CLASS"):
-            # Prefer the governed report's own title ("Fee Arrears by Class")
-            # over the label derived from the code ("Arrears Class").
-            parts = [
-                f"**{display_title or 'Finance summary'}**"
-            ]
-            for r in rows[:10]:
-                parts.append(f"• {r.get('class_name', '')}: {r.get('total', 0):,}")
-            return "\n".join(parts)
-
-        # ATT_CLASS_TERM_RATE
-        if report_code == "ATT_CLASS_TERM_RATE":
-            parts = [f"**Class Attendance Rate** ({row_count} classes)"]
-            for r in rows[:10]:
-                parts.append(f"• {r.get('class_name', '')}: {r.get('rate', 0):.1f}%")
-            return "\n".join(parts)
-
-        # Generic fallback for other reports
-        parts = [f"**{display_title or 'School summary'}**"]
-        parts.append(f"Rows: {row_count:,}")
-        if summary:
-            parts.append(f"Summary: {summary}")
-        # Show first 5 rows
-        for r in rows[:5]:
-            parts.append(f"• {r}")
-        if row_count > 5:
-            parts.append(f"... and {row_count - 5} more rows")
+        for row in rows[:10]:
+            label = str(row.get(label_column, "")).strip() if label_column else ""
+            values = ", ".join(
+                f"{column.replace('_', ' ')}: {_format(row.get(column), column)}"
+                for column in numeric_columns[:3]
+                if row.get(column) is not None
+            )
+            parts.append(f"• {label}: {values}" if label else f"• {values}")
+        if row_count > len(rows[:10]):
+            parts.append(f"… and {row_count - len(rows[:10])} more row(s)")
         return "\n".join(parts)
 
     # ----------------------------------------------------------- dynamic follow-up questions
@@ -2099,6 +2972,7 @@ class Orchestrator:
         question: str = "",
         roles: list | None = None,
         role_ids: list[int] | None = None,
+        context: dict | None = None,
     ) -> list[tuple[str, dict[str, Any]]]:
         """Prefetch deterministic data for the question before the model answers.
 
@@ -2108,12 +2982,20 @@ class Orchestrator:
         """
         question_lower = str(question or "").lower()
         candidates = []
-
-        # Data-first: proactively run the governed NLQ tool for any agent
-        # that has the NLQ tool, so the model receives real row data instead of
-        # hallucinating.
         agent_tools = set(agent.get("tools", ()))
-        if "reports.nlq" in agent_tools:
+
+        # Data-first: proactively run the governed NLQ tool for any agent that
+        # has the NLQ tool, so the model receives real row data instead of
+        # hallucinating - but NOT when this turn already knows which governed
+        # tool it wants. A slash action command names its own tool; prefetching
+        # a school report on top of it spent a governed report run on every
+        # /web, /crawl, /draft and /help turn and put an unrelated report's
+        # rows in front of the model as if they were the evidence.
+        forced_tool = str(context.get("forced_tool") or "")
+        command_wants_its_own_tool = bool(forced_tool) and (
+            forced_tool != "reports.nlq"
+        )
+        if "reports.nlq" in agent_tools and not command_wants_its_own_tool:
             candidates.append(("reports.nlq", {"question": question}))
 
         asks_for_briefing = any(
@@ -2195,9 +3077,17 @@ class Orchestrator:
         tools_used: list[str] = []
         scope_checks: list[dict[str, Any]] = []
         charts: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        # The last governed result that carried rows, so a turn that spends
+        # its budget on tools can still answer with the real figures.
+        last_rows_result: dict[str, Any] | None = None
         tool_steps = 0
         provider_calls = 0
         answer: dict[str, Any] | None = None
+        # Delegation budget for THIS turn. Inherited depth comes from the
+        # context so a sub-turn cannot start a second chain.
+        depth = int(context.get("depth") or 0)
+        delegate_count = 0
 
         # Prefetch deterministic context up front, concurrently. Every serial
         # round trip is multiplied by the model's own latency, so the loop
@@ -2213,21 +3103,107 @@ class Orchestrator:
             question,
             roles=context.get("roles"),
             role_ids=context.get("role_ids"),
+            context=context,
         )
         for tool_id, result in prefetched:
             tool_results.append(self._compact_result(tool_id, result))
             chart = _bounded_chart_result(tool_id, result)
             if chart is not None:
                 charts.append(chart)
+            artifact = _analytics_artifact(tool_id, result)
+            if artifact is not None:
+                artifacts.append(artifact)
+            rows_bearing = _rows_bearing_result(result)
+            if rows_bearing is not None:
+                last_rows_result = rows_bearing
             scope_check = self._report_scope_check(tool_id, result)
             if scope_check is not None and scope_check not in scope_checks:
                 scope_checks.append(scope_check)
             if self._tool_succeeded(result):
                 tools_used.append(tool_id)
 
+        # A slash action command (/web, /crawl, /report, /draft …) runs its
+        # governed tool before the model speaks, exactly like the prefetch, so
+        # the command does what it says instead of only nudging the prompt. It
+        # is still executed through the same permission gate and only when the
+        # selected agent owns the tool.
+        forced_source_result: dict[str, Any] | None = None
+        # A slash action command is a single-action turn: its governed tool (or
+        # its report) has already run, so the remaining budget belongs to the
+        # answer. Without this the model spent the rest of the turn asking for
+        # a briefing and a catalogue that the command never asked for, and the
+        # staff member got "I reached the limit" instead of their draft.
+        command_turn = False
+        forced = self._run_forced_tool(
+            context,
+            agent,
+            user_id,
+            permissions,
+            request_id,
+            already_run=set(tools_used),
+        )
+        if forced is not None:
+            forced_tool, forced_result = forced
+            command_turn = True
+            forced_source_result = forced_result
+            tools_used.append(forced_tool)
+            tool_results.append(self._compact_result(forced_tool, forced_result))
+            chart = _bounded_chart_result(forced_tool, forced_result)
+            if chart is not None:
+                charts.append(chart)
+            artifact = _analytics_artifact(forced_tool, forced_result)
+            if artifact is not None:
+                artifacts.append(artifact)
+            rows_bearing = _rows_bearing_result(forced_result)
+            if rows_bearing is not None:
+                last_rows_result = rows_bearing
+        elif context.get("forced_tool"):
+            # The command's tool already ran as a prefetch (a /report or
+            # /forecast command on an agent that owns reports.nlq prefetches
+            # it), so the turn is still a command turn and its result is still
+            # the source the follow-up draws from. Nesting the follow-up inside
+            # the block above meant /forecast never computed its projection.
+            command_turn = True
+            forced_source_result = next(
+                (
+                    result
+                    for tool_id, result in prefetched
+                    if tool_id == str(context.get("forced_tool"))
+                ),
+                None,
+            )
+        if context.get("forced_follow_up"):
+            follow_up = self._run_follow_up(
+                context,
+                agent,
+                user_id,
+                permissions,
+                request_id,
+                tools_used,
+                already_run=set(tools_used),
+                source_result=forced_source_result,
+            )
+            if follow_up is not None:
+                follow_up_tool, follow_up_result = follow_up
+                tools_used.append(follow_up_tool)
+                tool_results.append(
+                    self._compact_result(follow_up_tool, follow_up_result)
+                )
+                follow_up_artifact = _analytics_artifact(
+                    follow_up_tool, follow_up_result
+                )
+                if follow_up_artifact is not None and len(artifacts) < 3:
+                    artifacts.append(follow_up_artifact)
+
         instruction = str(context.get("instruction") or "")[:400]
 
         try:
+            # Notes the loop writes back to the model ("that tool already ran",
+            # "answer now") must survive from one round to the next. They did
+            # not: the message list was rebuilt from scratch on every round, so
+            # each note was discarded before the provider ever saw it and the
+            # model was asked the identical question three times in a row.
+            carried: list[dict[str, str]] = []
             while provider_calls < MAX_PROVIDER_CALLS:
                 envelope = policy.minimize(
                     "system.agent_chat",
@@ -2246,6 +3222,7 @@ class Orchestrator:
                             "session_topics": topics,
                             "preferences": self._preference_lines(prefs),
                             "navigation": navigation,
+                            "page_context": self._page_context_lines(context),
                             "instruction": instruction,
                         }.items()
                         if value
@@ -2257,6 +3234,7 @@ class Orchestrator:
                         "content": json.dumps(envelope, ensure_ascii=False),
                     }
                 )
+                messages.extend(carried)
 
                 provider_calls += 1
                 response = self.provider.complete(
@@ -2269,20 +3247,137 @@ class Orchestrator:
                     )
 
                 action = str(response.get("action") or "final")
+                if action == "delegate":
+                    # Sub-agent turn: a specialist answers this one sub-question
+                    # with the operator's own permissions, and the parent folds
+                    # the result into its next provider call. Not treated as a
+                    # tool, so it costs no ToolBridge round trip.
+                    if delegate_count >= MAX_DELEGATIONS or depth >= MAX_DELEGATIONS:
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": json.dumps(response, ensure_ascii=False),
+                            }
+                        )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": json.dumps(
+                                    {
+                                        "error": "delegation budget reached; answer from the governed results in hand"
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            }
+                        )
+                        continue
+
+                    sub_agent = agents.resolve(
+                        str(response.get("agent") or response.get("agent_id") or "")
+                    )
+                    sub_question = str(response.get("question") or "")[:300]
+                    if sub_agent is None or not sub_question:
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": json.dumps(
+                                    {
+                                        "error": "a delegation needs a known agent id and a question"
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            }
+                        )
+                        continue
+
+                    delegate_count += 1
+                    sub = self._run_delegate(
+                        sub_agent,
+                        {**context, "depth": depth + 1},
+                        sub_question,
+                    )
+                    tools_used.append(f"delegate:{sub_agent['id']}")
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": json.dumps(response, ensure_ascii=False),
+                        }
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {"delegate_result": sub}, ensure_ascii=False
+                            ),
+                        }
+                    )
+                    continue
+
                 if action != "tool":
                     answer = self._validate_answer(response.get("answer") or response)
+                    if command_turn and (
+                        _looks_like_refusal(str(answer.get("body") or ""))
+                        or not str(answer.get("body") or "").strip()
+                    ):
+                        # A slash command is a promise. If the model refuses the
+                        # request it just completed, or answers with nothing,
+                        # the command's own tool result is rendered instead.
+                        rendered = _command_outcome_answer(
+                            str(context.get("forced_tool") or ""), forced_source_result
+                        ) or self._rows_answer(last_rows_result)
+                        if rendered is not None:
+                            answer = {**answer, **rendered}
                     break
+                if command_turn:
+                    # A slash action command already ran its governed tool (and
+                    # its follow-up) before the model spoke. The remaining
+                    # budget belongs to the answer: the model adding a briefing
+                    # and a catalogue on top of /draft spent the turn on tools
+                    # the command never asked for and the staff member got
+                    # "I reached the limit" instead of their draft.
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": json.dumps(response, ensure_ascii=False),
+                        }
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "question": question,
+                                    "note": (
+                                        "this command's governed tool has already "
+                                        "run and its result is above"
+                                    ),
+                                    "instruction": (
+                                        "This request is in scope and the result "
+                                        "was already authorized for this user. "
+                                        "Answer now from that result, do not refuse, "
+                                        "and do not request any further tool."
+                                    ),
+                                },
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+                    continue
                 if (
                     tool_steps >= MAX_TOOL_STEPS
                     or len(tools_used) >= MAX_TOOL_EXECUTIONS
                 ):
-                    answer = {
-                        "title": "Assistant ran out of steps",
-                        "body": "I reached the limit for this request before I could finish. Please narrow the question or ask for one task at a time.",
-                        "next_steps": ["Ask one focused question, then continue with a follow-up."],
-                        "suggested_questions": [],
-                        "escalation_required": False,
-                    }
+                    answer = self._rows_answer(last_rows_result) if last_rows_result else None
+                    if answer is None:
+                        answer = {
+                            "title": "Assistant ran out of steps",
+                            "body": "I reached the limit for this request before I could finish. Please narrow the question or ask for one task at a time.",
+                            "next_steps": [
+                                "Ask one focused question, then continue with a follow-up."
+                            ],
+                            "suggested_questions": [],
+                            "escalation_required": False,
+                        }
                     break
 
                 requests, rejected = self._requested_tools(
@@ -2301,11 +3396,45 @@ class Orchestrator:
                         ]
                     else:
                         proposed_ids = [str(response.get("tool") or "").strip()]
-                    if proposed_ids and all(tool_id in tools for tool_id in proposed_ids):
+                    if proposed_ids and all(
+                        tool_id in tools for tool_id in proposed_ids
+                    ):
+                        # The model asked for a tool it already ran. Running it
+                        # again cannot add information, so the loop tells the
+                        # model to answer from the results it already has
+                        # instead of silently spending the turn.
                         messages.append(
                             {
                                 "role": "assistant",
                                 "content": json.dumps(response, ensure_ascii=False),
+                            }
+                        )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": json.dumps(
+                                    {
+                                        # Restate the question with the note so the
+                                        # turn ends with an actual request to
+                                        # answer, not a message about tools.
+                                        "question": question,
+                                        "note": "that governed report already ran in this turn",
+                                        # Explicitly in scope: a bare instruction
+                                        # reads as a role violation to a prompt
+                                        # that carries a "refuse if outside scope"
+                                        # clause, which produced the canned
+                                        # refusal for data the user may see.
+                                        "instruction": (
+                                            "This request is in scope and the data "
+                                            "was already authorized for this user. "
+                                            "The authorized rows are above. Answer "
+                                            "the question now from them, do not "
+                                            "refuse, and never ask for the same "
+                                            "tool twice."
+                                        ),
+                                    },
+                                    ensure_ascii=False,
+                                ),
                             }
                         )
                         continue
@@ -2314,7 +3443,9 @@ class Orchestrator:
                     answer = {
                         "title": "Assistant ran out of steps",
                         "body": "I reached the limit for this request before I could finish. Please narrow the question or ask for one task at a time.",
-                        "next_steps": ["Ask one focused question, then continue with a follow-up."],
+                        "next_steps": [
+                            "Ask one focused question, then continue with a follow-up."
+                        ],
                         "suggested_questions": [],
                         "escalation_required": False,
                     }
@@ -2337,6 +3468,12 @@ class Orchestrator:
                     chart = _bounded_chart_result(tool_id, tool_result)
                     if chart is not None:
                         charts.append(chart)
+                    artifact = _analytics_artifact(tool_id, tool_result)
+                    if artifact is not None:
+                        artifacts.append(artifact)
+                    rows_bearing = _rows_bearing_result(tool_result)
+                    if rows_bearing is not None:
+                        last_rows_result = rows_bearing
                     scope_check = self._report_scope_check(tool_id, tool_result)
                     if scope_check is not None and scope_check not in scope_checks:
                         scope_checks.append(scope_check)
@@ -2367,30 +3504,144 @@ class Orchestrator:
             }
 
         if answer is None:
+            answer = self._rows_answer(last_rows_result) if last_rows_result else None
+        answer = self._guard_grounded_answer(answer, last_rows_result)
+        if answer is None:
             answer = {
                 "title": "Assistant ran out of steps",
                 "body": "I reached the limit for this request before I could finish. Please narrow the question or ask for one task at a time.",
-                "next_steps": ["Ask one focused question, then continue with a follow-up."],
+                "next_steps": [
+                    "Ask one focused question, then continue with a follow-up."
+                ],
                 "suggested_questions": [],
                 "escalation_required": False,
             }
         return {
             "status": "answered",
-            "answer": answer,
-            "tools_used": tools_used,
+            # Same scrub the streamed surface gets, plus the same human labels
+            # instead of internal tool ids.
+            "answer": output_guard.scrub(answer),
+            "tools_used": _public_tool_labels(tools_used),
             "charts": output_guard.scrub(charts[:3]),
+            "artifacts": output_guard.scrub(artifacts[:3]),
             "scope_checks": scope_checks,
             "provider_calls": provider_calls,
         }
+
+    # ---------------------------------------------------------------- sub-agents
+    def _run_delegate(
+        self, agent: dict[str, Any], context: dict, question: str
+    ) -> dict[str, Any]:
+        """Run one bounded specialist turn and return its answer to the parent.
+
+        This is what makes the coworker a team rather than one generalist: the
+        primary agent keeps the conversation and the persona, and a specialist
+        supplies the domain reasoning.
+
+        The sub-turn is deliberately narrow:
+          * it inherits the SAME operator permissions, so a delegate can never
+            see what the caller could not;
+          * it runs at most one tool round plus one answer call and no
+            delegation of its own, so a chain cannot outrun the request;
+          * it returns the answer plus the tools it used, never its own session;
+          * a failure degrades to a plain reason the parent can act on, so one
+            broken specialist cannot fail the whole turn.
+        """
+        user_id = int(context["user_id"])
+        permissions = list(context["permissions"])
+        request_id = context.get("request_id", "")
+
+        system = agents.system_prompt(agent, context)
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": question},
+        ]
+        tools_used: list[str] = []
+        sub_answer: dict[str, Any] | None = None
+        try:
+            # One tool round, then one answer call. Counting only *tool*
+            # rounds is what lets a data question actually come back: the
+            # specialist asks for its governed report, the report runs, and it
+            # then answers from it. Capping the total number of provider calls
+            # at one instead left every data delegation returning nothing, and
+            # the parent simply re-delegated the same question.
+            tool_rounds = 0
+            while tool_rounds < MAX_DELEGATE_TOOL_ROUNDS:
+                response = self.provider.complete(
+                    messages, {"response_format": "json_object", "task": "chat"}
+                )
+                if not isinstance(response, dict):
+                    break
+                action = str(response.get("action") or "final")
+                if action == "tool":
+                    requests, _rejected = self._requested_tools(
+                        response, list(agent["tools"])
+                    )
+                    if not requests:
+                        break
+                    tool_rounds += 1
+                    for tool_id, tool_input in requests:
+                        result = self.tools.execute(
+                            user_id,
+                            permissions,
+                            tool_id,
+                            tool_input,
+                            request_id,
+                            roles=context.get("roles"),
+                            role_ids=context.get("role_ids"),
+                        )
+                        tools_used.append(tool_id)
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": self._compact_result(tool_id, result),
+                            }
+                        )
+                    continue
+                sub_answer = self._validate_answer(response.get("answer") or response)
+                break
+        except Exception as error:  # noqa: BLE001 - a delegate must never fail the parent
+            return {
+                "agent": {"id": agent["id"], "name": agent["name"]},
+                "answer": None,
+                "reason": f"{type(error).__name__}: {str(error)[:200]}",
+            }
+
+        return {
+            "agent": {"id": agent["id"], "name": agent["name"]},
+            "answer": sub_answer,
+            "tools_used": tools_used,
+        }
+
+    @staticmethod
+    def _delegate_note(sub: dict[str, Any]) -> str:
+        """Compact, always-readable summary of one specialist turn."""
+        if not isinstance(sub, dict):
+            return "the specialist produced no answer"
+        answer = sub.get("answer")
+        if isinstance(answer, dict):
+            body = str(answer.get("body") or "").strip()
+            if body:
+                return body[:2000]
+        reason = str(sub.get("reason") or "").strip()
+        if reason:
+            return f"the specialist added nothing ({reason[:200]})"
+        return "the specialist added nothing new"
 
     @staticmethod
     def _report_scope_check(tool_id: str, result: Any) -> dict[str, Any] | None:
         """Extract PHP-resolved scope metadata for later task-result checks."""
         if tool_id not in {"reports.nlq", "reports.aggregate", "charts.generate"}:
             return None
-        if not isinstance(result, dict) or result.get("status") not in {"answered", "ok", "success"}:
+        if not isinstance(result, dict) or result.get("status") not in {
+            "answered",
+            "ok",
+            "success",
+        }:
             return None
-        answer = result.get("answer") if isinstance(result.get("answer"), dict) else result
+        answer = (
+            result.get("answer") if isinstance(result.get("answer"), dict) else result
+        )
         scope = answer.get("effective_scope")
         if not isinstance(scope, dict):
             return None
@@ -2404,7 +3655,12 @@ class Orchestrator:
         )
         normalized: dict[str, Any] = {}
         scope_type = scope.get("type")
-        if not isinstance(scope_type, str) or scope_type.strip() not in {"school", "own", "class", "learning_area"}:
+        if not isinstance(scope_type, str) or scope_type.strip() not in {
+            "school",
+            "own",
+            "class",
+            "learning_area",
+        }:
             return None
         normalized["type"] = scope_type.strip()
         for key in allowed:
@@ -2412,7 +3668,9 @@ class Orchestrator:
             if isinstance(value, int) and value > 0:
                 normalized[key] = value
         intent = result.get("intent")
-        report_code = str(intent.get("report_code") or "") if isinstance(intent, dict) else ""
+        report_code = (
+            str(intent.get("report_code") or "") if isinstance(intent, dict) else ""
+        )
         report_code = report_code or str(answer.get("report_code") or "")
         return {"report_code": report_code[:100], "scope": normalized}
 
@@ -2485,6 +3743,20 @@ class Orchestrator:
             if field not in flat:
                 continue
             value = flat[field]
+            if field == "rows":
+                # Rows are dicts. The generic list filter keeps only scalar
+                # items, so a dict row would silently vanish and the model
+                # would answer from nothing. Flatten each row to one bounded
+                # "column=value" line instead.
+                lines = [
+                    _flatten_row(row)
+                    for row in list(value)[:12]
+                    if isinstance(row, dict)
+                ]
+                lines = [line for line in lines if line]
+                if lines:
+                    compact["rows"] = lines
+                continue
             if isinstance(value, (list, tuple)):
                 items = [
                     str(v)[:120]
@@ -2556,6 +3828,84 @@ class Orchestrator:
         return answer
 
     @staticmethod
+    @staticmethod
+    def _rows_answer(result: dict[str, Any]) -> dict[str, Any] | None:
+        """Build an answer straight from governed rows, with no model call.
+
+        When the model spends its turn on tools instead of words, the staff
+        member must still get the numbers they asked for. The rows are already
+        authorised, so they can be rendered directly: a compact table plus the
+        report they came from.
+        """
+        rows = result.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return None
+        clean_rows = [row for row in rows[:12] if isinstance(row, dict)]
+        if not clean_rows:
+            return None
+        columns: list[str] = []
+        for row in clean_rows:
+            for key in row.keys():
+                if key not in columns and len(columns) < 8:
+                    columns.append(str(key))
+        lines = [
+            "| " + " | ".join(columns) + " |",
+            "| " + " | ".join("---" for _ in columns) + " |",
+        ]
+        for row in clean_rows:
+            cells = []
+            for column in columns:
+                value = row.get(column, "")
+                if isinstance(value, bool):
+                    cells.append("yes" if value else "no")
+                elif isinstance(value, (int, float)):
+                    cells.append(str(value))
+                else:
+                    cells.append(str(value)[:60])
+            lines.append("| " + " | ".join(cells) + " |")
+        title = str(result.get("report_title") or "Governed report").strip()[:120]
+        code = str(result.get("report_code") or "").strip()[:60]
+        heading = f"{title} ({code})" if code else title
+        return {
+            "title": heading,
+            "body": "\n".join(lines),
+            "next_steps": ["Open the governed report for the full result and filters."],
+            "suggested_questions": [],
+            "escalation_required": False,
+        }
+
+    def _guard_grounded_answer(
+        self, answer: dict[str, Any] | None, last_rows_result: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Replace an answer whose prose contradicts the rows it was given.
+
+        A live turn named Grade 2 as the highest fee arrears and Grade 7 as the
+        lowest for data in which the opposite is true. The model's explanation
+        is welcome; its arithmetic is not. When a superlative sentence points at
+        the wrong row the deterministic rendering is used instead, so the
+        figures on screen are the ones the server actually authorized. The
+        model's next steps and follow-up questions are kept - they are advice,
+        not data.
+        """
+        if not isinstance(answer, dict) or not isinstance(last_rows_result, dict):
+            return answer
+        rows = last_rows_result.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return answer
+        body = str(answer.get("body") or "")
+        if not body or not _claims_contradict_rows(
+            [row for row in rows if isinstance(row, dict)], body
+        ):
+            return answer
+        rendered = self._generate_nlq_answer("", last_rows_result)
+        if not rendered:
+            return answer
+        return {
+            **answer,
+            "title": str(answer.get("title") or "Governed report"),
+            "body": rendered,
+        }
+
     def _fallback_answer(
         tools_used: list[str], tool_results: list[str]
     ) -> dict[str, Any]:

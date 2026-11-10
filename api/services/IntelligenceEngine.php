@@ -15,7 +15,7 @@ use PDO;
  *
  * Deliberately provider-free: this engine only computes values, flags, and
  * alerts (SQL/rules over the governed views). It never holds a provider
- * credential and never decides WHEN to call the LLM - the AiInsightOrchestrator
+ * credential and never decides WHEN to call the LLM - the InsightScheduler
  * (P3b) owns that decision and reuses this engine's findings as context.
  */
 final class IntelligenceEngine

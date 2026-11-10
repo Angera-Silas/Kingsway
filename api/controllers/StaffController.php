@@ -16,8 +16,8 @@ use App\API\Services\payments\StatutoryRemittanceService;
 use App\API\Services\TeacherScopeService;
 use App\API\Services\StaffMigrationService;
 use Throwable;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 
 /**
@@ -189,14 +189,14 @@ class StaffController extends BaseController
     {
         if ($denied = $this->guardStaffDomain('staff.directory.view', self::STAFF_DIRECTORY_VIEW_ROLES)) return $denied;
         $context = $this->aiHrContext();
-        try { $this->contract(AiWorkflowService::class)->authorize('staff.hr_review', $context); } catch (DomainException $e) { return $this->forbidden('Staff HR AI assistance is not available for your account'); }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('staff.hr_review', $context); } catch (DomainException $e) { return $this->forbidden('Staff HR AI assistance is not available for your account'); }
         try {
             $result = $this->api->list(['status' => 'active', 'limit' => 1000]);
             $rows = is_array($result['data']['staff'] ?? null) ? $result['data']['staff'] : (is_array($result['staff'] ?? null) ? $result['staff'] : (is_array($result['data'] ?? null) ? $result['data'] : []));
             $teaching = $leave = $pending = $onboarding = 0;
             foreach ($rows as $row) { if ((int)($row['staff_type_id'] ?? 0) === 1) $teaching++; if (str_contains(strtolower((string) ($row['status'] ?? '')), 'leave')) $leave++; if (str_contains(strtolower((string) ($row['onboarding_status'] ?? '')), 'pending')) $onboarding++; }
             $input = ['report_date' => date('Y-m-d'), 'staff_count' => (string) count($rows), 'teaching_staff_count' => (string) $teaching, 'non_teaching_staff_count' => (string) max(0, count($rows) - $teaching), 'on_leave_count' => (string) $leave, 'pending_leave_count' => (string) $pending, 'onboarding_count' => (string) $onboarding, 'workload_exception_count' => '0', 'follow_up_intent' => 'Prepare aggregate HR follow-up; do not identify staff or make employment decisions.'];
-            return $this->accepted($this->contract(AiDraftService::class)->queue('staff.hr_review', $context, $input, ['subject_type' => 'staff_hr_review', 'scope' => 'authorized_staff_aggregates']), 'Staff HR review queued');
+            return $this->accepted($this->contract(DraftRepository::class)->queue('staff.hr_review', $context, $input, ['subject_type' => 'staff_hr_review', 'scope' => 'authorized_staff_aggregates']), 'Staff HR review queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); } catch (Throwable $e) { return $this->serverError('Staff HR assistance is temporarily unavailable'); }
     }
 
@@ -204,14 +204,14 @@ class StaffController extends BaseController
     {
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->userHasAny(['staff_hr_review', 'staff_manage'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'director', 'admin'])) return $this->forbidden('Staff HR review permission is required');
-        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'staff'), 'scope' => $review ? 'review' : 'own'], 'Staff HR AI reviews retrieved');
+        return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'staff'), 'scope' => $review ? 'review' : 'own'], 'Staff HR AI reviews retrieved');
     }
 
     public function postAiHrReviewApprove($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['staff_hr_review', 'staff_manage'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'director', 'admin'])) return $this->forbidden('Staff HR review permission is required');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0); if ($draftId < 1) return $this->badRequest('draft_id is required');
-        try { $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'staff.hr_review'); return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Staff HR review approved for guidance'); } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
+        try { $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'staff.hr_review'); return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Staff HR review approved for guidance'); } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
     }
 
     private function aiHrContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }

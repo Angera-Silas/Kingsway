@@ -5,8 +5,8 @@ use App\API\Modules\transport\TransportAPI;
 use App\API\Modules\finance\TransportBillingManager;
 use App\API\Modules\transport\StudentTransportEntitlementManager;
 use App\API\Services\payments\TransportPaymentService;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 use App\Database\Database;
 use Exception;
@@ -90,7 +90,7 @@ class TransportController extends BaseController
             $inputResponse = $this->api->getAiOperationsSummaryInput();
             if (($inputResponse['success'] ?? false) !== true) return $this->handleResponse($inputResponse);
             $input = is_array($inputResponse['data'] ?? null) ? $inputResponse['data'] : [];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'transport.operations_summary',
                 $this->aiTransportContext(),
                 $input,
@@ -108,7 +108,7 @@ class TransportController extends BaseController
     {
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiTransport()) return $this->forbidden('Transport review permission is required');
-        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'transport'), 'scope' => $review ? 'review' : 'own'], 'Transport AI summaries retrieved');
+        return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'transport'), 'scope' => $review ? 'review' : 'own'], 'Transport AI summaries retrieved');
     }
 
     public function postAiOperationsSummaryApprove($id = null, $data = [], $segments = [])
@@ -117,7 +117,7 @@ class TransportController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'transport.operations_summary');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'transport.operations_summary');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Transport summary approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -130,7 +130,7 @@ class TransportController extends BaseController
     }
     private function canUseAiTransport(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('transport.operations_summary', $this->aiTransportContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('transport.operations_summary', $this->aiTransportContext()); return true; } catch (DomainException $e) { return false; }
     }
     private function canApproveAiTransport(): bool
     {

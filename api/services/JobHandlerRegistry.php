@@ -152,28 +152,28 @@ class JobHandlerRegistry
                 // The queued permission fingerprint is for audit correlation
                 // only. A user's role may have changed while the job waited, so
                 // resolve authoritative grants immediately before generation.
-                $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $operatorId);
+                $permissions = (new AgentAssistant())->resolveEffectivePermissions($pdo, $operatorId);
                 if ($permissions === []) {
                     throw new \DomainException('ai.workflow.draft: operator permissions could not be resolved', 403);
                 }
                 $metadata = isset($payload['metadata']) && is_array($payload['metadata'])
                     ? $payload['metadata'] : [];
                 $metadata['queue_job_id'] = (int) ($payload['_job_id'] ?? 0);
-                (new AiDraftService())->create($pdo, $workflowId, [
+                (new DraftRepository())->create($pdo, $workflowId, [
                     'user_id' => $operatorId,
                     'permissions' => $permissions,
                     'request_id' => (string) ($payload['request_id'] ?? ''),
                 ], $input, $metadata);
             },
             'ai.analytics.insight' => static function (array $payload, PDO $pdo): void {
-                (new AiAnalyticsInsightService())->execute($pdo, $payload);
+                (new AnalyticsInsightService())->execute($pdo, $payload);
             },
             // Proactive AI briefing (roadmap P3b): the worker re-authorizes with
             // the recorded operator context (no broadened scope), re-runs the
             // deterministic engine, and creates a reviewable draft or caches the
             // deterministic summary for page-load delivery. Never a second queue.
             'ai.insight.generate' => static function (array $payload, PDO $pdo): void {
-                (new AiInsightOrchestrator())->execute($pdo, $payload);
+                (new InsightScheduler())->execute($pdo, $payload);
             },
             // KICD policy-watch interpretation (roadmap P3b): the worker
             // re-authorizes the governed curriculum workflow with the recorded
@@ -185,19 +185,19 @@ class JobHandlerRegistry
             // Governed multi-agent runs (staff co-worker layer): queued agent
             // assists and deterministic personal digests. The Python AI
             // platform is the PRIMARY engine when configured (all provider
-            // calls and agent loops run there); the PHP-native AiAgentService
+            // calls and agent loops run there); the PHP-native AgentAssistant
             // is the resilience path and re-authorizes with the recorded
             // operator context in either case.
             'ai.agent.run' => static function (array $payload, PDO $pdo): void {
-                $bridge = new AiPythonBridge();
+                $bridge = new PythonAiBridge();
                 if ($bridge->available()) {
                     $bridge->runJob($payload, $pdo);
                     return;
                 }
-                (new AiAgentService())->runBackground($pdo, $payload);
+                (new AgentAssistant())->runBackground($pdo, $payload);
             },
             'ai.agent.task' => static function (array $payload, PDO $pdo): void {
-                (new AiAgentTaskService())->execute($pdo, $payload);
+                (new AgentTaskRepository())->execute($pdo, $payload);
             },
             // Governed, non-AI automations computed by the Python engine
             // (registry-authorised; payload already bounded at enqueue time).

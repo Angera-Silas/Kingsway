@@ -689,7 +689,7 @@ class AcademicCalendarService
     private function notifyCalendarPublished(int $academicYearId): void
     {
         try {
-            $stmt = $this->db->prepare('SELECT name FROM academic_years WHERE id = ?');
+            $stmt = $this->db->prepare('SELECT year_name FROM academic_years WHERE id = ?');
             $stmt->execute([$academicYearId]);
             $year = $stmt->fetchColumn();
             $label = $year !== null && $year !== ''

@@ -11,7 +11,7 @@ use App\API\Services\AnnouncementBulletinService;
 use App\API\Services\EmailProfileService;
 use App\API\Services\EmailInboxService;
 use App\API\Services\SystemAdminAnalyticsService;
-use App\API\Services\AiOutputGuard;
+
 use App\API\Services\OperatingModeService;
 use App\API\Services\EnvironmentPhaseService;
 use App\API\Services\TestDataManagementService;
@@ -290,7 +290,7 @@ class SystemController extends BaseController
         if (!$this->canUseAiOperations()) return $this->forbidden('Security AI assistance is not available for your account');
         try {
             $signals = $this->contract('App\\API\\Services\\SystemSecuritySignalsService');
-            $queued = $this->contract('App\\API\\Services\\AiDraftService')->queue(self::SECURITY_WORKFLOW, $this->aiOperationsContext(), $signals->aiPayload($signals->summary()), ['subject_type' => 'system_security_review', 'scope' => 'identity_free_security_aggregates']);
+            $queued = $this->contract('App\\API\\Services\\DraftRepository')->queue(self::SECURITY_WORKFLOW, $this->aiOperationsContext(), $signals->aiPayload($signals->summary()), ['subject_type' => 'system_security_review', 'scope' => 'identity_free_security_aggregates']);
             return $this->accepted($queued, 'Security review queued for review');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (\Throwable $e) { return $this->serverError('Security assistance is temporarily unavailable'); }
@@ -303,8 +303,13 @@ class SystemController extends BaseController
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         try {
-            $matrix = $this->contract('App\\API\\Services\\AiCapabilityMatrix');
-            return $this->success(['summary' => $matrix->summary(), 'capabilities' => $matrix->all()], 'AI capability matrix retrieved');
+            // Capability status is engine-owned: resolve the registry through the
+            // workflow catalog, and let the Python platform report live counts.
+            $bridge = new \App\API\Services\PythonAiBridge();
+            $matrix = $bridge->available()
+                ? $bridge->call('/api/system/ai-capability-matrix', [])
+                : ['summary' => [], 'capabilities' => []];
+            return $this->success($matrix, 'AI capability matrix retrieved');
         } catch (\Throwable $e) {
             return $this->serverError('AI capability matrix is temporarily unavailable');
         }
@@ -314,8 +319,16 @@ class SystemController extends BaseController
     public function getAiReadiness($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
-        try { return $this->success($this->contract('App\\API\\Services\\AiReadinessReportService')->report(), 'AI readiness report retrieved'); }
-        catch (\Throwable $e) { return $this->serverError('AI readiness report is temporarily unavailable'); }
+        try {
+            // Readiness is engine-owned; PHP authorizes the viewer only.
+            $bridge = new \App\API\Services\PythonAiBridge();
+            return $this->success(
+                $bridge->available()
+                    ? $bridge->call('/api/system/ai-readiness', [])
+                    : ['readiness_status' => 'not_production_ready', 'counts' => [], 'release_gates' => []],
+                'AI readiness report retrieved'
+            );
+        } catch (\Throwable $e) { return $this->serverError('AI readiness report is temporarily unavailable'); }
     }
 
     // GET /api/system/ai-provider-health
@@ -323,7 +336,12 @@ class SystemController extends BaseController
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         try {
-            return $this->success($this->contract('App\\API\\Services\\AiProviderGateway')->health(), 'AI provider health retrieved');
+            // Provider/model health is engine-owned; never a PHP provider client.
+            $bridge = new \App\API\Services\PythonAiBridge();
+            return $this->success(
+                $bridge->available() ? $bridge->call('/healthz', [], 'GET') : [],
+                'AI provider health retrieved'
+            );
         } catch (\Throwable $e) { return $this->serverError('AI provider health is temporarily unavailable'); }
     }
 
@@ -341,7 +359,7 @@ class SystemController extends BaseController
             $service = $this->contract('App\API\Services\SystemOperationsReviewService');
             $input = $service->aiPayload($service->summary($this->db->getConnection()));
             $phase = 'enqueue';
-            $queued = $this->contract('App\API\Services\AiDraftService')->queue(
+            $queued = $this->contract('App\API\Services\DraftRepository')->queue(
                 'system.operations_brief', $this->aiOperationsContext(), $input,
                 ['subject_type' => 'system_operations_review', 'scope' => 'authorized_system_aggregates']
             );
@@ -349,7 +367,7 @@ class SystemController extends BaseController
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
         } catch (\Throwable $e) {
-            $safeMessage = AiOutputGuard::scrubText($e->getMessage());
+            $safeMessage = \RuntimeException::class . " relayed";
             Logger::error('errors', 'AI operations review could not be queued', [
                 'exception_class' => get_class($e),
                 'phase' => $phase,
@@ -374,7 +392,7 @@ class SystemController extends BaseController
             return $this->forbidden('Operations review permission is required');
         }
         return $this->success([
-            'drafts' => $this->contract('App\API\Services\AiDraftService')->listForReview($this->db->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'system'),
+            'drafts' => $this->contract('App\API\Services\DraftRepository')->listForReview($this->db->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'system'),
             'scope' => $review ? 'review' : 'own',
         ], 'Operations reviews retrieved');
     }
@@ -392,7 +410,7 @@ class SystemController extends BaseController
             return $this->badRequest('draft_id is required');
         }
         try {
-            $approved = $this->contract('App\API\Services\AiDraftService')->approve($this->db->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'system.operations_brief');
+            $approved = $this->contract('App\API\Services\DraftRepository')->approve($this->db->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'system.operations_brief');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Operations review approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -411,7 +429,7 @@ class SystemController extends BaseController
     private function canUseAiOperations(): bool
     {
         try {
-            $this->contract('App\API\Services\AiWorkflowService')->authorize('system.operations_brief', $this->aiOperationsContext());
+            $this->contract('App\API\Services\WorkflowAuthorization')->authorize('system.operations_brief', $this->aiOperationsContext());
             return true;
         } catch (DomainException $e) {
             return false;

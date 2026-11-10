@@ -9,7 +9,7 @@ use PDO;
 use Throwable;
 
 /** Durable, user-owned task facade over the canonical PHP JobQueue. */
-final class AiAgentTaskService
+final class AgentTaskRepository
 {
     public const JOB_TYPE = 'ai.agent.task';
 
@@ -31,7 +31,7 @@ final class AiAgentTaskService
             throw new DomainException('This task endpoint accepts general assistant requests only.', 422);
         }
 
-        $permissionHint = AiAgentService::permissionHint($permissions, 60);
+        $permissionHint = AgentAssistant::permissionHint($permissions, 60);
         $requestId = mb_substr(trim($requestId), 0, 100);
         $taskFingerprint = hash('sha256', json_encode([
             $question,
@@ -99,7 +99,7 @@ final class AiAgentTaskService
             return;
         }
 
-        $agent = new AiAgentService();
+        $agent = new AgentAssistant();
         $permissions = $agent->resolveEffectivePermissions($pdo, $userId);
         if ($permissions === []) {
             throw new DomainException('The task owner has no currently resolved permissions.', 403);
@@ -120,7 +120,7 @@ final class AiAgentTaskService
             'request_id' => (string) ($payload['request_id'] ?? 'ai-agent-task'),
         ];
 
-        $bridge = new AiPythonBridge();
+        $bridge = new PythonAiBridge();
         $result = $bridge->available()
             ? $bridge->assist($context, (string) $payload['question'])
             : $agent->assist($pdo, $context, (string) $payload['question']);
@@ -183,7 +183,7 @@ final class AiAgentTaskService
 
     private function currentAccessContext(PDO $pdo, int $userId): array
     {
-        $agent = new AiAgentService();
+        $agent = new AgentAssistant();
         $permissions = $agent->resolveEffectivePermissions($pdo, $userId);
         $roles = $agent->resolveEffectiveRoles($pdo, $userId);
         return ['fingerprint' => self::accessFingerprint($permissions, $roles), 'roles' => $roles];

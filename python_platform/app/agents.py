@@ -17,6 +17,18 @@ TOOL_AGGREGATE = "reports.aggregate"
 TOOL_CHART = "charts.generate"
 TOOL_DRAFT = "drafts.create"
 
+# Public-web lookup. A Kenyan CBC school must be able to reach current world
+# guidance (KICD, KNEC, the Ministry, teaching resources) that no school
+# database can hold. Executed inside Python, bounded, and every result carries
+# a source URL so answers cite provenance. Never available to parent/public
+# agents: those audiences do not spend outbound search budget.
+TOOL_WEB_SEARCH = "web.search"
+TOOL_WEB_FETCH = "web.fetch"
+TOOL_WEB_CRAWL = "web.crawl"
+TOOL_ANALYTICS_SUMMARY = "analytics.summary"
+TOOL_ANALYTICS_CHART = "analytics.chart"
+TOOL_ANALYTICS_FORECAST = "analytics.forecast"
+
 # System-administrator tools. These read local code/log files and are
 # guarded behind the system_admin permission in tools.py / orchestrator.py.
 # They are NOT available to ordinary staff agents.
@@ -32,6 +44,12 @@ TOOL_SUMMARIES: dict[str, str] = {
     TOOL_AGGREGATE: "reports.aggregate - compute a governed aggregation (count, sum, avg, min, max) over authorized data; input: question (string), agg_type (count|sum|avg|min|max)",
     TOOL_CHART: "charts.generate - generate a chart specification from authorized governed data; input: question (string), chart_type (bar|line|pie|doughnut|area)",
     TOOL_DRAFT: "drafts.create - create a draft message/notice/announcement for human review; input: template (string), context (string)",
+    TOOL_WEB_SEARCH: "web.search - search the public web for current world information when the school database cannot answer (curriculum guidance, regulations, teaching resources); input: query (string), limit (int, optional). Every result carries a source URL that must be cited.",
+    TOOL_WEB_FETCH: "web.fetch - read the full text of one public page so the answer comes from the current source rather than model memory; input: url (string), max_chars (int, optional). Any public http/https URL is allowed; private and loopback hosts are refused.",
+    TOOL_WEB_CRAWL: "web.crawl - read several linked pages from one public site in one turn, honouring robots.txt; input: url (string), depth (0-2, optional), max_pages (1-6, optional), max_chars (optional)",
+    TOOL_ANALYTICS_SUMMARY: "analytics.summary - statistics over the authorized rows of the governed report that was just run (count, mean, min, max, std, trend); input: focus (string, optional). Run the report first; the rows are already authorised, so never pass rows yourself",
+    TOOL_ANALYTICS_CHART: "analytics.chart - draw a real figure with pandas/matplotlib from the authorized rows of the governed report that was just run and return it as a PNG image the staff member can see and download; input: chart_type (string: bar|line|pie|doughnut|area|scatter|histogram|box), x (string, optional), y (string, optional), title (string, optional)",
+    TOOL_ANALYTICS_FORECAST: "analytics.forecast - a bounded linear trend projection over the authorized rows of the governed report that was just run; input: periods (int, optional), column (string, optional). It is a trend indication, never a promise",
     TOOL_SYSTEM_CODE_READ: "system.code_read - read an allowlisted source or config file for system diagnosis; input: path (string), max_chars (int, optional)",
     TOOL_SYSTEM_LOG_READ: "system.log_read - read an allowlisted operational log file; input: path (string), tail_lines (int, optional)",
     TOOL_SYSTEM_ERROR_ANALYZE: "system.error_analyze - summarize recent error journal entries and their signatures; input: limit (int, optional)",
@@ -63,6 +81,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "admissions.agent": {
@@ -85,6 +109,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "attendance.agent": {
@@ -100,6 +130,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "boarding.agent": {
@@ -115,6 +151,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "finance.agent": {
@@ -141,6 +183,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "communications.agent": {
@@ -160,7 +208,14 @@ AGENTS: dict[str, dict[str, Any]] = {
             "outbox",
         ],
         "persona": "You are the Communications Drafting Agent. You draft clear, respectful, audience-appropriate school messages with placeholders where facts are missing. You never select recipients, resolve contact data or send anything; dispatch stays in the governed Communications Hub workflow.",
-        "tools": [TOOL_DRAFT, TOOL_CATALOG, TOOL_INSIGHT_BRIEF],
+        "tools": [
+            TOOL_DRAFT,
+            TOOL_CATALOG,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+        ],
     },
     "staff.agent": {
         "id": "staff.agent",
@@ -183,6 +238,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "transport.agent": {
@@ -192,7 +253,14 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize routes, vehicles, passenger counts, punctuality and incident signals.",
         "route_tokens": ["transport", "route", "vehicle", "fuel", "manifest", "driver"],
         "persona": "You are the Transport Operations Agent. You summarize capacity and operational signals only; you never assign routes, approve vehicles, infer licensing or safety status, or expose passenger identity.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_CATALOG,
+            "reports.insight_brief",
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+        ],
     },
     "inventory.agent": {
         "id": "inventory.agent",
@@ -214,6 +282,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "catering.agent": {
@@ -229,6 +303,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "health.agent": {
@@ -244,6 +324,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "counseling.agent": {
@@ -253,7 +339,14 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize aggregate counselling case load and follow-up signals without case identities.",
         "route_tokens": ["counsel", "guidance", "welfare", "safeguard"],
         "persona": "You are the Counselling & Welfare Agent. Confidential notes and case identities never reach you. You summarize aggregate case/session counts and suggest administrative follow-up for authorized counsellors only.",
-        "tools": [TOOL_DRAFT, TOOL_CATALOG, TOOL_INSIGHT_BRIEF],
+        "tools": [
+            TOOL_DRAFT,
+            TOOL_CATALOG,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+        ],
     },
     "activities.agent": {
         "id": "activities.agent",
@@ -268,6 +361,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "maintenance.agent": {
@@ -277,7 +376,14 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize equipment and vehicle maintenance exceptions, overdue work and recurring repair signals.",
         "route_tokens": ["maintenance", "facility", "equipment"],
         "persona": "You are the Facilities Maintenance Agent. You surface overdue and recurring work signals; you never change statuses, select vendors, approve costs or make safety decisions.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_CATALOG,
+            "reports.insight_brief",
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+        ],
     },
     "reports.agent": {
         "id": "reports.agent",
@@ -292,6 +398,12 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_CHART,
             TOOL_INSIGHT_BRIEF,
             TOOL_CATALOG,
+            TOOL_WEB_SEARCH,
+            TOOL_WEB_FETCH,
+            TOOL_WEB_CRAWL,
+            TOOL_ANALYTICS_SUMMARY,
+            TOOL_ANALYTICS_CHART,
+            TOOL_ANALYTICS_FORECAST,
         ],
     },
     "system.agent": {
@@ -383,6 +495,68 @@ AGENTS: dict[str, dict[str, Any]] = {
 }
 
 PROMPT_TEMPLATES: dict[str, str] = {
+    "public.greeting": (
+        "You are the Kingsway Preparatory School public assistant. Reply to the "
+        "visitor's greeting in ONE short sentence using ONLY the school facts "
+        "supplied. Then offer to answer questions about the school. Never invent "
+        "facts, contacts, dates or people. Return ONLY JSON with a single key "
+        "'body' holding the sentence."
+    ),
+    "public.followup_questions": (
+        "You are the Kingsway Preparatory School public assistant. From the "
+        "supplied topic titles, propose exactly three short follow-up questions a "
+        "visitor may realistically ask next. Each under 120 characters, phrased as "
+        "a question. Never invent topics that are not in the supplied titles. "
+        "Return ONLY JSON with a key 'questions' holding the list."
+    ),
+    "public.faq_assistant": (
+        "You are the Kingsway Preparatory School public assistant. You answer ONLY "
+        "from the approved public corpus supplied in 'corpus'. The corpus covers "
+        "the school, its programmes, admissions, term dates, contacts and the "
+        "technology maintainer. Rules: (1) never use knowledge outside the corpus; "
+        "(2) never name learners, staff contact numbers, or internal systems; "
+        "(3) if the corpus does not contain the answer, set escalation_required to "
+        "true and say so plainly rather than guessing; (4) answer in at most two "
+        "short sentences unless the visitor asks for detail; (5) cite only source "
+        "ids that exist in the corpus. Return ONLY JSON with title, body, "
+        "next_steps (<=5), suggested_questions (<=3), sources, escalation_required."
+    ),
+    "communications.parent_portal_assistant": (
+        "You are the Kingsway Preparatory School parent portal assistant. You "
+        "answer a parent or guardian using ONLY the supplied linked-child "
+        "summaries: class, current balance, total balance, attendance totals and "
+        "percentage. Rules: (1) a learner is never named — refer to 'linked_child_1' "
+        "style labels; (2) explain what a number means in plain language and never "
+        "predict or advise on fees you were not given; (3) if the answer needs "
+        "staff review, say so and point to the school office; (4) never disclose "
+        "health, counselling, discipline or another family's data. Return ONLY JSON "
+        "with title, body and next_steps (<=5)."
+    ),
+    "research.external_knowledge": (
+        "You are the Kingsway Preparatory School research assistant for authorised "
+        "staff. You answer from the supplied approved sources only, and you must "
+        "separate fact from inference: 'facts' are supported by a cited source, "
+        "'inferences' are clearly marked as interpretation. Rules: (1) cite only "
+        "source ids that exist in the supplied list; (2) if the sources do not "
+        "answer the question, set escalation_required true and say what is missing; "
+        "(3) never use learner, health, payroll or credential data; (4) for KICD "
+        "or CBC questions, prefer the official KICD/Ministry sources. Return ONLY "
+        "JSON with title, body, facts, inferences, next_steps, sources, "
+        "escalation_required."
+    ),
+    "academics.planning": (
+        "You are an academic planning assistant for a Kenyan CBC primary and "
+        "junior secondary school. You help teachers draft lesson plans, schemes of "
+        "work, assessments, summary notes and learning objectives. You receive "
+        "school-owned context (grade, learning area, strand, sub-strand, KICD "
+        "outcomes, the school's available resources) together with web-sourced "
+        "teaching ideas, activities and assessment ideas. Rules: (1) the school's "
+        "KICD outcomes and available resources are authoritative — web ideas are "
+        "inspiration to adapt, never a replacement; (2) every borrowed idea must be "
+        "attributed to its source URL; (3) never assert a number, date, age or "
+        "scientific claim you were not given; (4) output is a DRAFT for the teacher "
+        "to edit — never final; (5) keep the language teacher-ready and CBC-aligned."
+    ),
     "system.workspace_briefing": (
         "You are the proactive workspace co-worker for a Kenyan CBC school system. You receive a "
         "deterministic scan of the staff member's current workspace (queue health, journal errors, "
@@ -895,6 +1069,27 @@ def tool_summaries(agent: dict[str, Any]) -> list[str]:
     return [TOOL_SUMMARIES.get(t, f"{t} - governed tool") for t in agent["tools"]]
 
 
+# One bounded paragraph, appended to every agent's system prompt. It is what
+# turns the flat agent list into a team: the primary keeps the conversation and
+# hands one focused sub-question to a specialist, inheriting that operator's
+# own permissions so delegation can never be used to reach data the staff
+# member could not already see.
+DELEGATION_INSTRUCTIONS = (
+    "SUB-AGENTS - you may delegate ONE focused sub-question to a specialist "
+    "and fold its answer into your reply. Reply with nothing except JSON: "
+    '{"action":"delegate","agent":"<agent id>","question":"<one question>"}. '
+    "Use this only when the question spans a domain you cannot reach: a "
+    "finance question asked of the academic agent. The specialist answers "
+    "with YOUR permissions, so you can never delegate to see more than the "
+    "staff member already may. Never delegate when a tool you own or a "
+    "tool_result you were already given answers the question - that wastes "
+    "the staff member's turn and returns nothing new. Never delegate the whole "
+    "answer away: you own the final reply. Available specialist ids: "
+    + ", ".join(sorted(AGENTS))
+    + "."
+)
+
+
 def specialist_prompt(focus: str) -> str:
     """Tiny, bounded prompt for one domain 'eye' in the briefing fan-out."""
     return (
@@ -913,6 +1108,7 @@ def system_prompt(agent: dict[str, Any], context: dict | None = None) -> str:
             f"AGENT PERSONA - {agent['name']}: {agent['persona']}",
             f"AGENT GOAL: {agent['goal']}",
             "TOOLS AVAILABLE (use exact ids):\n- " + "\n- ".join(tool_summaries(agent)),
+            DELEGATION_INSTRUCTIONS,
         ]
     )
     if context:
@@ -973,6 +1169,7 @@ def stream_prompt(agent: dict[str, Any], context: dict | None = None) -> str:
                 "intelligence briefing (reports.insight_brief), and workflow catalogue "
                 "(assistant.catalog)."
             ),
+            DELEGATION_INSTRUCTIONS,
         ]
     )
     if context:

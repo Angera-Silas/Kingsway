@@ -24,7 +24,7 @@ use LogicException;
  * versioned in source like AiWorkflowRegistry. Adding a new domain agent is a
  * registry row plus tests, never a controller change.
  */
-final class AiAgentRegistry
+final class AgentCatalog
 {
     /** @var array<string,array<string,mixed>>|null */
     private static ?array $agents = null;

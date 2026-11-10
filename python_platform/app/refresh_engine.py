@@ -744,6 +744,10 @@ class RefreshEngine:
                         {
                             "job": projection,
                             "error_class": type(error).__name__,
+                            # The message is what makes a failure fixable. Recording
+                            # only the class name turned every projection failure
+                            # into an undiagnosable "ReadModelError".
+                            "error": str(error)[:300],
                         }
                     )
                     self._journal(
@@ -751,6 +755,7 @@ class RefreshEngine:
                             "type": "read_projection_refresh_failed",
                             "projection": projection,
                             "error_class": type(error).__name__,
+                            "error": str(error)[:300],
                         },
                         "warning",
                     )

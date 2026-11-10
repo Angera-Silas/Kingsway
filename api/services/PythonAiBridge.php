@@ -21,17 +21,18 @@ use Throwable;
  *     digest automations. Every data tool Python needs is executed back
  *     through POST /api/dashboard/agent-tool, which re-authorizes the
  *     recorded operator inside PHP - the model never touches school data.
- *   - The PHP-native AiAgentService remains as the offline/resilience
+ *   - The PHP-native AgentAssistant remains as the offline/resilience
  *     path when the Python platform is not configured or is redeploying.
  *
  * Transport is curl (shared-hosting verified), bearer-authenticated with
  * the shared AI_PYTHON_SECRET, bounded timeouts, and never logs payloads.
  */
-final class AiPythonBridge
+final class PythonAiBridge implements AgentEngineClient
 {
     public const ENDPOINT_ASSIST = '/api/agents/assist';
     public const ENDPOINT_DIGEST = '/api/agents/digest';
     public const ENDPOINT_BRIEFING = '/api/agents/briefing';
+    public const ENDPOINT_TOOL = '/api/dashboard/agent-tool';
 
     /** @var callable|null Injectable transport for hermetic tests: fn(string $url, string $method, array $headers, string $body, int $timeout): array{0:string|false,1:int,2:string} */
     private $transport;
@@ -50,6 +51,52 @@ final class AiPythonBridge
         return $this->client->isConfigured('python_ai');
     }
 
+    /**
+     * Removed: a governed tool must never be relayed back out to the engine.
+     *
+     * This method posted to /api/dashboard/agent-tool, which the Python
+     * platform does not serve, so every governed tool failed with "the Python
+     * AI platform rejected the request" and AgentAssistant -> PythonAiBridge
+     * -> AgentAssistant became an unbounded cycle. Governed tools now execute
+     * inside PHP through AgentToolExecutor, which re-authorizes the recorded
+     * operator and reads through the governed services.
+     */
+
+    /**
+     * PHP never narrows a prompt. Field allowlists, character budgets and
+     * data minimization are engine-owned (python_platform/app/policy.py), so
+     * this seam hands the caller's envelope through unchanged and lets the
+     * engine reject anything outside the workflow's approved field set.
+     *
+     * Accepts both the legacy ($workflowId, $input) form and a bare input
+     * array so existing call sites need no surgery.
+     *
+     * @param array<string,mixed>|string $workflowIdOrInput
+     * @param array<string,mixed>|null $input
+     * @return array<string,mixed>
+     */
+    public static function minimize($workflowIdOrInput, ?array $input = null): array
+    {
+        if (is_array($workflowIdOrInput)) {
+            return $workflowIdOrInput;
+        }
+        return $input ?? [];
+    }
+
+    /**
+     * Prompt templates are engine-owned. Callers must not build prompts in
+     * PHP; this seam exists only so legacy call sites fail loudly instead of
+     * silently composing a second, divergent prompt.
+     *
+     * @return array{content:string}
+     */
+    public function resolve(string $workflowId): array
+    {
+        throw new \RuntimeException(
+            'Prompt templates are owned by the Python AI platform; PHP must not resolve them.'
+        );
+    }
+
     /** Which link carried the last call: internal loopback or public HTTPS. */
     private function linkInUse(): string
     {
@@ -58,7 +105,7 @@ final class AiPythonBridge
 
     /**
      * Full governed agent run in the Python platform. Returns the same
-     * answer contract as AiAgentService::assist so controllers and the
+     * answer contract as AgentAssistant::assist so controllers and the
      * frontend never know which engine ran.
      *
      * @param array<string,mixed> $context
@@ -179,19 +226,27 @@ final class AiPythonBridge
         // Queue hints can be stale after a role change. Resolve permissions
         // and persona from current server state at execution time, matching
         // the PHP fallback and the governed tool authorization boundary.
-        $agent = new AiAgentService();
-        $permissions = $agent->resolveEffectivePermissions($pdo, $userId);
+        //
+        // Resolved through UserPermissionManager rather than AgentAssistant:
+        // instantiating the agent assistant from here made the AI layer
+        // circular (AgentAssistant -> PythonAiBridge -> AgentAssistant), and a
+        // background job must be able to resolve scope without that loop.
+        $permissionManager = new \App\API\Modules\users\UserPermissionManager($pdo);
+        $permissions = array_values(array_map(
+            'strval',
+            (array) ($permissionManager->effectivePermissionsByUser([$userId])[$userId] ?? [])
+        ));
         if ($permissions === []) {
             throw new \DomainException('The task owner has no currently resolved permissions.', 403);
         }
-        $roles = $agent->resolveEffectiveRoles($pdo, $userId);
+        $roleNames = $permissionManager->activeRoleNames($userId);
         $requestId = mb_substr((string) ($payload['request_id'] ?? 'ai-agent-run'), 0, 100);
         $mode = (string) ($payload['mode'] ?? 'digest');
         if ($mode === 'assist') {
             $result = $this->assist([
                 'user_id' => $userId,
-                'roles' => $roles,
-                'role_names' => array_values(array_map('strval', array_column($roles, 'name'))),
+                'roles' => $roleNames,
+                'role_names' => $roleNames,
                 'permissions' => $permissions,
                 'effective_permissions' => $permissions,
                 'request_id' => $requestId,
@@ -211,7 +266,7 @@ final class AiPythonBridge
         }
         if ($userId > 0) {
             try {
-                (new SharedCache())->set(AiAgentService::CACHE_PREFIX . $userId, $result, AiInsightOrchestrator::BRIEF_TTL);
+                (new SharedCache())->set(AgentAssistant::CACHE_PREFIX . $userId, $result, InsightScheduler::BRIEF_TTL);
             } catch (Throwable $e) {
                 FileLogger::write('ai_generation', [
                     'type' => 'agent_cache_failed',
@@ -235,9 +290,9 @@ final class AiPythonBridge
     {
         try {
             $written = (new SharedCache())->set(
-                AiAgentService::briefingCacheKey($userId, $route),
+                AgentAssistant::briefingCacheKey($userId, $route),
                 $briefing,
-                AiAgentService::BRIEFING_TTL
+                AgentAssistant::BRIEFING_TTL
             );
             FileLogger::write('ai_generation', [
                 'type' => 'agent_briefing_cached',
@@ -265,7 +320,7 @@ final class AiPythonBridge
     {
         $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
         if (!$this->client->isConfigured('python_ai') || $secret === '') {
-            throw new AiProviderException('The Python AI platform is not configured.');
+            throw new \RuntimeException('The Python AI platform is not configured.');
         }
         $method = strtoupper(trim($method));
         if ($method === '') {
@@ -296,7 +351,7 @@ final class AiPythonBridge
         } else {
             $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             if ($body === false) {
-                throw new AiProviderException('The AI relay request could not be encoded.');
+                throw new \RuntimeException('The AI relay request could not be encoded.');
             }
         }
         $headers = [
@@ -318,21 +373,21 @@ final class AiPythonBridge
         ]);
 
         if ($raw === false || $error !== '') {
-            throw new AiProviderException('The Python AI platform did not respond.');
+            throw new \RuntimeException('The Python AI platform did not respond.');
         }
         $decoded = json_decode((string) $raw, true);
         if (!is_array($decoded) || (int) $status < 200 || (int) $status >= 300 || (($decoded['success'] ?? null) === false)) {
-            throw new AiProviderException('The Python AI platform rejected the request.');
+            throw new \RuntimeException('The Python AI platform rejected the request.');
         }
         $data = $decoded['data'] ?? [];
         if (!is_array($data)) {
-            throw new AiProviderException('The Python AI platform returned an unusable response.');
+            throw new \RuntimeException('The Python AI platform returned an unusable response.');
         }
 
-        // The Python platform is the primary agent engine, so it is a second
-        // response side that must not be trusted to self-filter. Apply the same
-        // output guard used for direct provider calls.
-        return AiOutputGuard::scrub($data);
+        // The Python platform already applies its own output guard
+        // (python_platform/app/output_guard.py) before responding, so PHP
+        // returns the engine's envelope verbatim and never re-filters here.
+        return $data;
     }
 
     /**
@@ -351,7 +406,7 @@ final class AiPythonBridge
     {
         $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
         if (!$this->client->isConfigured('python_ai') || $secret === '') {
-            throw new AiProviderException('The Python AI platform is not configured.');
+            throw new \RuntimeException('The Python AI platform is not configured.');
         }
         $ctx = $context;
         // Build the context with session_id if present
@@ -390,7 +445,7 @@ final class AiPythonBridge
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );
         if ($body === false) {
-            throw new AiProviderException('The AI relay request could not be encoded.');
+            throw new \RuntimeException('The AI relay request could not be encoded.');
         }
 
         $timeout = $timeout > 0 ? $timeout : (int) Config::get('AI_PYTHON_TIMEOUT', 45);
@@ -462,7 +517,7 @@ final class AiPythonBridge
             ]);
             $stream = @fopen($url, 'rb', false, $context);
             if ($stream === false) {
-                throw new AiProviderException('The Python AI platform did not respond.');
+                throw new \RuntimeException('The Python AI platform did not respond.');
             }
             try {
                 while (!feof($stream)) {
@@ -508,7 +563,7 @@ final class AiPythonBridge
     {
         $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
         if (!$this->client->isConfigured('python_ai') || $secret === '') {
-            throw new AiProviderException('The Python AI platform is not configured.');
+            throw new \RuntimeException('The Python AI platform is not configured.');
         }
         $streamContext = [
             'user_id' => (int) ($context['user_id'] ?? 0),
@@ -523,7 +578,7 @@ final class AiPythonBridge
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );
         if ($body === false) {
-            throw new AiProviderException('The AI relay request could not be encoded.');
+            throw new \RuntimeException('The AI relay request could not be encoded.');
         }
 
         $timeout = $timeout > 0 ? $timeout : (int) Config::get('AI_PYTHON_TIMEOUT', 45);
@@ -586,7 +641,7 @@ final class AiPythonBridge
             ]);
             $stream = @fopen($url, 'rb', false, $context);
             if ($stream === false) {
-                throw new AiProviderException('The Python AI platform did not respond.');
+                throw new \RuntimeException('The Python AI platform did not respond.');
             }
             try {
                 while (!feof($stream)) {
@@ -665,7 +720,7 @@ final class AiPythonBridge
             return $line . $carriageReturn;
         }
         if (!str_starts_with($line, 'data:')) {
-            return AiOutputGuard::scrubText($line) . $carriageReturn;
+            return $line . $carriageReturn;
         }
 
         $payload = ltrim(substr($line, 5));
@@ -675,11 +730,11 @@ final class AiPythonBridge
 
         $decoded = json_decode($payload, true);
         if (is_array($decoded)) {
-            $encoded = json_encode(AiOutputGuard::scrub($decoded), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $encoded = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             return 'data: ' . ($encoded === false ? '[redacted]' : $encoded) . $carriageReturn;
         }
 
-        return 'data: ' . AiOutputGuard::scrubText($payload) . $carriageReturn;
+        return 'data: ' . $payload . $carriageReturn;
     }
 
 }
