@@ -37,6 +37,7 @@ from flask import Flask, Response, jsonify, request
 
 from . import agents as agent_registry
 from . import intent
+from . import proactive
 from .agents import default_agent
 from .behavior import BehaviorStore
 from .conversation import ConversationStore
@@ -6057,6 +6058,71 @@ def create_app(config: Config | None = None) -> Flask:
                 }
             ), 503
         return jsonify({"success": True, "data": result, "message": "Intent parsed"})
+
+    @app.post("/api/agents/suggest")
+    def agent_suggest():
+        """Page-aware next questions for the workspace a staff member is on.
+
+        Deterministic and free: no provider call, no database read, no figure in
+        the response. Each hint is dropped unless the operator holds a
+        permission that could actually run it, and the governed tool behind an
+        accepted hint re-authorizes on its own. The browser shows one at a time
+        and forgets a hint once it has been offered for that page state.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            message, code = (
+                str(error),
+                403 if isinstance(error, PermissionError) else 422,
+            )
+            return jsonify({"success": False, "message": message}), code
+
+        # Only the listed page fields are read, each bounded. The browser is
+        # not trusted to send a small payload.
+        raw_page = payload.get("page_context")
+        raw_page = raw_page if isinstance(raw_page, dict) else {}
+        page_context: dict = {}
+        entity = raw_page.get("page_entity")
+        if isinstance(entity, dict):
+            page_context["page_entity"] = {
+                "kind": str(entity.get("kind") or "")[:40],
+                "label": str(entity.get("label") or "")[:80],
+                "status": str(entity.get("status") or "")[:40],
+            }
+        filters = raw_page.get("filters")
+        if isinstance(filters, dict):
+            page_context["filters"] = {
+                str(key)[:40]: str(value)[:60]
+                for key, value in list(filters.items())[:10]
+                if str(value).strip()
+            }
+        try:
+            suggestions = proactive.build_suggestions(context, page_context)
+        except Exception as error:  # noqa: BLE001 - a nudge is never worth a 500
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_suggest_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            suggestions = []
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "suggestions": suggestions,
+                    "signature": proactive.signature(context, page_context),
+                },
+                "message": "Suggestions prepared",
+            }
+        )
 
     @app.post("/api/agents/assist")
     def agent_assist():

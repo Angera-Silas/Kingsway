@@ -1633,3 +1633,86 @@ table.table thead th[scope="col"] {
 #system-tour-overlay {
   z-index: 1055 !important;
 }
+
+/* ---------------------------------------------------------------------------
+   Proactive assistant nudge
+   ---------------------------------------------------------------------------
+   Offered only when a workspace has been idle or a long page stops scrolling,
+   and only once per page state. It sits above the page content in the same
+   visual language as the assistant panel, never over a dialog, and is small
+   enough to ignore. */
+.ai-nudge {
+  position: fixed;
+  top: calc(var(--app-header-height, 72px) + 12px);
+  right: 16px;
+  z-index: 1080;
+  width: min(340px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--app-border, #e2e8f0);
+  border-radius: 14px;
+  background: var(--app-surface, #fff);
+  color: var(--app-text, #202123);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  animation: ai-nudge-in 180ms ease-out;
+}
+
+@keyframes ai-nudge-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-nudge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-nudge-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--app-green, #178a50);
+}
+
+.ai-nudge-title {
+  margin: 0 0 4px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ai-nudge-reason {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--app-muted, #697386);
+}
+
+.ai-nudge .btn-close {
+  padding: 0.35rem;
+  font-size: 0.65rem;
+}
+
+@media (max-width: 575.98px) {
+  .ai-nudge {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    top: calc(var(--app-header-height, 64px) + 8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-nudge {
+    animation: none;
+  }
+}

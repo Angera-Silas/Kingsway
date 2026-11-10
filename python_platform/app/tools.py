@@ -71,6 +71,10 @@ SYSTEM_TOOL_PREFIX = "system."
 WEB_TOOL_PREFIX = "web."
 WEB_TOOLS = ("web.search", "web.fetch", "web.crawl")
 ANALYTICS_TOOLS = ("analytics.summary", "analytics.chart", "analytics.forecast")
+# Document, slide and media producers. They render the rows PHP already
+# released for this operator, never the database.
+DOCUMENT_TOOL = "documents.produce"
+DOCUMENT_FORMATS = ("pdf", "docx", "video", "audio")
 # Governed tools whose result may contain the rows the engine analyses.
 ROW_RELEASING_TOOLS = ("reports.nlq", "reports.aggregate", "charts.generate")
 # How long an operator's released rows may be reused for a figure.
@@ -170,6 +174,10 @@ class ToolBridge:
         # copy rows back and forth through the prompt.
         self._recent_rows: dict[int, list[dict[str, Any]]] = {}
         self._recent_rows_at: dict[int, float] = {}
+        # The last figure drawn for this operator, so a PDF or a short video can
+        # include the same picture instead of drawing a second, different one.
+        self._recent_chart: dict[int, str] = {}
+        self._recent_chart_at: dict[int, float] = {}
         # External MCP consumption. Dormant until AI_MCP_SERVERS is configured,
         # in which case every callable external tool is exposed as
         # mcp.<server>.<tool> and dispatched through MCP_TOOL_PREFIX below.
@@ -281,6 +289,8 @@ class ToolBridge:
         # tool id invented by the model is refused twice over.
         if str(tool or "").startswith(MCP_TOOL_PREFIX):
             return self._execute_mcp_tool(str(tool), tool_input or {})
+        if str(tool or "") == DOCUMENT_TOOL:
+            return self._execute_document_tool(tool_input or {}, user_id)
         if tool not in ALLOWED_TOOLS:
             return {"status": "unknown_tool"}
         operator: dict[str, Any] = {"user_id": user_id, "permissions": permissions}
@@ -565,7 +575,7 @@ class ToolBridge:
 
         try:
             if tool == "analytics.chart":
-                return analytics.chart(
+                result = analytics.chart(
                     rows,
                     chart_type=bounded.get("chart_type", "bar"),
                     x=str(bounded.get("x") or ""),
@@ -573,6 +583,11 @@ class ToolBridge:
                     title=str(bounded.get("title") or ""),
                     focus=str(bounded.get("focus") or ""),
                 )
+                image = result.get("image") if isinstance(result, dict) else None
+                if isinstance(image, str) and image.startswith("data:image/png;base64,"):
+                    self._recent_chart[int(user_id)] = image
+                    self._recent_chart_at[int(user_id)] = time.monotonic()
+                return result
             if tool == "analytics.forecast":
                 return analytics.forecast(
                     rows,
@@ -594,6 +609,72 @@ class ToolBridge:
                 "status": "unavailable",
                 "message": "that figure could not be drawn from the supplied rows",
             }
+
+    def _chart_for(self, user_id: int) -> str:
+        """The figure already drawn for this operator, if it is still fresh."""
+        image = self._recent_chart.get(int(user_id), "")
+        if not image:
+            return ""
+        if time.monotonic() - self._recent_chart_at.get(int(user_id), 0.0) > ANALYTICS_ROW_TTL_SECONDS:
+            return ""
+        return image
+
+    def _document_rows(self, user_id: int, tool_input: dict) -> tuple[list[dict[str, Any]], list[str], str]:
+        """The authorized rows, their columns and a title for a document.
+
+        The rows come from the same short-lived cache a figure is drawn from,
+        or from rows the caller passed explicitly. A document therefore can
+        never contain a row the operator was not already shown.
+        """
+        bounded = self._bound_input(DOCUMENT_TOOL, tool_input)
+        rows = bounded.get("rows")
+        if not isinstance(rows, list) or not rows:
+            rows = self._rows_for(user_id)
+        rows = [row for row in (rows or []) if isinstance(row, dict)][:ANALYTICS_MAX_ROWS]
+        columns = bounded.get("columns")
+        columns = [str(name) for name in columns] if isinstance(columns, list) else []
+        title = str(bounded.get("title") or "").strip()
+        return rows, columns, title
+
+    def _execute_document_tool(self, tool_input: dict, user_id: int = 0) -> dict[str, Any]:
+        """Produce a PDF, DOCX, short video or audio summary from released rows.
+
+        Every format is built in memory and returned as a data URI, so nothing
+        is written to disk and no chat turn can create a durable copy of school
+        records.
+        """
+        try:
+            from .skills import documents
+        except ImportError:
+            return {
+                "status": "unavailable",
+                "message": "the document tools are not installed on this server",
+            }
+        rows, columns, title = self._document_rows(user_id, tool_input)
+        fmt = str(tool_input.get("format") or "pdf").strip().lower()
+        summary = str(tool_input.get("summary") or "").strip()
+        subtitle = str(tool_input.get("subtitle") or "").strip()
+        result = documents.produce(
+            fmt,
+            title=title or "School report",
+            subtitle=subtitle,
+            summary=summary,
+            columns=columns,
+            rows=rows,
+            chart_data_uri=self._chart_for(user_id) if fmt in ("pdf", "video") else "",
+        )
+        if self.journal is not None:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "document_tool",
+                    "format": fmt,
+                    "status": str(result.get("status") or ""),
+                    "row_count": int(result.get("row_count") or 0),
+                    "size_bytes": int(result.get("size_bytes") or 0),
+                },
+            )
+        return result
 
     # ------------------------------------------------------------------ system tools
     def _execute_system_tool(

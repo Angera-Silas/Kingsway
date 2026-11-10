@@ -334,11 +334,14 @@ def build_suggestions(
         label = next(
             (str(value) for value in filters.values() if str(value).strip()), ""
         )
-        if label and permissions & {
-            "analytics_catalogue_view",
-            "academic_view",
-            "attendance_view",
-        }:
+        # Widening a view the operator can already see is safe: the governed
+        # report behind it re-authorizes, and any read permission implies the
+        # operator may look at the same data cut another way.
+        can_widen = any(
+            permission == "analytics_catalogue_view" or permission.endswith("_view")
+            for permission in permissions
+        )
+        if label and can_widen:
             hint = {
                 "id": "filter.compare",
                 "title": f"Break this down beyond {label[:40]}",

@@ -8335,6 +8335,18 @@ window.API = {
       apiCall("/dashboard/agent-assist", "POST", { question, route, module, ...options }),
 
     /**
+     * Page-aware nudge for an idle workspace. Deterministic on the server (no
+     * model call, no figures), permission-filtered, and capped at three. An
+     * empty list is a normal answer when the engine is unavailable.
+     */
+    agentSuggest: async (route = "", module = "dashboard", pageContext = {}) =>
+      apiCall("/dashboard/agent-suggest", "POST", {
+        route,
+        module,
+        ...pageContext,
+      }),
+
+    /**
      * Streamed assistant answer. Returns an object exposing `promise`,
      * `cancel()`, and an `onDelta`/`onStatus` callback pair, so the caller can
      * render words as they arrive instead of waiting for the whole answer.
