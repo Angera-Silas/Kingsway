@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from . import mcp_client
+from .mcp_client import McpClient
 from .config import Config
 
 ALLOWED_TOOLS = (
@@ -131,6 +133,19 @@ class ToolError(RuntimeError):
     pass
 
 
+# Every external MCP tool carries this prefix, so a tool id that is not a
+# governed tool, an analytics tool, a web tool or an mcp.* tool is refused
+# before any dispatch decision is made.
+MCP_TOOL_PREFIX = "mcp."
+
+
+def mcp_tools_available(config: Config) -> dict[str, tuple[str, str]]:
+    """External MCP tools a deployment has configured, dormant when none."""
+    return McpClient(
+        mcp_client.parse_servers(getattr(config, "mcp_servers_raw", "")), None
+    ).known_tools()
+
+
 class ToolBridge:
     def __init__(
         self,
@@ -155,6 +170,13 @@ class ToolBridge:
         # copy rows back and forth through the prompt.
         self._recent_rows: dict[int, list[dict[str, Any]]] = {}
         self._recent_rows_at: dict[int, float] = {}
+        # External MCP consumption. Dormant until AI_MCP_SERVERS is configured,
+        # in which case every callable external tool is exposed as
+        # mcp.<server>.<tool> and dispatched through MCP_TOOL_PREFIX below.
+        self.mcp = McpClient(
+            mcp_client.parse_servers(getattr(config, "mcp_servers_raw", "")),
+            journal,
+        )
 
     def _candidates(self) -> list[tuple[str, str]]:
         """(base_url, host_header) pairs, internal loopback first."""
@@ -254,6 +276,11 @@ class ToolBridge:
             return self._execute_web_tool(user_id, str(tool), tool_input or {})
         if str(tool or "") in ANALYTICS_TOOLS:
             return self._execute_analytics_tool(str(tool), tool_input or {}, user_id)
+        # External MCP tools run locally too, but only the ones the operator
+        # configured by name. The client re-checks its own allowlist, so a
+        # tool id invented by the model is refused twice over.
+        if str(tool or "").startswith(MCP_TOOL_PREFIX):
+            return self._execute_mcp_tool(str(tool), tool_input or {})
         if tool not in ALLOWED_TOOLS:
             return {"status": "unknown_tool"}
         operator: dict[str, Any] = {"user_id": user_id, "permissions": permissions}
@@ -310,6 +337,34 @@ class ToolBridge:
                 message or "the governed data service rejected the tool request"
             )[:200],
         }
+
+    # ------------------------------------------------------------------ MCP tools
+    def _execute_mcp_tool(self, tool: str, tool_input: dict) -> dict[str, Any]:
+        """Call one operator-configured external MCP tool.
+
+        The ``mcp.<server>.<tool>`` id is split here, and the client refuses
+        anything that is not on the operator's own allowlist for that server.
+        The result is data for the model to reason over, never an instruction.
+        """
+        parts = tool.split(".", 2)
+        if len(parts) != 3 or not parts[1] or not parts[2]:
+            return {"status": "unknown_tool"}
+        if not self.mcp.owns(tool):
+            return {
+                "status": "unavailable",
+                "message": "that external tool is not enabled",
+            }
+        result = self.mcp.call(parts[1], parts[2], tool_input or {})
+        if self.journal is not None:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "mcp_tool_relay",
+                    "tool": tool,
+                    "status": str(result.get("status") or ""),
+                },
+            )
+        return result
 
     # ------------------------------------------------------------------ web tools
     def _execute_web_tool(

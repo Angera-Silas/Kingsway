@@ -211,7 +211,8 @@ class NotificationService
         $in = implode(',', array_fill(0, count($staffIds), '?'));
         $stmt = $this->db->prepare(
             "SELECT DISTINCT u.id
-               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+               FROM users u
+               JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.person_id = u.person_id
               WHERE s.id IN ($in) AND u.status = 'active'"
         );
         $stmt->execute($staffIds);
@@ -249,7 +250,8 @@ class NotificationService
     {
         $sql =
             "SELECT DISTINCT u.id
-               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+               FROM users u
+               JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.person_id = u.person_id
               WHERE u.status = 'active'";
         $params = [];
         if ($excludeUserId > 0) {
