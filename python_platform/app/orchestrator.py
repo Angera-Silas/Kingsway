@@ -1801,13 +1801,8 @@ class Orchestrator:
             # have run as a prefetch, and its result is still what the
             # follow-up draws from.
             command_turn = True
-            forced_source_result = next(
-                (
-                    result
-                    for tool_id, result in prefetched
-                    if tool_id == str(context.get("forced_tool"))
-                ),
-                None,
+            forced_source_result = self._command_source_result(
+                context, prefetched
             )
         if context.get("forced_follow_up"):
             follow_up = self._run_follow_up(
@@ -3147,6 +3142,28 @@ class Orchestrator:
                 results.append((name, result))
         return results
 
+    @staticmethod
+    def _command_source_result(
+        context: dict, prefetched: list
+    ) -> dict[str, Any] | None:
+        """The governed result a command's follow-up must draw from.
+
+        The command names its own tool, but the prefetch may already have run
+        a different one for the same question (a "/pdf fee arrears by class"
+        question prefetches the chart source, not the plain report). Matching
+        only the exact tool id left the follow-up with no source, so the
+        document came out unnamed. Any prefetched result carrying rows is the
+        right evidence: it is the same governed data for the same operator.
+        """
+        wanted = str(context.get("forced_tool") or "")
+        for tool_id, result in prefetched:
+            if tool_id == wanted:
+                return result
+        for _tool_id, result in prefetched:
+            if _rows_bearing_result(result) is not None:
+                return result
+        return None
+
     def _run_agent_loop(
         self, agent: dict[str, Any], context: dict, question: str
     ) -> dict[str, Any]:
@@ -3265,13 +3282,8 @@ class Orchestrator:
             # the source the follow-up draws from. Nesting the follow-up inside
             # the block above meant /forecast never computed its projection.
             command_turn = True
-            forced_source_result = next(
-                (
-                    result
-                    for tool_id, result in prefetched
-                    if tool_id == str(context.get("forced_tool"))
-                ),
-                None,
+            forced_source_result = self._command_source_result(
+                context, prefetched
             )
         if context.get("forced_follow_up"):
             follow_up = self._run_follow_up(

@@ -158,7 +158,7 @@ class DraftRepository
         $prompt = ['role' => 'system', 'content' => ''];
         // The prompt template and the provider call are engine-owned. PHP
         // delegates the whole workflow to Python, which applies the versioned
-        // template, the field allowlist and the provider contract, then returns
+        // template, the field policy and the provider contract, then returns
         // a validated draft body for PHP to persist as a school record.
         $draft = $this->bridge->call('/api/workflows/draft', [
             'workflow_id' => $workflowId,
@@ -173,6 +173,12 @@ class DraftRepository
             'input' => $clean,
             'metadata' => $metadata,
         ]);
+        // The engine reports which template it used. Record that rather than an
+        // empty local string, so the audit trail identifies the prompt. The key
+        // is transport metadata, not draft content, so it is removed before the
+        // draft is validated and persisted.
+        $enginePrompt = is_array($draft['prompt'] ?? null) ? $draft['prompt'] : [];
+        unset($draft['prompt']);
         $validated = $this->validateDraft($draft, $workflowId, $clean);
         $inputHash = hash('sha256', json_encode($clean));
         $stmt = $pdo->prepare(
@@ -217,8 +223,10 @@ class DraftRepository
             'subject_id' => (int) ($metadata['subject_id'] ?? 0),
             'input_hash' => $inputHash,
             'result_hash' => hash('sha256', json_encode($validated)),
-            'prompt_version' => $prompt['version'],
-            'prompt_hash' => hash('sha256', $prompt['content']),
+            // The engine's own template identity. Falls back to the local
+            // placeholder only when the bridge did not report one.
+            'prompt_version' => $enginePrompt['version'] ?? ($prompt['version'] ?? null),
+            'prompt_hash' => (string) ($enginePrompt['hash'] ?? hash('sha256', $prompt['content'])),
             'status' => 'pending_approval',
         ]);
 

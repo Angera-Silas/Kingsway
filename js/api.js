@@ -4974,8 +4974,11 @@ window.API = {
     // Year transition workflow
     startYearTransition: async (data) =>
       apiCall("/academic/year-transition-start-workflow", "POST", data),
-    archiveData: async (data) =>
-      apiCall("/academic/year-transition-archive-data", "POST", data),
+    // Closing the outgoing year only. There is deliberately no archiving
+    // action here: archiving is a separate system-admin-only operation and is
+    // never part of a year transition.
+    closeYear: async (data) =>
+      apiCall("/academic/year-transition-close-year", "POST", data),
     executeYearPromotions: async (data) =>
       apiCall("/academic/year-transition-execute-promotions", "POST", data),
     setupNewYear: async (data) =>

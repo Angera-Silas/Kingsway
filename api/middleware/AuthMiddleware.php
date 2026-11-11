@@ -156,6 +156,9 @@ class AuthMiddleware
             'finance/kcb-reconciliation-worker',
             // Protected by PAYMENT_SWEEP_WORKER_SECRET rather than staff JWT.
             'payments/stk-sweep-worker',
+            // Date-driven academic year/term activation; worker-secret guarded
+            // so the scheduler can switch years without a staff session.
+            'academic/activation-sweep',
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'realtime/worker',
             'realtime/cleanup',

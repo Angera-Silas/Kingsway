@@ -222,9 +222,23 @@
             </div>
           </div>
 
-          <div class="alert alert-warning small" id="yrCutoverNotice">
-            <strong>Before cutover:</strong> keep the outgoing year as the current year until its start-of-day rules allow the switch.
-            Activating the target year marks it live for admissions, fees and attendance on its first day.
+          <div class="card border mb-3" id="yrHandoverPanel" aria-live="polite">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                <div>
+                  <h6 class="mb-1">Year-to-year handover</h6>
+                  <p class="small text-muted mb-0">The outgoing year stays operational until its last day. The target year is prepared alongside it and switches automatically on its start date.</p>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="yrRefreshHandover"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+              </div>
+              <div class="row g-2" id="yrHandoverCards">
+                <div class="col-md-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted">Operational year</div><div class="fw-bold fs-6" id="yrHandoverOperational">—</div><div class="small text-muted" id="yrHandoverOperationalMeta"></div></div></div>
+                <div class="col-md-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted">Target year</div><div class="fw-bold fs-6" id="yrHandoverPrepared">—</div><div class="small text-muted" id="yrHandoverPreparedMeta"></div></div></div>
+                <div class="col-md-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted">Switch date</div><div class="fw-bold fs-6" id="yrHandoverSwitchDate">—</div><div class="small text-muted" id="yrHandoverSwitchMeta"></div></div></div>
+                <div class="col-md-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted">Readiness</div><div class="fw-bold fs-6" id="yrHandoverReadiness">—</div><div class="small text-muted" id="yrHandoverReadinessMeta"></div></div></div>
+              </div>
+              <p class="small mb-0 mt-2" id="yrHandoverNotice"></p>
+            </div>
           </div>
           <?php endif; ?>
           <?php if ($phase === 'promotions'): ?>
