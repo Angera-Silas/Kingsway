@@ -544,11 +544,12 @@ def create_app(config: Config | None = None) -> Flask:
                 {"success": False, "message": "workflow_id is required"}
             ), 400
 
-        # The bounded policy. allow_default lets a workflow with no explicit
-        # FIELDS entry run under the generic bounds instead of being refused;
-        # every fallback is journaled so an explicit entry can be written.
+        # Every workflow in PHP's WorkflowRegistry now has an explicit FIELDS
+        # entry (see the block in policy.py), so no request needs the bounded
+        # default fallback. allow_default=False keeps an unlisted workflow
+        # failing closed here rather than running under a generic bound.
         try:
-            envelope = policy.minimize(workflow_id, raw_input, allow_default=True)
+            envelope = policy.minimize(workflow_id, raw_input, allow_default=False)
         except policy.PolicyError as error:
             journal.write(
                 "ai_generation",
@@ -559,16 +560,6 @@ def create_app(config: Config | None = None) -> Flask:
                 },
             )
             return jsonify({"success": False, "message": str(error)}), 422
-
-        if policy.DEFAULT_POLICY_USE and policy.DEFAULT_POLICY_USE[-1] == workflow_id:
-            journal.write(
-                "ai_generation",
-                {
-                    "type": "workflow_draft_default_policy",
-                    "workflow_id": workflow_id,
-                    "note": "no explicit FIELDS entry; bounded default applied",
-                },
-            )
 
         prompt_version = "wf-1"
         system_prompt = (
@@ -647,10 +638,6 @@ def create_app(config: Config | None = None) -> Flask:
                 "operator_id": int(context.get("user_id") or 0),
                 "request_id": str(context.get("request_id") or "")[:80],
                 "input_hash": hash_text(json.dumps(envelope, ensure_ascii=False)),
-                "used_default_policy": bool(
-                    policy.DEFAULT_POLICY_USE
-                    and policy.DEFAULT_POLICY_USE[-1] == workflow_id
-                ),
             },
         )
 
