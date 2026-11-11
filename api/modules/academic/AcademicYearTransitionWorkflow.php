@@ -321,11 +321,26 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         );
         $fees->execute([$yearId]);
 
+        // staff_directory joins user roles, so a staff member with several roles
+        // appears once per role. Collapse to one row per staff member and drop
+        // test-scoped staff so the continuity list only holds live personnel.
         $staff = $this->db->query(
-            "SELECT staff_id AS id, COALESCE(NULLIF(full_name, ''), CONCAT_WS(' ', first_name, last_name)) AS name
-             FROM " . ReadReplicaService::qualifiedRef('staff_directory') . "
-             WHERE staff_status = 'active' AND staff_id IS NOT NULL
-             ORDER BY last_name, first_name LIMIT 500"
+            "SELECT roster.staff_id AS id, MAX(roster.name) AS name
+             FROM (
+                 SELECT staff_id, last_name, first_name,
+                        COALESCE(NULLIF(full_name, ''), CONCAT_WS(' ', first_name, last_name)) AS name
+                 FROM " . ReadReplicaService::qualifiedRef('staff_directory') . "
+                 WHERE staff_status = 'active'
+                   AND staff_id IS NOT NULL
+                   AND COALESCE(data_scope, 'live') <> 'test'
+                   AND COALESCE(person_data_scope, 'live') <> 'test'
+                   AND COALESCE(is_test_user, 0) = 0
+                   AND COALESCE(account_type, 'real') <> 'test'
+             ) roster
+             WHERE roster.name IS NOT NULL AND roster.name <> ''
+             GROUP BY roster.staff_id
+             ORDER BY MAX(roster.last_name), MAX(roster.first_name)
+             LIMIT 500"
         )->fetchAll(PDO::FETCH_ASSOC);
         $savedContinuity = is_array($workflowData['staff_continuity'] ?? null) ? $workflowData['staff_continuity'] : [];
         $staffContinuity = array_map(static function (array $person) use ($savedContinuity): array {
