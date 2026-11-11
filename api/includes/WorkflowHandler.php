@@ -274,16 +274,19 @@ class WorkflowHandler extends BaseAPI
             // Load existing data
             $data = $instance['data_json'] ? json_decode($instance['data_json'], true) : [];
 
-            // Log the regression in stage history
-            $from_stage = $instance['current_stage'];
-            $this->logStageEntry($instance_id, $from_stage, $to_stage, 'regressed_to_editable', 'system', 'Regressed from ' . $from_stage . ' to make stage ' . $to_stage . ' editable');
+            // A regression may only move backwards: the target stage must sit
+            // earlier in the workflow sequence than the current stage.
+            if ((int) $targetStage['sequence'] >= (int) $currentStage['sequence']) {
+                return [
+                    'success' => false,
+                    'message' => "Stage '{$to_stage}' is not a previous stage of '{$instance['current_stage']}'",
+                    'data' => []
+                ];
+            }
 
-            // Update the workflow_stage_history record
-            $historySql = "UPDATE workflow_stage_history
-                           SET remarks = CONCAT(COALESCE(remarks, ''), ' | regressed_to_editable_from:', $from_stage, ')
-                           WHERE instance_id = :instance_id AND from_stage = :from_stage AND to_stage = :to_stage AND processed_by IS NOT NULL
-                           ORDER BY id DESC LIMIT 1";
-            // Actually, let's insert a new history entry for the regression
+            // Record the regression in stage history. This is written directly
+            // (not via logStageEntry) so the action and direction are explicit.
+            $from_stage = $instance['current_stage'];
             $historySql = "INSERT INTO workflow_stage_history
                            (instance_id, from_stage, to_stage, action_taken, processed_by, remarks)
                            VALUES
@@ -298,9 +301,8 @@ class WorkflowHandler extends BaseAPI
             ]);
 
             // Return the data associated with the target stage for editing
-            // We'll load stage-specific data and make it available
             $resultData = [];
-            if ($targetStage && isset($data[$to_stage])) {
+            if (is_array($data) && isset($data[$to_stage])) {
                 $resultData = $data[$to_stage];
             }
 
