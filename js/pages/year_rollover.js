@@ -1151,7 +1151,7 @@ window.yearRolloverController = {
     try {
       const result = await callAPI('/academic/year-transition/class-setup-source?from_year=' + encodeURIComponent(this._currentYear.year_code || '') + '&to_year=' + encodeURIComponent(this._targetYear?.year_code || ''), 'GET');
       const rows = Array.isArray(result?.data) ? result.data : (Array.isArray(result) ? result : []);
-      this._classDraftIsTargetYear = rows.some(row => Array.isArray(row.target_streams) && row.target_streams.length > 0);
+      this._classDraftIsTargetYear = rows.some(row => Number(row.target_class_id) > 0);
       this._classDraftRows = rows.filter(row => Number(row.target_class_id) > 0).map(row => ({
         ...row,
         learner_type_codes: Array.isArray(row.target_learner_type_codes)
