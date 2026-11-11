@@ -1738,7 +1738,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $feeYearId = (int) ($data['academic_year_id'] ?? 0);
                 $pending = $this->db->prepare(
                     "SELECT COUNT(*) FROM academic_year_fee_schedules
-                     WHERE academic_year_id = ? AND status IN ('draft','pending_review')"
+                     WHERE academic_year_id = ? AND status IN ('draft','pending_review','active')"
                 );
                 $pending->execute([$feeYearId]);
                 $pendingCount = (int) $pending->fetchColumn();
@@ -1748,7 +1748,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $approve = $this->db->prepare(
                     "UPDATE academic_year_fee_schedules
                      SET status = 'active', approved_at = NOW(), approved_by = ?
-                     WHERE academic_year_id = ? AND status IN ('draft','pending_review')"
+                     WHERE academic_year_id = ? AND status IN ('draft','pending_review','active')"
                 );
                 $approve->execute([(int) $this->user_id, $feeYearId]);
                 $data['fee_structures_approved'] = [
