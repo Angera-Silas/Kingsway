@@ -1,7 +1,6 @@
 <?php
 /* Teacher Timetables — weekly schedule viewer for each teacher (Deputy view). */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

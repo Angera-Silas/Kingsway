@@ -1,8 +1,8 @@
 <?php
 /* Student Leadership & Participation — leadership, houses and awards.
    Thin HTML shell; all logic in js/pages/student_leadership.js */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
+
 ?>
 <style>
 .lead-wrap { font-family: var(--bs-body-font-family); }

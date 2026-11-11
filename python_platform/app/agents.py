@@ -29,6 +29,10 @@ TOOL_WEB_CRAWL = "web.crawl"
 # The orchestrator expands it to the concrete mcp.<server>.<tool> ids, so
 # an agent never depends on a server the operator has not configured.
 TOOL_MCP = "mcp.*"
+# Document producer. It renders the rows a governed report already released for
+# this operator into a PDF, a DOCX, a short video or (when a speech engine is
+# installed) an audio summary, and returns it as a downloadable artifact.
+TOOL_DOCUMENTS = "documents.produce"
 TOOL_ANALYTICS_SUMMARY = "analytics.summary"
 TOOL_ANALYTICS_CHART = "analytics.chart"
 TOOL_ANALYTICS_FORECAST = "analytics.forecast"
@@ -55,6 +59,7 @@ TOOL_SUMMARIES: dict[str, str] = {
     TOOL_ANALYTICS_SUMMARY: "analytics.summary - statistics over the authorized rows of the governed report that was just run (count, mean, min, max, std, trend); input: focus (string, optional). Run the report first; the rows are already authorised, so never pass rows yourself",
     TOOL_ANALYTICS_CHART: "analytics.chart - draw a real figure with pandas/matplotlib from the authorized rows of the governed report that was just run and return it as a PNG image the staff member can see and download; input: chart_type (string: bar|line|pie|doughnut|area|scatter|histogram|box), x (string, optional), y (string, optional), title (string, optional)",
     TOOL_ANALYTICS_FORECAST: "analytics.forecast - a bounded linear trend projection over the authorized rows of the governed report that was just run; input: periods (int, optional), column (string, optional). It is a trend indication, never a promise",
+    TOOL_DOCUMENTS: "documents.produce - turn the authorized rows already released in this turn into a downloadable file the staff member can keep; input: format (pdf|docx|video|audio), title (string, optional), summary (string, optional). The document is built from authorized rows only and is never stored on the server",
     TOOL_SYSTEM_CODE_READ: "system.code_read - read an allowlisted source or config file for system diagnosis; input: path (string), max_chars (int, optional)",
     TOOL_SYSTEM_LOG_READ: "system.log_read - read an allowlisted operational log file; input: path (string), tail_lines (int, optional)",
     TOOL_SYSTEM_ERROR_ANALYZE: "system.error_analyze - summarize recent error journal entries and their signatures; input: limit (int, optional)",
@@ -93,6 +98,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "admissions.agent": {
@@ -122,6 +128,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "attendance.agent": {
@@ -144,6 +151,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "boarding.agent": {
@@ -166,6 +174,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "finance.agent": {
@@ -199,6 +208,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "communications.agent": {
@@ -256,6 +266,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "transport.agent": {
@@ -302,6 +313,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "catering.agent": {
@@ -324,6 +336,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "health.agent": {
@@ -346,6 +359,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "counseling.agent": {
@@ -385,6 +399,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "maintenance.agent": {
@@ -424,6 +439,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             TOOL_ANALYTICS_SUMMARY,
             TOOL_ANALYTICS_CHART,
             TOOL_ANALYTICS_FORECAST,
+            TOOL_DOCUMENTS,
         ],
     },
     "system.agent": {

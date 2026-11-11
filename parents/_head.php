@@ -19,7 +19,7 @@ declare(strict_types=1);
 $familyStaffMode = $familyStaffMode ?? ($_GET['staff'] ?? '') === '1';
 $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
 $appBase = $appBaseOverride ?? rtrim(str_replace('\\', '/', dirname(dirname($scriptName))), '/');
-if ($appBase === '.') $appBase = '';
+
 require_once dirname(__DIR__) . '/public/layout/public_data.php';
 
 $parentPageTitle = $parentPageTitle ?? 'Parent Portal';

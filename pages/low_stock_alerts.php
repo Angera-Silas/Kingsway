@@ -1,7 +1,6 @@
 <?php
 /* Low Stock Alerts — items at or below their reorder level. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">

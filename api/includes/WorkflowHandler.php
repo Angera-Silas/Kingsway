@@ -332,7 +332,16 @@ class WorkflowHandler extends BaseAPI
 
     /**
      * Get workflow instance details
-     * 
+     *
+     * Read from the master, not the read replica. This is a keyed single-row
+     * read of a row that workflow stages write to moments earlier on the same
+     * connection: close-year stamps archive_summary, which validateReadiness()
+     * checks immediately afterwards. Resolving through the reads schema returned
+     * the previous materialization for up to the projection interval, so a
+     * readiness check run seconds after its own preceding stage saw stale data
+     * and reported a false failure. Hard Rule 1 assigns simple keyed reads to
+     * the primary.
+     *
      * @param int $instance_id Workflow instance ID
      * @return array|null Workflow instance data
      */
@@ -341,9 +350,9 @@ class WorkflowHandler extends BaseAPI
         $sql = "SELECT wi.*, wd.code as workflow_code, wd.name as workflow_name,
                        ws.name as current_stage_name, ws.description as stage_description,
                        u.username as started_by_username
-                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
-                JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_stages") . " ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
+                FROM " . ReadReplicaService::masterRef("workflow_instances") . " wi
+                JOIN " . ReadReplicaService::masterRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
+                LEFT JOIN " . ReadReplicaService::masterRef("workflow_stages") . " ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
                 LEFT JOIN users u ON wi.started_by = u.id
                 WHERE wi.id = :instance_id";
         

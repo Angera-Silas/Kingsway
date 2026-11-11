@@ -1,9 +1,6 @@
 <?php
 /** Kingsway System Administrator: System Announcements (system domain). */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') { $appBase = ''; }
-}
+
 ?>
 <div class="container-fluid py-4">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">

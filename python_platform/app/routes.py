@@ -37,12 +37,14 @@ from flask import Flask, Response, jsonify, request
 
 from . import agents as agent_registry
 from . import intent
+from . import policy
+from . import output_guard
 from . import proactive
 from .agents import default_agent
 from .behavior import BehaviorStore
 from .conversation import ConversationStore
 from .config import Config
-from .journal import Journal
+from .journal import Journal, hash_text
 from .orchestrator import Orchestrator
 from .chat_sessions import ChatSessionStore
 from .providers import Provider, ProviderError
@@ -496,6 +498,165 @@ def create_app(config: Config | None = None) -> Flask:
             return jsonify({"success": False, "message": str(error)}), 422
         return jsonify({"success": True, "data": result})
 
+    @app.post("/api/workflows/draft")
+    def workflow_draft():
+        """Governed draft generation for a named AI workflow.
+
+        PHP's DraftRepository::create() has always posted here after it
+        re-authorizes the operator and builds the aggregate input, but this
+        route did not exist: every governed workflow (scheme drafts, lesson
+        plans, assessments, rubrics, coverage and gap reviews, KPI briefs,
+        timetable plans, reconciliation reviews, ...) therefore failed at the
+        transport with "the Python AI platform rejected the request" - a 404,
+        not a policy decision.
+
+        Contract, matching DraftRepository::validateDraft():
+            data.title       string
+            data.body        string
+            data.next_steps  list of strings
+            data.criteria / items / questions / suggestions /
+                 unresolved_constraints / assignments
+                            optional, per workflow; PHP validates and bounds
+                            each one itself, so they are relayed verbatim.
+
+        Bounds come from policy.minimize() (field allowlist, per-field cap,
+        nested-data rejection, envelope byte budget) and the answer is scrubbed
+        by output_guard before it leaves.
+        """
+        denied = _auth_or_worker()
+        if denied is not None:
+            return denied
+
+        payload = request.get_json(silent=True) or {}
+        workflow_id = str(payload.get("workflow_id") or "").strip()
+        context = (
+            payload.get("context") if isinstance(payload.get("context"), dict) else {}
+        )
+        raw_input = (
+            payload.get("input") if isinstance(payload.get("input"), dict) else {}
+        )
+        metadata = (
+            payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        )
+
+        if not workflow_id:
+            return jsonify(
+                {"success": False, "message": "workflow_id is required"}
+            ), 400
+
+        # Every workflow in PHP's WorkflowRegistry now has an explicit FIELDS
+        # entry (see the block in policy.py), so no request needs the bounded
+        # default fallback. allow_default=False keeps an unlisted workflow
+        # failing closed here rather than running under a generic bound.
+        try:
+            envelope = policy.minimize(workflow_id, raw_input, allow_default=False)
+        except policy.PolicyError as error:
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "workflow_draft_policy_rejected",
+                    "workflow_id": workflow_id,
+                    "reason": str(error)[:200],
+                },
+            )
+            return jsonify({"success": False, "message": str(error)}), 422
+
+        prompt_version = "wf-1"
+        system_prompt = (
+            "You are a governed drafting assistant for a Kenyan CBC school. "
+            "Produce an editable DRAFT for a member of staff to review and approve; "
+            "never a finished document, never an instruction to act. "
+            "Use only the supplied school data. Never name or describe an individual "
+            "learner, staff member or parent; aggregate only. "
+            "If the request cannot be grounded in the supplied data, say so in "
+            "'next_steps' rather than inventing content. "
+            "Return one JSON object with exactly these keys: "
+            "'title' (short label), 'body' (the draft, markdown), "
+            "'next_steps' (list of what a human must check), "
+            "and any of 'criteria', 'items', 'questions', 'suggestions', "
+            "'unresolved_constraints', 'assignments' the workflow asked for. "
+            f"Workflow: {workflow_id}."
+        )
+
+        try:
+            raw = provider.complete(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "workflow_id": workflow_id,
+                                "audience": str(context.get("audience") or "staff"),
+                                "input": envelope,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                {
+                    "response_format": "json_object",
+                    "temperature": 0.3,
+                    "max_tokens": 3000,
+                },
+            )
+        except ProviderError as error:
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "workflow_draft_provider_failed",
+                    "workflow_id": workflow_id,
+                    "reason": str(error)[:200],
+                },
+            )
+            return jsonify({"success": False, "message": str(error)}), 503
+
+        # The engine's own output guard: credentials, schema names, tool ids and
+        # internal hosts never leave, and a residual is reported rather than sent.
+        draft = output_guard.scrub(raw)
+        if not isinstance(draft, dict):
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "workflow_draft_invalid_shape",
+                    "workflow_id": workflow_id,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "provider did not return a draft object"}
+            ), 502
+
+        for field in ("title", "body", "next_steps"):
+            if field not in draft:
+                draft[field] = [] if field == "next_steps" else ""
+
+        journal.write(
+            "ai_generation",
+            {
+                "type": "workflow_draft_generated",
+                "workflow_id": workflow_id,
+                "operator_id": int(context.get("user_id") or 0),
+                "request_id": str(context.get("request_id") or "")[:80],
+                "input_hash": hash_text(json.dumps(envelope, ensure_ascii=False)),
+            },
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                # `prompt` sits INSIDE data because PythonAiBridge::call()
+                # returns only response "data"; at the top level PHP would
+                # discard it and record an empty prompt hash instead.
+                "data": dict(
+                    draft,
+                    prompt={
+                        "version": prompt_version,
+                        "hash": hash_text(system_prompt),
+                    },
+                ),
+            }
+        )
+
     @app.post("/api/academic/plan")
     def academic_plan():
         """Academic planning: lesson plans, schemes of work, assessments, notes.
@@ -506,7 +667,23 @@ def create_app(config: Config | None = None) -> Flask:
         if denied is not None:
             return denied
         payload = request.get_json(silent=True) or {}
-        result = _planning().plan(payload)
+        try:
+            result = _planning().plan(payload)
+        except policy.PolicyError as error:
+            # An unlisted workflow or an oversized field is a caller/policy
+            # problem, not a server fault. The orchestrator catches
+            # PolicyError and degrades; this route must do the same rather
+            # than returning a 500 for a request that was well-formed.
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "academic_planning_policy_rejected",
+                    "reason": str(error)[:200],
+                },
+            )
+            return jsonify({"success": False, "message": str(error)}), 422
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
         if result.get("status") == "unavailable":
             return jsonify({"success": False, "message": result.get("reason")}), 503
         return jsonify({"success": True, "data": result})
@@ -6182,6 +6359,7 @@ def create_app(config: Config | None = None) -> Flask:
                 (403 if isinstance(error, PermissionError) else 422),
             )
             return jsonify({"success": False, "message": message}), code
+
         def _event(name: str, data: dict) -> str:
             return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 

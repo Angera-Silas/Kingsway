@@ -31,6 +31,43 @@ def _bounded_text(value: Any, limit: int) -> str:
     return str(value or "").strip()[:limit]
 
 
+def _compact_json(value: Any, budget: int) -> str:
+    """Serialise to JSON that is guaranteed to fit `budget` characters.
+
+    Naively slicing a JSON document at a character limit produces invalid JSON,
+    and handing a model a truncated blob is worse than handing it a smaller
+    one. Keys are dropped largest-first until the whole document fits, so the
+    result is always valid JSON, and the drop order means the small, high-value
+    keys (identifiers, short labels) survive longer than the big ones.
+    """
+    compact = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if len(compact) <= budget:
+        return compact
+
+    if not isinstance(value, dict):
+        # A list or scalar has no keys to drop; bound it as a list instead.
+        return json.dumps(
+            list(value)[:20] if isinstance(value, (list, tuple)) else value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )[:budget]
+
+    trimmed = dict(value)
+    # Sort by serialised length so the biggest payloads go first.
+    for key in sorted(
+        trimmed,
+        key=lambda k: len(json.dumps(trimmed[k], ensure_ascii=False)),
+        reverse=True,
+    ):
+        if (
+            len(json.dumps(trimmed, ensure_ascii=False, separators=(",", ":")))
+            <= budget
+        ):
+            break
+        del trimmed[key]
+    return json.dumps(trimmed, ensure_ascii=False, separators=(",", ":"))
+
+
 class AcademicPlanningSkill:
     """Draft academic artefacts from school context + live web search."""
 
@@ -60,8 +97,12 @@ class AcademicPlanningSkill:
                 "kind": kind,
                 "question": question,
                 "audience": "school_staff",
-                "school_context": json.dumps(context, ensure_ascii=False),
-                "web_ideas": json.dumps(web, ensure_ascii=False),
+                # Compacted to the policy's own per-field cap so the field
+                # backstop never has to slice valid JSON into invalid JSON.
+                "school_context": _compact_json(
+                    context, policy.FIELD_CAPS["school_context"]
+                ),
+                "web_ideas": _compact_json(web, policy.FIELD_CAPS["web_ideas"]),
                 "instruction": _bounded_text(payload.get("instruction"), 400),
             },
         )

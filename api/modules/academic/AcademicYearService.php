@@ -21,13 +21,6 @@ class AcademicYearService
     }
 
     // TODO: Delegate to AcademicYearService
-    public function postYearTransitionArchiveData($id, $data, $segments, BaseController $controller) {
-        if ($guard = $controller->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) { return $guard; }
-        $result = $this->api->archiveAcademicData($data['instance_id'] ?? null, $data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionExecutePromotions($id, $data, $segments, BaseController $controller) {
         if ($guard = $controller->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) { return $guard; }
         $result = $this->api->executeYearPromotions($data['instance_id'] ?? null, $data);

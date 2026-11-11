@@ -5,9 +5,7 @@
  * Unified tabbed interface for managing the complete admissions workflow.
  * Loads role-specific content based on permissions but presents a cohesive workspace.
  */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.')
-    $appBase = '';
+
 ?>
 
 <style>

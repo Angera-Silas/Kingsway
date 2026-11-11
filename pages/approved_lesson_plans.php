@@ -1,7 +1,6 @@
 <?php
 /* Approved Lesson Plans — standalone list of approved plans (Deputy/HT view). */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/vendor/autoload.php';
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
+
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 // SCHOOL_PHONE / SCHOOL_EMAIL back the "Contact the system administrator"

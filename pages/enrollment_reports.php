@@ -5,9 +5,7 @@
  * Comprehensive admissions and enrollment reporting dashboard.
  * Shows statistics, trends, conversion rates, and exportable reports.
  */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.')
-    $appBase = '';
+
 ?>
 <style>
     .enrollment-reports-page {

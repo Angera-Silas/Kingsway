@@ -6,9 +6,7 @@
  * Shows applications that have completed interviews and await final admission decisions.
  */
 
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.')
-    $appBase = '';
+
 ?>
 <style>
     .admission-decisions-page {

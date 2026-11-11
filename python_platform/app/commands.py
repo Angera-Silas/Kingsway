@@ -51,6 +51,11 @@ class ActionCommand:
     # not the model remembers to ask for it: a command that depends on the
     # model's cooperation is a command that works half the time.
     follow_up: str = ""
+    # Input that belongs to the follow-up rather than to the command's own tool:
+    # "/pdf" passes no format to the report, it tells the producer which format
+    # to render. Keeping it here means a command declares its whole action in
+    # one place.
+    follow_up_input: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -157,6 +162,49 @@ COMMANDS: dict[str, ActionCommand] = {
             "what the staff member may want to adjust before saving."
         ),
         expects_template=True,
+    ),
+    "pdf": ActionCommand(
+        name="pdf",
+        description="Render the data you are viewing as a downloadable PDF report",
+        example="/pdf fee arrears by class",
+        tool="reports.nlq",
+        agent=REPORTS_AGENT,
+        question_hint="the report to turn into a document",
+        follow_up="documents.produce",
+        follow_up_input={"format": "pdf"},
+        instruction=(
+            "The PDF above was produced from the authorized rows and is ready "
+            "to download or print. Say what it contains in one sentence, then "
+            "stop."
+        ),
+    ),
+    "docx": ActionCommand(
+        name="docx",
+        description="Produce the data you are viewing as a Word document",
+        example="/docx attendance by class this week",
+        tool="reports.nlq",
+        agent=REPORTS_AGENT,
+        question_hint="the report to turn into a document",
+        follow_up="documents.produce",
+        follow_up_input={"format": "docx"},
+        instruction=(
+            "The Word document above was produced from the authorized rows. "
+            "Say what it contains in one sentence, then stop."
+        ),
+    ),
+    "video": ActionCommand(
+        name="video",
+        description="Produce a short video summary of the data you are viewing",
+        example="/video attendance by class this week",
+        tool="reports.nlq",
+        agent=REPORTS_AGENT,
+        question_hint="the report to summarise visually",
+        follow_up="documents.produce",
+        follow_up_input={"format": "video"},
+        instruction=(
+            "The short video above shows the figures from the authorized "
+            "report. Describe the motion in one sentence, then stop."
+        ),
     ),
     "help": ActionCommand(
         name="help",

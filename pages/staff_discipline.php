@@ -7,8 +7,7 @@
  * every case. Business logic lives in the JS controller.
  */
 
-// Ensure $appBase is available for script loading
-$appBase = $appBase ?? '';
+$appBase = app_base_path();
 ?>
 <div class="container-fluid py-4" id="staffDisciplinePage">
 

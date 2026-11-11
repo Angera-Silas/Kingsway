@@ -9,13 +9,6 @@ $admissionsPageMode = $admissionsPageMode ?? 'workflow';
 $admissionsTitle = $admissionsTitle ?? 'Student Admissions';
 $admissionsSubtitle = $admissionsSubtitle ?? 'Review applications, verify documents, and move learners through enrollment.';
 $showNewApplicationButton = $showNewApplicationButton ?? true;
-if (!isset($appBase)) {
-    $p = $_SERVER['SCRIPT_NAME'] ?? '';
-    $appBase = rtrim(dirname(dirname(dirname($p))), '/');
-    if ($appBase === '.' || $appBase === '/') {
-        $appBase = '';
-    }
-}
 ?>
 
 <div data-page="admissions"

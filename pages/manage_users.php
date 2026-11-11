@@ -3,10 +3,7 @@
  * System Administrator — User Accounts
  * Controller: js/pages/manage_users.js
  */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') $appBase = '';
-}
+
 ?>
 <div class="container-fluid py-4" id="manageUsersPage">
     <style>

@@ -824,6 +824,15 @@ jobs:
   endpoint: /api/dashboard/agent-digest-worker
   payload: {}
   interval: 60
+# Soft year/term transition. Reconciles term statuses against the calendar and
+# activates a certified target year on its start date, so the outgoing year
+# stays operational until its last day. Idempotent: a missed tick just runs on
+# the next one.
+- name: academic_activation_sweep
+  kind: http
+  endpoint: /api/academic/activation-sweep
+  payload: {}
+  interval: 60
 - name: kicd_policy_watch
   kind: http
   endpoint: /api/dashboard/kicd-policy-watch
