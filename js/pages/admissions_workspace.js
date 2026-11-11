@@ -948,9 +948,19 @@ const admissionsWorkspaceController = {
             // must not be selectable for new intake windows.
             this.windowYears = years.filter((year) => {
                 const status = String(year.status || '').toLowerCase();
+                // Include current year, and years with active/planning/registration/closing status
+                // but exclude archived years (status='archived' is not in the allowed list)
                 return year.is_current || ['planning', 'registration', 'active', 'closing'].includes(status);
             });
-            this.windowTerms = terms;
+            // Filter terms to only those belonging to selected years
+            // Group terms by academic_year_id for proper term population
+            this.windowTerms = [];
+            (years.data || years || []).forEach((year) => {
+                const yearTerms = (terms.data || terms || []).filter(
+                    (t) => String(t.academic_year_id || t.year_id || t.id) === String(year.id)
+                );
+                this.windowTerms = this.windowTerms.concat(yearTerms);
+            });
             this.windowRecords = windows;
             this.renderWindowsTab(contentDiv, loadingDiv, windows);
         } catch (error) {
@@ -962,10 +972,27 @@ const admissionsWorkspaceController = {
     renderWindowsTab: function(contentDiv, loadingDiv, windows = []) {
         const yearOptions = (this.windowYears || []).map((y) => {
             const status = String(y.status || (y.is_current ? 'active' : 'planning')).toLowerCase();
-            const label = status === 'planning' ? 'Upcoming / Planning'
-                : status === 'registration' ? 'Registration Open'
-                    : status === 'closing' ? 'Closing'
-                        : status === 'active' ? 'Active' : this.formatLabel(status);
+            // Derive label from term statuses available in the year data
+            let label = status;
+            // Map status to human-readable label
+            if (status === 'active') {
+                // Check if year has upcoming terms (is the incoming/target year)
+                const hasUpcomingTerms = (y.term_statuses || y.termCounts || []).some(
+                    (t) => String(t).toLowerCase().includes('upcoming')
+                );
+                const hasCompletedTerms = (y.term_statuses || y.termCounts || []).some(
+                    (t) => String(t).toLowerCase().includes('completed')
+                );
+                if (hasUpcomingTerms) label = 'Upcoming';
+                else if (hasCompletedTerms) label = 'Completed';
+                else label = 'Current';
+            } else if (status === 'planning') {
+                label = 'Upcoming / Planning';
+            } else if (status === 'registration') {
+                label = 'Registration Open';
+            } else if (status === 'closing') {
+                label = 'Closing';
+            }
             return `<option value="${Number(y.id)}">${this.escapeHtml(y.year_code || y.year_name || y.id)} — ${this.escapeHtml(label)}</option>`;
         }).join('');
 

@@ -139,7 +139,20 @@ const academicYearsController = {
 
   yearStatus(year) {
     const status = String(year.status || year.year_status || '').trim().toLowerCase();
+    // Determine term completion state for derived status labels
+    const termCounts = this.state.termCountsAvailable ? this.state.termCounts : {};
+    // termStatuses may not be populated yet; fall back to termCounts-derived inference
+    const termStatuses = this.state.termStatuses ? this.state.termStatuses[year.id] || [] : [];
+    const yearTermCount = termCounts[Number(year.id)] || 0;
+    const hasUpcoming = (termStatuses || []).includes('upcoming')
+        || (yearTermCount > 0 && String(yearTermCount).includes('upcoming'))
+        || (!termStatuses.includes('completed') && yearTermCount > 0 && String(yearTermCount).toLowerCase().includes('upcoming'));
+    const hasCompleted = (termStatuses || []).includes('completed')
+        || yearTermCount > 0 && String(yearTermCount).toLowerCase().includes('completed');
+
     if (year.is_current === true || Number(year.is_current) === 1) return { label: 'Current', className: 'success' };
+    if (hasUpcoming) return { label: 'Upcoming', className: 'info' };
+    if (hasCompleted) return { label: 'Completed', className: 'primary' };
     if (['active', 'registration', 'closing'].includes(status) || year.is_active === true || Number(year.is_active) === 1) return { label: 'Active', className: 'primary' };
     return { label: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Inactive', className: 'secondary' };
   },
