@@ -708,6 +708,26 @@ class AcademicAPI extends BaseAPI
         return $this->yearTransitionWorkflow->validateReadiness($instanceId, $data);
     }
 
+    public function regressToStageEditable($instanceId, $data)
+    {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing year transition instance_id',
+                'code' => 400
+            ];
+        }
+        $toStage = $data['to_stage'] ?? null;
+        if (empty($toStage)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing target stage (to_stage)',
+                'code' => 400
+            ];
+        }
+        return $this->yearTransitionWorkflow->regressToStageEditable((int) $instanceId, $toStage);
+    }
+
     public function getTermTransitionContext($data = [])
     {
         return $this->termTransitionService->getContext(is_array($data) ? $data : []);

@@ -1616,11 +1616,15 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $targetClassId = (int) ($row['target_class_id'] ?? 0);
             $streams = [];
             if ($targetClassId) {
+                // The target structure was created by this workflow minutes ago.
+                // Read it from the master: the reads projection can still be a
+                // refresh cycle behind, which would leave every destination
+                // dropdown empty on the promotion board.
                 $streamStmt = $this->db->prepare(
                     "SELECT aycs.id AS target_stream_id, targetStream.name AS stream_name
-                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
-                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
-                     JOIN " . ReadReplicaService::qualifiedRef("streams") . " targetStream ON targetStream.id = aycs.stream_id
+                     FROM " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs
+                     JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                     JOIN " . ReadReplicaService::masterSourceRef("streams") . " targetStream ON targetStream.id = aycs.stream_id
                      WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
                      ORDER BY targetStream.name"
                 );
@@ -1630,9 +1634,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $row['target_streams'] = $streams;
             $retentionStmt = $this->db->prepare(
                 "SELECT aycs.id AS target_stream_id, targetStream.name AS stream_name
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN " . ReadReplicaService::qualifiedRef("streams") . " targetStream ON targetStream.id = aycs.stream_id
+                 FROM " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::masterSourceRef("streams") . " targetStream ON targetStream.id = aycs.stream_id
                  WHERE ayc.academic_year_id = ? AND ayc.class_id = ? ORDER BY targetStream.name"
             );
             $retentionStmt->execute([$toYearId, (int) $row['source_class_id']]);

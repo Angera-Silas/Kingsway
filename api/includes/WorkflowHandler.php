@@ -224,13 +224,98 @@ class WorkflowHandler extends BaseAPI
                 $this->sendStageNotifications($instance_id, $stage, 'stage_entry');
             }
 
-            $this->logAction('workflow_advanced', $instance_id, 
+            $this->logAction('workflow_advanced', $instance_id,
                 "Advanced to stage: {$to_stage} via action: {$action}");
 
             return true;
         } catch (Exception $e) {
             $this->logError('workflow_advance_failed', $e->getMessage());
             throw $e;
+        }
+    }
+
+    /**
+     * Regress workflow to make a previous stage editable
+     *
+     * This method allows going back to a previous stage's data for editing
+     * while keeping the current_stage unchanged. The data from the specified
+     * previous stage is loaded and made available for editing, and the
+     * regression is recorded in the workflow stage history.
+     *
+     * @param int $instance_id Workflow instance ID
+     * @string $to_stage Code of the previous stage to make editable
+     * @return array ['success' => bool, 'message' => string, 'data' => array]
+     */
+    public function regressToStageEditable($instance_id, $to_stage)
+    {
+        try {
+            // Get current workflow instance
+            $sql = "SELECT * FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " WHERE id = :instance_id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(['instance_id' => $instance_id]);
+            $instance = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$instance) {
+                return ['success' => false, 'message' => 'Workflow instance not found', 'data' => []];
+            }
+
+            // Get current stage details
+            $currentStage = $this->getStageDetails($instance['current_stage']);
+            if (!$currentStage) {
+                return ['success' => false, 'message' => 'Current stage not found', 'data' => []];
+            }
+
+            // Get the target previous stage details
+            $targetStage = $this->getStageDetails($to_stage);
+            if (!$targetStage) {
+                return ['success' => false, 'message' => "Previous stage '{$to_stage}' not found", 'data' => []];
+            }
+
+            // Load existing data
+            $data = $instance['data_json'] ? json_decode($instance['data_json'], true) : [];
+
+            // Log the regression in stage history
+            $from_stage = $instance['current_stage'];
+            $this->logStageEntry($instance_id, $from_stage, $to_stage, 'regressed_to_editable', 'system', 'Regressed from ' . $from_stage . ' to make stage ' . $to_stage . ' editable');
+
+            // Update the workflow_stage_history record
+            $historySql = "UPDATE workflow_stage_history
+                           SET remarks = CONCAT(COALESCE(remarks, ''), ' | regressed_to_editable_from:', $from_stage, ')
+                           WHERE instance_id = :instance_id AND from_stage = :from_stage AND to_stage = :to_stage AND processed_by IS NOT NULL
+                           ORDER BY id DESC LIMIT 1";
+            // Actually, let's insert a new history entry for the regression
+            $historySql = "INSERT INTO workflow_stage_history
+                           (instance_id, from_stage, to_stage, action_taken, processed_by, remarks)
+                           VALUES
+                           (:instance_id, :from_stage, :to_stage, 'regressed', :processed_by, :remarks)";
+            $historyStmt = $this->db->prepare($historySql);
+            $historyStmt->execute([
+                'instance_id' => $instance_id,
+                'from_stage' => $from_stage,
+                'to_stage' => $to_stage,
+                'processed_by' => $this->user_id ?? 1,
+                'remarks' => 'Regressed from ' . $from_stage . ' to make stage ' . $to_stage . ' editable'
+            ]);
+
+            // Return the data associated with the target stage for editing
+            // We'll load stage-specific data and make it available
+            $resultData = [];
+            if ($targetStage && isset($data[$to_stage])) {
+                $resultData = $data[$to_stage];
+            }
+
+            return [
+                'success' => true,
+                'message' => "Stage '{$to_stage}' is now editable. Current stage remains '{$instance['current_stage']}'.",
+                'data' => $resultData,
+                'current_stage' => $instance['current_stage'],
+                'from_stage' => $from_stage,
+                'to_stage' => $to_stage
+            ];
+
+        } catch (Exception $e) {
+            $this->logError('regress_to_stage_editable_failed', $e->getMessage());
+            return ['success' => false, 'message' => 'Failed to regress stage: ' . $e->getMessage(), 'data' => []];
         }
     }
 
