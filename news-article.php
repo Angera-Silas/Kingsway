@@ -3,7 +3,7 @@
 // The article is fetched client-side by js/pages/public/news-article.js via
 // /api/website/news/{id} (view counting stays server-side in the manager).
 $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
-if ($appBase === '.') $appBase = '';
+
 $pageTitle  = 'News';
 $activePage = 'news';
 $pageScript = 'news-article';

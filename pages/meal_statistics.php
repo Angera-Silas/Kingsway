@@ -1,7 +1,6 @@
 <?php
 /* Meal Statistics — planned vs served allocations across a date range. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">

@@ -55,6 +55,35 @@ final class AcademicYearLifecycleService
     }
 
     /**
+     * Whether a year is visible at all.
+     *
+     * Archiving is a permanent closure: the year's data is hidden completely
+     * from ordinary access. Every other state (active - upcoming / current /
+     * completed) is visible to every user, including read-only users.
+     */
+    public static function isArchived(string $status, string $state): bool
+    {
+        return $status === self::STATUS_ARCHIVED || $state === self::STATE_ARCHIVED;
+    }
+
+    public static function isVisible(string $status, string $state): bool
+    {
+        return !self::isArchived($status, $state);
+    }
+
+    /**
+     * SQL predicate that excludes archived years. Use in any WHERE clause that
+     * lists or resolves years, so an archived year never surfaces to an
+     * ordinary user.
+     */
+    public static function visibleSql(string $alias = ''): string
+    {
+        $prefix = $alias !== '' ? $alias . '.' : '';
+
+        return $prefix . "status <> '" . self::STATUS_ARCHIVED . "'";
+    }
+
+    /**
      * A completed (or archived) year is writable only by the roles above.
      * Upcoming and current years are writable by anyone the route already
      * authorised.

@@ -1,7 +1,6 @@
 <?php
 /* Student Route Assignment — assign/withdraw students to transport routes. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

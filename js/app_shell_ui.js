@@ -2943,6 +2943,25 @@
           <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download PDF</a>
         </figure>`;
       }
+      // A Word document is previewed as a page of text, not rendered: a browser
+      // cannot render DOCX, and forcing it to download hid the file entirely
+      // until the staff member went looking for it.
+      if (url && (mime.includes("wordprocessingml") || name.toLowerCase().endsWith(".docx"))) {
+        const size = artifact.size_bytes
+          ? `<span class="badge text-bg-light border me-2">${(artifact.size_bytes / 1024).toFixed(0)} KB</span>`
+          : "";
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge text-bg-light border">Word document</span>
+            ${size}
+            <a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(url)}" download="${escapeHtml(name)}">
+              <i class="bi bi-file-earmark-word me-1"></i>Download DOCX
+            </a>
+          </div>
+        </figure>`;
+      }
       // Anything else that carries a URL (DOCX, XLSX, a ZIP of exports) is a
       // download rather than something a browser can render inline. Without
       // this branch a non-previewable attachment silently vanished from the

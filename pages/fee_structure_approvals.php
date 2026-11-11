@@ -1,7 +1,6 @@
 <?php
 /* Fee Structure Approvals — Director approval queue for submitted fee bundles. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

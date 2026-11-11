@@ -96,6 +96,9 @@ class CsrfMiddleware
             'finance/kcb-reconciliation-worker',
             // Internal cron callback authenticates with PAYMENT_SWEEP_WORKER_SECRET.
             'payments/stk-sweep-worker',
+            // Date-driven academic year/term activation; authenticated by its
+            // worker secret inside AcademicController, not by a staff CSRF token.
+            'academic/activation-sweep',
             // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'realtime/worker',
         'realtime/cleanup',

@@ -6,8 +6,12 @@
 // page keys or paths. The resolver below accepts BOTH opaque tokens and legacy
 // keys for backward compatibility with old links/emails and the .htaccess
 // internal rewrites.
-$appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
-if ($appBase === '.') $appBase = '';
+// Autoloader + Config first: the URL path prefix comes from the configured
+// BASE_URL (config/.env), never from the request path, so it is identical on
+// every route and every surface.
+require_once __DIR__ . '/public/layout/public_data.php';
+\App\Config\Config::init();
+$appBase = app_base_path();
 
 $route = trim((string)($_GET['route'] ?? ''));
 // Tolerate hand-typed URLs that chain extra params with a '?' instead of a '&'

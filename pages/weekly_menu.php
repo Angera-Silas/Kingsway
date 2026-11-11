@@ -1,7 +1,6 @@
 <?php
 /* Weekly Menu — the school week's meals (Mon–Fri). */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">

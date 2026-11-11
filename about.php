@@ -1,6 +1,6 @@
 <?php
 $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
-if ($appBase === '.') $appBase = '';
+
 $pageTitle  = 'About Us';
 $activePage = 'about';
 $pageScript = 'about';

@@ -16,6 +16,7 @@ use App\API\Services\StaffDomainAccessService;
 use App\API\Services\StaffTeachingAssignmentService;
 use App\API\Services\ReportCardReleaseService;
 use App\API\Services\AcademicContextService;
+use App\API\Services\AcademicActivationService;
 use App\API\Services\TeacherCurriculumScopeService;
 use App\API\Services\CurriculumProposalService;
 use App\API\Modules\academic\AcademicCohortProjectionService;
@@ -2186,20 +2187,6 @@ return $this->serverError('An internal error occurred.');
     }
 
     /**
-     * POST /api/academic/year-transition/archive-data - Archive academic data
-     */
-    // TODO: Delegate to AcademicYearService
-    public function postYearTransitionArchiveData($id = null, $data = [], $segments = [])
-    {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
-            return $guard;
-        }
-
-        $result = $this->api->archiveAcademicData($data['instance_id'] ?? null, $data);
-        return $this->handleResponse($result);
-    }
-
-    /**
      * POST /api/academic/year-transition/execute-promotions - Execute year promotions
      */
     // TODO: Delegate to AcademicYearService
@@ -2240,9 +2227,10 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/year-transition/close-year - Close the outgoing year
      *
-     * Alias of archive-data with the corrected name. It archives nothing: the
-     * outgoing year is marked active - completed so its records stay readable
-     * for every user, writable only by school admin / system admin / director.
+     * Marks the outgoing year active - completed. It is NOT archiving: records
+     * stay readable for every user and writable only by school admin / system
+     * admin / director. Archiving is a separate system-admin action and is
+     * deliberately unreachable from this workflow.
      */
     public function postYearTransitionCloseYear($id = null, $data = [], $segments = [])
     {
@@ -2297,12 +2285,79 @@ return $this->serverError('An internal error occurred.');
 
     /**
      * POST /api/academic/year-transition/validate-readiness - Validate year readiness
+     *
+     * Gate: the readiness pass is also the cutover — when every check passes it
+     * closes the outgoing year and activates the new one. It therefore carries
+     * the same academic_year_manage / system_admin guard as close-year and
+     * summary; without it any authenticated user could switch the system to a
+     * new academic year.
      */
     // TODO: Delegate to AcademicYearService
     public function postYearTransitionValidateReadiness($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
         $result = $this->api->validateYearReadiness($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/activation-sweep - Date-driven activation engine.
+     *
+     * Internal worker endpoint (X-Kingsway-Worker-Secret): reconciles term
+     * statuses against the calendar and performs the year cutover once a
+     * certified target year reaches its start date. Idempotent, so a missed or
+     * repeated tick cannot double-activate a year.
+     */
+    public function postActivationSweep($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('ACADEMIC_ACTIVATION_WORKER_SECRET') ? (string) ACADEMIC_ACTIVATION_WORKER_SECRET : '';
+        if ($expected === '') {
+            $expected = defined('KINGSWAY_WORKER_SECRET') ? (string) KINGSWAY_WORKER_SECRET : '';
+        }
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+
+        try {
+            $service = new AcademicActivationService($this->getDb()->getConnection());
+            $onDate = is_string($data['on_date'] ?? null) ? $data['on_date'] : null;
+            $dryRun = (bool) ($data['dry_run'] ?? false);
+            $result = $service->sweep($onDate, $dryRun);
+            return $this->success($result, 'Academic activation sweep completed');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::error(
+                'academic_activation',
+                'Activation sweep failed: ' . $e->getMessage()
+            );
+            return $this->serverError('Academic activation sweep failed');
+        }
+    }
+
+    /**
+     * GET /api/academic/activation-state - Handover state for the rollover page.
+     *
+     * Reports the outgoing (still operational) year, the prepared target year,
+     * the switch date, and any term statuses that no longer match the calendar.
+     */
+    public function getActivationState($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+
+        try {
+            $service = new AcademicActivationService($this->getDb()->getConnection());
+            return $this->success($service->handover(), 'Academic handover state loaded');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::error(
+                'academic_activation',
+                'Handover state failed: ' . $e->getMessage()
+            );
+            return $this->serverError('Academic handover state could not be loaded');
+        }
     }
 
     // ==================== ACADEMIC CALENDAR ====================

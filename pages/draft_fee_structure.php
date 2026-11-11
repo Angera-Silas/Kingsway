@@ -1,8 +1,7 @@
 <?php
 /* Draft Fee Structure — Simple Mode (default). Combined per-grade, per-term, per-student-type.
    Itemized mode is frozen (code exists but not exposed in UI). */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

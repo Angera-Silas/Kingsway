@@ -214,6 +214,77 @@ def scrub(value: Any, _depth: int = 0) -> Any:
     return out
 
 
+# A render-window artifact. Its prose fields (title, summary) are model-facing
+# text and go through the scrub like everything else; its media field is a data
+# URI the engine produced from authorized rows and is carried through intact.
+_ARTIFACT_MEDIA_FIELDS = ("url", "image", "download_name")
+_DATA_URI_RE = re.compile(r"^data:([a-z0-9.+-]+/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$")
+# `text/` is deliberately absent: an HTML or markdown "artifact" would be
+# rendered as a page by the browser, which is not a document download and is a
+# vector for injecting script into the app.
+_MEDIA_TYPES = (
+    "image/",
+    "audio/",
+    "video/",
+    "application/pdf",
+    "application/vnd.openxmlformats",
+    "application/zip",
+    "application/gzip",
+)
+# The same ceiling the orchestrator applies: a chat turn cannot be turned into a
+# 50 MB relay by asking for a big document.
+MAX_ARTIFACT_STRING = 4_000_000
+
+
+def scrub_artifact(value: Any, _depth: int = 0) -> Any:
+    """Scrub an artifact's prose, and carry its media payload through whole.
+
+    The generic string scrub truncates at MAX_STRING, which silently broke
+    every artifact whose payload was longer than that: a 30 KB chart PNG came
+    out of the guard as `data:image/png;base64,iVBOR...` - a broken image in
+    the render window, with no error anywhere. Media payloads are therefore
+    exempt from the length rule, but still validated: only a data URI, only a
+    known media type, only base64, and only up to a bounded size.
+    """
+    if not isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, list):
+        return [scrub_artifact(item, _depth + 1) for item in value]
+
+    out: dict[str, Any] = {}
+    for key, item in value.items():
+        name = str(key)
+
+        if name in _ARTIFACT_MEDIA_FIELDS:
+            if name == "download_name":
+                # A filename is prose, and it is also what the download button
+                # reads: scrub it but never truncate it into rubbish.
+                out[name] = scrub_text(str(item or ""))[:200]
+                continue
+            if not isinstance(item, str) or len(item) > MAX_ARTIFACT_STRING:
+                out[name] = ""
+                continue
+            match = _DATA_URI_RE.match(item)
+            if match is None or not match.group(1).startswith(_MEDIA_TYPES):
+                out[name] = ""
+                continue
+            out[name] = item
+            continue
+
+        clean_name = scrub_text(name)
+        if isinstance(item, (dict, list)):
+            cleaned = scrub(item, _depth + 1)
+        elif isinstance(item, str):
+            cleaned = scrub_text(item)
+        else:
+            cleaned = item
+        if clean_name in out:
+            clean_name += "_"
+        out[clean_name] = cleaned
+    return out
+
+
+
 def contains_internal_reference(value: Any) -> bool:
     """True when a payload still carries internal disclosure.
 

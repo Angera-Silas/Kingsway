@@ -4241,20 +4241,6 @@ if ($classId) {
                     $result['teacher_bindings_created'] = count($sourceTeachers);
                 }
 
-            } elseif ($step === 'archive_old_year') {
-                $this->dbQuery(
-                    "UPDATE academic_years SET status = 'archived', is_current = 0 WHERE id = ?",
-                    [$currentYear['id']]
-                );
-                $this->dbQuery(
-                    "INSERT INTO academic_year_archives
-                     (academic_year, status, closure_initiated_by, closure_date)
-                     VALUES (?, 'archived', ?, NOW())
-                     ON DUPLICATE KEY UPDATE status = 'archived', archived_at = NOW()",
-                    [$currentYear['year_code'], $userId]
-                );
-                $result['archived_year'] = $currentYear['year_code'];
-
             } elseif ($step === 'activate_new_year') {
                 $startYear = (int) substr((string) $currentYear['year_code'], 0, 4);
                 $newYearCode = ($startYear + 1) . '/' . ($startYear + 2);

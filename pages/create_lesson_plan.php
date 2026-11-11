@@ -1,7 +1,6 @@
 <?php
 /* Create Lesson Plan — standalone creation page for teachers/interns. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

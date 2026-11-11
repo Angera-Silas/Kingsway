@@ -3,7 +3,7 @@
 // All news content is fetched client-side by js/pages/public/news.js through
 // /api/website/news (the login.php pattern: shell + JS controller + window.API).
 $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
-if ($appBase === '.') $appBase = '';
+
 $pageTitle  = 'News & Blog';
 $activePage = 'news';
 $pageScript = 'news';

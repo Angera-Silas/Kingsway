@@ -1,5 +1,5 @@
 <?php
-$appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
+
 /**
  * Academic Years Registry Page
  *

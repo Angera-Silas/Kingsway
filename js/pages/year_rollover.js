@@ -79,7 +79,7 @@ window.yearRolloverController = {
     ['create_new_year_enrollments', 'Create new-year enrollments', 'Create target-year enrollment records without overwriting history.', 'bi-person-plus', 'info'],
     ['migrate_baselines', 'Migrate competency baselines', 'Carry CBC competency baselines into the new year.', 'bi-graph-up-arrow', 'primary'],
     ['close_outgoing_year', 'Close the outgoing year', 'Mark the outgoing year completed: readable by every user, editable only by school admin, system admin or director. Nothing is archived or hidden.', 'bi-folder-check', 'secondary'],
-    ['activate_new_year_term_one', 'Activate the new academic year and Term 1', 'Perform the final controlled cutover.', 'bi-play-circle', 'success'],
+    ['activate_new_year_term_one', 'Certify the new academic year', 'Run every readiness check. The system then switches to the new year on its start date — the outgoing year stays operational until its last day.', 'bi-patch-check', 'success'],
   ].map(([code, label, desc, icon, color]) => ({ code, label, desc, icon, color })),
 
   _STORE_KEY: 'kingsway_yr_transition_instance',
@@ -121,6 +121,12 @@ window.yearRolloverController = {
     if (!button || button.dataset.bound) return;
     button.dataset.bound = '1';
     button.addEventListener('click', () => this.loadRolloverSummary(true));
+
+    const handover = document.getElementById('yrRefreshHandover');
+    if (handover && !handover.dataset.bound) {
+      handover.dataset.bound = '1';
+      handover.addEventListener('click', () => this._loadHandover());
+    }
   },
 
   _bindHalfTermToggles: function () {
@@ -218,6 +224,93 @@ window.yearRolloverController = {
     } catch (e) {
       this._status = {};
     }
+    await this._loadHandover();
+  },
+
+  // ── Soft handover ────────────────────────────────────────────────────────
+  // The outgoing year stays operational until its last day; the target year is
+  // prepared alongside it and AcademicActivationService::sweep() switches them
+  // on the target's start date. This panel shows that state to the operator.
+  _loadHandover: async function () {
+    try {
+      const r = await callAPI('/academic/activation-state', 'GET');
+      this._handover = r?.data || r;
+    } catch (e) {
+      this._handover = null;
+      console.warn('Could not load academic handover state:', e);
+    }
+    this._renderHandover();
+  },
+
+  _renderHandover: function () {
+    const panel = document.getElementById('yrHandoverPanel');
+    if (!panel) return;
+    const h = this._handover;
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+
+    if (!h) {
+      panel.classList.add('d-none');
+      return;
+    }
+    panel.classList.remove('d-none');
+
+    const outgoing = h.operational_year;
+    const prepared = h.prepared_year;
+    const summary = h.outgoing_summary || {};
+
+    set('yrHandoverOperational', outgoing ? `${outgoing.year_code}` : '—');
+    set(
+      'yrHandoverOperationalMeta',
+      outgoing
+        ? `Runs until ${this._fmtDate(outgoing.end_date)} · ${this._esc(summary.current_term || 'no active term')}`
+        : 'No operational year'
+    );
+
+    set('yrHandoverPrepared', prepared ? `${prepared.year_code}` : '—');
+    set(
+      'yrHandoverPreparedMeta',
+      prepared
+        ? `${prepared.certified ? 'Certified' : 'Not certified'} · opens ${this._fmtDate(prepared.start_date)}`
+        : 'No target year prepared'
+    );
+
+    const switchDate = h.switch_date ? this._fmtDate(h.switch_date) : '—';
+    set('yrHandoverSwitchDate', switchDate);
+    set(
+      'yrHandoverSwitchMeta',
+      h.days_until_switch === null || h.days_until_switch === undefined
+        ? ''
+        : h.days_until_switch <= 0
+          ? 'Due now'
+          : `${h.days_until_switch} day(s) away`
+    );
+
+    const failed = (prepared && prepared.failed_checks) || [];
+    set('yrHandoverReadiness', prepared?.certified ? 'Certified' : (prepared ? 'In preparation' : '—'));
+    set(
+      'yrHandoverReadinessMeta',
+      failed.length ? `Fix: ${this._esc(failed.join(', '))}` : (prepared?.certified ? 'All checks passed' : '')
+    );
+
+    const notice = document.getElementById('yrHandoverNotice');
+    if (notice) {
+      let text = '';
+      if (h.switch_blocked_reason) {
+        text = `<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${this._esc(h.switch_blocked_reason)}</span>`;
+      } else if (prepared?.certified) {
+        text = `<span class="text-success"><i class="bi bi-check2-circle me-1"></i>Certified. The system switches to ${this._esc(prepared.year_code)} automatically on ${switchDate}. The outgoing year keeps serving the school until then.</span>`;
+      } else if (h.terms_out_of_sync > 0) {
+        text = `<span class="text-warning"><i class="bi bi-arrow-repeat me-1"></i>${h.terms_out_of_sync} term status(es) no longer match the calendar; the activation sweep will correct them.</span>`;
+      }
+      notice.innerHTML = text;
+    }
+  },
+
+  _fmtDate: function (value) {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Africa/Nairobi' });
   },
 
   _loadYears: async function () {
@@ -1503,11 +1596,12 @@ window.yearRolloverController = {
               : 'Stage completed and progress saved.', performed: new Date().toISOString() });
         showNotification(`${stage?.label || code} completed.`, 'success');
       } else if (code === 'close_outgoing_year') {
-        // Close (seal for edits) — never archive. Data stays readable for
-        // every user; only school admin / system admin / director may write.
+        // Closing is NOT archiving. The outgoing year becomes active - completed:
+        // readable by every user, writable only by school admin / system admin /
+        // director. Archiving is a separate system-admin action and never
+        // happens here, so no archive options are sent.
         data = await callAPI('/academic/year-transition/close-year', 'POST', {
           instance_id: this._instanceId,
-          archive_assessments: false, archive_attendance: false, archive_reports: false, archive_competencies: false,
         });
         this._currentStage = 'activate_new_year_term_one';
         this._log.push({
@@ -1841,26 +1935,33 @@ window.yearRolloverController = {
       err.response = { data: { validation_results: checks } };
       throw err;
     }
-    // Activate: switch the whole system to the new year.
-    const targetCode = this._workflowData?.to_year_code || (this._workflowData?.to_year ? `${this._workflowData.to_year}/${Number(this._workflowData.to_year) + 1}` : '');
-    const newYearId = this._workflowData?.academic_year_id || this._years?.find(y => String(y.year_code) === String(targetCode))?.id;
-    if (newYearId) {
-      await callAPI(`/academic/years/set-current/${newYearId}`, 'PUT');
-    }
+
+    // Certify, do not switch. The outgoing year keeps serving the school until
+    // its last day; AcademicActivationService::sweep() performs the cutover when
+    // the target year opens, so the switch can never land mid-term.
+    const switchDate = res.switch_date || this._workflowData?.to_year_start_date || null;
+    const switchLabel = this._fmtDate(switchDate);
+    this._workflowData = { ...(this._workflowData || {}), certified_at: res.certified_at, switch_date: switchDate };
+
     this._log.push({
       stage: 'activate_new_year_term_one', status: 'completed',
-      details: 'All checks passed · Term 1 activated · system switched to new year',
+      details: `All checks passed · certified · automatic switch on ${switchLabel}`,
       performed: new Date().toISOString(),
     });
     if (window.AcademicContext) await window.AcademicContext.refresh();
     if (window.DataStore) window.DataStore.invalidateMany(['academic', 'attendance', 'finance']).catch(() => {});
-    showNotification('New academic year is now active! Term 1 is current.', 'success');
+    showNotification(
+      switchDate
+        ? `New academic year certified. The system switches automatically on ${switchLabel}.`
+        : 'New academic year certified. The system switches automatically on its start date.',
+      'success'
+    );
 
-    // Workflow is complete — clear the persisted instance so the page returns
-    // to a clean, ready-to-create state on next load.
-    this._instanceId = null;
-    this._workflowData = null;
-    localStorage.removeItem(this._STORE_KEY);
+    // Hand back to the rollover view: the workflow stays in_progress so the
+    // handover panel keeps reporting the countdown and the readiness checks.
+    await this._loadHandover();
+    this._renderStages();
+    this._renderLog();
   },
 
   _validationSummary: function (checks) {
@@ -1879,7 +1980,8 @@ window.yearRolloverController = {
 
   _importWorkflowLog: function () {
     const d = this._workflowData || {};
-    if (d.archive_summary) this._log.push({ stage: 'close_outgoing_year', status: 'completed', details: 'Outgoing year previously closed; records remain readable', performed: d.archive_summary.archived_at || null });
+    // Closing the outgoing year is recorded by the workflow stage pointer
+    // (workflow_stage_history), not by any payload on the instance.
     if (d.promotion_summary) {
       const complete = d.promotion_summary.assignment_complete === true;
       this._log.push({ stage: 'assign_target_streams', status: complete ? 'completed' : 'in_progress', details: complete ? 'All learner streams assigned' : `${d.promotion_summary.unassigned ?? 'Some'} learners still require stream assignment`, performed: null });

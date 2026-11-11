@@ -347,13 +347,35 @@ class AcademicYearManager
     }
 
     /**
-     * Archive an academic year
+     * Archive an academic year: a permanent, system-administrator-only closure.
+     *
+     * Archiving is NOT the same as completing a year. Completing marks the year
+     * active - completed, leaving its data readable for every user and writable
+     * by school admin / director / system admin. Archiving goes further: the
+     * year's data is hidden completely from ordinary access. It is therefore
+     * never part of a rollover, and is guarded here as well as at the endpoint.
      */
     public function archiveYear(int $yearId, int $userId, ?string $notes = null): bool
     {
         $year = $this->getAcademicYear($yearId);
         if (!$year) {
             throw new Exception("Academic year not found");
+        }
+
+        // The school is still operating inside this year; archiving it would
+        // hide the year everyone is working in.
+        if ((int) ($year['is_current'] ?? 0) === 1) {
+            throw new Exception(
+                'The current academic year is in use and cannot be archived. Close it first, then archive it later if required.'
+            );
+        }
+
+        if (\App\API\Services\AcademicYearLifecycleService::isArchived(
+            (string) $year['status'],
+            (string) ($year['state'] ?? '')
+        )) {
+            // Already archived: keep the action idempotent rather than an error.
+            return true;
         }
 
         $this->db->beginTransaction();
@@ -492,6 +514,14 @@ class AcademicYearManager
         if (!empty($filters['status'])) {
             $sql .= " AND ay.status = ?";
             $params[] = $filters['status'];
+        }
+
+        // An archived year is hidden completely: its data is not accessible to
+        // ordinary users any more. A caller may still ask for archived years
+        // explicitly (status filter above) — that is the system administrator's
+        // restore path — but they never appear in a default listing.
+        if (empty($filters['status']) || $filters['status'] !== 'archived') {
+            $sql .= " AND " . \App\API\Services\AcademicYearLifecycleService::visibleSql('ay');
         }
 
         $sql .= " ORDER BY ay.start_date DESC";

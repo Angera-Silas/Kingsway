@@ -239,17 +239,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     /** Load editable annual curriculum, staffing-continuity, and fee drafts. */
     public function getSetupDrafts(int $instanceId): array
     {
-        // Read from primary directly to avoid replica lag after workflow creation
-        $stmt = $this->db->prepare(
-            'SELECT id, current_stage, status, data_json FROM workflow_instances WHERE id = ? LIMIT 1'
-        );
-        $stmt->execute([$instanceId]);
-        $instance = $stmt->fetch(PDO::FETCH_ASSOC);
+        $instance = $this->getWorkflowInstance($instanceId);
         if (!$instance) return formatResponse(false, null, 'Year transition workflow was not found.');
         $workflowData = json_decode((string) ($instance['data_json'] ?? ''), true) ?: [];
         $yearId = (int) ($workflowData['academic_year_id'] ?? 0)
             ?: $this->resolveYearIdFromCode($workflowData['to_year_code'] ?? $workflowData['to_year'] ?? '');
-        if (!$yearId) return formatResponse(false, null, 'Prepare the target year\'s classes and streams first.');
+        if (!$yearId) return formatResponse(false, null, 'Prepare the target year’s classes and streams first.');
 
         $learningAreas = $this->db->query(
             "SELECT id, name, code, level_band, levels FROM learning_areas
@@ -507,12 +502,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     /** Save editable setup rows while enforcing target-year ownership. */
     public function saveSetupDrafts(int $instanceId, array $drafts): array
     {
-        // Read from primary directly to avoid replica lag after workflow creation
-        $stmt = $this->db->prepare(
-            'SELECT id, current_stage, status, data_json FROM workflow_instances WHERE id = ? LIMIT 1'
-        );
-        $stmt->execute([$instanceId]);
-        $instance = $stmt->fetch(PDO::FETCH_ASSOC);
+        $instance = $this->getWorkflowInstance($instanceId);
         if (!$instance) return formatResponse(false, null, 'Year transition workflow was not found.');
         $workflowData = json_decode((string) ($instance['data_json'] ?? ''), true) ?: [];
         $yearId = (int) ($workflowData['academic_year_id'] ?? 0)
@@ -652,8 +642,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 }
                 $workflowData['staff_continuity'] = $continuity;
                 $workflowData['staff_assignments_deferred_until_term_setup'] = true;
-                $this->db->prepare("UPDATE workflow_instances SET data_json = ? WHERE id = ?")
-                    ->execute([json_encode($workflowData, JSON_UNESCAPED_UNICODE), $instanceId]);
+                $this->mergeInstanceData($instanceId, [
+                    'staff_continuity' => $continuity,
+                    'staff_assignments_deferred_until_term_setup' => true,
+                ]);
             } elseif ($phase === 'staff') {
                 foreach ($rows as $row) {
                     $kind = (string) ($row['kind'] ?? '');
@@ -1443,7 +1435,6 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 'calendar_summary' => $calendarSummary,
                 'holidays' => $calendar['holidays'] ?? [],
                 'transition_notes' => $calendar['transition_notes'] ?? '',
-                'archive_summary' => [],
                 'promotion_summary' => [],
                 'new_classes' => [],
                 'migrated_baselines' => [],
@@ -1483,34 +1474,19 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     }
 
     /**
-     * Stage 2: Archive previous year data
-     * 
-     * Archives assessment results, reports, and other historical data.
-     * 
-     * @param int $instance_id Workflow instance ID
-     * @param array $archive_options {
-     *   @type bool $archive_assessments Archive assessment data
-     *   @type bool $archive_attendance Archive attendance records
-     *   @type bool $archive_reports Archive student reports
-     *   @type bool $archive_competencies Archive competency assessments
-     *   @type string $archive_location Storage location/path
-     * }
-     * @return array Response with archive summary
-     */
-    /**
-     * Close the outgoing year. This is the rollover step that used to be
-     * called "archive": it archives NOTHING.
+     * Close the outgoing year.
      *
-     * A school's data must stay accessible, so the outgoing year is marked
-     * active - completed: status stays 'active' (every read path and every
-     * ordinary user can still see it) and writes are restricted to school
-     * admin / system admin / director. Real archiving (cold storage) is a
-     * separate, rare, system-admin-only action and never part of a rollover.
+     * Marking a year completed is NOT archiving, and no archiving vocabulary
+     * belongs anywhere in this workflow. Closing only moves the year to
+     * active - completed: every read path and every ordinary user still sees
+     * its data, and only school admin / system admin / director may write to
+     * it. Nothing is moved, copied, sealed or deleted.
      *
-     * The archive_* request flags are accepted but ignored so existing
-     * callers keep working.
+     * Archiving is a separate, deliberate, system-administrator-only action
+     * (see AcademicYearManager::archiveYear) that permanently hides a year.
+     * It is never reachable from here.
      */
-    public function archiveData(int $instance_id, array $archive_options = []): array
+    public function closeOutgoingYear(int $instance_id): array
     {
         try {
             $instance = $this->getWorkflowInstance($instance_id);
@@ -1525,61 +1501,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 throw new Exception('Source academic year could not be resolved');
             }
 
-            $archiveAssessments = $archive_options['archive_assessments'] ?? true;
-            $archiveAttendance = $archive_options['archive_attendance'] ?? true;
-            $archiveReports = $archive_options['archive_reports'] ?? true;
-            $archiveCompetencies = $archive_options['archive_competencies'] ?? true;
-
-            $archiveSummary = [
-                'archived_at' => date('Y-m-d H:i:s'),
-                'archived_by' => $this->user_id,
-                'year_archived' => $fromYear,
-                'closed_not_archived' => true,
-            ];
-
-            // Count records to be archived
-            if ($archiveAssessments) {
-                $assessStmt = $this->db->prepare(
-                    "SELECT COUNT(*) as count FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
-                    INNER JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON ar.assessment_id = a.id
-                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON a.academic_year_term_id = ayt.id
-                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
-                    WHERE ay.id = :year_id"
-                );
-                $assessStmt->execute(['year_id' => $fromYearId]);
-                $assessCount = $assessStmt->fetch(PDO::FETCH_ASSOC);
-                $archiveSummary['assessments_archived'] = (int) $assessCount['count'];
-            }
-
-            if ($archiveAttendance) {
-                $attendStmt = $this->db->prepare(
-                    "SELECT COUNT(*) as count FROM student_attendance
-                    WHERE YEAR(date) = :year"
-                );
-                $attendStmt->execute(['year' => $fromYear]);
-                $attendCount = $attendStmt->fetch(PDO::FETCH_ASSOC);
-                $archiveSummary['attendance_records_archived'] = (int) $attendCount['count'];
-            }
-
-            if ($archiveCompetencies) {
-                $compStmt = $this->db->prepare(
-                    "SELECT COUNT(*) as count FROM learner_competencies
-                    WHERE academic_year = :year"
-                );
-                $compStmt->execute(['year' => $fromYear]);
-                $compCount = $compStmt->fetch(PDO::FETCH_ASSOC);
-                $archiveSummary['competency_records_archived'] = (int) $compCount['count'];
-            }
-
-            // Year-scoped operational rows remain queryable for history.  The
-            // archive record is finalized only during validateReadiness(), after
-            // promotions and finance reconciliation have passed.
-            // Nothing is moved, copied or deleted. Rows stay in place,
-            // keyed by their academic year, and stay readable.
-            $archiveSummary['mode'] = 'closed_year_retained';
-
-            $data['archive_summary'] = $archiveSummary;
-
+            // advanceStage() records this step in workflow_stage_history, which
+            // is the durable record that closing happened. Nothing needs to be
+            // written to workflow_instances here.
             $this->advanceStage(
                 $instance_id,
                 'close_outgoing_year',
@@ -1587,26 +1511,17 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $data
             );
 
-            return formatResponse(true, $archiveSummary, 'Outgoing year closed; its records remain readable.');
+            return formatResponse(true, [
+                'year_closed' => $fromYear,
+                'closed_at' => date('Y-m-d H:i:s'),
+                'closed_by' => (int) $this->user_id,
+            ], 'Outgoing year closed; its records stay readable for every user.');
 
         } catch (Exception $e) {
             return $this->handleException($e);
         }
     }
 
-    /**
-     * Stage 3: Execute bulk promotions
-     * 
-     * Promotes all eligible students to next grade level.
-     * 
-     * @param int $instance_id Workflow instance ID
-     * @param array $promotion_config {
-     *   @type array $grade_mappings Array of from_grade → to_grade mappings
-     *   @type bool $auto_promote_lower_primary Auto-promote PP1-Grade 2
-     *   @type float $min_score_threshold Minimum score for promotion (optional)
-     * }
-     * @return array Response with promotion summary
-     */
     /**
      * Stage 3 of the transition: surface the promotion board.
      *
@@ -1712,8 +1627,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $candidates[] = $row;
         }
         $data['promotion_board_last_loaded_at'] = date('Y-m-d H:i:s');
-        $this->db->prepare("UPDATE workflow_instances SET data_json = ? WHERE id = ?")
-            ->execute([json_encode($data), $instance_id]);
+        // Merge only this key. Loading the board is a read path that happens on
+        // every promotions tab open, so a whole-document rewrite here would be
+        // the most likely way to drop a sibling stage's data.
+        $this->mergeInstanceData($instance_id, ['promotion_board_last_loaded_at' => $data['promotion_board_last_loaded_at']]);
         return formatResponse(true, [
             'from_year' => $data['from_year_code'] ?? $data['from_year'],
             'to_year' => $data['to_year_code'] ?? $data['to_year'],
@@ -1886,7 +1803,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             return ['fee_bundles_processed'=>$processed];
         }
         $records=$this->db->prepare(
-            "SELECT r.*, ay.year_code FROM " . ReadReplicaService::qualifiedRef("student_fee_rollover_balances") . "
+            "SELECT r.*, ay.year_code FROM " . ReadReplicaService::qualifiedRef("student_fee_rollover_balances") . " r
              JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=r.to_academic_year_id
              WHERE r.from_academic_year_id=? AND r.to_academic_year_id=? AND r.reconciled_at IS NULL"
         );
@@ -2561,8 +2478,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 'unassigned' => $unassigned,
                 'assignment_complete' => $unassigned === 0,
             ]);
-            $this->db->prepare("UPDATE workflow_instances SET data_json = ? WHERE id = ?")
-                ->execute([json_encode($data), $instance_id]);
+            // Merge, do not rewrite: this save happens after close-year has
+            // a sibling stage wrote, and a whole-document write from a stale
+            // read would drop it and fail the readiness gate on the next pass.
+            $this->mergeInstanceData($instance_id, ['promotion_summary' => $data['promotion_summary']]);
             if ($unassigned === 0) {
                 $stageStmt = $this->db->prepare('SELECT current_stage FROM workflow_instances WHERE id = ? LIMIT 1');
                 $stageStmt->execute([$instance_id]);
@@ -2627,12 +2546,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     public function setupNewYear(int $instance_id, array $setup_config): array
     {
         try {
-            // Read from primary directly to avoid replica lag after workflow creation
-            $stmt = $this->db->prepare(
-                'SELECT id, current_stage, status, data_json FROM workflow_instances WHERE id = ? LIMIT 1'
-            );
-            $stmt->execute([$instance_id]);
-            $instance = $stmt->fetch(PDO::FETCH_ASSOC);
+            $instance = $this->getWorkflowInstance($instance_id);
             if (!$instance) {
                 return formatResponse(false, null, 'Workflow instance not found');
             }
@@ -2675,7 +2589,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     $data,
                     "Created " . count($newClasses) . " classes for year {$toYear}"
                 );
-                $this->persistWorkflowData($instance_id, $data);
+                $this->mergeInstanceData($instance_id, [
+                    'new_year_context' => $contextSummary,
+                    'class_learner_types' => $this->mergeClassLearnerTypeMap(
+                        $data['class_learner_types'] ?? [], $learnerTypesByClass, $newClasses
+                    ),
+                ]);
 
                 $this->db->commit();
 
@@ -2713,7 +2632,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $data,
                 "Created " . count($newClasses) . " classes for year {$toYear}"
             );
-            $this->persistWorkflowData($instance_id, $data);
+            $this->mergeInstanceData($instance_id, [
+                'new_year_context' => $contextSummary,
+                'class_learner_types' => $this->mergeClassLearnerTypeMap(
+                    $data['class_learner_types'] ?? [], $learnerTypesByClass, $newClasses
+                ),
+            ]);
 
             $this->db->commit();
 
@@ -2756,6 +2680,63 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         return $existing;
     }
 
+    /**
+     * Merge specific keys into the workflow instance's data_json.
+     *
+     * SELECT ... FOR UPDATE plus a PHP merge, rather than JSON_SET with a bound
+     * parameter: MariaDB stores a bound string parameter as a JSON string value,
+     * so JSON_SET(doc, '$.k', ?) persists an object as a quoted string and every
+     * JSON path lookup into it then returns NULL. The row lock also makes the
+     * read-modify-write safe — rewriting the whole document from an in-memory
+     * copy discards whatever a sibling stage wrote seconds earlier (a closed
+     * sibling stage wrote being the case that actually bit us).
+     */
+    private function mergeInstanceData(int $instance_id, array $fields): void
+    {
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
+        }
+
+        try {
+            $stmt = $this->db->prepare("SELECT data_json FROM workflow_instances WHERE id = ? FOR UPDATE");
+            $stmt->execute([$instance_id]);
+            $raw = $stmt->fetchColumn();
+            $data = $raw ? (json_decode((string) $raw, true) ?: []) : [];
+            if (!is_array($data)) {
+                $data = [];
+            }
+
+            foreach ($fields as $key => $value) {
+                if ($value === null) {
+                    // Absent, not the JSON string "null": the activation engine
+                    // probes certification with JSON_EXTRACT(...) IS NOT NULL and
+                    // a literal "null" would satisfy that test.
+                    unset($data[$key]);
+                    continue;
+                }
+                $data[$key] = $value;
+            }
+
+            $this->db->prepare("UPDATE workflow_instances SET data_json = ? WHERE id = ?")
+                ->execute([json_encode($data, JSON_UNESCAPED_UNICODE), $instance_id]);
+
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * @deprecated Replaced by mergeInstanceData(), which locks the row and merges
+     *             only the keys the caller owns instead of rewriting the whole
+     *             document from a possibly stale read.
+     */
     private function persistWorkflowData(int $instanceId, array $data): void
     {
         $stmt = $this->db->prepare("UPDATE workflow_instances SET data_json = ? WHERE id = ?");
@@ -3300,7 +3281,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 4: Every active target class has at least one stream.
             $streamGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . "
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     ON aycs.academic_year_class_id = ayc.id
                  WHERE ayc.academic_year_id = ? AND ayc.status = 'active'
@@ -3332,7 +3313,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 6: Calendar exists for every target term.
             $calendarGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " aycal
                     ON aycal.academic_year_term_id = ayt.id
                  WHERE ayt.academic_year_id = ? AND aycal.id IS NULL"
@@ -3348,7 +3329,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $calendarStructureStmt = $this->db->prepare(
                 "SELECT COUNT(*) FROM (
                      SELECT aycal.academic_year_term_id
-                     FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . "
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " aycal
                      JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aycal.academic_year_term_id
                      WHERE ayt.academic_year_id = ?
                      GROUP BY aycal.academic_year_term_id
@@ -3418,12 +3399,6 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 'pending_transitions' => $pendingTransitions,
             ];
 
-            // Check 9: Archive stage was run.
-            $validationResults['data_archived'] = [
-                'status' => !empty($data['archive_summary']) ? 'pass' : 'fail',
-                'summary' => $data['archive_summary'] ?? null,
-            ];
-
             // Check 10: approved/active fee schedules exist for every target
             // class, term and configured student type. Draft copies are useful
             // for preparation but must never be used for live billing.
@@ -3458,7 +3433,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // This is idempotent and keeps the stored procedure as the single
             // billing authority.
             $unseededStmt = $this->db->prepare(
-                "SELECT sae.id FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                "SELECT sae.id FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status = 'active'
                    AND fo.id IS NULL"
@@ -3477,7 +3452,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // one obligation unless it is a graduating/no-fee exception.
             $enrollmentCount = 0;
             $enrollmentGapStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status = 'active'
                    AND fo.id IS NULL"
@@ -3503,67 +3478,67 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $data['ready_for_new_year'] = $allPassed;
 
             if ($allPassed) {
-                $this->db->beginTransaction();
-                // Final cutover is atomic at the end of the workflow. Historical
-                // rows remain in their original year. Close the outgoing year,
-                // including Term 3, in the same transaction as activation.
-                if ($sourceYearId > 0) {
-                    $this->db->prepare(
-                        "UPDATE academic_year_terms SET status = 'completed' WHERE academic_year_id = ?"
-                    )->execute([$sourceYearId]);
-                    // CLOSE, never archive: the outgoing year keeps
-                    // status = 'active' so every read path and every ordinary
-                    // user can still see its data. Only writes are restricted.
-                    $this->db->prepare(
-                        "UPDATE academic_years
-                            SET state = 'completed',
-                                status = 'active',
-                                is_current = 0,
-                                completed_at = NOW(),
-                                completed_by = ?
-                          WHERE id = ?"
-                    )->execute([(int) $this->user_id, $sourceYearId]);
-                }
-                $this->db->prepare(
-                    "UPDATE academic_years
-                        SET is_current = 0,
-                            state = CASE WHEN state = 'current' THEN 'upcoming' ELSE state END
-                      WHERE id <> ?"
-                )->execute([$yearId]);
-                $this->db->prepare(
-                    "UPDATE academic_years SET state = 'current', status = 'active' WHERE id = ?"
-                )->execute([$yearId]);
-
-                // Mark only the first target term current after all gates pass.
-                $this->db->prepare(
-                    "UPDATE academic_year_terms ayt
-                     SET ayt.status = CASE WHEN ayt.id = (
-                         SELECT min_id FROM (SELECT MIN(id) AS min_id FROM academic_year_terms WHERE academic_year_id = ?) min_term
-                     ) THEN 'current' ELSE 'upcoming' END
-                     WHERE ayt.academic_year_id = ?"
-                )->execute([$yearId, $yearId]);
+                // Certification, not cutover.
+                //
+                // This pass used to flip is_current inside this same request,
+                // which forced the school to abandon the outgoing year the
+                // moment the last checkbox was ticked. It now certifies the
+                // target year and records the date the switch is due:
+                // AcademicActivationService::sweep() performs the cutover when
+                // the target year actually opens, so the outgoing year keeps
+                // serving attendance, fees and marks until its last day.
+                $data['certified_at'] = date('Y-m-d H:i:s');
+                $data['certified_by'] = (int) $this->user_id;
+                $data['switch_date'] = (string) ($data['switch_date'] ?? $this->resolveSwitchDate($yearId));
+                $data['cutover_mode'] = 'date_driven';
             }
 
-            // Complete workflow only when all required checks pass; otherwise persist
-            // the failure details without activating the year.
-            if ($allPassed) {
-                $this->completeWorkflow(
-                    $instance_id,
-                    json_encode($data),
-                    'Year transition completed successfully'
-                );
-                $this->db->commit();
-            }
+            // Persist with JSON_SET rather than rewriting the whole document.
+            //
+            // A read-modify-write here would take whatever this method read at
+            // entry and write it back wholesale. When the read came from a
+            // source that lagged the writes made seconds earlier by the stages
+            // that ran just before, the
+            // write silently discarded them and the next readiness pass failed
+            // on a check that had, in fact, passed. JSON_SET touches only these
+            // keys, so sibling stage data can never be lost.
+            $this->mergeInstanceData($instance_id, [
+                'validation_results' => $validationResults,
+                'ready_for_new_year' => $allPassed,
+                'certified_at' => $data['certified_at'] ?? null,
+                'certified_by' => $data['certified_by'] ?? null,
+                'switch_date' => $data['switch_date'] ?? null,
+                'cutover_mode' => 'date_driven',
+            ]);
 
             return formatResponse($allPassed, [
                 'ready_for_new_year' => $allPassed,
                 'validation_results' => $validationResults,
+                'certified' => $allPassed,
+                'certified_at' => $data['certified_at'] ?? null,
+                'switch_date' => $data['switch_date'] ?? null,
+                'cutover_mode' => 'date_driven',
             ], $allPassed ? 'System ready for new academic year' : 'New academic year is not ready');
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
             return $this->handleException($e);
         }
+    }
+
+    /**
+     * The date the target year becomes operational: its own start date. The
+     * outgoing year therefore stays is_current = 1 until the day before.
+     */
+    private function resolveSwitchDate(int $yearId): string
+    {
+        if ($yearId <= 0) {
+            return '';
+        }
+        $stmt = $this->db->prepare("SELECT start_date FROM academic_years WHERE id = ? LIMIT 1");
+        $stmt->execute([$yearId]);
+
+        return (string) ($stmt->fetchColumn() ?: '');
     }
 
     /**
@@ -3587,7 +3562,6 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 'to_year' => $data['to_year'] ?? null,
                 'current_stage' => $instance['current_stage_code'] ?? 'pending',
                 'workflow_status' => $instance['status'] ?? 'pending',
-                'archive_summary' => $data['archive_summary'] ?? null,
                 'promotion_summary' => $data['promotion_summary'] ?? null,
                 'classes_created' => count($data['new_classes'] ?? []),
                 'ready_for_new_year' => $data['ready_for_new_year'] ?? false,

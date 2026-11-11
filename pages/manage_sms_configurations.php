@@ -1,9 +1,6 @@
 <?php
 /** Kingsway System Administrator: SMS Provider Configuration (system domain). */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') { $appBase = ''; }
-}
+
 $smsFieldDefinitions = \App\API\Services\SystemCommsConfigService::fieldDefinitions('sms');
 ?>
 <div class="container-fluid py-4">

@@ -1,9 +1,6 @@
 <?php
 /** Kingsway System Administrator: WhatsApp Provider Configuration (system domain). */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') { $appBase = ''; }
-}
+
 $whatsappFieldDefinitions = \App\API\Services\SystemCommsConfigService::fieldDefinitions('whatsapp');
 ?>
 <div class="container-fluid py-4">
