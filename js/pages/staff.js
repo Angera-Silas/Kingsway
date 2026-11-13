@@ -357,7 +357,7 @@ const staffManagementController = {
       document.getElementById("staffAddress").value = staff.address || "";
     }
 
-    const modal = new bootstrap.Modal(document.getElementById("staffModal"));
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("staffModal"));
     modal.show();
   },
 
@@ -461,7 +461,7 @@ const staffManagementController = {
             `;
 
       document.getElementById("viewStaffContent").innerHTML = html;
-      new bootstrap.Modal(document.getElementById("viewStaffModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("viewStaffModal")).show();
     } catch (error) {
       console.error("Error loading staff:", error);
       showNotification("Failed to load staff details", "error");
@@ -550,7 +550,7 @@ const staffManagementController = {
   },
 
   showBulkImportModal: function () {
-    new bootstrap.Modal(document.getElementById("bulkImportModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("bulkImportModal")).show();
   },
 
   bulkImport: async function (event) {
@@ -590,7 +590,7 @@ const staffManagementController = {
 
   showLeaveRequests: function () {
     this.loadLeaveRequests();
-    new bootstrap.Modal(document.getElementById("leaveRequestsModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("leaveRequestsModal")).show();
   },
 
   loadLeaveRequests: async function () {
@@ -853,7 +853,7 @@ const staffManagementController = {
     const modalEl = document.getElementById("contractModal");
     if (!modalEl) return;
 
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     const form = document.getElementById("contractForm");
     form.reset();
     document.getElementById("contractId").value = contractId || "";
@@ -1054,7 +1054,7 @@ const staffManagementController = {
           <td><span class="badge bg-${a.role === "class_teacher" ? "primary" : "secondary"}">${a.role || a.assignment_type || "-"}</span></td>
           <td>${a.workload_hours || a.hours_per_week || "-"}</td>
           <td>
-            <button class="btn btn-sm btn-outline-danger" onclick="staffManagementController.removeAssignment(${a.id})" data-role="hr_manager,headteacher,admin">
+            <button class="btn btn-sm btn-outline-danger" onclick="staffManagementController.removeAssignment(${Number(a.id)}, '${a.assignment_scope === "stream" ? "stream" : "class"}')" data-role="hr_manager,headteacher,admin">
               <i class="bi bi-x-circle"></i>
             </button>
           </td>
@@ -1105,7 +1105,7 @@ const staffManagementController = {
       }
     };
 
-    new bootstrap.Modal(document.getElementById("assignClassModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("assignClassModal")).show();
   },
 
   saveClassAssignment: async function (event) {
@@ -1158,7 +1158,7 @@ const staffManagementController = {
     try {
       const classResp = await window.API.academic.listClasses();
       const classes = classResp?.data || classResp || [];
-      classSelect.innerHTML = '<option value="">All Classes</option>';
+      classSelect.innerHTML = '<option value="">Select Class</option>';
       (Array.isArray(classes) ? classes : []).forEach((c) => {
         classSelect.innerHTML += `<option value="${c.id}">${c.name || c.class_name}</option>`;
       });
@@ -1166,7 +1166,32 @@ const staffManagementController = {
       console.error("Error loading classes:", e);
     }
 
-    new bootstrap.Modal(document.getElementById("assignSubjectModal")).show();
+    // Optional stream: none = the assignment covers every stream of the class.
+    // Values are plain stream ids; the server resolves the current year's
+    // class stream, so one stream listed across years appears once.
+    const streamSelect = document.getElementById("assignSubjectStreamId");
+    if (streamSelect) {
+      streamSelect.innerHTML = '<option value="">All streams</option>';
+      classSelect.onchange = async function () {
+        streamSelect.innerHTML = '<option value="">All streams</option>';
+        if (!this.value) return;
+        try {
+          const streamResp = await window.API.academic.listStreams({ class_id: this.value });
+          const rows = streamResp?.data || streamResp || [];
+          const seen = new Set();
+          (Array.isArray(rows) ? rows : []).forEach((s) => {
+            const streamId = s.stream_id ?? s.id;
+            if (!streamId || seen.has(String(streamId))) return;
+            seen.add(String(streamId));
+            streamSelect.innerHTML += `<option value="${streamId}">${s.stream_name || s.name || ""}</option>`;
+          });
+        } catch (e) {
+          console.warn("Error loading streams:", e);
+        }
+      };
+    }
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("assignSubjectModal")).show();
   },
 
   saveSubjectAssignment: async function (event) {
@@ -1175,8 +1200,13 @@ const staffManagementController = {
       const data = {
         staff_id: document.getElementById("assignSubjectStaffId").value,
         subject_id: document.getElementById("assignSubjectId").value,
-        class_id: document.getElementById("assignSubjectClassId").value || null,
+        class_id: document.getElementById("assignSubjectClassId").value,
+        stream_id: document.getElementById("assignSubjectStreamId")?.value || null,
       };
+      if (!data.staff_id || !data.subject_id || !data.class_id) {
+        showNotification("Choose a staff member, subject and class.", "warning");
+        return;
+      }
 
       await window.API.staff.assignSubject(data);
       showNotification("Subject assigned successfully", "success");
@@ -1189,16 +1219,18 @@ const staffManagementController = {
     }
   },
 
-  removeAssignment: async function (assignmentId) {
+  removeAssignment: async function (assignmentId, scope = "class") {
     if (!(await window.confirmAction("Confirm Deletion", "Remove this assignment?", { confirmText: "Delete", danger: true }))) return;
     try {
-      await window.API.apiCall(`/staff/assignments/remove/${assignmentId}`, "DELETE");
+      // Canonical subject-assignment delete (AcademicController::deleteSubjectAssignments).
+      // Ids are unique per scope: class-wide vs single-stream assignment.
+      await window.API.apiCall(`/academic/subject-assignments/${assignmentId}?scope=${scope === "stream" ? "stream" : "class"}`, "DELETE");
       showNotification("Assignment removed", "success");
       this.assignmentsLoaded = false;
       this.loadAssignmentsTab();
     } catch (error) {
       console.error("Error removing assignment:", error);
-      showNotification("Failed to remove assignment", "error");
+      showNotification("Failed to remove assignment: " + (error.message || "Unknown error"), "error");
     }
   },
 
@@ -1587,7 +1619,7 @@ const staffManagementController = {
       `;
 
       document.getElementById("viewStaffContent").innerHTML = html;
-      new bootstrap.Modal(document.getElementById("viewStaffModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("viewStaffModal")).show();
     } catch (error) {
       console.error("Error loading staff:", error);
       showNotification("Failed to load staff details", "error");
@@ -1614,7 +1646,7 @@ const staffManagementController = {
     const content = document.getElementById("payslipContent");
     if (!content) return;
     content.innerHTML = '<div class="text-center py-3"><div class="spinner-border"></div></div>';
-    new bootstrap.Modal(document.getElementById("payslipModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("payslipModal")).show();
 
     try {
       const response = await window.API.staff.getPayslip(staffId, { month, year });

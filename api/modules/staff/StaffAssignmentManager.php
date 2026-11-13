@@ -76,7 +76,8 @@ class StaffAssignmentManager extends BaseAPI
             if ($role === 'class_teacher') {
                 $this->teaching->removeClassTeacher((int)$assignmentId);
             } else {
-                $this->teaching->removeSubjectAssignment((int)$assignmentId);
+                // Subject ids are unique per scope ('class' | 'stream').
+                $this->teaching->removeSubjectAssignment((int)$assignmentId, (string)($data['assignment_scope'] ?? $data['scope'] ?? 'class'));
             }
             $this->logAction('update', $assignmentId, "Removed {$role} assignment #{$assignmentId}");
             return formatResponse(true, ['assignment_id' => $assignmentId], 'Staff assignment removed successfully');
@@ -91,7 +92,16 @@ class StaffAssignmentManager extends BaseAPI
     public function getStaffAssignments($filters = [])
     {
         try {
-            $sql = "SELECT * FROM vw_staff_assignments_detailed WHERE 1=1";
+            // The view has one row per (assignment, stream): a class-wide
+            // assignment repeats for every stream. List each assignment once;
+            // the class_stream_id filter still applies to the per-stream rows.
+            $sql = "SELECT DISTINCT id, assignment_scope, staff_id, staff_no, staff_name,
+                           class_id, class_name, academic_year_class_id,
+                           CASE WHEN assignment_scope = 'stream' THEN stream_id END AS stream_id,
+                           CASE WHEN assignment_scope = 'stream' THEN class_stream_id END AS class_stream_id,
+                           CASE WHEN assignment_scope = 'stream' THEN stream_name ELSE 'All streams' END AS stream_name,
+                           subject_id, subject_name, role, status, academic_year_id, academic_year, academic_year_term_id
+                      FROM vw_staff_assignments_detailed WHERE 1=1";
             $params = [];
 
             foreach (['staff_id', 'academic_year_id', 'class_stream_id', 'class_id', 'role'] as $col) {
@@ -180,7 +190,8 @@ class StaffAssignmentManager extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $current = $this->teaching->getSubjectAssignment((int)$assignmentId);
+            $scope = (string)($data['assignment_scope'] ?? $data['scope'] ?? 'class');
+            $current = $this->teaching->getSubjectAssignment((int)$assignmentId, $scope);
             if (!$current) {
                 return formatResponse(false, null, 'Active assignment not found');
             }
@@ -192,9 +203,11 @@ class StaffAssignmentManager extends BaseAPI
                 'class_id'         => $data['class_id'],
                 'academic_year_id' => $data['academic_year_id'] ?? $current['academic_year_id'],
                 'role'             => $data['role'] ?? 'subject_teacher',
+                'stream_id'        => $data['stream_id'] ?? null,
+                'academic_year_class_stream_id' => $data['academic_year_class_stream_id'] ?? null,
             ], null, $userId);
 
-            $this->teaching->removeSubjectAssignment((int)$assignmentId);
+            $this->teaching->removeSubjectAssignment((int)$assignmentId, $scope);
 
             $this->logAction('update', $assignmentId, "Transferred assignment (staff #{$current['teacher_id']}). Reason: {$data['transfer_reason']}");
 

@@ -103,7 +103,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Add Transaction</h3>
-                <button class="btn-close" onclick="closeModal('transactionModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">×</button>
             </div>
             <div class="modal-body">
                 <form id="transactionForm">
@@ -150,7 +150,7 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeModal('transactionModal')">Cancel</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveTransaction()">Save Transaction</button>
             </div>
         </div>
@@ -174,11 +174,34 @@
         document.getElementById('modalTitle').textContent = 'Add Transaction';
         document.getElementById('transactionForm').reset();
         document.getElementById('transaction_id').value = '';
-        document.getElementById('transactionModal').classList.add('show');
+        openFeeModal('transactionModal');
     }
 
+    // Open through the shared helper so Bootstrap owns the instance. Adding the
+    // class by hand creates no Modal object, which left backdrop/body-lock
+    // reconciliation to the close path only.
+    function openFeeModal(modalId) {
+        if (window.showKwModal) { window.showKwModal(modalId); return; }
+        const el = document.getElementById(modalId);
+        if (el && window.bootstrap && window.bootstrap.Modal) {
+            window.bootstrap.Modal.getOrCreateInstance(el).show();
+        } else if (el) {
+            el.classList.add('show');
+        }
+    }
+
+    // Delegate to Bootstrap: removing only the `show` class left the
+    // .modal-backdrop in the DOM and body.modal-open behind, so the page stayed
+    // dark and unscrollable after closing. hide() also fires hidden.bs.modal,
+    // which the shared sweep in js/api.js uses to reconcile state.
     function closeModal(modalId) {
-        document.getElementById(modalId).classList.remove('show');
+        const el = document.getElementById(modalId);
+        if (!el) return;
+        const inst = window.bootstrap && window.bootstrap.Modal
+            ? window.bootstrap.Modal.getInstance(el)
+            : null;
+        if (inst) { inst.hide(); return; }
+        el.classList.remove('show');
     }
 
     function exportTransactions() {

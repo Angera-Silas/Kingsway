@@ -154,11 +154,12 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     : $this->resolveYearId($scope['academic_year'] ?? 0);
 
                 $stmt = $this->db->prepare(
-                    "SELECT DISTINCT s.id FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                    WHERE (ayc.class_id = :class_id OR aycs.id = :class_id)
-                    AND s.status = 'active'"
+                    "SELECT DISTINCT s.student_id FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
+                    WHERE s.academic_year_id = :year_id
+                    AND (s.class_id = :class_id OR s.academic_year_class_stream_id = :class_stream_id)
+                    AND s.student_status = 'active'"
                 );
-                $stmt->execute(['year_id' => $yearId, 'class_id' => (int)$scope['class_id']]);
+                $stmt->execute(['year_id' => $yearId, 'class_id' => (int)$scope['class_id'], 'class_stream_id' => (int)$scope['class_id']]);
                 $studentIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
             } else {
                 return formatResponse(false, null, 'Either class_id or student_ids must be provided');
@@ -248,7 +249,14 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     "SELECT s.*, p.first_name, p.last_name, p.gender, p.photo_url,
                         CONCAT(p.first_name, ' ', p.last_name) as full_name,
                         c.name as class_name, st.name as stream_name
-                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                    FROM students s
+                    INNER JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN student_academic_enrollments sae
+                        ON sae.student_id = s.id AND sae.enrollment_status IN ('pending', 'active')
+                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    LEFT JOIN classes c ON c.id = ayc.class_id
+                    LEFT JOIN streams st ON st.id = aycs.stream_id
                     WHERE s.id = :id"
                 );
                 $studentStmt->execute(['id' => $studentId]);
@@ -299,7 +307,7 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                 if ($includeValues) {
                     $valuesStmt = $this->db->prepare(
                         "SELECT lva.*, cv.code as value_code, cv.name as value_name
-                        FROM " . ReadReplicaService::qualifiedRef("learner_values_acquisition") . "
+                        FROM " . ReadReplicaService::qualifiedRef("learner_values_acquisition") . " lva
                         INNER JOIN " . ReadReplicaService::qualifiedRef("core_values") . " cv ON lva.value_id = cv.id
                         WHERE lva.student_id = :student_id
                         AND lva.term_id = :term_id
@@ -346,13 +354,13 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     // Map average to CBC grade
                     $gradeStmt = $this->db->prepare(
                         "SELECT gr.grade_code, gr.performance_level 
-                        FROM " . ReadReplicaService::qualifiedRef("grade_rules") . "
+                        FROM " . ReadReplicaService::qualifiedRef("grade_rules") . " gr
                         INNER JOIN " . ReadReplicaService::qualifiedRef("grading_scales") . " gs ON gr.scale_id = gs.id
                         WHERE gs.status = 'active'
-                        AND :score >= gr.min_mark AND :score <= gr.max_mark
+                        AND :score_min >= gr.min_mark AND :score_max <= gr.max_mark
                         LIMIT 1"
                     );
-                    $gradeStmt->execute(['score' => $avgScore]);
+                    $gradeStmt->execute(['score_min' => $avgScore, 'score_max' => $avgScore]);
                     $overallGrade = $gradeStmt->fetch(PDO::FETCH_ASSOC);
                 }
 

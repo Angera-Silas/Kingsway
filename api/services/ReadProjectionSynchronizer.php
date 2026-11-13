@@ -893,6 +893,14 @@ final class ReadProjectionSynchronizer
 
     private static function writeMeta(PDO $pdo, string $reads, string $projection, string $source, int $rows, ?string $watermark, ?string $error): void
     {
+        // reads_meta.sensitivity is NOT NULL: the former hard-coded null made
+        // every PHP-side synchronize fail at this final step (and would have
+        // wiped the stored policy). Write the registered policy; when a
+        // projection has none, keep whatever policy is already stored.
+        $policy = ReadReplicaService::POLICIES[$projection] ?? null;
+        $policyUpdate = $policy !== null
+            ? 'storage_mode=VALUES(storage_mode), sensitivity=VALUES(sensitivity), max_age_seconds=VALUES(max_age_seconds), '
+            : '';
         $stmt = $pdo->prepare(
             'INSERT INTO ' . self::qid($reads, 'reads_meta') . ' '
             . '(projection, source_view, rows_count, source_watermark, as_of, refreshed_at, status, storage_mode, sensitivity, max_age_seconds, last_error) '
@@ -900,8 +908,7 @@ final class ReadProjectionSynchronizer
             . ($error === null ? 'NOW()' : 'NULL') . ', :status, :storage_mode, :sensitivity, :max_age_seconds, :last_error) '
             . 'ON DUPLICATE KEY UPDATE source_view=VALUES(source_view), rows_count=VALUES(rows_count), '
             . 'source_watermark=VALUES(source_watermark), as_of=VALUES(as_of), refreshed_at=VALUES(refreshed_at), '
-            . 'status=VALUES(status), storage_mode=VALUES(storage_mode), sensitivity=VALUES(sensitivity), '
-            . 'max_age_seconds=VALUES(max_age_seconds), last_error=VALUES(last_error)'
+            . 'status=VALUES(status), ' . $policyUpdate . 'last_error=VALUES(last_error)'
         );
         $stmt->execute([
             ':projection' => $projection,
@@ -909,9 +916,9 @@ final class ReadProjectionSynchronizer
             ':rows_count' => $rows,
             ':source_watermark' => $watermark,
             ':status' => $error === null ? 'live' : 'failed',
-            ':storage_mode' => 'materialized_table',
-            ':sensitivity' => null,
-            ':max_age_seconds' => 0,
+            ':storage_mode' => $policy['storage_mode'] ?? 'materialized_table',
+            ':sensitivity' => $policy['sensitivity'] ?? 'unknown',
+            ':max_age_seconds' => (int) ($policy['max_age_seconds'] ?? 300),
             ':last_error' => $error,
         ]);
     }

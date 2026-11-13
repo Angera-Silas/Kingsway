@@ -71,7 +71,8 @@ class Config
             ? self::$environment
             : 'development';
         $directory = dirname(__DIR__) . '/logs/' . $environment;
-        $dirMode = $environment === 'production' ? 0770 : 0777;
+        // Never world-writable (journals are tamper-evident); setgid keeps the shared group.
+        $dirMode = 02770;
         if (!is_dir($directory)) {
             @mkdir($directory, $dirMode, true);
         }

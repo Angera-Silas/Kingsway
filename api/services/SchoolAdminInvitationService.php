@@ -304,7 +304,7 @@ final class SchoolAdminInvitationService
     /** Whether the user id resolves to an active School Administrator account. */
     public function isSchoolAdmin(int $userId): bool
     {
-        $target = $this->pdo->prepare("SELECT user_id AS id FROM " . ReadReplicaService::masterRef('user_role_grant') . " WHERE user_id=? AND role_name='School Administrator' AND COALESCE(is_test_user,0)=0 LIMIT 1");
+        $target = $this->pdo->prepare("SELECT user_id AS id FROM " . ReadReplicaService::masterRef('vw_user_role_grant') . " WHERE user_id=? AND role_name='School Administrator' AND COALESCE(is_test_user,0)=0 LIMIT 1");
         $target->execute([$userId]);
         return (bool) $target->fetchColumn();
     }

@@ -131,7 +131,7 @@ const manageBoardingFeeStructureController = {
         ? Object.keys(items).map(code => ({ code, name: items[code].name || code, values: items[code].terms || {} }))
         : [{ code: 'SCHOOL_FEES', name: 'School Fees', values: {} }];
       this.renderForm({ academic_year: year, from_id: gradeRange.from_id, to_id: gradeRange.to_id, student_type_id: tid });
-      new bootstrap.Modal(document.getElementById('mbfModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('mbfModal')).show();
     } catch (e) { this.notify(e.message || 'Failed to load school fees', 'danger'); }
   },
 

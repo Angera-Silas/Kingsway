@@ -95,4 +95,4 @@ $studentReadOnly = !empty($studentReadOnly);
 
 <?php require __DIR__ . '/view_student_modal_snippet.php'; ?>
 
-<script src="js/pages/student_context.js?v=20260703"></script>
+<?php asset_script($appBase, 'js/pages/student_context.js'); ?>

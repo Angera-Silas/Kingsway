@@ -317,7 +317,7 @@ class ActionButtons {
             `;
 
             document.body.insertAdjacentHTML('beforeend', html);
-            const modal = new bootstrap.Modal(document.getElementById(modalId));
+            const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById(modalId));
             
             document.getElementById(`${modalId}-confirm`).addEventListener('click', () => {
                 modal.hide();

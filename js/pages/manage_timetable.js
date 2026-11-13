@@ -898,7 +898,7 @@ const timetableController = (() => {
     </div>
   </div></div>`;
     document.body.appendChild(modal);
-    new bootstrap.Modal(document.getElementById("timetableMatrixModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("timetableMatrixModal")).show();
     
     // Initialize the matrix table
     await timetableController.renderMatrixTable();
@@ -1051,7 +1051,7 @@ const timetableController = (() => {
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
       </div></div></div>`;
       document.body.appendChild(modal);
-      new bootstrap.Modal(document.getElementById("workloadModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("workloadModal")).show();
     } catch (e) {
       showNotification("Could not load teacher workload.", "danger");
     }
@@ -1085,7 +1085,7 @@ const timetableController = (() => {
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
       </div></div></div>`;
       document.body.appendChild(modal);
-      new bootstrap.Modal(document.getElementById("roomUtilModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("roomUtilModal")).show();
     } catch (e) {
       showNotification("Could not load room utilization.", "danger");
     }

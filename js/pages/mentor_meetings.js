@@ -118,7 +118,7 @@ const mentorMeetingsController = (() => {
     setVal('mmNotes', '');
     hide('mmNotesGroup');
     document.getElementById('mmModalLabel').innerHTML = '<i class="bi bi-calendar-plus me-2 text-primary"></i>Schedule Meeting';
-    if (!modal) modal = new bootstrap.Modal(document.getElementById('mmModal'));
+    if (!modal) modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('mmModal'));
     modal.show();
   }
 
@@ -136,7 +136,7 @@ const mentorMeetingsController = (() => {
     setVal('mmNotes', m.notes || m.summary || '');
     show('mmNotesGroup');
     document.getElementById('mmModalLabel').innerHTML = '<i class="bi bi-pencil me-2 text-primary"></i>Edit Meeting';
-    if (!modal) modal = new bootstrap.Modal(document.getElementById('mmModal'));
+    if (!modal) modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('mmModal'));
     modal.show();
   }
 

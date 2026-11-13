@@ -60,7 +60,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
 
             // Check for existing active workflow
             $stmt = $this->db->prepare("
-                SELECT wi.* FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . "
+                SELECT wi.* FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
                 WHERE wi.workflow_id = ?
                 AND wi.status IN ('in_progress', 'pending')
                 AND JSON_EXTRACT(wi.data_json, '$.fee_structure_id') = ?
@@ -284,7 +284,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 SELECT wi.*, 
                        fs.name as fee_name,
                        fs.status as fee_status
-                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . "
+                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
                 INNER JOIN fee_catalog fs ON JSON_EXTRACT(wi.data_json, '$.fee_structure_id') = fs.id
                 WHERE wi.workflow_id = ?
                 AND JSON_EXTRACT(wi.data_json, '$.fee_structure_id') = ?

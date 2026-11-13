@@ -141,7 +141,7 @@ class RequisitionsManager extends BaseAPI
                     i.item_name,
                     i.code as item_code,
                     i.unit as unit_of_measure
-                FROM " . ReadReplicaService::qualifiedRef("requisition_items") . "
+                FROM " . ReadReplicaService::qualifiedRef("requisition_items") . " ri
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON ri.item_id = i.id
                 WHERE ri.requisition_id = ?
             ";

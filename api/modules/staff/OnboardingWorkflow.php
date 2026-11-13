@@ -67,7 +67,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
             // Check for existing active onboarding workflow
             $stmt = $this->db->prepare("
-                SELECT wi.* FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                SELECT wi.* FROM workflow_instances wi
                 WHERE wi.reference_type = 'staff_onboarding'
                 AND wi.reference_id = ?
                 AND wi.status IN ('in_progress', 'pending')
@@ -305,7 +305,7 @@ class OnboardingWorkflow extends WorkflowHandler
             // Check for an existing account via staff.person_id = users.person_id.
             $stmt = $this->db->prepare("
                 SELECT u.id
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                FROM users u
                 JOIN staff s ON s.person_id = u.person_id
                 WHERE s.id = ?
             ");

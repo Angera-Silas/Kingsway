@@ -1,7 +1,12 @@
 name: Strix AI Security Scan
 
+# DISABLED FOR AUTOMATIC RUNS (2026-11-13 senior review, finding P0-2).
+# This job uploads the full repository to an external AI scanning service and
+# installs its CLI via `curl | bash`. Kingsway Preparatory School source is
+# confidential; do not re-enable the pull_request trigger, or dispatch it
+# manually, without explicit written authorization from the school and a pinned,
+# checksum-verified installer.
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:

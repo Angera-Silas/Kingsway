@@ -463,7 +463,7 @@ class WorkflowHandler extends BaseAPI
     public function getWorkflowHistory($instance_id)
     {
         $sql = "SELECT wsh.*, u.username as processed_by_username
-                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . "
+                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . " wsh
                 LEFT JOIN users u ON wsh.processed_by = u.id
                 WHERE wsh.instance_id = :instance_id
                 ORDER BY wsh.processed_at DESC";
@@ -621,8 +621,9 @@ class WorkflowHandler extends BaseAPI
                 $starterId = (int) ($instance['started_by'] ?? 0);
                 if ($starterId > 0) {
                     $stmt = $this->db->prepare(
-                        "SELECT u.id, u.username, pd.email
-                         FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                        "SELECT u.id, u.username, p.email
+                         FROM users u
+                         LEFT JOIN persons p ON p.id = u.person_id
                          WHERE u.id = :id AND u.status = 'active'
                          LIMIT 1"
                     );
@@ -664,8 +665,12 @@ class WorkflowHandler extends BaseAPI
             return [];
         }
 
+        // Restored pre-refactor shape: role names need users -> user_roles -> roles.
         $sql = "SELECT DISTINCT u.id, u.username, p.email, r.name as role_name
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                FROM users u
+                LEFT JOIN persons p ON p.id = u.person_id
+                LEFT JOIN user_roles ur ON ur.user_id = u.id
+                LEFT JOIN roles r ON r.id = ur.role_id
                 WHERE u.status = 'active'";
 
         $stmt = $this->db->prepare($sql);

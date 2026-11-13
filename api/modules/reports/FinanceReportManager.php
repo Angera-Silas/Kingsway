@@ -94,8 +94,17 @@ class FinanceReportManager extends BaseAPI
      */
     public function getArrearsStats($filters = [])
     {
-        $where = ['fb.balance > 0'];
+        // Arrears = money that is owed AND already due. Without the due-date
+        // test, obligations generated ahead for the next academic year (due
+        // months away) were reported as arrears and the same learner was
+        // counted once per year (a live answer showed 555 learners / 13.2M when
+        // 135 learners owed 466,893 against a roll of 454).
+        $where = ['fb.balance > 0', '(fb.latest_due_date IS NULL OR fb.latest_due_date <= CURDATE())'];
         $params = [];
+        if (!empty($filters['academic_year_id'])) {
+            $where[] = 'fb.academic_year_id = ?';
+            $params[] = (int) $filters['academic_year_id'];
+        }
         if (!empty($filters['academic_term_id'])) {
             $where[] = '(fb.term_id = ? OR fb.term_id = (SELECT ayt.term_id FROM academic_year_terms ayt WHERE ayt.id = ?))';
             $params[] = (int) $filters['academic_term_id'];

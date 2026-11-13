@@ -254,7 +254,7 @@ const manageCommunicationsController = {
             this.addDefaultChannelVariant();
         }
 
-        new bootstrap.Modal(document.getElementById('templateManagerModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('templateManagerModal')).show();
     },
 
     addDefaultChannelVariant() {
@@ -353,7 +353,7 @@ const manageCommunicationsController = {
         this.updateCharCount();
         this.updateSegmentEstimate();
 
-        new bootstrap.Modal(document.getElementById('channelModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('channelModal')).show();
     },
 
     renderMediaList(media) {
@@ -564,7 +564,7 @@ const manageCommunicationsController = {
 
                 this.renderChannelVariantsList();
 
-                new bootstrap.Modal(document.getElementById('templateManagerModal')).show();
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('templateManagerModal')).show();
             } else {
                 showNotification(res.message || 'Failed to load channel', 'error');
             }
@@ -697,7 +697,7 @@ const manageCommunicationsController = {
         }, null, 2);
 
         this.renderPreview();
-        new bootstrap.Modal(document.getElementById('previewModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('previewModal')).show();
     },
 
     renderPreview() {

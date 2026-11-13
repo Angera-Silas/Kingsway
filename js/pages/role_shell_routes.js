@@ -39,6 +39,15 @@
     manage_transport: {
       loadingId: 'transport-loading', contentId: 'transport-content',
       templateDir: '/pages/transport/', module: 'Transport', scriptSrc: '/js/pages/transport_admin.js',
+      // PageShell.ensureExternalScript() loads the controller ONCE and reuses
+      // the cached element on later soft navigations - that is correct and must
+      // not be forced to re-execute: transport_admin.js declares
+      // `const transportAdminController` at the top level, and a second script
+      // execution would throw
+      // "Identifier 'transportAdminController' has already been declared".
+      // The controller is a long-lived singleton, so re-running init() against
+      // the freshly injected template DOM is what binds the new elements.
+      afterLoad: async () => { if (typeof window.transportAdminController !== 'undefined') await window.transportAdminController.init(); },
       levels: [
         { file: 'admin_transport.php', test: () => PageShell.hasAny(['transport_manage', 'transport_admin', 'transport_delete']) || PageShell.hasRole(['system_administrator', 'director', 'director_owner', 'headteacher', 'school_administrator']) },
         { file: 'manager_transport.php', test: () => PageShell.hasAny(['transport_edit', 'transport_create', 'transport_assign']) || PageShell.hasRole(['driver', 'school_administrative_officer']) },

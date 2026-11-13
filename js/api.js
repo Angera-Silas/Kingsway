@@ -157,6 +157,20 @@ function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
   setTimeout(removeToast, type === NOTIFICATION_TYPES.ERROR ? 6000 : 3200);
 }
 
+// Endpoints whose failures are themselves delivered as telemetry. Their
+// errors are logged server-side by the ingest endpoint, so echoing them back
+// into the browser logger only amplifies the failure.
+const TELEMETRY_ENDPOINTS = [
+  "/system/client-log",
+  "/telemetry/data",
+  "/telemetry/errors",
+];
+
+function isTelemetryEndpoint(endpoint) {
+  if (!endpoint) return false;
+  return TELEMETRY_ENDPOINTS.some((path) => endpoint.indexOf(path) !== -1);
+}
+
 // Handle API Response
 function handleApiResponse(response, showSuccess = false) {
   const normalized = AppState.normalizeResponse(response);
@@ -182,8 +196,14 @@ function handleApiResponse(response, showSuccess = false) {
 }
 
 // Handle API Error
-function handleApiError(error) {
-  console.error("API Error:", error);
+function handleApiError(error, endpoint) {
+  // Telemetry must never report about itself. A failed POST
+  // /system/client-log arrives here, and console.error would route it back
+  // into AppLogger -> flush -> client-log, re-creating the 429 burst that the
+  // delivery backoff in js/core/frontend_logger.js exists to stop.
+  if (!isTelemetryEndpoint(endpoint)) {
+    console.error("API Error:", error);
+  }
   // Don't show notification here - let caller decide if they want to notify user
   throw error;
 }
@@ -3801,17 +3821,21 @@ async function apiCallDirect(
     }
 
     if (isNetworkFailure) {
-      console.error("[api.js] Network fetch failed", {
-        endpoint,
-        method,
-        apiBaseUrl: typeof API_BASE_URL !== "undefined" ? API_BASE_URL : null,
-        appBase: window.APP_BASE || "",
-        origin: window.location.origin,
-        href: window.location.href,
-        online: navigator.onLine,
-        serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
-        error: error.message,
-      });
+      // Same rule as handleApiError: a telemetry endpoint's own failure must
+      // not be re-routed into the telemetry logger.
+      if (!isTelemetryEndpoint(endpoint)) {
+        console.error("[api.js] Network fetch failed", {
+          endpoint,
+          method,
+          apiBaseUrl: typeof API_BASE_URL !== "undefined" ? API_BASE_URL : null,
+          appBase: window.APP_BASE || "",
+          origin: window.location.origin,
+          href: window.location.href,
+          online: navigator.onLine,
+          serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
+          error: error.message,
+        });
+      }
     }
 
     // For permission denied errors, log to console instead of showing popup
@@ -3853,7 +3877,7 @@ async function apiCallDirect(
       }
     }
 
-    return handleApiError(error);
+    return handleApiError(error, endpoint);
   }
 }
 
@@ -4668,13 +4692,6 @@ window.API = {
       id
         ? apiCall(`/students/medical-get/${id}`, "GET")
         : apiCall("/students/medical-get", "GET"),
-    addMedical: async (studentId, data) =>
-      apiCall("/students/medical-add", "POST", {
-        student_id: studentId,
-        ...data,
-      }),
-    updateMedical: async (medicalId, data) =>
-      apiCall(`/students/medical-update/${medicalId}`, "PUT", data),
 
     // Discipline
     getDiscipline: async (id = null) =>
@@ -4694,22 +4711,6 @@ window.API = {
         ...data,
       }),
 
-    // Documents
-    getDocuments: async (id = null) =>
-      id
-        ? apiCall(`/students/documents-get/${id}`, "GET")
-        : apiCall("/students/documents-get", "GET"),
-    uploadDocument: async (formData) =>
-      apiCall(
-        "/students/documents-upload",
-        "POST",
-        formData,
-        {},
-        { isFile: true },
-      ),
-    deleteDocument: async (documentId) =>
-      apiCall(`/students/documents-delete/${documentId}`, "DELETE"),
-
     // By class/stream
     getByClass: async (id = null) =>
       id
@@ -4723,16 +4724,6 @@ window.API = {
       id
         ? apiCall(`/students/roster-get/${id}`, "GET")
         : apiCall("/students/roster-get", "GET"),
-
-    // Attendance
-    markAttendance: async (data) =>
-      apiCall("/students/attendance-mark", "POST", data),
-
-    // Import
-    importAddExisting: async (data) =>
-      apiCall("/students/import-add-existing", "POST", data),
-    importAddMultiple: async (data) =>
-      apiCall("/students/import-add-multiple", "POST", data),
 
     // Academic Year
     getCurrentAcademicYear: async () =>
@@ -4774,19 +4765,8 @@ window.API = {
       apiCall("/students/enrollment-current", "GET"),
 
     // Family Groups / Parents Management
-    getFamilyGroups: async (filters = {}) =>
-      apiCall("/students/family-groups/list", "GET", null, filters),
-    searchFamilyGroups: async (searchTerm, limit = 50, offset = 0) =>
-      apiCall(
-        `/students/family-groups/search?q=${encodeURIComponent(
-          searchTerm,
-        )}&limit=${limit}&offset=${offset}`,
-        "GET",
-      ),
     getFamilyGroupStats: async () =>
       apiCall("/students/family-groups/stats", "GET"),
-    getFamilyGroupsView: async (filters = {}) =>
-      apiCall("/students/family-groups/view", "GET", null, filters),
     getParentsList: async (filters = {}) =>
       apiCall("/students/parents/list", "GET", null, filters),
     getParentDetails: async (parentId) =>
@@ -4952,8 +4932,6 @@ window.API = {
       apiCall("/academic/reports-distribute", "POST", data),
 
     // Library workflow
-    startLibraryWorkflow: async (data) =>
-      apiCall("/academic/library-start-workflow", "POST", data),
     reviewRequest: async (data) =>
       apiCall("/academic/library-review-request", "POST", data),
     catalogResources: async (data) =>
@@ -5470,8 +5448,6 @@ window.API = {
       apiCall(`/activities/resources/update/${id}`, "PUT", data),
     deleteResource: async (id) =>
       apiCall(`/activities/resources/delete/${id}`, "DELETE"),
-    getActivityResources: async (activityId) =>
-      apiCall(`/activities/resources/activity/${activityId}`, "GET"),
 
     // Schedules
     listSchedules: async (params = {}) =>
@@ -5483,17 +5459,6 @@ window.API = {
     deleteSchedule: async (id) =>
       apiCall(`/activities/schedules/delete/${id}`, "DELETE"),
 
-    // Workflows
-    startRegistrationWorkflow: async (data) =>
-      apiCall("/activities/workflow/registration/start", "POST", data),
-    startPlanningWorkflow: async (data) =>
-      apiCall("/activities/workflow/planning/start", "POST", data),
-    startCompetitionWorkflow: async (data) =>
-      apiCall("/activities/workflow/competition/start", "POST", data),
-    startEvaluationWorkflow: async (data) =>
-      apiCall("/activities/workflow/evaluation/start", "POST", data),
-    getWorkflowStatus: async (workflowId) =>
-      apiCall(`/activities/workflow/status/${workflowId}`, "GET"),
     // Sports
     sports: {
       // Teams
@@ -7379,11 +7344,6 @@ window.API = {
     rejectExeat: async (id, reason) =>
       apiCall(`/boarding/exeats/reject/${id}`, "PUT", { reason }),
 
-    // Menu Planning
-    getMenus: async (params = {}) =>
-      apiCall("/boarding/menus", "GET", null, params),
-    createMenu: async (data) => apiCall("/boarding/menus", "POST", data),
-
     // Statistics
     getStats: async () => apiCall("/boarding/stats", "GET"),
     getOccupancy: async () => apiCall("/boarding/occupancy", "GET"),
@@ -7496,8 +7456,6 @@ window.API = {
       apiCall(`/schedules/staff-duty-schedule?staff_id=${staffId}`, "GET"),
     getMasterSchedule: async (params) =>
       apiCall("/schedules/master-schedule", "GET", null, params),
-    getAnalytics: async (params) =>
-      apiCall("/schedules/analytics", "GET", null, params),
     getStudentSchedules: async (studentId) =>
       apiCall(`/schedules/student-schedules?student_id=${studentId}`, "GET"),
     getStaffSchedules: async (staffId) =>
@@ -8089,12 +8047,13 @@ window.API = {
     deleteWidget: async (id) => apiCall("/system/widgets", "DELETE", { id }),
 
     // Policies Management (System Admin)
+    // Policies live on SystemConfigController (/system-config/policies).
     getPolicies: async (params) =>
-      apiCall("/system/policies", "GET", null, params),
-    createPolicy: async (data) => apiCall("/system/policies", "POST", data),
+      apiCall("/system-config/policies", "GET", null, params),
+    createPolicy: async (data) => apiCall("/system-config/policies", "POST", data),
     updatePolicy: async (id, data) =>
-      apiCall("/system/policies", "PUT", { id, ...data }),
-    deletePolicy: async (id) => apiCall("/system/policies", "DELETE", { id }),
+      apiCall(`/system-config/policies/${id}`, "PUT", data),
+    deletePolicy: async (id) => apiCall(`/system-config/policies/${id}`, "DELETE"),
     getAccountStatuses: async (params = {}) => apiCall("/system/account-status", "GET", null, params),
     updateAccountStatus: async (userId, data) => apiCall("/system/account-status", "PUT", { user_id: userId, ...data }),
     getAuthenticationLogs: async (params = {}) => apiCall("/system/authentication-logs", "GET", null, params),
@@ -8695,16 +8654,6 @@ window.API = {
     getActivities: async () => apiCall("/activities/list", "GET"),
     getPendingAdmissions: async () =>
       apiCall("/admissions/pending", "GET"),
-    getMyClassAttendance: async () =>
-      apiCall("/attendance/my-class", "GET"),
-    getFeeStatusByStudent: async () =>
-      apiCall("/payments/fee-status", "GET"),
-    getInventoryStockStatus: async () =>
-      apiCall("/inventory/stock-status", "GET"),
-    getLowStockAlerts: async () =>
-      apiCall("/inventory/low-stock-alerts", "GET"),
-    getPendingRequisitions: async () =>
-      apiCall("/inventory/requisitions-pending", "GET"),
 
     getDirectorSummary: async () => {
       return await apiCall("/dashboard/director/summary", "GET");
@@ -9073,20 +9022,6 @@ window.API = {
       return await apiCall("/dashboard/subject-teacher/classes", "GET");
     },
 
-    /**
-     * Get subject teacher assessments
-     */
-    getSubjectTeacherAssessments: async () => {
-      return await apiCall("/dashboard/subject-teacher/assessments", "GET");
-    },
-
-    /**
-     * Get subject teacher students
-     */
-    getSubjectTeacherStudents: async () => {
-      return await apiCall("/dashboard/subject-teacher/students", "GET");
-    },
-
     // ============= INTERN TEACHER DASHBOARD (ROLE 9) =============
 
     /**
@@ -9371,6 +9306,149 @@ window.API = {
 
 // Expose apiCall globally as callAPI — many page controllers use this name
 window.callAPI = apiCall;
+
+// ---------------------------------------------------------------------------
+// Modal lifecycle helpers — shared, page-agnostic, safe for injected templates.
+//
+// Two defects produced "modals open but never close / stay on the page":
+//
+//  1. Controllers called `new bootstrap.Modal(el)` on every open. Bootstrap 5
+//     caches one Modal instance per element; constructing a second one leaves
+//     the first still marked `_isShown`, so a later `.hide()` acts on a stale
+//     object and the DOM keeps `.show` plus its backdrop.
+//  2. Nothing ever reconciled the backdrop/body lock, so each stacked modal
+//     added another `.modal-backdrop` and left `body.modal-open` (and
+//     `overflow: hidden`) behind. After closing what they can see, the page
+//     still looked frozen with a dark overlay over it.
+//
+// Every open below goes through getOrCreateInstance, and one delegated
+// `hidden.bs.modal` listener reconciles the leftovers for ALL modals,
+// including the ones PageShell injects after load.
+(function initModalLifecycle() {
+  if (typeof document === "undefined" || typeof window.bootstrap === "undefined") return;
+  if (window.__kwModalLifecycleReady) return;
+  window.__kwModalLifecycleReady = true;
+
+  function openModals() {
+    return Array.from(document.querySelectorAll(".modal.show"));
+  }
+
+  // A modal mid-fade-out still has `display: block` but lost `show`; sweeping
+  // while one exists can remove a backdrop that is being added for another
+  // modal, so wait for it instead.
+  function isModalTransitioning() {
+    return Array.from(document.querySelectorAll(".modal")).some(
+      (m) => !m.classList.contains("show") && getComputedStyle(m).display !== "none",
+    );
+  }
+
+  // Reconcile the backdrop list and the body scroll-lock with what is actually
+  // visible. Bootstrap removes `body.modal-open` when the dialog it was hiding
+  // closes, even if a parent modal is still open, so the inverse is applied
+  // here too: the lock must always match the visible modals.
+  function sweepBackdrops() {
+    const showing = openModals();
+    const backdrops = Array.from(document.querySelectorAll(".modal-backdrop"));
+    for (let i = showing.length; i < backdrops.length; i++) {
+      backdrops[i].remove();
+    }
+    if (showing.length > 0) {
+      if (!document.body.classList.contains("modal-open")) document.body.classList.add("modal-open");
+      if (!document.body.style.overflow) document.body.style.overflow = "hidden";
+      return;
+    }
+    document.body.classList.remove("modal-open");
+    document.body.style.removeProperty("overflow");
+    document.body.style.removeProperty("padding-right");
+  }
+
+  // `hidden.bs.modal` does not bubble, so listen in the capture phase; that
+  // also catches modals appended to the DOM after this script ran.
+  document.addEventListener(
+    "hidden.bs.modal",
+    () => {
+      if (isModalTransitioning()) {
+        // One is still fading out; re-check once it has settled.
+        requestAnimationFrame(() => setTimeout(sweepBackdrops, 400));
+        return;
+      }
+      // Bootstrap clears body.modal-open in the transition callback that runs
+      // AFTER this event, so an immediate reconciliation just gets undone.
+      // Re-check once the transition window has elapsed.
+      requestAnimationFrame(() => setTimeout(sweepBackdrops, 350));
+    },
+    true,
+  );
+
+  // Opening a second content modal stacked it on top of the first: two
+  // backdrops, two locks, and closing the visible one left the other still
+  // showing — the "modal will not close" report. A row action replaces the
+  // modal already open. Confirm/alert dialogs are exempt so a confirmation can
+  // still sit above the form that triggered it.
+  const isDialog = (el) =>
+    !!el && (el.id === "appDialogModal" || el.hasAttribute("data-kw-dialog")
+      || el.classList.contains("kw-dialog"));
+
+  document.addEventListener(
+    "show.bs.modal",
+    (event) => {
+      const shown = event.target;
+      if (isDialog(shown)) return;
+      openModals().forEach((open) => {
+        if (open !== shown && !isDialog(open)) {
+          NativeModal.getInstance(open)?.hide();
+        }
+      });
+    },
+    true,
+  );
+
+  // Guard: `new bootstrap.Modal()` on an element that already has an instance
+  // silently creates a competing one. Warn once so callers can be migrated.
+  const NativeModal = window.bootstrap.Modal;
+  if (typeof NativeModal === "function") {
+    window.bootstrap.Modal = function KwModal(element, config) {
+      if (element && NativeModal.getInstance(element)) {
+        console.warn(
+          "[kw-modal] new bootstrap.Modal() called on an element that already has an " +
+          "instance — use bootstrap.Modal.getOrCreateInstance() so close works. Id: " +
+          (element.id || "(none)"),
+        );
+      }
+      return new NativeModal(element, config);
+    };
+    window.bootstrap.Modal.prototype = NativeModal.prototype;
+    window.bootstrap.Modal.getOrCreateInstance = NativeModal.getOrCreateInstance.bind(NativeModal);
+    window.bootstrap.Modal.getInstance = NativeModal.getInstance.bind(NativeModal);
+  }
+
+  /**
+   * Show a modal safely: reuse the cached instance, and close anything else
+   * that is already open so actions cannot stack modals (and backdrops).
+   * @param {string|Element} target modal id or element
+   * @param {Object} [options] forwarded to getOrCreateInstance
+   * @returns {Object|null} the Modal instance
+   */
+  window.showKwModal = function showKwModal(target, options) {
+    const el = typeof target === "string" ? document.getElementById(target) : target;
+    if (!el || typeof NativeModal === "undefined") return null;
+    openModals().forEach((open) => {
+      if (open !== el) NativeModal.getInstance(open)?.hide();
+    });
+    return NativeModal.getOrCreateInstance(el, options).show();
+  };
+
+  /**
+   * Close a modal and reconcile any leftover backdrop/body lock.
+   * @param {string|Element} target modal id or element
+   */
+  window.hideKwModal = function hideKwModal(target) {
+    const el = typeof target === "string" ? document.getElementById(target) : target;
+    if (!el) return;
+    NativeModal.getInstance(el)?.hide();
+    setTimeout(sweepBackdrops, 0);
+  };
+})();
 
 // Global dialog helpers — native alert()/confirm()/prompt() replacements
 window.confirmAction = confirmAction;

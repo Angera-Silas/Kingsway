@@ -342,7 +342,7 @@
         updateCalcModeUI();
         updateTargetScopeUI();
         populateGLAccounts();
-        new bootstrap.Modal(document.getElementById('chargeModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('chargeModal')).show();
     }
 
     async function saveCharge() {
@@ -445,7 +445,7 @@
 
             renderTiers(c.pricing_tiers || []);
 
-            new bootstrap.Modal(document.getElementById('chargeModal')).show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('chargeModal')).show();
         } catch (e) {
             notify('Failed to load charge', 'error');
         }
@@ -476,7 +476,7 @@
     function rejectCharge(id) {
         document.getElementById('rejectChargeId').value = id;
         document.getElementById('rejectNotes').value = '';
-        new bootstrap.Modal(document.getElementById('rejectModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('rejectModal')).show();
     }
 
     async function confirmReject() {

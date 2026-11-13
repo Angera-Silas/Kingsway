@@ -151,7 +151,7 @@ const ModerationController = {
                 </tr>`;
             }).join('');
         }
-        new bootstrap.Modal(document.getElementById('studentResultsModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('studentResultsModal')).show();
     },
     async approveResult(assessmentId, studentId) {
         try {

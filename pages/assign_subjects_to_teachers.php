@@ -142,10 +142,17 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Class / Stream *</label>
+                        <label class="form-label">Class *</label>
                         <select class="form-select" id="assignClass" required>
                             <option value="">Select Class</option>
                         </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stream</label>
+                        <select class="form-select" id="assignStream">
+                            <option value="">All streams</option>
+                        </select>
+                        <div class="form-text">Leave as "All streams" when the teacher takes this subject in every stream.</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Periods Per Week</label>

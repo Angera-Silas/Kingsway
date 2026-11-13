@@ -15,7 +15,7 @@ $roleCategory = 'manager';
         <p class="text-muted mb-0">Manage daily boarding activities</p>
     </div>
     <div class="btn-group">
-        <a href="home.php?route=boarding_roll_call" class="btn btn-success">
+        <a href="<?= htmlspecialchars($appBase) ?>/home.php?route=boarding_roll_call" class="btn btn-success">
             <i class="bi bi-clipboard-check me-1"></i> Take Roll Call
         </a>
         <button class="btn btn-primary" id="assignRoomBtn">

@@ -182,7 +182,7 @@ class PurchaseOrdersManager extends BaseAPI
                     t.notes,
                     i.item_name,
                     i.code AS item_code
-                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . "
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . " t
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON t.item_id = i.id
                 WHERE t.reference_type = 'purchase' AND t.reference_id = ?
             ");

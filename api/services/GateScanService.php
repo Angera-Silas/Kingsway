@@ -414,7 +414,7 @@ final class GateScanService
         $stmt = $this->pdo->prepare(
             "SELECT sa.status, sa.check_in_time, sa.check_out_time, sa.register_type,
                     asess.name AS session_name
-             FROM " . ReadReplicaService::qualifiedRef("student_attendance") . "
+             FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
              LEFT JOIN " . ReadReplicaService::qualifiedRef("attendance_sessions") . " asess ON asess.id = sa.session_id
              WHERE sa.student_academic_enrollment_id = ? AND sa.date = ?
              ORDER BY sa.check_in_time DESC"

@@ -286,7 +286,7 @@ final class AnalyticsReportRegistryService
                        rr.completed_at, rr.as_of_at, rr.row_count, rr.duration_ms,
                        rr.warning_count, rr.warnings_json, rr.failure_code,
                        rr.failure_message, rr.result_summary_json
-                FROM " . ReadReplicaService::qualifiedRef("analytics_report_runs") . "
+                FROM " . ReadReplicaService::qualifiedRef("analytics_report_runs") . " rr
                 JOIN analytics_report_definitions rd ON rd.id = rr.report_definition_id
                 WHERE rr.id = ?";
         $params = [$runId];

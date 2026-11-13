@@ -233,7 +233,8 @@ class AdmissionAdminManager extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT COUNT(*) as total_pending
-                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                 FROM admission_applications aa
+                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                  WHERE aa.status NOT IN ('enrolled', 'cancelled'){$scopeFilter}"
             );
             $countRow = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -241,7 +242,8 @@ class AdmissionAdminManager extends BaseAPI
 
             $rows = $this->db->query(
                 "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for, aa.status, aa.created_at as admission_date, wi.current_stage
-                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                 FROM admission_applications aa
+                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                  WHERE aa.status NOT IN ('enrolled', 'cancelled'){$scopeFilter}
                  ORDER BY aa.created_at DESC
                  LIMIT 8"
@@ -743,7 +745,7 @@ if ($canViewPayment || $canRecordPayment) {
                         mf.context as media_context,
                         mf.entity_id as media_entity_id,
                         mf.album_id as media_album_id
-                 FROM " . ReadReplicaService::qualifiedRef("admission_documents") . "
+                 FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " ad
                  LEFT JOIN media_files mf
                    ON ad.document_path REGEXP '^[0-9]+$'
                   AND mf.id = CAST(ad.document_path AS UNSIGNED)
@@ -791,7 +793,7 @@ if ($canViewPayment || $canRecordPayment) {
             }
             $assessmentItems = [];
             try {
-                $itemStmt = $this->db->prepare("SELECT aii.id, aii.learning_area_id, aii.learning_area_name, aii.competency, aii.max_score, aii.score, aii.grade_code, aii.performance_level, aii.rubric_notes FROM " . ReadReplicaService::qualifiedRef("admission_interview_assessment_items") . " JOIN admission_interviews ai ON ai.id=(SELECT MAX(ai2.id) FROM admission_interviews ai2 WHERE ai2.application_id=? AND ai2.status <> 'cancelled') ORDER BY aii.id");
+                $itemStmt = $this->db->prepare("SELECT aii.id, aii.learning_area_id, aii.learning_area_name, aii.competency, aii.max_score, aii.score, aii.grade_code, aii.performance_level, aii.rubric_notes FROM " . ReadReplicaService::qualifiedRef("admission_interview_assessment_items") . " aii JOIN admission_interviews ai ON ai.id=(SELECT MAX(ai2.id) FROM admission_interviews ai2 WHERE ai2.application_id=? AND ai2.status <> 'cancelled') ORDER BY aii.id");
                 $itemStmt->execute([(int) $id]);
                 $assessmentItems = $itemStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
             } catch (\Throwable $ignored) {
@@ -1479,7 +1481,7 @@ if ($canViewPayment || $canRecordPayment) {
             $windowStmt = $this->db->prepare(
                 "SELECT aw.*, COALESCE(DATE(aw.application_open_at), ayt.opening_date) AS valid_from,
                         DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) AS valid_until
-                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . "
+                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . " aw
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aw.academic_year_term_id
                  WHERE aw.id = ?"
             );
@@ -1693,7 +1695,7 @@ if ($canViewPayment || $canRecordPayment) {
         if ($windowId !== null) {
             $windowStmt = $this->db->prepare(
                 "SELECT aw.id, aw.academic_year_id, aw.academic_year_term_id, ay.year_code
-                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . "
+                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . " aw
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = aw.academic_year_id
                  WHERE aw.id = ?"
             );
@@ -1880,14 +1882,15 @@ if ($canViewPayment || $canRecordPayment) {
 
             $stmt = $this->db->query(
                 "SELECT COUNT(*) as total
-                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " aa 
                  WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}"
             );
             $stats['total_applications'] = (int) $stmt->fetchColumn();
 
             $stmt = $this->db->query(
                 "SELECT aa.status, COUNT(*) as count
-                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                 FROM admission_applications aa
+                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                  WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}
                  GROUP BY aa.status"
             );
@@ -1895,7 +1898,7 @@ if ($canViewPayment || $canRecordPayment) {
 
             $stmt = $this->db->query(
                 "SELECT grade_applying_for, COUNT(*) as count
-                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " aa 
                  WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}
                  GROUP BY grade_applying_for"
             );
@@ -1903,7 +1906,8 @@ if ($canViewPayment || $canRecordPayment) {
 
             $stmt = $this->db->query(
                 "SELECT COUNT(*)
-                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                 FROM admission_applications aa
+                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                  WHERE aa.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY){$scopeFilter}"
             );
             $stats['this_week'] = (int) $stmt->fetchColumn();
@@ -1928,7 +1932,7 @@ if ($canViewPayment || $canRecordPayment) {
                             aa.applicant_name,
                             aa.application_no,
                             aa.grade_applying_for
-                     FROM " . ReadReplicaService::qualifiedRef("admission_placement_tests") . "
+                     FROM " . ReadReplicaService::qualifiedRef("admission_placement_tests") . " apt
                      JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = apt.application_id
                      WHERE apt.id = ?
                      LIMIT 1"
@@ -2106,7 +2110,8 @@ if ($canViewPayment || $canRecordPayment) {
             if ($canViewApplicationIntake) {
                 $stmt = $this->db->query(
                     "SELECT COUNT(*)
-                     FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                     FROM admission_applications aa
+                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                      WHERE wi.current_stage = 'application_applied'
                        AND aa.status NOT IN ('cancelled', 'enrolled'){$scopeFilter}"
                 );
@@ -2160,7 +2165,8 @@ if ($canViewPayment || $canRecordPayment) {
             if ($canRecordPayment) {
                 $stmt = $this->db->query(
                     "SELECT COUNT(*)
-                     FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                     FROM admission_applications aa
+                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                      WHERE aa.status IN ('placement_offered', 'fees_pending'){$scopeFilter}"
                 );
                 $count = (int) $stmt->fetchColumn();
@@ -2179,7 +2185,8 @@ if ($canViewPayment || $canRecordPayment) {
 
             if ($canCompleteEnrollment) {
                 $stmt = $this->db->query(
-                    "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                    "SELECT COUNT(*) FROM admission_applications aa
+                     JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                      WHERE wi.current_stage = 'final_enrollment' AND aa.status != 'enrolled'{$scopeFilter}"
                 );
                 $count = (int) $stmt->fetchColumn();
@@ -3502,7 +3509,7 @@ if ($canViewPayment || $canRecordPayment) {
         try {
             $rows = $this->db->query(
                 "SELECT ws.code, ws.name, ws.required_role, ws.allowed_transitions, ws.sequence
-                 FROM " . ReadReplicaService::qualifiedRef("workflow_stages") . "
+                 FROM " . ReadReplicaService::qualifiedRef("workflow_stages") . " ws
                  JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wd.id = ws.workflow_id
                  WHERE wd.code = 'student_admission'
                    AND ws.is_active = 1
@@ -3588,7 +3595,7 @@ if ($canViewPayment || $canRecordPayment) {
             if ($userId > 0) {
                 $stmt = $this->db->prepare(
                     "SELECT ur.is_allowed
-                     FROM " . ReadReplicaService::masterRef("user_routes") . "
+                     FROM " . ReadReplicaService::masterRef("user_routes") . " ur
                      JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = ur.route_id
                      WHERE ur.user_id = ?
                        AND r.name IN ({$routePlaceholders})
@@ -3613,7 +3620,7 @@ if ($canViewPayment || $canRecordPayment) {
             $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
             $stmt = $this->db->prepare(
                 "SELECT 1
-                 FROM " . ReadReplicaService::masterRef("role_routes") . "
+                 FROM " . ReadReplicaService::masterRef("role_routes") . " rr
                  JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = rr.route_id
                  WHERE rr.is_allowed = 1
                    AND r.is_active = 1

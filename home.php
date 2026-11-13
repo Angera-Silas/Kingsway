@@ -166,6 +166,11 @@ if (!headers_sent()) {
                         <i class="bi bi-info-circle"></i>
                     </span>
                     <span class="notification-message"></span>
+                    <!-- Required: without a dismiss control this modal can only be
+                         closed by showNotification()'s forced cleanup or the Escape
+                         key, so any other path that opens it leaves it - and its
+                         backdrop and body scroll-lock - stuck on the page. -->
+                    <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
             </div>
         </div>

@@ -141,7 +141,7 @@ const UnmatchedPaymentsController = (() => {
     document.getElementById("studentResults").innerHTML = "";
     document.getElementById("selectedStudentId").value = "";
     document.getElementById("matchNotes").value = "";
-    const modal = new bootstrap.Modal(document.getElementById("matchModal"));
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("matchModal"));
     modal.show();
   }
 

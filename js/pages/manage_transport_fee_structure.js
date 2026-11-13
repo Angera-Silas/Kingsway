@@ -150,7 +150,7 @@ const manageTransportFeeStructureController = {
         <tr><td class="fw-semibold">Balance</td><td class="text-danger">${this.formatCurrency(balance)}</td></tr>
         <tr><td class="fw-semibold">Status</td><td><span class="badge ${this.badgeClass(bill.payment_status)}">${this.esc(bill.payment_status || 'pending')}</span></td></tr>
       </table>`;
-    new bootstrap.Modal(document.getElementById('mtfReceiptModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('mtfReceiptModal')).show();
   },
 
   printReceiptDirect(billId) {

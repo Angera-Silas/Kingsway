@@ -321,7 +321,7 @@ const SpecialNeedsController = {
     this.state.selectedIepId = iepId;
 
     if (typeof bootstrap !== "undefined" && this.ui.modal) {
-      const modalInstance = new bootstrap.Modal(this.ui.modal);
+      const modalInstance = bootstrap.Modal.getOrCreateInstance(this.ui.modal);
       modalInstance.show();
     }
 
@@ -388,7 +388,7 @@ const SpecialNeedsController = {
     this.resetAddIepForm();
 
     if (typeof bootstrap !== "undefined" && this.ui.addIepModal) {
-      const modalInstance = new bootstrap.Modal(this.ui.addIepModal);
+      const modalInstance = bootstrap.Modal.getOrCreateInstance(this.ui.addIepModal);
       modalInstance.show();
     }
   },

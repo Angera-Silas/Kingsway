@@ -786,7 +786,7 @@ class ChaplaincyAPI extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT s.id AS session_id, s.title, s.session_date, s.status,
                     p.name AS program_name, p.code AS program_code
-             FROM " . ReadReplicaService::qualifiedRef("chapel_program_sessions") . "
+             FROM " . ReadReplicaService::qualifiedRef("chapel_program_sessions") . " s
              JOIN chapel_programs p ON p.id = s.program_id
              WHERE s.id = ?"
         );
@@ -1225,7 +1225,7 @@ class ChaplaincyAPI extends BaseAPI
         $wkEnd = date('Y-m-d', strtotime('sunday this week'));
 
         $upcomingSabbath = $this->db->prepare(
-            "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("chapel_program_sessions") . "
+            "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("chapel_program_sessions") . " s
              JOIN chapel_programs p ON p.id = s.program_id
              WHERE s.session_date BETWEEN ? AND ? AND p.applies_sabbath = 1 AND s.status = 'scheduled'"
         );

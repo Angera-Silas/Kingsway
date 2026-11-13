@@ -45,7 +45,12 @@ class StudentInsightsService
                     st2.name AS stream_name,
                     hr.disability_notes, hr.chronic_conditions, hr.allergies,
                     hr.special_diet, hr.blood_group, hr.notes AS health_notes
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                FROM students s
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+                LEFT JOIN student_health_records hr ON hr.student_id = s.id
                 WHERE s.status = 'active' AND {$whereClause}
                 ORDER BY per.first_name, per.last_name
                 LIMIT ? OFFSET ?";
@@ -54,7 +59,9 @@ class StudentInsightsService
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $countSql = "SELECT COUNT(*)
-                     FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                     FROM students s
+                     JOIN persons per ON per.id = s.person_id
+                     LEFT JOIN student_health_records hr ON hr.student_id = s.id
                      WHERE s.status = 'active' AND {$whereClause}";
         $stmt = $this->db->prepare($countSql);
         $stmt->execute($params);
@@ -346,7 +353,13 @@ class StudentInsightsService
             SELECT s.id, s.admission_no, per.first_name, per.middle_name, per.last_name,
                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                    per.gender, per.photo_url, c.name AS class_name, st2.name AS stream_name
-            FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+            FROM students s
+            JOIN persons per ON per.id = s.person_id
+            LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
+            LEFT JOIN streams st2 ON st2.id = aycs.stream_id
             WHERE s.id = ?
             LIMIT 1
         ", [$studentId]);
@@ -387,12 +400,13 @@ class StudentInsightsService
         ) ?: ['total_due' => 0, 'total_paid' => 0, 'total_waived' => 0, 'balance' => 0];
 
         $interview = $this->fetchOne(
-            "SELECT application_no, scheduled_date, conducted_at, interview_status AS status,
-                    academic_readiness_score, behavior_score, communication_score,
-                    overall_score, interview_recommendation AS recommendation, interview_remarks AS remarks
-               FROM " . ReadReplicaService::qualifiedRef("admission_applications_interviews") . "
-              WHERE enrolled_student_id = ? AND interview_status = 'completed'
-              ORDER BY interview_record_id DESC LIMIT 1",
+            "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                    ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                    ai.overall_score, ai.recommendation, ai.remarks
+               FROM admission_applications aa
+               JOIN admission_interviews ai ON ai.application_id = aa.id
+              WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+              ORDER BY ai.id DESC LIMIT 1",
             [$studentId]
         );
         $finance['financial_relief'] = (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId);

@@ -278,7 +278,7 @@ class CounselingAPI extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT COUNT(DISTINCT IF(c.counselee_type = 'staff', c.staff_id, c.student_id))
-                 FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . "
+                 FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . " cs
                  JOIN counseling_cases c ON c.id = cs.case_id
                  WHERE cs.session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
             );

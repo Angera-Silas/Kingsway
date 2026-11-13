@@ -13,8 +13,8 @@ const salaryAdvancesController = {
     if (!AuthContext.isAuthenticated()) return;
     this._canCreate  = AuthContext.hasPermission('finance.create') || AuthContext.hasPermission('payroll.create');
     this._canApprove = AuthContext.hasPermission('finance.approve') || AuthContext.hasPermission('payroll.approve');
-    this._modal        = new bootstrap.Modal(document.getElementById('advanceModal'));
-    this._approveModal = new bootstrap.Modal(document.getElementById('approveAdvModal'));
+    this._modal        = bootstrap.Modal.getOrCreateInstance(document.getElementById('advanceModal'));
+    this._approveModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('approveAdvModal'));
 
     const addBtn = document.getElementById('addAdvanceBtn');
     if (addBtn) addBtn.style.display = this._canCreate ? '' : 'none';

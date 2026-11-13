@@ -1946,7 +1946,7 @@ class SystemAdminManager extends BaseAPI
             }
 
             $stmt = $this->db->prepare(
-                "SELECT p.* FROM " . ReadReplicaService::masterRef("permissions") . "
+                "SELECT p.* FROM " . ReadReplicaService::masterRef("permissions") . " p
                  JOIN role_permissions rp ON p.id = rp.permission_id
                  WHERE rp.role_id = ?
                  ORDER BY p.entity, p.action, p.code"

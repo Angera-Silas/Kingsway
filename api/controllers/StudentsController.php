@@ -1529,9 +1529,8 @@ class StudentsController extends BaseController
         }
 
         // The operational year can never be archived: the school is still in it.
-        $currentYear = $this->db->prepare("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1");
-        $currentYear->execute();
-        if ((int) $currentYear->fetchColumn() === (int) $yearId) {
+        $currentYear = $this->contract(\App\API\Services\AcademicContextService::class)->getCurrentAcademicYear();
+        if ((int) ($currentYear['id'] ?? 0) === (int) $yearId) {
             return $this->badRequest('The current academic year cannot be archived while it is in use.');
         }
 

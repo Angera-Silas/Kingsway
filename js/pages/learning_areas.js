@@ -373,7 +373,7 @@ const LearningAreasController = {
             const input = form.querySelector(`[name="${key}"]`);
             if (input && val) input.value = val;
           });
-          new bootstrap.Modal(modal).show();
+          bootstrap.Modal.getOrCreateInstance(modal).show();
         }
       }
     } catch (error) {
@@ -467,7 +467,7 @@ const LearningAreasController = {
     }
     modal.querySelector(".modal-title").textContent = title;
     modal.querySelector(".modal-body").innerHTML = bodyHtml;
-    new bootstrap.Modal(modal).show();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 };
 

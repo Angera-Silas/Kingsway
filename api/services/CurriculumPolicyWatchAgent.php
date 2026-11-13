@@ -393,7 +393,7 @@ final class CurriculumPolicyWatchAgent
         $target = $stateFile ?? $this->stateFile;
         $dir = dirname($target);
         if (!is_dir($dir)) {
-            @mkdir($dir, 0777, true);
+            @mkdir($dir, 02770, true);
         }
         $state['updated_at'] = gmdate('c');
         $bytes = @file_put_contents(

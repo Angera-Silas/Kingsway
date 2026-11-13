@@ -222,7 +222,7 @@ const AssignClassTeachersController = {
           }
         }
       }
-      new bootstrap.Modal(modal).show();
+      bootstrap.Modal.getOrCreateInstance(modal).show();
     }
   },
 
@@ -274,7 +274,7 @@ const AssignClassTeachersController = {
         document.getElementById('assignmentTeacherId').value = assignment.teacher_id || '';
         document.getElementById('assignmentAcademicYearId').value = assignment.academic_year_id || '';
 
-        const modal = new bootstrap.Modal(document.getElementById('assignTeacherModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('assignTeacherModal'));
         modal.show();
       }
     } catch (error) {

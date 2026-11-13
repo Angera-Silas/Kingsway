@@ -436,7 +436,7 @@ const accountSettings = {
         if (modal) {
             document.getElementById('tfa-disable-password').value = '';
             document.getElementById('tfa-disable-code').value = '';
-            new bootstrap.Modal(modal).show();
+            bootstrap.Modal.getOrCreateInstance(modal).show();
         }
     },
 

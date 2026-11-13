@@ -239,7 +239,7 @@
             this.itemRowIndex = 0;
             this.addItemRow();
 
-            var modal = new bootstrap.Modal(document.getElementById("purchaseOrderModal"));
+            var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("purchaseOrderModal"));
             modal.show();
         },
 

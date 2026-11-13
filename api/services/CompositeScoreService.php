@@ -212,13 +212,11 @@ private function learnerHistory(int $studentId): array
                 "SELECT ec.class_name AS grade, ec.academic_year_id AS academic_year,
                         AVG(ec.marks_obtained / ec.assessment_max_marks * 100) AS mean_percentage
                      FROM {$ec} ec
-                     WHERE ec.student_academic_enrollment_id IN (
-                           SELECT id FROM student_academic_enrollments WHERE student_id = ?
-                     )
+                     WHERE ec.student_id = ?
                        AND ec.assessment_status = 'approved'
                        AND ec.exam_status = 'completed'
                        AND ec.period_status = 'completed'
-                       AND ec.period_assessment_kind = 'school_based'
+                       AND ec.exam_period_id IN (SELECT id FROM exam_periods WHERE assessment_kind = 'school_based')
                        AND ec.marks_obtained IS NOT NULL
                      GROUP BY ec.class_name, ec.academic_year_id
                      ORDER BY ec.academic_year_id, ec.class_name"

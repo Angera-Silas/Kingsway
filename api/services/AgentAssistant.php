@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\API\Services;
 
+use App\API\Includes\FileLogger;
 use DomainException;
 use PDO;
 
@@ -25,6 +26,12 @@ final class AgentAssistant
     public const CACHE_PREFIX = 'kw_agent_cache:';
 
     private const MAX_QUESTION_CHARS = 500;
+
+    /** Background run modes this agent can queue for the governed worker. */
+    private const RUN_MODES = ['briefing', 'digest', 'assist'];
+
+    /** Digest cadences accepted by the queue payload. */
+    private const RUN_CADENCES = ['daily', 'weekly', 'term'];
 
     private AgentEngineClient $bridge;
 
@@ -149,6 +156,90 @@ final class AgentAssistant
         ], $pdo);
     }
 
+    /**
+     * Queue one governed `ai.agent.run` job for the recorded operator.
+     *
+     * Page load (briefing), the digest worker and the insight-brief cron all
+     * land here. The queue row carries a deterministic idempotency key derived
+     * from the operator, mode, route and request id, so two page loads opening
+     * in the same window (or a retried cron line) reuse one job instead of
+     * running the same work twice.
+     *
+     * The grant list passed in here is only a hint: JobHandlerRegistry ->
+     * PythonAiBridge::runJob() re-resolves the operator's permissions from
+     * current server state before anything executes, so a stale hint can never
+     * widen the recorded operator's scope.
+     *
+     * @param array<string,mixed> $options {mode, route, cadence, request_id, broadcast}
+     * @return array<string,mixed> {job_id, job_type, mode, status}
+     */
+    public function enqueue(int $userId, array $permissions = [], array $options = []): array
+    {
+        $payload = $this->buildRunPayload($userId, $permissions, $options);
+        $jobId = JobQueue::push(self::JOB_TYPE, $payload, 0, 3, 60);
+
+        FileLogger::write('ai_generation', [
+            'type' => 'agent_run_queued',
+            'job_id' => $jobId,
+            'operator_id' => $userId,
+            'mode' => $payload['mode'],
+            'route' => $payload['route'],
+            'request_id' => $payload['request_id'],
+        ]);
+
+        return [
+            'job_id' => $jobId,
+            'job_type' => self::JOB_TYPE,
+            'mode' => $payload['mode'],
+            'status' => JobQueue::STATUS_PENDING,
+        ];
+    }
+
+    /**
+     * Validate the request and build the `ai.agent.run` queue payload.
+     *
+     * Kept separate from enqueue() so the contract the worker will read is
+     * decision-checked before any queue work happens, matching JobQueue's own
+     * validate-before-write ordering.
+     *
+     * @param array<string,mixed> $options {mode, route, cadence, request_id, broadcast}
+     * @return array<string,mixed>
+     */
+    private function buildRunPayload(int $userId, array $permissions, array $options): array
+    {
+        if ($userId < 1) {
+            throw new DomainException('An authenticated operator is required.', 401);
+        }
+        $mode = (string) ($options['mode'] ?? 'digest');
+        if (!in_array($mode, self::RUN_MODES, true)) {
+            throw new DomainException('An unsupported agent run mode was supplied.', 422);
+        }
+        $route = mb_substr((string) ($options['route'] ?? ''), 0, 120);
+        $requestId = mb_substr((string) ($options['request_id'] ?? 'ai-agent-run'), 0, 100);
+        $payload = [
+            'user_id' => $userId,
+            'permissions' => array_values(array_map('strval', $permissions)),
+            'route' => $route,
+            'module' => mb_substr((string) ($options['module'] ?? 'dashboard'), 0, 60),
+            'mode' => $mode,
+            'request_id' => $requestId,
+            'broadcast' => !empty($options['broadcast']),
+            'idempotency_key' => 'ai-agent:' . hash('sha256', implode('|', [
+                self::JOB_TYPE,
+                (string) $userId,
+                $mode,
+                $route,
+                $requestId,
+            ])),
+        ];
+        if ($mode === 'digest') {
+            $cadence = (string) ($options['cadence'] ?? 'daily');
+            $payload['cadence'] = in_array($cadence, self::RUN_CADENCES, true) ? $cadence : 'daily';
+        }
+
+        return $payload;
+    }
+
     /** @return list<string> */
     public function resolveEffectivePermissions(PDO $pdo, int $userId): array
     {
@@ -207,9 +298,7 @@ final class AgentAssistant
         // the Python engine and cached there. This PHP-side cache is a resilience path.
         try {
             $cache = new SharedCache();
-            $cacheKey = self::BRIEFING_CACHE_PREFIX . $userId . ':' . $route;
-            $ttl = InsightScheduler::BRIEF_TTL;
-            $cached = $cache->get($cacheKey);
+            $cached = $cache->get(self::briefingCacheKey($userId, $route));
             if (is_array($cached) && isset($cached['status']) && $cached['status'] === 'ready') {
                 return $cached;
             }
@@ -221,4 +310,24 @@ final class AgentAssistant
 
     /** Cache key prefix for briefings */
     public const BRIEFING_CACHE_PREFIX = 'agent_briefing:';
+
+    /**
+     * TTL for a generated briefing. Matches the insight brief TTL so a page
+     * reload inside the window serves the cached copy instead of enqueuing the
+     * same regeneration again.
+     */
+    public const BRIEFING_TTL = 3600;
+
+    /**
+     * Single source of truth for the briefing cache key.
+     *
+     * PythonAiBridge::cacheBriefingResult() writes with this key and
+     * cachedBriefing() reads with it. They were previously two different
+     * expressions, so every generated briefing was written under a key nobody
+     * read and every panel open re-queued regeneration.
+     */
+    public static function briefingCacheKey(int $userId, string $route): string
+    {
+        return self::BRIEFING_CACHE_PREFIX . $userId . ':' . mb_substr($route, 0, 120);
+    }
 }

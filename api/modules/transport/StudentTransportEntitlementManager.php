@@ -328,12 +328,12 @@ class StudentTransportEntitlementManager
             $yearId = $this->db->query("SELECT id FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1")->fetchColumn();
             if (!$yearId) throw new RuntimeException('The school has no current academic year calendar.');
 $termsStmt = $this->db->prepare(
-                "SELECT ayt.id, ayt.name AS term_name, ayt.term_id AS term_number,
-                        COALESCE((SELECT MIN(d.date) FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.opening_date) AS period_start,
-                        COALESCE((SELECT MAX(d.date) FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.closing_date) AS period_end,
-                        (SELECT COUNT(DISTINCT d.date) FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id AND d.type='school_day') AS school_days
-                   FROM " . ReadReplicaService::qualifiedRef("academic_term_terms") . " ayt
-                   WHERE ayt.academic_year_id=? ORDER BY ayt.term_id"
+                "SELECT ayt.id, t.name, t.id AS term_number,
+                        COALESCE((SELECT MIN(d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.opening_date) AS period_start,
+                        COALESCE((SELECT MAX(d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.closing_date) AS period_end,
+                        (SELECT COUNT(DISTINCT d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id JOIN calendar_day_types cdt ON cdt.id=d.calendar_day_type_id WHERE ac.academic_year_term_id=ayt.id AND cdt.code='school_day') AS school_days
+                   FROM academic_year_terms ayt JOIN terms t ON t.id=ayt.term_id
+                  WHERE ayt.academic_year_id=? ORDER BY t.id"
             );
             $termsStmt->execute([(int) $yearId]);
             $terms = $termsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -404,7 +404,7 @@ $termsStmt = $this->db->prepare(
 
     public function getEntitlement(int $id): array
     {
-        $stmt=$this->db->prepare("SELECT e.*,p.period_type,p.period_start,p.period_end,p.label FROM student_transport_entitlements JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.id=?"); $stmt->execute([$id]); return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $stmt=$this->db->prepare("SELECT e.*,p.period_type,p.period_start,p.period_end,p.label FROM student_transport_entitlements e JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.id=?"); $stmt->execute([$id]); return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
     private function ensurePeriod(string $type, string $start, string $end, ?int $termId, ?string $label, ?int $userId): int

@@ -483,7 +483,7 @@ const DisciplineController = {
     showReportModal() {
         if (this.ui.reportForm) this.ui.reportForm.reset();
         if (typeof bootstrap !== "undefined" && this.ui.reportModal) {
-            new bootstrap.Modal(this.ui.reportModal).show();
+            bootstrap.Modal.getOrCreateInstance(this.ui.reportModal).show();
         }
     },
 
@@ -496,7 +496,7 @@ const DisciplineController = {
             this.ui.incidentDate.value = new Date().toISOString().split("T")[0];
         }
         if (typeof bootstrap !== "undefined" && this.ui.caseModal) {
-            new bootstrap.Modal(this.ui.caseModal).show();
+            bootstrap.Modal.getOrCreateInstance(this.ui.caseModal).show();
         }
     },
 

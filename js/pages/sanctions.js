@@ -17,8 +17,8 @@ const sanctionsController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._logModal  = new bootstrap.Modal(document.getElementById('saModal'));
-    this._liftModal = new bootstrap.Modal(document.getElementById('saLiftModal'));
+    this._logModal  = bootstrap.Modal.getOrCreateInstance(document.getElementById('saModal'));
+    this._liftModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('saLiftModal'));
     await Promise.all([this._loadData(), this._loadStudents()]);
   },
 

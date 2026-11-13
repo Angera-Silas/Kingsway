@@ -195,7 +195,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get main budget details
             $stmt = $this->db->prepare("
                 SELECT b.*, u.username as created_by_name
-                FROM " . ReadReplicaService::qualifiedRef("budgets") . "
+                FROM " . ReadReplicaService::qualifiedRef("budgets") . " b
                 LEFT JOIN users u ON b.created_by = u.id
                 WHERE b.id = ?
             ");

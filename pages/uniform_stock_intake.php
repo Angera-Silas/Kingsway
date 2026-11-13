@@ -1,4 +1,11 @@
-<?php $appBase=rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME']??'')),'/');if($appBase==='.')$appBase=''; ?>
+<?php
+// BASE_URL is the single configured source of truth for the URL prefix.
+// Deriving it from $_SERVER['SCRIPT_NAME'] breaks as soon as this page is
+// reached through any entry point that is not itself (soft-navigation
+// fragments, XHR includes, a docroot alias), which silently 404s every
+// CSS/JS/link asset. app_base_path() is documented as the only resolver.
+$appBase = app_base_path();
+?>
 <link rel="stylesheet" href="<?=htmlspecialchars($appBase)?>/css/pages/uniform-operations.css?v=<?=asset_version('css/pages/uniform-operations.css')?>">
 <main class="uniform-workspace"><header class="uniform-hero"><div><small>Goods received · unit identity</small><h1>Stock Intake &amp; Labels</h1><p>Post one receipt and produce one QR/barcode label for every physical garment or merchandise item received.</p></div></header><div id="intakeMessage"></div>
  <form id="intakeForm" class="uniform-panel mt-3"><div class="uniform-form-grid"><div class="uniform-field"><label>Supplier</label><select id="intakeSupplier"><option value="">Not linked</option></select></div><div class="uniform-field"><label>Purchase order</label><select id="intakePo"><option value="">Not linked</option></select></div><div class="uniform-field"><label>Supplier invoice / reference</label><input id="intakeSupplierRef"></div><div class="uniform-field"><label>Delivery note</label><input id="intakeDelivery"></div><div class="uniform-field wide"><label>Receipt notes</label><textarea id="intakeNotes"></textarea></div></div><div class="d-flex justify-content-between align-items-center mt-4"><h2 class="m-0">Received lines</h2><button type="button" class="btn btn-outline-success" id="intakeAdd"><i class="bi bi-plus"></i> Add Line</button></div><div id="intakeLines" class="receipt-lines mt-3"></div><button class="uniform-action green mt-3">Post Receipt &amp; Generate Labels</button></form>

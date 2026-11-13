@@ -157,7 +157,7 @@ const CompetitionsController = (() => {
           dateEl.previousElementSibling.textContent = "Date";
         if (statusEl?.previousElementSibling)
           statusEl.previousElementSibling.textContent = "Category";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     function editRecord(index) {
         const item = allData[index]; if (!item) return;
@@ -171,7 +171,7 @@ const CompetitionsController = (() => {
           item.date || item.competition_date || "";
         document.getElementById("recordStatus").value =
           item.category || item.competition_type || item.type || "general";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     async function saveRecord() {
         const id = document.getElementById('recordId').value;

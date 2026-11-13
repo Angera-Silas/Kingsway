@@ -33,7 +33,7 @@ class ModalForm {
     init() {
         this.createModalHTML();
         this.modal = document.getElementById(this.modalId);
-        this.bsModal = new bootstrap.Modal(this.modal);
+        this.bsModal = bootstrap.Modal.getOrCreateInstance(this.modal);
         this.attachEventListeners();
     }
 

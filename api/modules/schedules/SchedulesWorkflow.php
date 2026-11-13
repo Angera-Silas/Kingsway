@@ -127,7 +127,7 @@ class SchedulesWorkflow extends WorkflowHandler
                 }
                 $streamLearningAreaId = (int)$this->db->query(
                     "SELECT sla.id
-                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
                      JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
                      WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
                     [$classStreamId, $learningAreaId]

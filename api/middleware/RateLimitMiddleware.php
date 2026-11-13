@@ -6,22 +6,23 @@ use PDO;
 
 class RateLimitMiddleware
 {
-    // Anonymous traffic remains conservative, authenticated users get a larger
-    // per-user bucket so normal multi-tab work does not collide on one IP.
-    // The anonymous bucket is keyed by the real client address, and the whole
-    // school shares one address behind its NAT, so it has to carry every
-    // browser on that connection. The tight buckets (login, verification,
-    // public AI, leads) are keyed per browser session instead.
+    // Anonymous traffic only. Authenticated staff are never throttled (see
+    // handle()): the buckets below exist to stop unauthenticated abuse, and the
+    // tight ones are keyed per browser session rather than per IP, because the
+    // whole school shares one address behind its NAT.
     const ANONYMOUS_REQUESTS_LIMIT = 600;
-    const AUTHENTICATED_REQUESTS_LIMIT = 600;
-    const REFRESH_REQUESTS_LIMIT = 60;
     const LOGIN_REQUESTS_LIMIT = 60;
-    const TELEMETRY_REQUESTS_LIMIT = 60;
     // Public AI is provider-backed and anonymous; keep its cost/abuse bucket
     // separate from ordinary public website traffic.
-    const PUBLIC_AI_REQUESTS_LIMIT = 20;
+    const PUBLIC_AI_REQUESTS_LIMIT = 200;
     // Handoff leads are low-volume but write to the DB and send email.
     const PUBLIC_LEADS_REQUESTS_LIMIT = 5;
+    // Each call to these can send a PAID SMS/WhatsApp message, so they get
+    // their own bucket rather than the anonymous default. Keyed by the browser
+    // session so one person's retries do not spend a colleague's allowance on
+    // the same NAT'd network. The per-account OTP budget in TwoFactorService
+    // remains the real cost control.
+    const VERIFICATION_REQUESTS_LIMIT = 30;
     const TIME_WINDOW = 60; // seconds
 
     // Login endpoints that get a stricter rate limit.
@@ -30,28 +31,37 @@ class RateLimitMiddleware
         '/users/login',
     ];
 
-    // Each call to these can send a PAID SMS/WhatsApp message, so they get
-    // their own bucket rather than the general authenticated default. The
-    // bucket is keyed by the browser session (not the IP): a school network is
-    // NAT'd, so one IP bucket was shared by every staff member and unrelated
-    // sign-ins consumed each other's allowance. The per-account OTP send
-    // budget in TwoFactorService remains the real cost control.
     const VERIFICATION_PATHS = [
         '/twofactor/challenge',
         '/twofactor/verify',
     ];
-    const VERIFICATION_REQUESTS_LIMIT = 30;
 
     /**
      * Check rate limiting by authenticated user when a bearer token is present,
      * otherwise by IP address. This middleware intentionally does not authorize
      * the JWT; the decoded payload is only used to choose a fair rate bucket.
+     *
+     * Authenticated callers are deliberately NOT throttled. The buckets exist to
+     * stop unauthenticated abuse — credential stuffing against /auth/login,
+     * paid-SMS floods on the two-factor paths, and anonymous scraping. A signed-in
+     * staff member driving a real workflow exceeds 60 requests/min on a single
+     * page (table loads, filters, reference data, realtime streams) and a school
+     * network is NAT'd behind one IP, so throttling them cost legitimate work
+     * without stopping any attack the login/OTP limits do not already prevent.
+     * Cost control for signed-in callers belongs to the specific expensive
+     * operation (TwoFactorService's per-account OTP budget), not to a blanket
+     * request counter.
      */
     public static function handle()
     {
         $ipAddress = self::clientIp();
         $rateKey = self::resolveRateKey($ipAddress);
-        $limit = self::resolveLimit($rateKey);
+
+        if (strpos($rateKey, 'user:') === 0) {
+            return; // signed in — see above
+        }
+
+        $limit = self::resolveLimit();
         $now = time();
 
         // Counters are JSON-lines files under logs/<env>/ratelimit, matching
@@ -69,32 +79,26 @@ class RateLimitMiddleware
         }
     }
 
-    private static function resolveLimit($rateKey)
+    /**
+     * Budget for an unauthenticated request. Called only for callers that
+     * reached here, i.e. anonymous ones.
+     */
+    private static function resolveLimit()
     {
-        if (self::isTelemetryEndpoint()) {
-            return self::TELEMETRY_REQUESTS_LIMIT;
-        }
         if (self::isPublicAiEndpoint()) {
             return self::PUBLIC_AI_REQUESTS_LIMIT;
         }
         if (self::isPublicLeadsEndpoint()) {
             return self::PUBLIC_LEADS_REQUESTS_LIMIT;
         }
-        if (self::isRefreshEndpoint()) {
-            return self::REFRESH_REQUESTS_LIMIT;
-        }
-
         if (self::isLoginEndpoint()) {
             return self::LOGIN_REQUESTS_LIMIT;
         }
-
         if (self::isVerificationEndpoint()) {
             return self::VERIFICATION_REQUESTS_LIMIT;
         }
 
-        return strpos($rateKey, 'user:') === 0
-            ? self::AUTHENTICATED_REQUESTS_LIMIT
-            : self::ANONYMOUS_REQUESTS_LIMIT;
+        return self::ANONYMOUS_REQUESTS_LIMIT;
     }
 
     private static function isVerificationEndpoint(): bool
@@ -104,14 +108,6 @@ class RateLimitMiddleware
             if (strpos($path, $verificationPath) !== false) return true;
         }
         return false;
-    }
-
-    private static function isTelemetryEndpoint(): bool
-    {
-        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
-        return strpos($path, '/system/client-log') !== false
-            || strpos($path, '/telemetry/data') !== false
-            || strpos($path, '/telemetry/errors') !== false;
     }
 
     private static function isPublicAiEndpoint(): bool
@@ -238,13 +234,6 @@ class RateLimitMiddleware
         }
 
         return base64_decode(strtr($value, '-_', '+/'));
-    }
-
-    private static function isRefreshEndpoint()
-    {
-        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
-        return strpos($path, '/auth/refresh-token') !== false
-            || strpos($path, '/auth/refresh-session') !== false;
     }
 
     /**

@@ -307,7 +307,7 @@ const pendingApprovalsController = {
                 const payload = response?.data || response || {};
                 if (payload.application) {
                     this.renderApplicationDetails(payload);
-                    const modal = new bootstrap.Modal(document.getElementById('viewApplicationModal'));
+                    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('viewApplicationModal'));
                     modal.show();
                     
                     // Setup final approval button
@@ -422,7 +422,7 @@ const pendingApprovalsController = {
                     nextMonday.setDate(nextMonday.getDate() + ((1 + 7 - nextMonday.getDay()) % 7 || 7));
                     document.getElementById('enrollmentStartDate').value = nextMonday.toISOString().split('T')[0];
                     
-                    const modal = new bootstrap.Modal(document.getElementById('finalApprovalModal'));
+                    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('finalApprovalModal'));
                     modal.show();
                 }
             })

@@ -283,7 +283,7 @@ const FoodStoreController = {
     } else {
       title.textContent = "Add Food Item";
     }
-    new bootstrap.Modal(document.getElementById("itemModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("itemModal")).show();
   },
 
   async saveItem() {
@@ -394,7 +394,7 @@ const FoodStoreController = {
     }
     const dateEl = document.getElementById("issueDate");
     if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
-    new bootstrap.Modal(modal).show();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 
   updateIssueAvailability() {

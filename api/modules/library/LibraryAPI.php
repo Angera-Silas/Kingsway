@@ -59,7 +59,7 @@ return $this->errorResponse('An internal error occurred.');
         try {
             $rows = $this->db->query(
                 "SELECT c.*, COUNT(b.id) AS book_count
-                 FROM " . ReadReplicaService::qualifiedRef("library_categories") . "
+                 FROM " . ReadReplicaService::qualifiedRef("library_categories") . " c
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("library_books") . " b ON b.category_id = c.id AND b.deleted_at IS NULL
                  WHERE c.deleted_at IS NULL
                  GROUP BY c.id
@@ -119,7 +119,7 @@ return $this->errorResponse('An internal error occurred.');
             }
 
             $sql = "SELECT b.*, c.name AS category_name
-                    FROM " . ReadReplicaService::qualifiedRef("library_books") . "
+                    FROM " . ReadReplicaService::qualifiedRef("library_books") . " b
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("library_categories") . " c ON c.id = b.category_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY b.title
@@ -141,7 +141,7 @@ return $this->errorResponse('An internal error occurred.');
         try {
             $stmt = $this->db->prepare(
                 "SELECT b.*, c.name AS category_name
-                 FROM " . ReadReplicaService::qualifiedRef("library_books") . "
+                 FROM " . ReadReplicaService::qualifiedRef("library_books") . " b
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("library_categories") . " c ON c.id = b.category_id
                  WHERE b.id = :id AND b.deleted_at IS NULL LIMIT 1"
             );
@@ -349,7 +349,7 @@ return $this->errorResponse('An internal error occurred.');
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT li.*, b.id AS book_id FROM " . ReadReplicaService::qualifiedRef("library_issues") . "
+                "SELECT li.*, b.id AS book_id FROM " . ReadReplicaService::qualifiedRef("library_issues") . " li
                  JOIN library_books b ON b.id = li.book_id
                  WHERE li.id=:id AND li.status IN ('issued','overdue')"
             );
@@ -373,7 +373,7 @@ return $this->errorResponse('An internal error occurred.');
                 $fineAmt = round($daysOverdue * self::FINE_PER_DAY, 2);
                 $this->db->prepare(
                     "INSERT INTO library_fines (issue_id, fine_amount, days_overdue, fine_status) VALUES (:iid, :amt, :days, 'pending')
-                     ON DUPLICATE KEY UPDATE fine_amount=:amt, days_overdue=:days"
+                     ON DUPLICATE KEY UPDATE fine_amount=VALUES(fine_amount), days_overdue=VALUES(days_overdue)"
                 )->execute([':iid'=>$issueId, ':amt'=>$fineAmt, ':days'=>$daysOverdue]);
             }
 

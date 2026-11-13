@@ -226,7 +226,7 @@ class AssignmentWorkflow extends WorkflowHandler
         if (!$aycId) return [false, 'This class is not set up for the selected academic year'];
 
         if (($d['role'] ?? '') !== 'class_teacher') {
-            $area = $this->db->prepare("SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("user_role_grant") . "  WHERE academic_year_class_id = ? AND learning_area_id = ?");
+            $area = $this->db->prepare("SELECT COUNT(*) FROM academic_year_class_learning_areas WHERE academic_year_class_id = ? AND learning_area_id = ?");
             $area->execute([$aycId, (int)($d['subject_id'] ?? 0)]);
             if (!$area->fetchColumn()) return [false, 'This learning area is not set up for the class in the selected academic year'];
         }

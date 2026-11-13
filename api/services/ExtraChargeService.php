@@ -172,7 +172,7 @@ final class ExtraChargeService
         $stmt = $this->db->prepare(
             "SELECT aa.id AS application_id, aa.application_no, aa.academic_year,
                     a.waiver_type, a.waiver_amount, a.waiver_details, a.skipped_at, a.skipped_by
-               FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
+               FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
                JOIN admission_stage_skip_audit a
                  ON a.id = (SELECT a2.id FROM admission_stage_skip_audit a2
                               WHERE a2.application_id = aa.id AND a2.waiver_type IS NOT NULL

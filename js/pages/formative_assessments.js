@@ -384,7 +384,7 @@ const fAssCtrl = {
     document.getElementById('faCreateError')?.classList.add('d-none');
     const outcomeSel = document.getElementById('faOutcome');
     if (outcomeSel) outcomeSel.innerHTML = '<option value="">— Select learning outcome —</option>';
-    new bootstrap.Modal(document.getElementById('faCreateModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('faCreateModal')).show();
   },
 
   saveAssessment: async function () {

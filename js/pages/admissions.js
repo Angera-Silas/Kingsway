@@ -1468,7 +1468,7 @@ const AdmissionsController = {
         `;
 
     // Show the modal
-    const bsModal = new bootstrap.Modal(modal);
+    const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
   },
 
@@ -1536,7 +1536,7 @@ const AdmissionsController = {
       const checkbox = modal.querySelector("#hasSpecialNeeds");
       this.toggleSpecialNeeds(checkbox?.checked);
       this.syncNewApplicationModal(modal);
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     }
   },
@@ -1921,7 +1921,7 @@ const AdmissionsController = {
         </button>
       `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2120,7 +2120,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2269,7 +2269,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2360,7 +2360,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2532,7 +2532,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2647,7 +2647,7 @@ const AdmissionsController = {
     const notes = modalEl.querySelector('textarea[name="notes"]');
     if (notes) notes.value = "";
 
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
   },
 
@@ -2749,7 +2749,7 @@ const AdmissionsController = {
     if (titleEl) titleEl.textContent = title;
     if (messageEl) messageEl.textContent = message;
 
-    const bsModal = new bootstrap.Modal(modal);
+    const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
 
     const newOk = okBtn.cloneNode(true);

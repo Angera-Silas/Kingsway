@@ -25,7 +25,8 @@ const AssignSubjectsController = (() => {
 
             const response = await window.API.apiCall(`/academic/subject-assignments?${params.toString()}`, 'GET');
             const data = response?.data || response || [];
-            assignments = Array.isArray(data) ? data : (data.assignments || data.data || []);
+            // StaffTeachingAssignmentService::listSubjectAssignments returns { items, pagination }.
+            assignments = Array.isArray(data) ? data : (data.items || data.assignments || data.data || []);
             if (data.pagination) pagination = { ...pagination, ...data.pagination };
             pagination.total = data.total || assignments.length;
 
@@ -124,8 +125,8 @@ const AssignSubjectsController = (() => {
                 <td><span class="badge bg-${a.status === 'active' ? 'success' : 'secondary'}">${a.status || 'active'}</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-warning btn-sm" onclick="AssignSubjectsController.edit(${a.id})" title="Edit"><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-danger btn-sm" onclick="AssignSubjectsController.remove(${a.id})" title="Remove"><i class="bi bi-trash"></i></button>
+                        <button class="btn btn-warning btn-sm" onclick="AssignSubjectsController.edit(${Number(a.id)}, '${a.assignment_scope === 'stream' ? 'stream' : 'class'}')" title="Edit"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" onclick="AssignSubjectsController.remove(${Number(a.id)}, '${a.assignment_scope === 'stream' ? 'stream' : 'class'}')" title="Remove"><i class="bi bi-trash"></i></button>
                     </div>
                 </td>
             </tr>
@@ -155,15 +156,44 @@ const AssignSubjectsController = (() => {
         container.innerHTML = html;
     }
 
+    // Ids are unique per scope ('class' = all streams, 'stream' = one stream).
+    let editingScope = 'class';
+
+    async function loadStreams(classId, selected = '') {
+        const el = document.getElementById('assignStream');
+        if (!el) return;
+        el.innerHTML = '<option value="">All streams</option>';
+        if (!classId) return;
+        try {
+            const resp = await window.API.academic.listStreams({ class_id: classId });
+            const rows = resp?.data || resp || [];
+            const seen = new Set();
+            (Array.isArray(rows) ? rows : []).forEach((s) => {
+                const streamId = s.stream_id ?? s.id;
+                if (!streamId || seen.has(String(streamId))) return;
+                seen.add(String(streamId));
+                const opt = document.createElement('option');
+                opt.value = streamId;
+                opt.textContent = s.stream_name || s.name || '';
+                el.appendChild(opt);
+            });
+            el.value = selected ? String(selected) : '';
+        } catch (e) {
+            console.warn('Failed to load streams:', e);
+        }
+    }
+
     function openModal(assignment = null) {
+        editingScope = assignment?.assignment_scope === 'stream' ? 'stream' : 'class';
         document.getElementById('assignmentId').value = assignment?.id || '';
         document.getElementById('assignTeacher').value = assignment?.teacher_id || '';
         document.getElementById('assignSubject').value = assignment?.subject_id || '';
-        document.getElementById('assignClass').value = assignment?.class_id || assignment?.stream_id || '';
+        document.getElementById('assignClass').value = assignment?.class_id || '';
+        loadStreams(assignment?.class_id || '', editingScope === 'stream' ? (assignment?.stream_id || '') : '');
         document.getElementById('assignPeriods').value = assignment?.periods_per_week || assignment?.periods || 5;
         document.getElementById('assignStatus').value = assignment?.status || 'active';
         document.getElementById('assignmentModalLabel').textContent = assignment ? 'Edit Assignment' : 'New Assignment';
-        new bootstrap.Modal(document.getElementById('assignmentModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('assignmentModal')).show();
     }
 
     async function save() {
@@ -172,6 +202,8 @@ const AssignSubjectsController = (() => {
             teacher_id: document.getElementById('assignTeacher').value,
             subject_id: document.getElementById('assignSubject').value,
             class_id: document.getElementById('assignClass').value,
+            stream_id: document.getElementById('assignStream')?.value || null,
+            assignment_scope: editingScope,
             periods_per_week: document.getElementById('assignPeriods').value || 5,
             status: document.getElementById('assignStatus').value
         };
@@ -181,7 +213,7 @@ const AssignSubjectsController = (() => {
         }
         try {
             if (id) {
-                await window.API.apiCall(`/academic/subject-assignments/${id}`, 'PUT', payload);
+                await window.API.apiCall(`/academic/subject-assignments/${id}?scope=${editingScope}`, 'PUT', payload);
             } else {
                 await window.API.apiCall('/academic/subject-assignments', 'POST', payload);
             }
@@ -193,23 +225,23 @@ const AssignSubjectsController = (() => {
         }
     }
 
-    async function edit(id) {
+    async function edit(id, scope = 'class') {
         try {
-            const resp = await window.API.apiCall(`/academic/subject-assignments/${id}`, 'GET');
+            const resp = await window.API.apiCall(`/academic/subject-assignments/${id}?scope=${scope === 'stream' ? 'stream' : 'class'}`, 'GET');
             openModal(resp?.data || resp);
         } catch (e) {
             showNotification('Failed to load assignment', 'error');
         }
     }
 
-    async function remove(id) {
+    async function remove(id, scope = 'class') {
         if (!(await window.confirmAction('Confirm Deletion', 'Remove this assignment?', { confirmText: 'Delete', danger: true }))) return;
         try {
-            await window.API.apiCall(`/academic/subject-assignments/${id}`, 'DELETE');
+            await window.API.apiCall(`/academic/subject-assignments/${id}?scope=${scope === 'stream' ? 'stream' : 'class'}`, 'DELETE');
             showNotification('Assignment removed', 'success');
             await loadData();
         } catch (e) {
-            showNotification('Failed to remove assignment', 'error');
+            showNotification(e.message || 'Failed to remove assignment', 'error');
         }
     }
 
@@ -218,6 +250,7 @@ const AssignSubjectsController = (() => {
     function attachListeners() {
         document.getElementById('addAssignmentBtn')?.addEventListener('click', () => openModal());
         document.getElementById('saveAssignmentBtn')?.addEventListener('click', () => save());
+        document.getElementById('assignClass')?.addEventListener('change', (e) => loadStreams(e.target.value));
         document.getElementById('teacherFilter')?.addEventListener('change', () => loadData(1));
         document.getElementById('subjectFilter')?.addEventListener('change', () => loadData(1));
         document.getElementById('classFilter')?.addEventListener('change', () => loadData(1));

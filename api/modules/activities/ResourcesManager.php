@@ -389,7 +389,7 @@ class ResourcesManager extends BaseAPI
                     a.title as activity_title,
                     a.start_date,
                     a.end_date
-                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . " ar
                 JOIN activities a ON ar.activity_id = a.id
                 WHERE ar.type = ?
                 AND ar.status = 'available'
@@ -480,7 +480,7 @@ class ResourcesManager extends BaseAPI
                     SUM(ar.cost) as total_cost,
                     COUNT(DISTINCT ar.activity_id) as activities_count,
                     AVG(ar.cost) as avg_cost_per_resource
-                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . " ar
                 JOIN activities a ON ar.activity_id = a.id
                 WHERE $whereClause
                 GROUP BY ar.resource_type

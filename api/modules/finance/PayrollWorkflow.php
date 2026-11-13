@@ -77,7 +77,11 @@ class PayrollWorkflow extends WorkflowHandler
             $sql = "SELECT s.id, s.staff_no, s.position,
                            p.first_name, p.last_name,
                            d.name as department_name, st.name as staff_type
-                    FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                    FROM staff s
+                    JOIN persons p ON s.person_id = p.id
+                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                    LEFT JOIN departments d ON sda.department_id = d.id
+                    LEFT JOIN staff_types st ON s.staff_type_id = st.id
                     WHERE s.status = 'active'";
 
             $params = [];

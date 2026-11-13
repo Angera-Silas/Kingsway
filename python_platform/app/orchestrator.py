@@ -336,6 +336,16 @@ def _number_tokens(text: str) -> list[float]:
     return found
 
 
+_HEAD_COUNT_WORDS = ("student", "learner", "pupil", "family", "families", "guardian", "parent",
+                     "staff", "teacher", "applicant", "count", "headcount", "number_of", "num_")
+
+
+def _is_head_count_column(column: str) -> bool:
+    """True for columns that count people/records; their per-row values must not be summed."""
+    lowered = column.lower()
+    return any(word in lowered for word in _HEAD_COUNT_WORDS)
+
+
 def _close(value: float, numbers: list[float], tolerance: float = 0.02) -> bool:
     for candidate in numbers:
         if candidate == 0:
@@ -600,7 +610,65 @@ def _rows_bearing_result(result: Any) -> dict[str, Any] | None:
         if isinstance(candidate, dict) and isinstance(candidate.get("rows"), list):
             if candidate.get("rows"):
                 return candidate
+    # Single-figure reports (e.g. admission conversion) return a summary and no
+    # rows. Treat the summary as one row so the answer is still grounded: a
+    # live turn reported "1,012 applicants / 454 admitted" when the report
+    # returned 7 / 6, and nothing checked it because there were no rows.
+    for candidate in (result, result.get("answer")):
+        if isinstance(candidate, dict):
+            summary = candidate.get("summary")
+            if isinstance(summary, dict) and summary and not any(
+                isinstance(v, (dict, list)) for v in summary.values()
+            ):
+                return {**candidate, "rows": [summary]}
     return None
+
+
+_DATE_LIKE = re.compile(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{4}/\d{4}\b|\b\d{1,2}:\d{2}\b")
+
+
+def _unsupported_numbers(rows: list[dict[str, Any]], body: str) -> list[float]:
+    """Figures stated in the prose that the governed rows do not contain.
+
+    Allowed: any value in the rows (numbers inside labels such as "Grade 7"
+    included), each money/total column summed over the rows, and the row
+    count. Dates, year ranges and small ordinals (< 10, e.g. "step 2") are
+    ignored. Head-count columns are deliberately NOT summed, so "555 learners"
+    built by adding per-class counts is rejected.
+    """
+    allowed: list[float] = [float(len(rows))]
+    sums: dict[str, float] = {}
+    for row in rows:
+        for key, value in row.items():
+            if isinstance(value, bool) or value is None:
+                continue
+            if isinstance(value, (int, float)):
+                allowed.append(float(value))
+                number = float(value)
+            else:
+                allowed.extend(_number_tokens(_DATE_LIKE.sub(" ", str(value))))
+                try:
+                    number = float(str(value).replace(",", "").strip())
+                except ValueError:
+                    number = None
+            lowered = str(key).lower()
+            if number is not None and not _is_head_count_column(lowered) and (
+                lowered.startswith("total") or "amount" in lowered or "arrears" in lowered or "balance" in lowered
+            ):
+                sums[lowered] = sums.get(lowered, 0.0) + number
+    allowed.extend(sums.values())
+    text = _DATE_LIKE.sub(" ", str(body or ""))
+    unsupported: list[float] = []
+    for match in re.finditer(r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)(\s*%)?", text):
+        try:
+            value = float(match.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        if value < 10 and not match.group(2):
+            continue
+        if not _close(value, allowed, tolerance=0.006):
+            unsupported.append(value)
+    return unsupported
 
 
 def _proposed_tool_ids(proposal: dict[str, Any]) -> set[str]:
@@ -2839,6 +2907,12 @@ class Orchestrator:
                 or lowered.endswith("_amount")
             ):
                 continue
+            # Head counts are never added across rows: a learner can appear in
+            # more than one row (two classes, two years), so the sum is not a
+            # number of people. "students_in_arrears" ends in "_arrears" and was
+            # summed into "555 students in arrears" for a roll of 454.
+            if _is_head_count_column(lowered):
+                continue
             raw_values = [row.get(column) for row in rows]
             numbers = [n for n in map(_number, raw_values) if n is not None]
             if not numbers:
@@ -4009,8 +4083,11 @@ class Orchestrator:
         if not isinstance(rows, list) or not rows:
             return answer
         body = str(answer.get("body") or "")
-        if not body or not _claims_contradict_rows(
-            [row for row in rows if isinstance(row, dict)], body
+        dict_rows = [row for row in rows if isinstance(row, dict)]
+        # A figure the report did not return is never shown as school data:
+        # replace the prose with the deterministic rendering of the real rows.
+        if not body or not (
+            _claims_contradict_rows(dict_rows, body) or _unsupported_numbers(dict_rows, body)
         ):
             return answer
         rendered = self._generate_nlq_answer("", last_rows_result)

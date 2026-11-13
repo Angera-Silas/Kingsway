@@ -203,9 +203,9 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 "SELECT st.*,
                     p.first_name, p.last_name, s.admission_no,
                     lp_from.class_id  AS current_class_id,  lp_from.stream_id AS current_stream_id,
-                    lp_to.id    AS promoted_to_class_id,  lp_to.stream_id AS promoted_to_stream_id,
-                    lp_from.name  AS current_class,  lp_from.stream_name AS current_stream,
-                    lp_to.name    AS promoted_class,  lp_to.stream_name   AS promoted_stream
+                    lp_to.class_id AS promoted_to_class_id,  lp_to.stream_id AS promoted_to_stream_id,
+                    lp_from.class_name AS current_class,  lp_from.stream_name AS current_stream,
+                    lp_to.class_name AS promoted_class,  lp_to.stream_name   AS promoted_stream
                 FROM student_transitions st
                 INNER JOIN students      s       ON st.student_id = s.id
                 INNER JOIN persons       p       ON p.id = s.person_id
@@ -282,7 +282,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 
                 // Check if in lower primary (PP1, PP2, Grade 1, Grade 2)
                 $gradeStmt = $this->db->prepare(
-                    "SELECT sl.name AS grade_name FROM " . ReadReplicaService::qualifiedRef("classes") . " 
+                    "SELECT sl.name AS grade_name FROM " . ReadReplicaService::qualifiedRef("classes") . " c 
                     INNER JOIN school_levels sl ON c.level_id = sl.id 
                     WHERE c.id = :class_id"
                 );
@@ -697,7 +697,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             $stmt = $this->db->prepare(
                 "SELECT pb.*,
                     u.username as created_by_name
-                FROM " . ReadReplicaService::qualifiedRef("promotion_batches") . "
+                FROM " . ReadReplicaService::qualifiedRef("promotion_batches") . " pb
                 LEFT JOIN users u ON pb.created_by = u.id
                 WHERE pb.id = :batch_id"
             );
