@@ -782,17 +782,20 @@ jobs:
 - name: attendance_reminders
   kind: http
   endpoint: /api/attendance/process-register-reminders
+  secret_env: [ATTENDANCE_WORKER_SECRET]
   payload: {}
   interval: 60
 - name: kcb_reconciliation
   kind: http
   endpoint: /api/finance/kcb-reconciliation-worker
+  secret_env: [KCB_RECONCILIATION_WORKER_SECRET]
   payload:
     limit: 25
   interval: 60
 - name: stk_sweep
   kind: http
   endpoint: /api/payments/stk-sweep-worker
+  secret_env: [COMMUNICATION_WORKER_SECRET]
   payload:
     limit: 25
     stall_minutes: 30
@@ -806,6 +809,13 @@ jobs:
   kind: http
   endpoint: /api/realtime/cleanup
   payload: {}
+  interval: 60
+# Python-owned queue jobs, drained in-process by the ticker (formerly the
+# per-minute cron call to POST /internal/worker {"mode":"queue"}).
+- name: python_queue
+  kind: python_queue
+  payload:
+    limit: 50
   interval: 60
 - name: insight_brief_daily
   kind: http
@@ -831,6 +841,7 @@ jobs:
 - name: academic_activation_sweep
   kind: http
   endpoint: /api/academic/activation-sweep
+  secret_env: [KINGSWAY_WORKER_SECRET]
   payload: {}
   interval: 60
 - name: kicd_policy_watch

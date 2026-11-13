@@ -214,7 +214,8 @@ class MigrationService
             $checksum = md5_file($path);
             $start = microtime(true);
 
-            $dbname = defined('DB_NAME') ? DB_NAME : 'KingsWayAcademy';
+            // DB_NAME from config/.env; no built-in name (local and production differ).
+            $dbname = \App\Database\ConnectionManager::schemaFor(\App\Database\ConnectionManager::NS_MASTER);
             $user = defined('DB_USER') ? DB_USER : 'root';
             $pass = defined('DB_PASS') ? DB_PASS : '';
             $host = defined('DB_HOST') ? (string) DB_HOST : '127.0.0.1';

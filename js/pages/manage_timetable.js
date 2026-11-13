@@ -52,8 +52,28 @@ const timetableController = (() => {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
+    // Year and term come from the page's selectors, so any term can be viewed
+    // or prepared, including next term while the school is on holiday (the
+    // academic context has no "current term" between terms).
+    const yearSelect = document.getElementById('academicYearFilter');
+    const termSelect = document.getElementById('academicTermFilter');
+    let contextReady = false;
+    if (window.AcademicYearFilter && yearSelect && termSelect) {
+      await window.AcademicYearFilter.mount(yearSelect, {
+        termSelect,
+        onChange: (yearId, _year, termId) => {
+          const yearChanged = currentAcademicYear !== yearId;
+          currentAcademicYear = yearId;
+          currentTerm = termId;
+          if (!contextReady) return;
+          void (async () => {
+            if (yearChanged) await loadDraftStreams();
+            if (lowerPrimaryClassTeacher) await loadClassTeacherDraft();
+            await loadTimetable();
+          })();
+        },
+      });
+    } else if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
@@ -99,6 +119,7 @@ const timetableController = (() => {
       document.getElementById("subjectFilter")?.closest("[data-role]")?.classList.add("d-none");
     }
     bindEvents();
+    contextReady = true;
     await loadTimetable();
     if (window.APIRealtime?.register) {
       window.APIRealtime.register(
@@ -282,7 +303,10 @@ const timetableController = (() => {
             referenceCache?.terms !== undefined ? referenceCache.terms : API.academic.listTerms(),
           ])
         : [null, null, null];
-      classes = clsRes?.data || clsRes || [];
+      // The class list spans every academic year, so the same class (same
+      // class id) appears once per year. Keep one entry per class.
+      classes = [...new Map((clsRes?.data || clsRes || [])
+        .map((c) => [String(c.class_id || c.id), c])).values()];
       subjects = subRes?.data || subRes || [];
       terms = termsRes?.data || termsRes || [];
       const cf = document.getElementById("classFilter");

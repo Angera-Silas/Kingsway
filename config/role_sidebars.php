@@ -533,7 +533,6 @@ return [
                 ['label' => 'Year Calendar', 'url' => 'year_calendar'],
                 ['label' => 'Term Transition', 'url' => 'term_transition'],
                 ['label' => 'Acad. Year Rollover', 'url' => 'year_rollover'],
-                ['label' => 'View Timetable', 'url' => 'manage_timetable'],
                 ['label' => 'Academic Oversight', 'url' => 'academic_planning_oversight'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards
                 ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
@@ -543,6 +542,21 @@ return [
                 ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
 
+            ]
+        ],
+
+        // TIMETABLING: the preparation steps in order, then the AI draft.
+        // One page per job; Manage Timetable also covers the class and
+        // teacher views, so the separate view pages are not listed here.
+        [
+            'label' => 'Timetabling',
+            'url' => null,
+            'icon' => 'fas fa-calendar-week',
+            'subitems' => [
+                ['label' => 'Subject Teachers', 'url' => 'assign_subjects_to_teachers'],
+                ['label' => 'Class Teachers', 'url' => 'assign_class_teachers'],
+                ['label' => 'Teacher Workload', 'url' => 'teacher_workload'],
+                ['label' => 'Draft & Publish Timetable', 'url' => 'manage_timetable'],
             ]
         ],
 

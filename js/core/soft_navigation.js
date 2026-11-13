@@ -102,9 +102,42 @@
    * @param {string} extraParams
    * @param {{updateHistory?: boolean}} options
    */
+  // A page load that failed for lack of a connection, waiting to run again.
+  let pendingResume = null;
+
+  function cancelPendingResume() {
+    if (!pendingResume) return;
+    window.removeEventListener('kingsway:server-reachable', pendingResume);
+    pendingResume = null;
+  }
+
+  function showResumableFailure(container, route, extraParams, options) {
+    window.dispatchEvent(new CustomEvent('kingsway:server-unreachable', {
+      detail: { source: 'page_load' },
+    }));
+
+    container.innerHTML = `
+      <div class="text-center p-5 text-muted">
+        <i class="bi bi-wifi-off fs-2 d-block mb-2" aria-hidden="true"></i>
+        <p class="mb-1 fw-semibold text-body">This page could not load because the school server cannot be reached.</p>
+        <p class="mb-3">It will open by itself as soon as the connection is back.</p>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-kw-resume>Try again</button>
+      </div>
+    `;
+
+    const resume = () => {
+      cancelPendingResume();
+      void loadFragment(route, extraParams, options);
+    };
+    pendingResume = resume;
+    window.addEventListener('kingsway:server-reachable', resume);
+    container.querySelector('[data-kw-resume]')?.addEventListener('click', resume);
+  }
+
   async function loadFragment(route, extraParams = '', options = {}) {
     if (isNavigating) return;
     isNavigating = true;
+    cancelPendingResume();
 
     const updateHistory = options.updateHistory !== false;
 
@@ -244,6 +277,14 @@
       document.dispatchEvent(new Event('DOMContentLoaded'));
 
     } catch (error) {
+      // fetch() rejects only when it could not connect; HTTP errors arrive as
+      // responses and are handled below. Keep the user here and resume this
+      // exact page when the server answers, instead of a full reload that the
+      // service worker can only answer with the offline page.
+      if (error instanceof TypeError || navigator.onLine === false) {
+        showResumableFailure(container, route, extraParams, options);
+        return;
+      }
       console.error('Soft navigation failed:', error);
       container.innerHTML = `
         <div class="alert alert-danger m-3">

@@ -194,6 +194,14 @@
 ======================================================= -->
 <div class="academic-card p-3 mb-4">
     <div class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label fw-semibold" for="academicYearFilter">Academic year</label>
+            <select class="form-select" id="academicYearFilter"><option>Loading…</option></select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-semibold" for="academicTermFilter">Term</label>
+            <select class="form-select" id="academicTermFilter"><option>Loading…</option></select>
+        </div>
         <div class="col-md-3" data-role="school_admin,deputy_head_academic,headteacher,admin,director">
             <label class="form-label fw-semibold">View Scope</label>
             <select class="form-select" id="viewScopeFilter">

@@ -379,7 +379,8 @@ class ServiceContractRegistry
                     'app' => 'Kingsway Preparatory School',
                     'layer' => 'ServiceContractBroker (gRPC-style contract layer)',
                     'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
-                    'database' => 'KingsWayAcademy',
+                    // Logical namespace only; physical names are per-environment.
+                    'database' => \App\Database\ConnectionManager::NS_MASTER,
                     'authenticated_user' => (int) ($ctx['user_id'] ?? 0),
                 ];
             },

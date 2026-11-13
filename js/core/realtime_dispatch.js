@@ -3,25 +3,17 @@
  *
  * Why this file exists
  * --------------------
- * There are two realtime transports (the Node SSE stream and the static-buffer
- * service worker). Both were independently doing the same four things:
- * invalidate the cache, schedule a loader refresh, fire a notification, and
- * route by event type. That produced the two failure modes that duplication of
- * this kind always produces:
- *
- *   1. A change arriving while both transports were active was processed twice,
- *      so every mutation refreshed the page twice.
- *   2. A global `kingsway:data-mutated` listener re-scheduled work that the
- *      dispatcher had already scheduled, so even a single transport double-fired.
- *
- * Neither was visible as an error: the refresh scheduler debounces, so the
- * symptom was "the UI feels slow and does redundant work", not a crash.
+ * The Node SSE stream (js/core/realtime_sse.js) is the only realtime
+ * transport. It parses frames and calls `dispatch()`; this module alone
+ * decides what a change does: invalidate cached keys, schedule one refresh,
+ * patch a row, or route presence, conflict and job events. Keeping that here
+ * stops a second listener (for example on `kingsway:data-mutated`) from
+ * re-scheduling work that has already been scheduled.
  *
  * The contract here
  * -----------------
  * Transports call `RealtimeDispatch.dispatch(...)` and NOTHING else. This module
- * is the only place that decides whether a change refreshes the page. Type
- * routing lives here so the two transports cannot disagree about it.
+ * is the only place that decides whether a change refreshes the page.
  *
  * `APIRealtime` (js/api.js) owns the refresh scheduler and the patch registry
  * only. It never listens to events, so there is no cycle between them.
@@ -67,7 +59,6 @@
     emit('kingsway:realtime', detail);
 
     if (LIVENESS_TYPES.has(type)) {
-      emit('kingsway:realtime-pulse', { at });
       return { refreshed: false, patched: false, targets };
     }
 

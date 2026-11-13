@@ -58,8 +58,13 @@ class PhpQueueBridge:
         bases.append((self.config.php_base_url.rstrip("/"), ""))
         return bases
 
-    def post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
-        if not self.config.php_worker_secret:
+    def post(
+        self, endpoint: str, payload: dict[str, Any], secret: str | None = None
+    ) -> dict[str, Any]:
+        """POST to a PHP worker endpoint. ``secret`` overrides the default
+        worker credential for endpoints that check their own secret."""
+        worker_secret = secret or self.config.php_worker_secret
+        if not worker_secret:
             raise QueueWorkerError("PHP worker credential is not configured")
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         last_error: Exception | None = None
@@ -67,9 +72,7 @@ class PhpQueueBridge:
             request = urllib.request.Request(base + endpoint, data=body, method="POST")
             request.add_header("Content-Type", "application/json")
             request.add_header("Accept", "application/json")
-            request.add_header(
-                "X-Kingsway-Worker-Secret", self.config.php_worker_secret
-            )
+            request.add_header("X-Kingsway-Worker-Secret", worker_secret)
             if host:
                 request.add_header("Host", host)
             context = (
@@ -426,7 +429,7 @@ class PythonQueueWorker:
 
         Processes at most ``max_jobs`` jobs or runs for at most ``max_seconds``
         (whichever the queue yields first), then returns so the operating
-        system fully reclaims CPU and RAM between cron cycles. The durable PHP
+        system fully reclaims CPU and RAM between ticker cycles. The durable PHP
         queue remains the source of truth, so exiting mid-backlog is safe —
         the next invocation continues where this one stopped.
         """
@@ -459,29 +462,3 @@ class PythonQueueWorker:
             failed += int(outcome["failed"])
 
         return {"processed": processed, "succeeded": succeeded, "failed": failed}
-
-    def run_forever(
-        self,
-        stop: Event,
-        idle_seconds: float = 1.0,
-        error_seconds: float = 5.0,
-    ) -> None:
-        """Consume the PHP-owned queue in a separately supervised process.
-
-        This entry point is for a process manager (systemd/supervisor), not a
-        WSGI request thread or a cron dispatcher. PHP remains the durable queue
-        and permission boundary; one process handles one job at a time.
-        """
-        idle_seconds = max(0.1, min(30.0, float(idle_seconds)))
-        error_seconds = max(1.0, min(120.0, float(error_seconds)))
-        while not stop.is_set():
-            try:
-                outcome = self.run_batch(1)
-                if outcome["processed"] == 0:
-                    stop.wait(idle_seconds)
-            except Exception as error:  # noqa: BLE001 - supervisor restarts process on fatal faults
-                logging.getLogger("kingsway.python_worker").error(
-                    "queue polling failed (%s); retrying after bounded delay",
-                    type(error).__name__,
-                )
-                stop.wait(error_seconds)

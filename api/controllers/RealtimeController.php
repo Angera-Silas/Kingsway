@@ -3,7 +3,6 @@
 namespace App\API\Controllers;
 
 use App\API\Includes\BaseAPI;
-use App\API\Services\EventBroadcaster;
 use App\API\Services\JobHandlerRegistry;
 use App\API\Services\JobQueue;
 use App\API\Services\ReadProjectionSynchronizer;
@@ -13,91 +12,26 @@ use App\API\Services\sms\SmsPythonRelay;
 use App\Config\Config;
 
 /**
- * RealtimeController - authenticated fallback access to the real-time engine.
+ * RealtimeController - realtime capability minting plus the worker endpoints.
  *
- * Primary read path: the public static events_buffer.json is served directly by
- * the web server (zero PHP), so real-time consumers normally never hit PHP.
- *
- * This controller provides:
- *   GET /api/realtime/sync?last_id=<id>   Authenticated outbox history reader.
- *     Used only when a client has drifted behind the bounded rolling buffer
- *     (e.g. was offline), so it can catch up on missed events. It is NOT part
- *     of the routine polling loop — invoking it per-poll would reintroduce the
- *     thundering-herd problem this engine is built to avoid.
- *
- *   GET /api/realtime/buffer                Returns the current static buffer
- *     (diagnostic / debugging convenience).
- *
- * Both endpoints require a staff JWT; the outbox reader is not restricted to a
- * single role because it only relays events already queued for broadcast.
+ *   GET  /api/realtime/stream-token   Short-lived capability for the browser's
+ *                                     Node SSE stream (the only live-update
+ *                                     transport), scoped to the user's roles.
+ *   POST /api/realtime/worker|cleanup|maintenance|python-job-*
+ *                                     Worker-secret endpoints driven by the
+ *                                     ticker (python_platform/schedules.yaml).
  */
 class RealtimeController extends BaseAPI
 {
-    private const SYNC_BATCH_LIMIT = 200;
-
     public function __construct()
     {
         parent::__construct('realtime');
     }
 
     /**
-     * GET /api/realtime/sync
-     *
-     * Authenticated catch-up reader for consumers that fell behind the static
-     * buffer window. Returns events with id strictly greater than last_id.
-     */
-    public function getSync($id = null, $data = [])
-    {
-        $lastId = isset($data['last_id']) ? max(0, (int) $data['last_id']) : 0;
-        $allowedScopes = $this->allowedScopes();
-
-        try {
-            $rows = \App\API\Services\EventBroadcaster::syncBatch(
-                $this->db, $lastId, $allowedScopes, self::SYNC_BATCH_LIMIT
-            );
-
-            $events = [];
-            $newLastId = $lastId;
-            foreach ($rows as $row) {
-                $decoded = json_decode((string) $row['payload'], true);
-                $newLastId = (int) $row['id'];
-                $events[] = [
-                    'id'         => (int) $row['id'],
-                    'domain'     => $row['domain'],
-                    'event_name' => $row['event_name'],
-                    'payload'    => is_array($decoded) ? $decoded : null,
-                    'created_at' => $row['created_at'],
-                ];
-            }
-
-            // Signal whether the caller has logically caught up to the newest
-            // event in the whole outbox, so it knows when history is complete.
-            $latestInOutbox = $this->latestOutboxId($allowedScopes);
-
-            return [
-                'success'   => true,
-                'status'    => 'success',
-                'data'      => [
-                    'events'      => $events,
-                    'latest_id'   => $newLastId,
-                    'previous_id' => $lastId,
-                    'caught_up'   => $newLastId >= $latestInOutbox,
-                    'as_of'       => date('Y-m-d H:i:s'),
-                ],
-                'message'   => 'OK',
-                'errors'    => [],
-                'code'      => 200,
-            ];
-        } catch (\Exception $e) {
-            $this->logError($e, 'RealtimeController::getSync');
-            return $this->errorResponse('Unable to synchronise real-time events.', 500);
-        }
-    }
-
-    /**
      * GET /api/realtime/stream-token
      * Issue a short-lived capability containing only the scopes this
-     * authenticated user already receives from the static realtime path.
+     * authenticated user's roles allow (RealtimeScopeResolver).
      */
     public function getStreamToken($id = null, $data = [])
     {
@@ -107,7 +41,7 @@ class RealtimeController extends BaseAPI
         // a loopback/private address to a remote browser (a loopback URL is
         // only usable when the client shares the host with PHP, i.e. local
         // development). NODE_REALTIME_PUBLIC_URL wins when configured.
-        $url = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
+        $url = \App\API\Services\RealtimeGatewayPublisher::liveBrowserStreamBase();
         if ($url !== '') {
             $url = rtrim($url, '/');
         }
@@ -254,12 +188,9 @@ class RealtimeController extends BaseAPI
      *
      * Bounded retention maintenance for shared-hosting cron. This deliberately
      * avoids schema operations and table locks; it only removes expired queue
-     * rows, old outbox events, rotated static buffers, and expired local
-     * SQLite cache entries.
+     * rows and expired local SQLite cache entries.
      *
-     * Scheduled from the crontab as a single curl call, which is how
-     * HostAfrica shared hosting runs jobs. There is deliberately no
-     * scripts/cron dispatcher in this path.
+     * Run by the ticker as a `kind: http` job in python_platform/schedules.yaml.
      */
     /**
      * POST /api/realtime/maintenance
@@ -292,13 +223,7 @@ class RealtimeController extends BaseAPI
             return $this->errorResponse('Invalid worker credential', 403);
         }
 
-        $report = [
-            'buffers_purged' => EventBroadcaster::purgeOldBufferFiles(48),
-        ];
-
-        $report = array_merge($report, JobQueue::purgeOld());
-
-        $report['events_purged'] = \App\API\Services\EventBroadcaster::purgeOldEvents($this->db);
+        $report = JobQueue::purgeOld();
 
         // Expired SQLite cache rows are only removed lazily when a key is read
         // again, so a key that is written once and never revisited would
@@ -528,61 +453,6 @@ class RealtimeController extends BaseAPI
     }
 
     /**
-     * GET /api/realtime/buffer
-     *
-     * Returns the current static buffer for the named scope (diagnostic).
-     */
-    public function getBuffer($id = null, $data = [])
-    {
-        $scope = isset($data['scope']) ? EventBroadcaster::normalizeScope((string) $data['scope']) : EventBroadcaster::DEFAULT_SCOPE;
-        $user = $this->getCurrentUser() ?: [];
-        $allowed = RealtimeScopeResolver::scopesForRoles($this->extractRoleIds($user));
-        if (!in_array($scope, $allowed, true)) {
-            return $this->errorResponse('Forbidden: scope not assigned to your role', 403);
-        }
-
-        $path = EventBroadcaster::bufferPath($scope);
-        $buffer = null;
-        if (is_file($path)) {
-            $raw = @file_get_contents($path);
-            if ($raw !== false) {
-                $buffer = json_decode($raw, true);
-            }
-        }
-        return $this->successResponse($buffer, 'OK', 200);
-    }
-
-    /**
-     * GET /api/realtime/my-buffer
-     *
-     * Authenticated handshake: returns the static-buffer URL(s) the current user
-     * is authorized to poll, based on their roles. Called once per page load.
-     * The returned paths embed unguessable HMAC slugs, so the service worker can
-     * then poll them at 4s with zero further PHP while outsiders cannot guess
-     * the files. Never returns payloads here — only paths.
-     */
-    public function getMyBuffer($id = null, $data = [])
-    {
-        $user = $this->getCurrentUser() ?: [];
-        $roleIds = $this->extractRoleIds($user);
-        $scopes = RealtimeScopeResolver::scopesForRoles($roleIds);
-
-        $buffers = [];
-        foreach ($scopes as $scope) {
-            $buffers[] = [
-                'scope' => $scope,
-                'url'   => EventBroadcaster::bufferUrl($scope),
-            ];
-        }
-
-        return $this->successResponse([
-            'buffers'    => $buffers,
-            'role_ids'   => $roleIds,
-            'generated'  => date('Y-m-d H:i:s'),
-        ], 'OK', 200);
-    }
-
-    /**
      * Extract numeric role ids from the authenticated user context, tolerating
      * the different shapes AuthMiddleware may leave in $_SERVER['auth_user'].
      *
@@ -625,14 +495,5 @@ class RealtimeController extends BaseAPI
             $user,
             $this->extractRoleIds($user)
         );
-    }
-
-    private function latestOutboxId(array $allowedScopes = [EventBroadcaster::DEFAULT_SCOPE]): int
-    {
-        try {
-            return \App\API\Services\EventBroadcaster::latestVisibleId($this->db, $allowedScopes);
-        } catch (\Exception $e) {
-            return 0;
-        }
     }
 }

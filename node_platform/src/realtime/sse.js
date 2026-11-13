@@ -16,6 +16,17 @@ const CHANNEL_TYPES = {
 const MAX_PRESENCE_ENTRIES = 10000;
 const MAX_PRESENCE_KEYS_PER_USER = 50;
 
+/**
+ * The stream capability travels in the Authorization header only. A token in
+ * the query string would be written to every proxy and access log on the way
+ * here, so `?token=` is deliberately ignored.
+ */
+export function bearerToken(req) {
+  const header = String(req?.headers?.authorization || '');
+  const match = /^Bearer\s+([A-Za-z0-9._~+/=-]+)$/.exec(header);
+  return match ? match[1] : '';
+}
+
 export function createSSE() {
   if (sseCache) return sseCache;
 
@@ -90,7 +101,7 @@ export function createSSE() {
   }
 
   async function handleConnection(req, reply) {
-    const token = req.query.token;
+    const token = bearerToken(req);
     if (!token) return reply.code(401).send({ error: 'Missing token' });
 
     const decoded = verifyCapability(token);

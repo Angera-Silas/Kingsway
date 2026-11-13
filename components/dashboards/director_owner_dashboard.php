@@ -1,13 +1,9 @@
 
 <div class="container-fluid py-4">
-    <!-- Meta Bar -->
-    <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
-        <span class="text-muted small">Updated: <span id="last_refresh">—</span></span>
-        <button class="btn btn-sm btn-outline-primary" id="generate_reports"><i class="bi bi-file-bar-graph me-1"></i>Reports</button>
-        <button class="btn btn-sm btn-outline-success" id="export_dashboard"><i class="bi bi-download me-1"></i>Export</button>
-        <button class="btn btn-sm btn-outline-info" id="system_health"><i class="bi bi-activity me-1"></i>Health</button>
-        <button class="btn btn-sm btn-outline-secondary" id="ceo_settings"><i class="bi bi-gear me-1"></i>Settings</button>
-    </div>
+    <?php
+    require_once __DIR__ . '/_dashboard_tabs.php';
+    kw_dashboard_tabs_open('director');
+    ?>
 
     <!-- B. EXECUTIVE KPI STRIP (12 Cards) -->
     <div class="row g-3 mb-4" id="kpi_strip">
@@ -540,7 +536,7 @@
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                                <table class="table table-sm table-hover mb-0" id="students_absent_today_table">
+                                <table class="table table-sm table-hover mb-0" id="students_absent_today_table" data-export-title="Learners absent today" data-export-module="attendance_class">
                                     <thead class="table-light position-sticky top-0">
                                         <tr>
                                             <th scope="col">Name</th>
@@ -564,7 +560,7 @@
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                                <table class="table table-sm table-hover mb-0" id="staff_absent_today_table">
+                                <table class="table table-sm table-hover mb-0" id="staff_absent_today_table" data-export-title="Staff absent today" data-export-module="attendance_staff">
                                     <thead class="table-light position-sticky top-0">
                                         <tr>
                                             <th scope="col">Name</th>
@@ -733,6 +729,19 @@
     </div>
 
     
+
+    <?php
+    kw_dashboard_tabs_close('director', [
+        ['route' => 'analytics_catalogue', 'icon' => 'bi-collection', 'label' => 'Analytics catalogue', 'about' => 'Every school report in one place, searchable by topic.'],
+        ['route' => 'finance_reports', 'icon' => 'bi-cash-coin', 'label' => 'Financial reports', 'about' => 'Monthly income and expenses, and where revenue comes from.'],
+        ['route' => 'academic_reports', 'icon' => 'bi-mortarboard', 'label' => 'Academic reports', 'about' => 'Class performance, subject analysis, learner progress and term comparisons.'],
+        ['route' => 'performance_reports', 'icon' => 'bi-graph-up-arrow', 'label' => 'Performance reports', 'about' => 'Top performers, grade distribution and improvement over time.'],
+        ['route' => 'comparative_reports', 'icon' => 'bi-bar-chart-steps', 'label' => 'Comparative reports', 'about' => 'Classes and terms compared side by side.'],
+        ['route' => 'enrollment_reports', 'icon' => 'bi-person-lines-fill', 'label' => 'Enrollment reports', 'about' => 'Admissions and enrollment numbers by class and intake.'],
+        ['route' => 'attendance_reports', 'icon' => 'bi-calendar2-check', 'label' => 'Attendance reports', 'about' => 'Attendance by class, learners who are often absent, and trends.'],
+        ['route' => 'report_cards', 'icon' => 'bi-file-earmark-text', 'label' => 'Report cards', 'about' => 'Review learners\' report cards and release them to parents.'],
+    ]);
+    ?>
 
     <script>
     // CEO Toolbox Navigation Handler (follows sidebar pattern)

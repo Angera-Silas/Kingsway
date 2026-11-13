@@ -744,17 +744,8 @@ class SchoolAdminAnalyticsService
             // Return empty on error
         }
 
-        // Add default message if no schedule
-        if (empty($schedule)) {
-            $schedule[] = [
-                'time' => '--',
-                'event' => 'No classes scheduled for today',
-                'location' => '--',
-                'attendees' => '--',
-                'status' => 'none',
-                'type' => 'info'
-            ];
-        }
+        // An empty day is an empty list. The dashboard shows its own empty
+        // state; a fake "no classes" row was exported and printed as data.
 
         return $schedule;
     }

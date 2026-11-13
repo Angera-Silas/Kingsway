@@ -41,6 +41,90 @@ const TOKEN_REFRESH_SKEW_SECONDS = Math.max(
 const CURRENT_TAB_ID =
   Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
 
+// Outcome of the most recent refresh-token exchange:
+//   "ok"          — a new access token was issued.
+//   "rejected"    — the server answered 401/403: the session is gone.
+//   "invalid"     — the server answered but issued no usable token.
+//   "unavailable" — the server could not be reached, or failed temporarily
+//                   (5xx/408/429). The refresh cookie is still valid.
+// Only "rejected" and "invalid" may end a session. A network drop must never
+// log a user out: the session survives on the server and resumes as soon as
+// the connection is back.
+let _lastRefreshOutcome = null;
+// HTTP status of the last refresh attempt, or null when it never connected.
+// Tells ConnectivityManager whether the server answered (and is failing) or
+// could not be reached at all.
+let _lastRefreshHttpStatus = null;
+
+function refreshOutcomeFromStatus(status) {
+  if (status === 401 || status === 403) return "rejected";
+  if (status >= 500 || status === 408 || status === 429) return "unavailable";
+  return "invalid";
+}
+
+// Connectivity hints for ConnectivityManager. They are hints only: the
+// manager confirms with its own probe before telling the user anything.
+let _serverUnreachableHinted = false;
+
+// `answered` is true when the server responded with a temporary failure
+// (5xx/408/429) rather than not responding at all.
+function hintServerUnreachable(source, answered = false) {
+  _serverUnreachableHinted = true;
+  window.__KINGSWAY_SERVER_UNREACHABLE__ = answered ? "server_error" : true;
+  try {
+    window.dispatchEvent(
+      new CustomEvent("kingsway:server-unreachable", {
+        detail: { source, answered },
+      }),
+    );
+  } catch (_) {}
+}
+
+function hintServerReachable() {
+  if (!_serverUnreachableHinted) return;
+  _serverUnreachableHinted = false;
+  window.__KINGSWAY_SERVER_UNREACHABLE__ = false;
+  try {
+    window.dispatchEvent(new CustomEvent("kingsway:server-reachable"));
+  } catch (_) {}
+}
+
+function createConnectionError() {
+  const error = new Error(
+    "Cannot reach the school server. Check your connection and try again.",
+  );
+  error.code = 0;
+  error.state = "offline";
+  error.offline = true;
+  return error;
+}
+
+// Resolve after `ms`, or sooner when the device reconnects, the tab becomes
+// visible again, or the user presses "Try again" on the connection banner.
+function waitForConnectionRetry(ms) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener("online", done);
+      window.removeEventListener("kingsway:retry-connection", done);
+      window.removeEventListener("kingsway:server-reachable", done);
+      document.removeEventListener("visibilitychange", onVisible);
+      resolve();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") done();
+    };
+    const timer = setTimeout(done, ms);
+    window.addEventListener("online", done);
+    window.addEventListener("kingsway:retry-connection", done);
+    window.addEventListener("kingsway:server-reachable", done);
+    document.addEventListener("visibilitychange", onVisible);
+  });
+}
+
 // Notification types
 const NOTIFICATION_TYPES = {
   SUCCESS: "success",
@@ -450,18 +534,40 @@ const AuthContext = (() => {
    */
   // One-shot guard: the boot refresh may be triggered both by the module-load
   // initialize() call and by home.php awaiting initialize() — run it only once.
-  let _bootRefreshDone = false;
-  let _bootRefreshResult = null;
+  let _bootRefreshPromise = null;
 
-  async function bootstrapFromRefreshCookie() {
-    if (_bootRefreshDone) return _bootRefreshResult;
-    _bootRefreshDone = true;
+  // Resolves true (session restored) or false (the server rejected it). While
+  // the server cannot be reached it does not resolve at all: it keeps retrying
+  // with backoff, so every page gate awaiting AuthContext.ready() simply waits
+  // and then continues exactly where it was, instead of deciding "logged out".
+  function bootstrapFromRefreshCookie() {
+    if (!_bootRefreshPromise) {
+      _bootRefreshPromise = (async () => {
+        let delayMs = 1000;
+        for (;;) {
+          const outcome = await attemptBootRefresh();
+          _lastRefreshOutcome = outcome;
+          if (outcome !== "unavailable") {
+            if (outcome === "ok") hintServerReachable();
+            return outcome === "ok";
+          }
+          hintServerUnreachable("auth_boot", _lastRefreshHttpStatus !== null);
+          await waitForConnectionRetry(delayMs);
+          delayMs = Math.min(delayMs * 2, 15000);
+        }
+      })();
+    }
+    return _bootRefreshPromise;
+  }
+
+  async function attemptBootRefresh() {
+    let response;
     try {
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin,
       );
-      const response = await fetchWithBrowserFallback(url.toString(), {
+      response = await fetchWithBrowserFallback(url.toString(), {
         method: "POST",
         credentials: "include", // carries the HttpOnly refresh_token cookie
         cache: "no-store",
@@ -472,7 +578,14 @@ const AuthContext = (() => {
         },
         // No body — server reads refresh_token from the HttpOnly cookie
       });
-      if (!response.ok) return false;
+    } catch (e) {
+      console.warn("[AuthContext] Boot refresh could not reach the server:", e);
+      _lastRefreshHttpStatus = null;
+      return "unavailable";
+    }
+    _lastRefreshHttpStatus = response.status;
+    if (!response.ok) return refreshOutcomeFromStatus(response.status);
+    try {
       const result = await readJsonSafely(response, "Token refresh");
       if (
         result &&
@@ -493,14 +606,13 @@ const AuthContext = (() => {
         console.log(
           "[AuthContext] Session restored from refresh cookie on boot",
         );
-        _bootRefreshResult = true;
-        return true;
+        return "ok";
       }
     } catch (e) {
-      console.warn("[AuthContext] Boot refresh failed:", e);
+      console.warn("[AuthContext] Boot refresh returned an unreadable response:", e);
     }
-    _bootRefreshResult = false;
-    return false;
+    // The server answered, but without a usable token.
+    return "invalid";
   }
 
   // SINGLETON BOOT PROMISE.
@@ -547,6 +659,12 @@ const AuthContext = (() => {
         if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
           const refreshed = await refreshAccessToken();
           if (!refreshed && isTokenExpired(0)) {
+            if (_lastRefreshOutcome === "unavailable") {
+              // Unreachable, not rejected: wait for the server like a cold boot.
+              const restored = await bootstrapFromRefreshCookie();
+              if (!restored) clearUser();
+              return restored && isAuthenticated();
+            }
             clearUser();
             return false;
           }
@@ -1052,6 +1170,8 @@ const AuthContext = (() => {
     // Expose boot promise so apiCall() can wait for bootstrapFromRefreshCookie
     // before treating a null in-memory token as session expiry.
     getBootPromise: () => _bootPromise,
+    // "ok" | "rejected" | "invalid" | "unavailable" — see _lastRefreshOutcome.
+    getRefreshOutcome: () => _lastRefreshOutcome,
     // CSRF setter + parent portal session bridge (see module-scope helpers).
     setCsrfToken,
     getPortalToken,
@@ -3095,6 +3215,18 @@ async function refreshAccessToken() {
 }
 
 async function performRefreshAccessToken() {
+  const outcome = await exchangeRefreshToken();
+  _lastRefreshOutcome = outcome;
+  if (outcome === "unavailable") {
+    hintServerUnreachable("token_refresh", _lastRefreshHttpStatus !== null);
+  } else {
+    hintServerReachable();
+  }
+  return outcome === "ok";
+}
+
+async function exchangeRefreshToken() {
+  _lastRefreshHttpStatus = null;
   try {
     const url = new URL(
       API_BASE_URL + "/auth/refresh-token",
@@ -3112,18 +3244,19 @@ async function performRefreshAccessToken() {
       },
       // No body — server reads refresh_token from the HttpOnly cookie
     });
+    _lastRefreshHttpStatus = response.status;
 
     // Only an explicit authentication rejection proves the refresh session
     // is dead. Do not log users out for rate limits, backend errors or an
     // interrupted network connection.
     if (response.status === 401 || response.status === 403) {
       handleSessionExpired("refresh_rejected_" + response.status);
-      return false;
+      return "rejected";
     }
 
     if (!response.ok) {
       console.warn("[API] Temporary token refresh failure:", response.status);
-      return false;
+      return refreshOutcomeFromStatus(response.status);
     }
 
     const result = await readJsonSafely(response, "Token refresh");
@@ -3134,15 +3267,16 @@ async function performRefreshAccessToken() {
       for (let i = 0; i < 50 && typeof window.requestTFAForSession !== 'function'; i++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      if (typeof window.requestTFAForSession !== 'function') return false;
+      // The MFA modal never loaded: a page-load problem, not a dead session.
+      if (typeof window.requestTFAForSession !== 'function') return "unavailable";
       await window.requestTFAForSession(payload);
-      return true;
+      return "ok";
     }
     const token = payload && (payload.token || payload.access_token);
 
     if (!token) {
       console.warn("[API] Refresh response did not contain an access token.");
-      return false;
+      return "invalid";
     }
 
     AuthContext.setTokens(token);
@@ -3157,10 +3291,10 @@ async function performRefreshAccessToken() {
 
     window.dispatchEvent(new CustomEvent("AUTH_TOKEN_REFRESHED"));
     announceTokenRefresh();
-    return true;
+    return "ok";
   } catch (error) {
     console.warn("[API] Token refresh temporarily unavailable:", error);
-    return false;
+    return "unavailable";
   }
 }
 
@@ -3521,6 +3655,15 @@ async function apiCallDirect(
         console.log("Access token is expiring; refreshing before request...");
         const refreshed = await refreshAccessToken();
         if (!refreshed) {
+          if (
+            tokenAlreadyExpired &&
+            !_sessionExpiredEmitted &&
+            _lastRefreshOutcome === "unavailable"
+          ) {
+            // The server is unreachable, so the refresh never happened. The
+            // session is still valid; fail this request as a connection error.
+            throw createConnectionError();
+          }
           if (tokenAlreadyExpired) {
             handleSessionExpired("expired_token_refresh_failed");
             throw createSessionExpiredError(
@@ -3641,6 +3784,8 @@ async function apiCallDirect(
     // on every authenticated parent-portal response; persist it so parent pages
     // keep the session alive while the user is active.
     renewPortalExpiry(response.headers);
+    // Any HTTP answer proves the server is reachable again.
+    hintServerReachable();
 
     // Give callers (parent-portal pp_expires renewal, download tracking) a
     // chance to observe response headers exactly once for the response that
@@ -3723,6 +3868,9 @@ async function apiCallDirect(
         fetchOptions.headers.Authorization = "Bearer " + newToken;
         response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
       } else {
+        if (!_sessionExpiredEmitted && _lastRefreshOutcome === "unavailable") {
+          throw createConnectionError();
+        }
         handleSessionExpired("request_401_refresh_failed");
         throw createSessionExpiredError(
           "Your session has expired. Please sign in again.",
@@ -3808,16 +3956,10 @@ async function apiCallDirect(
       error.message || "",
     );
 
-    if (
-      isNetworkFailure &&
-      isProtectedRequest &&
-      AuthContext.hasSession?.() &&
-      isTokenExpired(0)
-    ) {
-      handleSessionExpired("expired_token_network_failure");
-      throw createSessionExpiredError(
-        "Your session expired. Please sign in again.",
-      );
+    // A failed connection says nothing about the session, even when the access
+    // token has expired: the refresh cookie still restores it on reconnect.
+    if (isNetworkFailure) {
+      hintServerUnreachable("api_request");
     }
 
     if (isNetworkFailure) {
@@ -5209,7 +5351,9 @@ window.API = {
       apiCall("/academic/syllabus", "GET", null, params),
     getMySyllabus: async (params = {}) =>
       apiCall("/academic/my-syllabus", "GET", null, params),
-    getYearCalendar: async () => apiCall("/academic/year-calendar", "GET"),
+    // One academic year's calendar; omit yearId for the current year.
+    getYearCalendar: async (yearId) => apiCall("/academic/year-calendar", "GET", null,
+      yearId ? { academic_year_id: yearId } : {}),
     getCalendarDays: async (yearId) => apiCall(`/academic/calendar/days/${yearId}`, "GET"),
     updateCalendarDay: async (dayId, payload) => apiCall(`/academic/calendar/day/${dayId}`, "PUT", payload),
     getYearHistory: async () => apiCall("/academic/year-history", "GET"),

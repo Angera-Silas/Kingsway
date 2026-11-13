@@ -254,7 +254,8 @@ final class InsightScheduler
         $domains = $this->validateDomains($payload['domains'] ?? null);
         $cacheKey = (string) ($payload['cache_key'] ?? $this->cacheKeyFor($userId));
         $audience = (string) ($payload['audience'] ?? 'staff');
-        $broadcast = array_key_exists('broadcast', $payload) ? (bool) $payload['broadcast'] : true;
+        // `broadcast` is still accepted in the payload contract but has no
+        // effect: background work is never announced to browsers.
         $requestId = substr((string) ($payload['request_id'] ?? 'ai-insight-brief'), 0, 100);
 
         $engine = $this->engine ?: new IntelligenceEngine($pdo, $this->engineOptions);
@@ -331,21 +332,6 @@ final class InsightScheduler
         ];
         $this->cache->set($cacheKey, $brief, self::BRIEF_TTL);
 
-        if ($broadcast) {
-            EventBroadcaster::dispatch(
-                $pdo,
-                'intelligence',
-                'insight_brief.ready',
-                [
-                    'cadence' => $cadence,
-                    'alert_count' => $alertCount,
-                    'draft_id' => $draftId ?? 0,
-                    'reference' => $cacheKey,
-                ],
-                $audience !== '' ? [$audience] : [EventBroadcaster::DEFAULT_SCOPE]
-            );
-        }
-
         FileLogger::write('ai_generation', [
             'type' => 'insight_brief_executed',
             'cadence' => $cadence,
@@ -371,7 +357,7 @@ final class InsightScheduler
 
     private function authorize(int $userId, array $permissions): void
     {
-        (new AiWorkflowService())->authorize(self::WORKFLOW, [
+        (new WorkflowAuthorization())->authorize(self::WORKFLOW, [
             'user_id' => $userId,
             'permissions' => $permissions,
         ]);

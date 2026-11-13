@@ -205,8 +205,23 @@ class Config:
         self.db_user = _env("KINGSWAY_DB_USER")
         self.db_password = _env("KINGSWAY_DB_PASSWORD")
         self.db_ssl_ca = _env("KINGSWAY_DB_SSL_CA")
-        self.db_master_schema = _env("KINGSWAY_DB_MASTER_SCHEMA", "KingsWayAcademy")
-        self.db_reads_schema = _env("KINGSWAY_DB_READS_SCHEMA", "KingsWayReads")
+        # No built-in schema names: local and production databases are named
+        # differently, so a default would silently aim production at the wrong
+        # schema. Production sets these via SetEnv in the Python subdomain's
+        # .htaccess (locally, local_run.py maps them from config/.env DB_NAME /
+        # DB_READS_NAME). Missing -> read models are disabled and reported.
+        self.db_master_schema = _env("KINGSWAY_DB_MASTER_SCHEMA").strip()
+        self.db_reads_schema = _env("KINGSWAY_DB_READS_SCHEMA").strip()
+        self.missing_schema_env = [
+            name
+            for name, value in (
+                ("KINGSWAY_DB_MASTER_SCHEMA", self.db_master_schema),
+                ("KINGSWAY_DB_READS_SCHEMA", self.db_reads_schema),
+            )
+            if not value
+        ]
+        if self.missing_schema_env:
+            self.read_models_enabled = False
         self.db_connect_timeout = max(
             1, min(15, _env_int("KINGSWAY_DB_CONNECT_TIMEOUT", 5))
         )

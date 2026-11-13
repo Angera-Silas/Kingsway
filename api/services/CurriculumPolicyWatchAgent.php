@@ -51,9 +51,6 @@ final class CurriculumPolicyWatchAgent
     /** @var callable(string,array):int */
     private $queuer;
 
-    /** @var callable(PDO,string,string,array,array):int */
-    private $broadcaster;
-
     /** @var callable(PDO,int):list<string>|null authoritative permission resolver seam */
     private $permissionResolver;
 
@@ -67,14 +64,12 @@ final class CurriculumPolicyWatchAgent
      * @param callable(string,array):int   $queuer pushes a background job; tests inject a recorder.
      * @param string|null                  $stateFile override the baseline state file path (tests).
      * @param DraftRepository|null          $drafts override the draft service (tests).
-     * @param callable|null                $broadcaster override the realtime dispatch (tests).
      * @param callable(PDO,int):list<string>|null $permissionResolver authoritative worker permission resolver (tests).
      */
     public function __construct(
         ?callable $queuer = null,
         ?string $stateFile = null,
         ?DraftRepository $drafts = null,
-        ?callable $broadcaster = null,
         ?callable $permissionResolver = null
     ) {
         $this->queuer = $queuer ?? static function (string $type, array $payload): int {
@@ -82,15 +77,6 @@ final class CurriculumPolicyWatchAgent
         };
         $this->stateFile = $stateFile ?? dirname(__DIR__, 2) . '/' . self::STATE_FILE;
         $this->drafts = $drafts;
-        $this->broadcaster = $broadcaster ?? static function (
-            PDO $pdo,
-            string $domain,
-            string $eventName,
-            array $payload,
-            array $targetScopes
-        ): int {
-            return EventBroadcaster::dispatch($pdo, $domain, $eventName, $payload, $targetScopes);
-        };
         $this->permissionResolver = $permissionResolver;
     }
 
@@ -113,7 +99,7 @@ final class CurriculumPolicyWatchAgent
 
     /**
      * Watch every configured authority (KICD + KNEC + MoE) with an independent
-     * baseline per authority. KNEC/MoE changes journal + broadcast an alert for
+     * baseline per authority. Every change is written to the file journal for
      * staff review; LLM interpretation is only queued where a governed
      * workflow is registered (KICD today).
      */
@@ -220,18 +206,13 @@ final class CurriculumPolicyWatchAgent
             'last_source' => $source,
         ], $stateFile);
         $this->log('change_queued', [
+            'event' => $eventName,
             'source' => $source,
             'previous_hash' => $baselineHash,
             'current_hash' => $currentHash,
             'job_id' => $jobId,
             'operator_id' => $userId,
         ]);
-        call_user_func($this->broadcaster, $pdo, 'assessment', $eventName, [
-            'authority' => $authority,
-            'source' => $source,
-            'previous_hash' => $baselineHash,
-            'current_hash' => $currentHash,
-        ], ['academics', 'system_admin']);
 
         return ['status' => 'change_queued', 'source' => $source, 'current_hash' => $currentHash, 'previous_hash' => $baselineHash, 'job_id' => $jobId];
     }
@@ -281,10 +262,6 @@ final class CurriculumPolicyWatchAgent
                 'operator_id' => $context['user_id'],
                 'request_id' => $requestId,
             ]);
-            call_user_func($this->broadcaster, $pdo, 'curriculum', 'curriculum.policy_change_interpreted', [
-                'draft_id' => $draftId,
-                'source' => (string) ($input['source'] ?? ''),
-            ], ['academics', 'system_admin']);
             return ['status' => 'interpreted', 'draft_id' => $draftId];
         } catch (Throwable $e) {
             $this->log('interpretation_failed', [

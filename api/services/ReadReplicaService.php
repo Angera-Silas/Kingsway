@@ -1060,8 +1060,10 @@ final class ReadReplicaService
         // Read from database ONLY - no hardcoded defaults
         try {
             $pdo = \App\Database\Database::getInstance()->getConnection();
+            // Schema from DB_READS_NAME: local and production names differ.
+            $readsSchema = str_replace('`', '``', ConnectionManager::schemaFor(ConnectionManager::NS_READS));
             $stmt = $pdo->prepare(
-                "SELECT storage_mode, sensitivity, max_age_seconds FROM `KingsWayReads`.`reads_meta` WHERE projection = ? LIMIT 1"
+                "SELECT storage_mode, sensitivity, max_age_seconds FROM `{$readsSchema}`.`reads_meta` WHERE projection = ? LIMIT 1"
             );
             $stmt->execute([$projection]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);

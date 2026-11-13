@@ -14,6 +14,8 @@
             <h4 class="mb-0">
                 <i class="bi bi-building"></i> Classes Management
             </h4>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+            <select class="form-select form-select-sm" id="academicYearFilter" aria-label="Academic year" style="min-width: 13rem"><option>Loading…</option></select>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" onclick="academicsController.showClassModal()" data-permission="academic_create">
                     <i class="bi bi-plus-circle"></i> Add Class
@@ -24,6 +26,7 @@
                 <button class="btn btn-outline-light btn-sm" onclick="academicsController.exportClasses()">
                     <i class="bi bi-download"></i> Export
                 </button>
+            </div>
             </div>
         </div>
     </div>
@@ -83,12 +86,6 @@
                 <button class="nav-link" id="teachers-tab" data-bs-toggle="tab" data-bs-target="#class-teachers" 
                         type="button" role="tab">
                     <i class="bi bi-person-badge"></i> Class Teachers
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="timetable-tab" data-bs-toggle="tab" data-bs-target="#timetables" 
-                        type="button" role="tab">
-                    <i class="bi bi-calendar3"></i> Timetables
                 </button>
             </li>
         </ul>
@@ -166,6 +163,10 @@
 
             <!-- Class Teachers Tab -->
             <div class="tab-pane fade" id="class-teachers" role="tabpanel">
+                <p class="text-muted small mb-2">
+                    Class teachers for this year. To assign or change one, use
+                    <a href="<?= $appBase ?>/home.php?route=assign_class_teachers">Class Teachers</a>.
+                </p>
                 <div class="table-responsive">
                     <table class="table table-hover">
                         <thead class="table-light">
@@ -192,33 +193,6 @@
                 </div>
             </div>
 
-            <!-- Timetables Tab -->
-            <div class="tab-pane fade" id="timetables" role="tabpanel">
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <select id="timetableClassFilter" class="form-select" onchange="academicsController.loadTimetableForClass(this.value)">
-                            <option value="">Select Class</option>
-                            <!-- Classes loaded dynamically -->
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <select id="timetableTermFilter" class="form-select">
-                            <option value="">Current Term</option>
-                            <option value="1">Term 1</option>
-                            <option value="2">Term 2</option>
-                            <option value="3">Term 3</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <button class="btn btn-primary" onclick="academicsController.generateTimetable()" data-permission="manage_timetable">
-                            <i class="bi bi-gear"></i> Generate Timetable
-                        </button>
-                    </div>
-                </div>
-                <div id="timetableContainer" class="border rounded p-3">
-                    <p class="text-muted text-center">Select a class to view timetable</p>
-                </div>
-            </div>
         </div>
     </div>
 </div>
@@ -291,8 +265,8 @@
                         
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Academic Year</label>
-                            <input type="text" id="classAcademicYear" class="form-control" 
-                                   value="2024" placeholder="e.g., 2024">
+                            <input type="text" id="classAcademicYear" class="form-control" readonly
+                                   title="Classes are created in the academic year selected at the top of the page">
                         </div>
                     </div>
                     
@@ -373,58 +347,6 @@
                     </button>
                     <button type="submit" class="btn btn-success">
                         <i class="bi bi-check-circle"></i> Save Stream
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Assign Teacher Modal -->
-<div class="modal fade" id="assignTeacherModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title">
-                    <i class="bi bi-person-badge"></i> Assign Teacher
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="assignTeacherForm" onsubmit="academicsController.assignTeacher(event)">
-                <div class="modal-body">
-                    <input type="hidden" id="assignmentId">
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Class <span class="text-danger">*</span></label>
-                        <select id="assignClass" class="form-select" required>
-                            <option value="">Select Class</option>
-                            <!-- Classes loaded dynamically -->
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Stream</label>
-                        <select id="assignStream" class="form-select">
-                            <option value="">No specific stream</option>
-                            <!-- Streams loaded based on selected class -->
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Teacher <span class="text-danger">*</span></label>
-                        <select id="assignTeacher" class="form-select" required>
-                            <option value="">Select Teacher</option>
-                            <!-- Teachers loaded dynamically -->
-                        </select>
-                    </div>
-                    
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                        <i class="bi bi-x-circle"></i> Cancel
-                    </button>
-                    <button type="submit" class="btn btn-info">
-                        <i class="bi bi-check-circle"></i> Assign Teacher
                     </button>
                 </div>
             </form>

@@ -19,6 +19,9 @@ const TimetableController = {
     isLeadership: false,
     isLowerPrimary: false,
     selectedDay: "Monday",
+    // Context from the page's year/term selectors (AcademicYearFilter).
+    yearId: null,
+    termId: null,
   },
 
   async init() {
@@ -32,11 +35,8 @@ const TimetableController = {
     this.state.isLeadership = roles.some((role) => /admin|director|headteacher|deputy/.test(role));
     this.state.isTeacher = roles.some((role) => role.includes('teacher'));
     try { this.state.teacherScope = await window.AuthContext.getTeacherScope?.(); } catch (_) { this.state.teacherScope = null; }
-    const academicYearId = window.AcademicContext?.getAcademicYearId?.();
-    try {
-      const streamsResponse = await window.API.schedules.listTimetableStreams({ academic_year_id: academicYearId });
-      this.state.streams = streamsResponse?.data || streamsResponse || [];
-    } catch (_) { this.state.streams = []; }
+    await this.mountContextFilter();
+    await this.loadStreamsForYear();
     this.state.isLowerPrimary = this.state.isTeacher && !this.state.isLeadership && this.isLowerPrimaryClassTeacher();
     this.applyRoleView();
 
@@ -147,7 +147,10 @@ const TimetableController = {
       ]);
 
       if (classesRes) {
-        this.state.classes = classesRes || [];
+        // The class list spans every academic year (one row per class per
+        // year); keep one entry per class.
+        const rows = Array.isArray(classesRes) ? classesRes : (classesRes?.data || []);
+        this.state.classes = [...new Map(rows.map((c) => [String(c.class_id || c.id), c])).values()];
         this.populateSelect("#selectClass", this.state.classes, "id", "name");
       }
 
@@ -193,6 +196,41 @@ const TimetableController = {
       ?.parentElement?.classList.toggle("d-none", viewType !== "room");
   },
 
+  /**
+   * Year and term selectors. The academic context has no current term during
+   * holidays, so the page lets the user pick any year and term instead.
+   */
+  async mountContextFilter() {
+    const yearSelect = document.getElementById("academicYearFilter");
+    const termSelect = document.getElementById("academicTermFilter");
+    if (!window.AcademicYearFilter || !yearSelect || !termSelect) {
+      this.state.yearId = window.AcademicContext?.getAcademicYearId?.() || null;
+      return;
+    }
+    let ready = false;
+    await window.AcademicYearFilter.mount(yearSelect, {
+      termSelect,
+      onChange: (yearId, _year, termId) => {
+        const yearChanged = this.state.yearId !== yearId;
+        this.state.yearId = yearId;
+        this.state.termId = termId;
+        if (!ready) return;
+        void (async () => {
+          if (yearChanged) await this.loadStreamsForYear();
+          await this.loadTimetable();
+        })();
+      },
+    });
+    ready = true;
+  },
+
+  async loadStreamsForYear() {
+    try {
+      const streamsResponse = await window.API.schedules.listTimetableStreams({ academic_year_id: this.state.yearId });
+      this.state.streams = streamsResponse?.data || streamsResponse || [];
+    } catch (_) { this.state.streams = []; }
+  },
+
   async loadTimetable() {
     try {
       const grid = document.getElementById("timetableGridWrap") || document.getElementById("timetableGrid");
@@ -202,8 +240,8 @@ const TimetableController = {
 
       const viewType = this.state.viewType;
       let params = {};
-      const academicYearId = window.AcademicContext?.getAcademicYearId?.();
-      if (academicYearId) params.academic_year_id = academicYearId;
+      if (this.state.yearId) params.academic_year_id = this.state.yearId;
+      if (this.state.termId) params.academic_year_term_id = this.state.termId;
 
       if (viewType === "class") {
         const classId = document.getElementById("selectClass")?.value;

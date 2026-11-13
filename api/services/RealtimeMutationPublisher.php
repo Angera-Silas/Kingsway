@@ -2,11 +2,9 @@
 
 namespace App\API\Services;
 
-use App\Database\Database;
-
 /**
  * Publishes privacy-safe cache invalidations after successful API mutations.
- * It deliberately never copies controller response data into static buffers.
+ * It deliberately never copies controller response data into the event.
  */
 class RealtimeMutationPublisher
 {
@@ -15,6 +13,27 @@ class RealtimeMutationPublisher
 
     /** @var string[] Endpoints with their own internal/credential semantics. */
     private const EXCLUDED_CONTROLLERS = ['auth', 'twofactor', 'realtime'];
+
+    /**
+     * POST routes that only read (controller => resources). They change no
+     * school data, so announcing them made every open staff page re-fetch
+     * whenever anyone opened a page, asked the assistant or sent telemetry.
+     * Only list a route here when it provably writes nothing a page shows.
+     *
+     * @var array<string,string[]>
+     */
+    private const READ_ONLY_POSTS = [
+        'system' => ['client-log'],
+        'node' => ['view'],
+        'dashboard' => ['agent-suggest', 'agent-assist', 'agent-assist-stream'],
+        'reports' => ['nlq'],
+        'import' => ['preview'],
+        'automation' => ['exam-document-preview'],
+        'communications' => ['templates-preview', 'templates-estimate-sms-cost'],
+        'staff' => ['payroll-eligibility-validate'],
+        // Builds a temporary download file; changes no school records.
+        'download' => ['export'],
+    ];
 
     /** @var array<string,string[]> */
     private const DOMAIN_TARGETS = [
@@ -36,13 +55,11 @@ class RealtimeMutationPublisher
 
     public static function publish(string $httpMethod, string $controller, ?string $resource, array $result): void
     {
-        $httpMethod = strtoupper($httpMethod);
-        $controller = strtolower(trim($controller));
-        if (!in_array($httpMethod, self::MUTATION_METHODS, true)
-            || in_array($controller, self::EXCLUDED_CONTROLLERS, true)
-            || !self::wasSuccessful($result)) {
+        if (!self::shouldPublish($httpMethod, $controller, $resource, $result)) {
             return;
         }
+        $httpMethod = strtoupper($httpMethod);
+        $controller = strtolower(trim($controller));
 
         $domain = self::domainFor($controller);
         $targets = array_values(array_unique(array_merge(
@@ -52,22 +69,11 @@ class RealtimeMutationPublisher
         $eventName = self::eventName($resource);
 
         try {
-            EventBroadcaster::dispatch(
-                Database::getInstance()->getConnection(),
-                $domain,
-                $eventName,
-                [
-                    'method' => $httpMethod,
-                    'targets' => array_values(array_unique($targets)),
-                ],
-                [EventBroadcaster::DEFAULT_SCOPE]
-            );
-            // Node realtime gateway bridge (scaling masterplan): when the
-            // gateway address is configured, mirror the mutation to connected
-            // browsers over SSE. RealtimeGatewayPublisher is fire-and-forget,
-            // dormant until configured, and swallows failures — a realtime
-            // outage never turns a successful school operation into an HTTP
-            // failure. Payload keys are the gateway's allowlisted change
+            // Mirror the mutation to connected browsers over the Node SSE
+            // gateway, the only realtime transport. RealtimeGatewayPublisher is
+            // fire-and-forget, dormant until configured, and swallows failures:
+            // a realtime outage never turns a successful school operation into
+            // an HTTP failure. Payload keys are the gateway's allowlisted change
             // descriptors; never record bodies. Scope 'all' reaches staff
             // 'all'-channel holders; parents (family channels) never inherit it.
             RealtimeGatewayPublisher::publish(
@@ -85,6 +91,39 @@ class RealtimeMutationPublisher
             // turn a successful school operation into an HTTP failure.
             \App\API\Services\Logger::legacyError('Realtime mutation publish failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Whether a finished request is a real browser-initiated change that open
+     * staff pages should hear about.
+     */
+    public static function shouldPublish(string $httpMethod, string $controller, ?string $resource, array $result): bool
+    {
+        $httpMethod = strtoupper($httpMethod);
+        $controller = strtolower(trim($controller));
+        return in_array($httpMethod, self::MUTATION_METHODS, true)
+            && !in_array($controller, self::EXCLUDED_CONTROLLERS, true)
+            && !self::isReadOnlyPost($controller, $resource)
+            && !self::isWorkerRequest()
+            && self::wasSuccessful($result);
+    }
+
+    private static function isReadOnlyPost(string $controller, ?string $resource): bool
+    {
+        $resource = strtolower(trim((string) $resource));
+        return in_array($resource, self::READ_ONLY_POSTS[$controller] ?? [], true);
+    }
+
+    /**
+     * Ticker jobs (python_platform/schedules.yaml `kind: http`) POST here every
+     * few seconds whether or not they have work. When one does change data, the
+     * source-table triggers make the read-model refresh announce it once the
+     * replica is fresh, so announcing the POST itself is only noise. Header
+     * presence is enough: a caller forging it only silences its own event.
+     */
+    private static function isWorkerRequest(): bool
+    {
+        return trim((string) ($_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '')) !== '';
     }
 
     private static function wasSuccessful(array $result): bool
