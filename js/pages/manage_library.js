@@ -132,7 +132,7 @@ const libraryController = {
     document.getElementById('catName').value = '';
     document.getElementById('catDesc').value = '';
     document.getElementById('catError').classList.add('d-none');
-    new bootstrap.Modal(document.getElementById('addCategoryModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('addCategoryModal')).show();
   },
 
   saveCategory: async function () {
@@ -215,7 +215,7 @@ const libraryController = {
     document.getElementById('bookStatus').value  = 'active';
     document.getElementById('bookCategory').value = '';
     document.getElementById('bookFormError').classList.add('d-none');
-    new bootstrap.Modal(document.getElementById('addBookModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('addBookModal')).show();
   },
 
   editBook: async function (id) {
@@ -236,7 +236,7 @@ const libraryController = {
       document.getElementById('bookStatus').value      = b.status    || 'active';
       document.getElementById('bookDesc').value        = b.description || '';
       document.getElementById('bookFormError').classList.add('d-none');
-      new bootstrap.Modal(document.getElementById('addBookModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('addBookModal')).show();
     } catch (e) { showNotification('Failed to load book: ' + e.message, 'danger'); }
   },
 
@@ -352,7 +352,7 @@ const libraryController = {
   showIssueModal: function () {
     document.getElementById('issueError').classList.add('d-none');
     this.loadBorrowerList();
-    new bootstrap.Modal(document.getElementById('issueBookModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('issueBookModal')).show();
   },
 
   populateIssueBooksDropdown: async function () {

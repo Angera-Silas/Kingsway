@@ -88,7 +88,7 @@ class InventoryReportManager extends BaseAPI
     {
         try {
             $sql = "SELECT equipment_id AS asset_id, emt.name AS maintenance_type, COUNT(*) as event_count
-                    FROM " . ReadReplicaService::qualifiedRef("equipment_maintenance") . "
+                    FROM " . ReadReplicaService::qualifiedRef("equipment_maintenance") . " em
                     LEFT JOIN equipment_maintenance_types emt ON emt.id = em.maintenance_type_id
                     GROUP BY equipment_id, emt.name
                     ORDER BY event_count DESC";

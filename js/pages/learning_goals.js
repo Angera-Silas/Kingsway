@@ -114,7 +114,7 @@ const learningGoalsController = (() => {
     setVal('lgTargetDate', '');
     setVal('lgStatus', 'not_started');
     document.getElementById('lgModalLabel').textContent = 'Add Learning Goal';
-    if (!modal) modal = new bootstrap.Modal(document.getElementById('lgModal'));
+    if (!modal) modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('lgModal'));
     modal.show();
   }
 
@@ -127,7 +127,7 @@ const learningGoalsController = (() => {
     setVal('lgTargetDate', g.target_date ? g.target_date.slice(0, 10) : '');
     setVal('lgStatus', g.status || 'not_started');
     document.getElementById('lgModalLabel').textContent = 'Edit Learning Goal';
-    if (!modal) modal = new bootstrap.Modal(document.getElementById('lgModal'));
+    if (!modal) modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('lgModal'));
     modal.show();
   }
 

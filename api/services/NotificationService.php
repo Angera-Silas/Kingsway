@@ -235,7 +235,7 @@ class NotificationService
         } else {
             $stmt = $this->db->prepare(
                 "SELECT DISTINCT user_id
-                   FROM " . ReadReplicaService::masterRef('user_role_grant') . "
+                   FROM " . ReadReplicaService::masterRef('vw_user_role_grant') . "
                   WHERE role_name = ? AND user_status = 'active'"
             );
             $stmt->execute([(string) $roleIdOrName]);

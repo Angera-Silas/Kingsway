@@ -895,7 +895,7 @@ final class AssessmentResultsService
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to delete a result.',403);
         $this->db->beginTransaction();
         try {
-            $stmt=$this->db->prepare('SELECT *, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NULL FOR UPDATE');
+            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NULL FOR UPDATE');
             $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!$old) throw new RuntimeException('Active result record not found.',404);
             $this->db->prepare('UPDATE assessment_results SET deleted_at=NOW(),deleted_by=? WHERE id=?')->execute([$this->userId,$resultId]);
@@ -911,7 +911,7 @@ final class AssessmentResultsService
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to restore a result.',403);
         $this->db->beginTransaction();
         try {
-            $stmt=$this->db->prepare('SELECT *, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NOT NULL FOR UPDATE');
+            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NOT NULL FOR UPDATE');
             $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!$old) throw new RuntimeException('Deleted result record not found.',404);
             $this->db->prepare('UPDATE assessment_results SET deleted_at=NULL,deleted_by=NULL WHERE id=?')->execute([$resultId]);
@@ -1053,7 +1053,7 @@ final class AssessmentResultsService
                 $params[] = $studentId;
             }
             $stmt = $this->db->prepare(
-                "SELECT ar.* FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+                "SELECT ar.* FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
                  JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
                  WHERE ar.assessment_id = ? AND ar.is_submitted = 1 AND ar.deleted_at IS NULL{$studentSql}
                  FOR UPDATE"
@@ -1158,18 +1158,31 @@ final class AssessmentResultsService
 
     private function exam(int $assessmentId): array
     {
-        $ec = ReadReplicaService::qualifiedRef('exam_context');
+        // exam_context lacks exam name/type/venue and assessment type, so
+        // read the schedule directly (keyed lookup on the primary).
         $stmt = $this->db->prepare(
-            "SELECT ec.exam_schedule_id, ec.assessment_id, ec.exam_name, ec.exam_type,
-                    ec.exam_date, ec.start_time, ec.end_time, ec.venue, ec.exam_status AS schedule_status,
-                    ec.aycs_id AS academic_year_class_stream_id, ec.academic_year_class_id, ec.academic_year_term_id, ec.learning_area_id,
-                    ec.exam_period_id, ec.period_status AS exam_period_status,
-                    ec.assessment_title, ec.assessment_max_marks AS max_marks, ec.assessment_type_id,
-                    ec.assigned_by, ec.assessment_status,
-                    ec.learning_area_name, ec.class_name, ec.stream_name,
-                    ec.assessment_type_name
-             FROM {$ec} ec
-             WHERE ec.assessment_id = ? AND ec.exam_status <> 'cancelled' LIMIT 1"
+            "SELECT es.id AS exam_schedule_id, esa.assessment_id, es.exam_name, es.exam_type,
+                    es.exam_date, es.start_time, es.end_time, es.venue, es.status AS schedule_status,
+                    esa.academic_year_class_stream_id, es.academic_year_class_id, es.academic_year_term_id, es.learning_area_id,
+                    ep.id AS exam_period_id, ep.status AS exam_period_status,
+                    a.title AS assessment_title, a.max_marks, a.assessment_type_classification_id AS assessment_type_id,
+                    a.assigned_by, a.status AS assessment_status,
+                    la.name AS learning_area_name, c.name AS class_name, sn.name AS stream_name,
+                    atc.name AS assessment_type_name
+             FROM exam_schedules es
+             JOIN exam_schedule_assessments esa ON esa.exam_schedule_id = es.id
+             JOIN assessments a ON a.id = esa.assessment_id
+             JOIN academic_year_class_streams aycs ON aycs.id = esa.academic_year_class_stream_id
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN streams sn ON sn.id = aycs.stream_id
+             JOIN learning_areas la ON la.id = es.learning_area_id
+             LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
+             LEFT JOIN exam_period_timetable_entries ept ON ept.exam_schedule_id = es.id
+             LEFT JOIN exam_period_class_learning_areas epcla ON epcla.id = ept.exam_period_class_learning_area_id
+             LEFT JOIN exam_period_classes epc ON epc.id = epcla.exam_period_class_id
+             LEFT JOIN exam_periods ep ON ep.id = epc.exam_period_id
+             WHERE esa.assessment_id = ? AND es.status <> 'cancelled' LIMIT 1"
         );
         $stmt->execute([$assessmentId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);

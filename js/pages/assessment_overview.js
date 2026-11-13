@@ -28,8 +28,8 @@ const assessmentOverviewCtrl = {
       return;
     }
     await GradingScale.preload();
-    this._createModal = new bootstrap.Modal(document.getElementById('aoCreateModal'));
-    this._marksModal  = new bootstrap.Modal(document.getElementById('aoMarksModal'));
+    this._createModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('aoCreateModal'));
+    this._marksModal  = bootstrap.Modal.getOrCreateInstance(document.getElementById('aoMarksModal'));
     await Promise.all([
       this._loadReferencesComposed(),
       this._loadClasses(),

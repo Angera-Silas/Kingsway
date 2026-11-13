@@ -131,7 +131,7 @@ const activitiesController = {
       if (el) el.value = '';
     });
     document.getElementById('activityStatus').value = 'planning';
-    new bootstrap.Modal(document.getElementById('activityModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('activityModal')).show();
   },
 
   editActivity: async function (id) {
@@ -149,7 +149,7 @@ const activitiesController = {
       document.getElementById('activityMaxParticipants').value  = a.max_participants ?? '';
       document.getElementById('activityTeacher').value          = a.teacher_in_charge ?? a.coordinator ?? '';
       document.getElementById('activityDescription').value      = a.description ?? '';
-      new bootstrap.Modal(document.getElementById('activityModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('activityModal')).show();
     } catch (e) {
       API.showNotification('Failed to load activity: ' + e.message, 'error');
     }
@@ -264,7 +264,7 @@ const activitiesController = {
     document.getElementById('categoryId').value          = '';
     document.getElementById('categoryName').value        = '';
     document.getElementById('categoryDescription').value = '';
-    new bootstrap.Modal(document.getElementById('categoryModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('categoryModal')).show();
   },
 
   editCategory: async function (id) {
@@ -275,7 +275,7 @@ const activitiesController = {
       document.getElementById('categoryId').value          = c.id ?? c.category_id;
       document.getElementById('categoryName').value        = c.name ?? c.category_name ?? '';
       document.getElementById('categoryDescription').value = c.description ?? '';
-      new bootstrap.Modal(document.getElementById('categoryModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('categoryModal')).show();
     } catch (e) {
       API.showNotification('Failed to load category: ' + e.message, 'error');
     }
@@ -380,7 +380,7 @@ const activitiesController = {
       ).join('');
     document.getElementById('participantStudentId').value = '';
     document.getElementById('participantRole').value      = '';
-    new bootstrap.Modal(document.getElementById('participantModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('participantModal')).show();
   },
 
   saveParticipant: async function () {
@@ -469,7 +469,7 @@ const activitiesController = {
       if (el) el.value = '';
     });
     this._fillActivitySelect('scheduleActivity');
-    new bootstrap.Modal(document.getElementById('scheduleModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('scheduleModal')).show();
   },
 
   editSchedule: async function (id) {
@@ -484,7 +484,7 @@ const activitiesController = {
       document.getElementById('scheduleEndTime').value   = s.end_time   ?? '';
       document.getElementById('scheduleVenue').value     = s.venue      ?? '';
       this._fillActivitySelect('scheduleActivity', s.activity_id);
-      new bootstrap.Modal(document.getElementById('scheduleModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('scheduleModal')).show();
     } catch (e) {
       API.showNotification('Failed to load schedule: ' + e.message, 'error');
     }
@@ -582,7 +582,7 @@ const activitiesController = {
     document.getElementById('resourceType').value     = 'equipment';
     document.getElementById('resourceQuantity').value = '1';
     this._fillActivitySelect('resourceActivity');
-    new bootstrap.Modal(document.getElementById('resourceModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('resourceModal')).show();
   },
 
   editResource: async function (id) {
@@ -597,7 +597,7 @@ const activitiesController = {
       document.getElementById('resourceQuantity').value = r.quantity ?? 1;
       document.getElementById('resourceNotes').value    = r.notes ?? '';
       this._fillActivitySelect('resourceActivity', r.activity_id);
-      new bootstrap.Modal(document.getElementById('resourceModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('resourceModal')).show();
     } catch (e) {
       API.showNotification('Failed to load resource: ' + e.message, 'error');
     }

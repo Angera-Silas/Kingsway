@@ -66,7 +66,8 @@ class StudentAttendanceManager
                        SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days,
                        SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
                        SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) as late_days
-                FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                FROM student_attendance sa
+                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
                 WHERE sae.student_id = ?
                 GROUP BY sae.academic_year_id
                 ORDER BY sae.academic_year_id DESC";
@@ -104,7 +105,8 @@ class StudentAttendanceManager
     public function getAttendancePercentage($studentId, $yearId = null)
     {
         $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days
-                FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                FROM student_attendance sa
+                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
                 WHERE sae.student_id = ?";
         $params = [$studentId];
         if ($yearId) {
@@ -153,7 +155,8 @@ class StudentAttendanceManager
 
     public function read($studentId, $date = null, $streamId = null)
     {
-        $sql = "SELECT sa.* FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+        $sql = "SELECT sa.* FROM student_attendance sa
+                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
                 WHERE sae.student_id = :student_id";
         $params = ['student_id' => $studentId];
         if ($date) {

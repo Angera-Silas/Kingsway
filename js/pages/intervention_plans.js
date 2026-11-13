@@ -18,8 +18,8 @@ const interventionPlansController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._modal     = new bootstrap.Modal(document.getElementById('ipModal'));
-    this._viewModal = new bootstrap.Modal(document.getElementById('ipViewModal'));
+    this._modal     = bootstrap.Modal.getOrCreateInstance(document.getElementById('ipModal'));
+    this._viewModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('ipViewModal'));
     await Promise.all([this._loadStats(), this._loadData(), this._loadStudents(), this._loadStaff()]);
   },
 

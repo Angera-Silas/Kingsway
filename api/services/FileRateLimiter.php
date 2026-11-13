@@ -28,7 +28,7 @@ final class FileRateLimiter
 
         $root = dirname(__DIR__, 2) . '/logs/' . FileLogger::environment() . '/' . self::DIR_NAME;
         if (!is_dir($root)) {
-            if (!@mkdir($root, 0777, true) && !is_dir($root)) {
+            if (!@mkdir($root, 02770, true) && !is_dir($root)) {
                 self::$dir = '';
                 error_log('FileRateLimiter: cannot create ' . $root);
                 return null;
@@ -40,7 +40,7 @@ final class FileRateLimiter
         // directory is kept writable for whoever serves the request. The
         // directory holds counters only - no credentials or payloads.
         if (is_dir($root) && !is_writable($root)) {
-            @chmod($root, 0777);
+            @chmod($root, 02770);
         }
         self::$dir = $root;
         return $root;
@@ -67,11 +67,11 @@ final class FileRateLimiter
 
         $written = @file_put_contents($path, $line, LOCK_EX | FILE_APPEND);
         if ($written === false) {
-            @chmod($path, 0666);
+            @chmod($path, 0660);
             error_log('FileRateLimiter: failed to write ' . $path);
             return true; // fail open: never block a sign-in on a logging fault
         }
-        @chmod($path, 0666);
+        @chmod($path, 0660);
         return true;
     }
 
@@ -125,7 +125,7 @@ final class FileRateLimiter
         // The lock file may have been created by the CLI user while the web
         // server serves the request; keep it writable for both so the mutex
         // never degrades into a permanent fail-open.
-        @chmod($path, 0666);
+        @chmod($path, 0660);
         if (!@flock($handle, LOCK_EX)) {
             fclose($handle);
             return null;

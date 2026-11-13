@@ -35,7 +35,7 @@ final class TeacherCurriculumScopeService
         $contexts = [];
         $stmt = $this->db->prepare(
             "SELECT DISTINCT v.subject_id AS learning_area_id, v.class_id, c.grade_level, v.class_name, v.subject_name
-               FROM " . ReadReplicaService::masterRef("vw_staff_assignments_detailed") . "
+               FROM " . ReadReplicaService::masterRef("vw_staff_assignments_detailed") . " v
                JOIN " . ReadReplicaService::masterRef("classes") . " c ON c.id=v.class_id
               WHERE v.staff_id=? AND v.academic_year_id=?"
         );

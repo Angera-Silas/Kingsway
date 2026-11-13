@@ -396,7 +396,7 @@ const placementTestsController = {
 
         const modal = document.getElementById('createTestModal');
         if (modal) {
-            const bsModal = new bootstrap.Modal(modal);
+            const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
             bsModal.show();
         }
     },
@@ -478,7 +478,7 @@ const placementTestsController = {
 
         const modal = document.getElementById('recordResultsModal');
         if (modal) {
-            const bsModal = new bootstrap.Modal(modal);
+            const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
             bsModal.show();
         }
     },

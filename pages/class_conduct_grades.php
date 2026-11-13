@@ -24,7 +24,6 @@
       <select class="form-select form-select-sm" id="cgClassFilter" style="width:auto;">
         <option value="self">My Class</option>
       </select>
-      <button class="btn btn-outline-primary btn-sm" id="cgApplyBtn">Filter</button>
     </div>
   </div>
 

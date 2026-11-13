@@ -253,9 +253,9 @@ PHP;
             'departments' => $this->rows("SELECT id,code,name FROM departments WHERE status='active' ORDER BY name"),
             'roles' => $this->assignableSchoolRoles(),
             'staff_types' => $this->rows("SELECT id,name FROM staff_types WHERE is_active=1 ORDER BY name"),
-            'staff_categories' => $this->rows("SELECT sc.id,sc.category_name AS name,st.name AS staff_type FROM " . ReadReplicaService::qualifiedRef("staff_categories") . " JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON st.id=sc.staff_type_id WHERE sc.is_active=1 ORDER BY st.name,sc.category_name"),
+            'staff_categories' => $this->rows("SELECT sc.id,sc.category_name AS name,st.name AS staff_type FROM " . ReadReplicaService::qualifiedRef("staff_categories") . " sc JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON st.id=sc.staff_type_id WHERE sc.is_active=1 ORDER BY st.name,sc.category_name"),
             'learning_areas' => $this->rows("SELECT id,name,code FROM learning_areas WHERE status='active' ORDER BY name"),
-            'leadership_positions' => $this->rows("SELECT id, name FROM " . ReadReplicaService::qualifiedRef("leadership_positions_categories") . " WHERE is_active=1 AND category_is_active=1 AND category_holder_scope IN ('staff','any_person') ORDER BY display_order, name"),
+            'leadership_positions' => $this->rows("SELECT lp.id,lp.name FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') ORDER BY lp.display_order,lp.name"),
             'positions' => StaffPositionCatalog::list($this->db),
             'contracts' => ['permanent','contract','temporary'],
             'genders' => ['male','female','other'],
@@ -714,7 +714,7 @@ PHP;
         $stmt=$this->db->prepare("SELECT b.*,CONCAT(p.first_name,' ',p.last_name) imported_by_name FROM staff_import_batches b LEFT JOIN users u ON u.id=b.imported_by LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=u.person_id WHERE b.id=?");
         $stmt->execute([$batchId]);$batch=$stmt->fetch(PDO::FETCH_ASSOC);if(!$batch)throw new RuntimeException('Import batch not found.');
         $stmt=$this->db->prepare("SELECT r.id,r.`row_number`,r.row_data,r.validation_errors,r.status,r.staff_id,r.user_id,
-            (SELECT u.force_password_change FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE u.id=r.user_id LIMIT 1) AS setup_required,
+            (SELECT u.force_password_change FROM users u WHERE u.id=r.user_id LIMIT 1) AS setup_required,
             CASE WHEN ui.id IS NULL THEN 'not_sent' WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired' ELSE ui.status END AS invitation_status,
             COALESCE(om.status,'not_queued') AS invitation_delivery_status,om.sent_at AS invitation_sent_at
             FROM staff_import_rows r
@@ -901,7 +901,7 @@ PHP;
         if (!$row['position'] || !$employmentDate || $employmentDate->format('Y-m-d')!==$row['employment_date'] || !in_array((string)$row['contract_type'], ['permanent','contract','temporary'], true) || (int)$row['staff_type_id']<1 || (int)$row['staff_category_id']<1) throw new RuntimeException('The school must finish your employment assignment before profile completion. Contact the System Administrator.');
         $assignment = $this->db->prepare("SELECT department_id FROM (
                 SELECT sda.department_id, sda.effective_from, sda.id AS assignment_id
-                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . "
+                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda
                 JOIN departments d ON d.id=sda.department_id AND d.status='active'
                 WHERE sda.staff_id=? AND (sda.effective_to IS NULL OR sda.effective_to>=CURDATE())
                 UNION ALL
@@ -1068,7 +1068,7 @@ PHP;
                 ->execute([$sid,$learningAreaId,$actorId,$employmentDate]);
         }
         if (($r['leadership_position_name'] ?? '') !== '') {
-            $leaderPosition = $this->db->prepare("SELECT id FROM " . ReadReplicaService::qualifiedRef("leadership_positions_categories") . " WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND is_active=1 AND category_is_active=1 AND category_holder_scope IN ('staff','any_person') LIMIT 1");
+            $leaderPosition = $this->db->prepare("SELECT lp.id FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
             $leaderPosition->execute([$r['leadership_position_name']]);
             $positionId = (int)$leaderPosition->fetchColumn();
             $yearId = (int)$this->db->query("SELECT id FROM academic_years ORDER BY is_current DESC,id DESC LIMIT 1")->fetchColumn();
@@ -1386,7 +1386,7 @@ PHP;
     }
     private function staffLeadershipPositionExists(string $name): bool
     {
-        $stmt = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("leadership_positions_categories") . " WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND is_active=1 AND category_is_active=1 AND category_holder_scope IN ('staff','any_person') LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1 FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
         $stmt->execute([$name]);
         return (bool)$stmt->fetchColumn();
     }

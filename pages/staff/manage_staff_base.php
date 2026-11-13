@@ -787,10 +787,17 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Class (optional)</label>
-                        <select id="assignSubjectClassId" class="form-select">
-                            <option value="">All Classes</option>
+                        <label class="form-label">Class <span class="text-danger">*</span></label>
+                        <select id="assignSubjectClassId" class="form-select" required>
+                            <option value="">Select Class</option>
                         </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stream</label>
+                        <select id="assignSubjectStreamId" class="form-select">
+                            <option value="">All streams</option>
+                        </select>
+                        <div class="form-text">Leave as "All streams" when the teacher takes this subject in every stream of the class.</div>
                     </div>
                 </div>
                 <div class="modal-footer">

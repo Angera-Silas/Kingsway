@@ -204,7 +204,7 @@
             // Reset item rows to a single blank row
             this.resetItemRows();
             const modal = document.getElementById("requisitionModal");
-            if (modal) new bootstrap.Modal(modal).show();
+            if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
         },
 
         resetItemRows() {
@@ -316,7 +316,7 @@
                 currentRequisition = Array.isArray(res) ? res[0] : (res?.requisition || res);
                 this.renderRequisitionDetails(currentRequisition);
                 const modal = document.getElementById("viewRequisitionModal");
-                if (modal) new bootstrap.Modal(modal).show();
+                if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
             } catch (e) {
                 showToast(e.message || "Failed to load requisition details", "error");
             }

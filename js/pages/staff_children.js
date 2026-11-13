@@ -274,7 +274,7 @@ const StaffChildrenController = {
     document.getElementById("staffChildForm").reset();
     document.getElementById("feePreviewSection").style.display = "none";
 
-    const modal = new bootstrap.Modal(
+    const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById("staffChildModal")
     );
     modal.show();
@@ -302,7 +302,7 @@ const StaffChildrenController = {
 
     this.updateFeePreview();
 
-    const modal = new bootstrap.Modal(
+    const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById("staffChildModal")
     );
     modal.show();
@@ -454,7 +454,7 @@ const StaffChildrenController = {
     document.getElementById("staffDeductionsContainer").innerHTML =
       '<p class="text-muted text-center">Click "Calculate Deductions" to view fee deductions</p>';
 
-    const modal = new bootstrap.Modal(
+    const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById("staffDeductionsModal")
     );
     modal.show();

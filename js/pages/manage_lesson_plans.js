@@ -285,7 +285,7 @@ const lessonPlansController = (() => {
             </div>
         </div></div></div>`;
     document.body.appendChild(modal);
-    new bootstrap.Modal(document.getElementById("viewPlanModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("viewPlanModal")).show();
     document
       .getElementById("viewPlanModal")
       .addEventListener("hidden.bs.modal", () => modal.remove());
@@ -354,7 +354,7 @@ const lessonPlansController = (() => {
       if (schemeSelect.value) loadSchemeContext(schemeSelect.value, plan);
     }
 
-    new bootstrap.Modal(document.getElementById("lessonFormModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("lessonFormModal")).show();
     document
       .getElementById("lessonFormModal")
       .addEventListener("hidden.bs.modal", () => m.remove());

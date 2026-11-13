@@ -531,7 +531,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                     MAX(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as highest_percentage,
                     MIN(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as lowest_percentage,
                     STDDEV(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as std_deviation
-                FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+                FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
                 JOIN assessments a ON a.id = ar.assessment_id
                 WHERE ar.assessment_id = :id"
             );
@@ -628,7 +628,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                             WHEN plc.name = 'Approaching Expectations' THEN 2
                             ELSE 1
                         END) as avg_level
-                    FROM " . ReadReplicaService::qualifiedRef("learner_competencies") . "
+                    FROM " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc
                     INNER JOIN performance_levels_cbc plc ON lc.performance_level_id = plc.id
                     WHERE lc.competency_id = :comp_id
                     AND lc.term_id = :term_id"
@@ -728,7 +728,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
         }
         $stmt = $this->db->prepare(
             "SELECT aycs.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
              WHERE ayc.class_id = ?
              ORDER BY ayc.academic_year_id DESC, aycs.id

@@ -125,7 +125,7 @@ const welfareFUController = {
     document.getElementById('wfDueDate').value   = item?.due_date   || '';
     document.getElementById('wfAssignedTo').value= item?.assigned_to || '';
     document.getElementById('wfError').classList.add('d-none');
-    new bootstrap.Modal(document.getElementById('wfModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wfModal')).show();
   },
 
   editItem: function (id) {

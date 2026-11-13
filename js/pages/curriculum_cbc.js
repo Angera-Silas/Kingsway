@@ -288,7 +288,7 @@ const CurriculumCBCController = (() => {
         document.getElementById('currIndicators').value = entry?.indicators || entry?.competency_indicators || '';
         document.getElementById('currAssessment').value = entry?.assessment_criteria || '';
         document.getElementById('curriculumModalLabel').textContent = entry ? 'Edit Curriculum Entry' : 'Add Curriculum Entry';
-        new bootstrap.Modal(document.getElementById('curriculumModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('curriculumModal')).show();
     }
 
     async function save() {

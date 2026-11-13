@@ -397,14 +397,19 @@ class FileLogger
         return preg_replace('/[^a-z0-9_-]/i', '_', $category) ?: 'app';
     }
 
+    /**
+     * Journals are tamper-evident, so they are never world-writable in any
+     * environment. Directories are setgid so every writer (Apache as www-data,
+     * CLI operators in the www-data group) shares the directory's group.
+     */
     private static function dirMode(): int
     {
-        return self::environment() === 'production' ? 0770 : 0777;
+        return 02770;
     }
 
     private static function fileMode(): int
     {
-        return self::environment() === 'production' ? 0660 : 0666;
+        return 0660;
     }
 
     private static function retentionDays(): int

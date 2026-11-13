@@ -63,7 +63,11 @@ class AdmissionsReportManager extends BaseAPI
             $stmt->execute($params);
             return $stmt->fetch(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            return ['total_applicants' => 0, 'total_admitted' => 0, 'conversion_rate' => 0];
+            // Never report a failure as "0 applicants": that reads as real
+            // data and the assistant built conclusions on it. Let the governed
+            // executor report the report as unavailable.
+            \App\API\Services\Logger::legacyError('[AdmissionsReportManager] conversion rates failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 

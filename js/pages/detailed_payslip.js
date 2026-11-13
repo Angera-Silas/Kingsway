@@ -609,7 +609,7 @@ const DetailedPayslipController = {
     var okBtn = document.getElementById("confirmModalOk");
     okBtn.style.background = type === "danger" ? "#8B0000" : "#0d4f2a";
 
-    var bsModal = new bootstrap.Modal(modal);
+    var bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
 
     // Remove old listeners by cloning

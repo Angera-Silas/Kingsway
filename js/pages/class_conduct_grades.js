@@ -12,7 +12,8 @@ const classConductGradesController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    document.getElementById('cgApplyBtn')?.addEventListener('click', () => this._load());
+    // Rule 6: filters auto-load on change (no Apply button).
+    ['cgTermFilter', 'cgClassFilter'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this._load()));
     await this._load();
     window.APIRealtime?.register?.('class_conduct_grades', { refresh: () => this._load() }, ['academic']);
   },

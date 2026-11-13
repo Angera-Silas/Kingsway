@@ -779,7 +779,7 @@ class StudentsAPI extends BaseAPI
         $placeholders = implode(',', array_fill(0, count($parentIds), '?'));
         $stmt = $this->db->prepare("
             SELECT DISTINCT sp.student_id
-            FROM " . ReadReplicaService::qualifiedRef("student_parents") . "
+            FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sp.student_id
             WHERE sp.parent_id IN ($placeholders)
               AND s.status = 'active'
@@ -800,7 +800,8 @@ class StudentsAPI extends BaseAPI
         // column in the normalized schema.
         $stmt = $this->db->prepare(
             "SELECT s.id
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . "
+             FROM staff s
+             JOIN users u ON u.person_id = s.person_id
              WHERE u.id = ? AND s.status = 'active'
              LIMIT 1"
         );
@@ -856,11 +857,11 @@ class StudentsAPI extends BaseAPI
         if (empty($scope['stream_ids'])) {
             $streamStmt = $this->db->prepare("
                 SELECT DISTINCT aycs.id AS stream_id, ayc.class_id
-                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
-                JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
-                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                FROM academic_year_class_streams aycs
+                JOIN streams sm ON sm.id = aycs.stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 WHERE EXISTS (
-                    SELECT 1 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                    SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
                     WHERE tscope.staff_id = ?
                       AND tscope.academic_year_class_stream_id = aycs.id
                       AND tscope.scope_type = 'class_teacher'
@@ -891,11 +892,11 @@ class StudentsAPI extends BaseAPI
         if ($academicYear !== null) {
             $stmt = $this->db->prepare("
                 SELECT ayt.id
-                FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
                 WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
                   AND ayt.status = 'current'
-                ORDER BY (SELECT code FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " id = ayt.term_id) ASC
+                ORDER BY (SELECT code FROM terms WHERE id = ayt.term_id) ASC
                 LIMIT 1
             ");
             $stmt->execute([$academicYear]);
@@ -906,7 +907,7 @@ class StudentsAPI extends BaseAPI
 
             $stmt = $this->db->prepare("
                 SELECT ayt.id
-                FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
                 WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
                 ORDER BY (SELECT code FROM terms WHERE id = ayt.term_id) DESC
@@ -1158,7 +1159,7 @@ class StudentsAPI extends BaseAPI
             "SELECT ssa.scholarship_program_id, ssa.coverage_type, ssa.coverage_percentage, ssa.coverage_amount,
                     ssa.period_type, ssa.starts_on, ssa.ends_on, ssa.reason,
                     sp.name AS programme_name
-             FROM " . ReadReplicaService::qualifiedRef("student_scholarship_awards") . "
+             FROM " . ReadReplicaService::qualifiedRef("student_scholarship_awards") . " ssa
              JOIN scholarship_programs sp ON sp.id = ssa.scholarship_program_id
              WHERE ssa.student_id = ? AND ssa.status = 'active'
              ORDER BY ssa.id DESC"
@@ -1174,12 +1175,11 @@ private function getCurrentStudentTransport(int $studentId): array
             "SELECT tac.route_id, tac.route_name, tac.pickup_stop_id, tac.pickup_stop_name, tac.dropoff_stop_id,
                     tac.dropoff_stop_name, tac.pickup_time, tac.dropoff_time, tac.assignment_date,
                     tac.expected_amount, tac.assignment_status AS status,
-                    tac.vehicle_id, tac.vehicle_registration_number, tac.driver_full_name,
-                    tac.assignment_month AS month, tac.assignment_year AS year,
-                    tac.notes
+                    tac.vehicle_id, tac.registration_number AS vehicle_registration_number, tac.driver_full_name,
+                    tac.month AS month, tac.year AS year, tac.notes
              FROM {$tac} tac
              WHERE tac.student_id = ? AND tac.assignment_status IN ('active', 'suspended')
-             ORDER BY tac.assignment_year DESC, tac.assignment_month DESC, tac.assignment_id DESC"
+             ORDER BY tac.year DESC, tac.month DESC, tac.assignment_id DESC"
         );
         $stmt->execute([$studentId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1278,8 +1278,8 @@ private function getCurrentStudentTransport(int $studentId): array
     {
         $stmt = $this->db->prepare("
             SELECT aycs.id
-            FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
-            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+            FROM academic_year_class_streams aycs
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
             WHERE ayc.academic_year_id = ?
               AND ayc.class_id = ?
               AND aycs.stream_id = ?
@@ -1297,7 +1297,7 @@ private function getCurrentStudentTransport(int $studentId): array
     {
         $stmt = $this->db->prepare("
             SELECT aycs.id
-            FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+            FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
             WHERE sae.student_id = ?
               AND sae.enrollment_status = 'active'
@@ -1454,7 +1454,7 @@ private function getCurrentStudentTransport(int $studentId): array
 
         $termStmt = $this->db->prepare(
             "SELECT MIN(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
              JOIN terms t ON t.id = ayt.term_id
              WHERE ayt.academic_year_id = ?
                AND ayt.status = 'current'"
@@ -1464,7 +1464,7 @@ private function getCurrentStudentTransport(int $studentId): array
         if ($startTermNumber <= 0) {
             $termStmt = $this->db->prepare(
                 "SELECT MIN(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                  JOIN terms t ON t.id = ayt.term_id
                  WHERE ayt.academic_year_id = ?
                    AND CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date"
@@ -1529,7 +1529,7 @@ private function getCurrentStudentTransport(int $studentId): array
             }
             $existsStmt = $this->db->prepare("
                 SELECT sfo.id
-                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
                 WHERE sae.student_id = ?
                   AND sfo.academic_year_fee_schedule_id = ?
@@ -1711,7 +1711,7 @@ private function getCurrentStudentTransport(int $studentId): array
         foreach ($feeStructures as $row) {
             $existsStmt = $this->db->prepare("
                 SELECT sfo.id
-                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
                 WHERE sae.student_id = ?
                   AND sfo.academic_year_fee_schedule_id = ?
@@ -2399,7 +2399,7 @@ private function getCurrentStudentTransport(int $studentId): array
                 throw new Exception('Parent not found for provided parent_id');
             }
 
-            $sql = "SELECT id FROM student_parents WHERE student_id = ? AND parent_id = ? LIMIT 1";
+            $sql = "DELETE FROM student_parents WHERE student_id = ? AND parent_id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$studentId, $parentId]);
             if (!$stmt->fetch()) {
@@ -2446,7 +2446,8 @@ private function getCurrentStudentTransport(int $studentId): array
         if (!empty($parentData['phone_1']) || !empty($parentData['phone_2']) || !empty($parentData['email'])) {
             $stmt = $this->db->prepare("
                 SELECT p.id
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
                 WHERE pp.phone = ? OR pp.phone = ? OR (pp.email IS NOT NULL AND pp.email = ?)
                 LIMIT 1
             ");
@@ -2720,7 +2721,7 @@ private function getCurrentStudentTransport(int $studentId): array
 
         $currentTermStmt = $this->db->prepare(
             "SELECT ayt.id AS id, t.name AS name
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
              JOIN terms t ON t.id = ayt.term_id
              WHERE ayt.academic_year_id = (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current=1 ORDER BY id DESC LIMIT 1)
                AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
@@ -2811,7 +2812,7 @@ private function getCurrentStudentTransport(int $studentId): array
     {
         $snapshotStmt = $this->db->prepare(
             "SELECT snap.*, ay.year_code
-             FROM " . ReadReplicaService::qualifiedRef("student_fee_migration_snapshots") . "
+             FROM " . ReadReplicaService::qualifiedRef("student_fee_migration_snapshots") . " snap
              JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = snap.academic_year_id
              WHERE snap.student_id = ?
                AND (? IS NULL OR CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?)
@@ -2894,7 +2895,7 @@ private function getCurrentStudentTransport(int $studentId): array
                 COUNT(CASE WHEN sa.status = 'present' THEN 1 END) as present_days,
                 COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) as absent_days,
                 COUNT(CASE WHEN sa.status = 'late' THEN 1 END) as late_days
-            FROM " . ReadReplicaService::qualifiedRef("student_attendance") . "
+            FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sa.student_academic_enrollment_id
             WHERE sae.student_id = ?
             GROUP BY YEAR(sa.date), MONTH(sa.date)
@@ -3345,7 +3346,7 @@ private function getCurrentStudentTransport(int $studentId): array
                     COUNT(CASE WHEN sa.status = 'present' THEN 1 END) as present_days,
                     COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) as absent_days,
                     COUNT(CASE WHEN sa.status = 'late' THEN 1 END) as late_days
-                FROM " . ReadReplicaService::qualifiedRef("student_attendance") . "
+                FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sa.student_academic_enrollment_id
                 WHERE sae.student_id = ? AND YEAR(sa.date) = ? AND MONTH(sa.date) BETWEEN ? AND ?
             ";
@@ -3360,7 +3361,7 @@ private function getCurrentStudentTransport(int $studentId): array
             if ($termNumber > 3) {
                 $termStmt = $this->db->prepare("
                     SELECT SUBSTRING(t.code, 2) AS term_number
-                    FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                    FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                     JOIN terms t ON t.id = ayt.term_id
                     WHERE ayt.id = ?
                     LIMIT 1
@@ -5212,7 +5213,7 @@ private function getCurrentStudentTransport(int $studentId): array
     public function getTransferHistory($id)
     {
         try {
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('student_directory');
             $stmt = $this->db->prepare("
                 SELECT st.id,
                        st.student_id,
@@ -5258,7 +5259,7 @@ private function getCurrentStudentTransport(int $studentId): array
     public function getPromotionHistory($id)
     {
         try {
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('student_directory');
             $stmt = $this->db->prepare("
                 SELECT st.id,
                        st.student_id,
@@ -5385,16 +5386,16 @@ private function getCurrentStudentTransport(int $studentId): array
     public function getStudentsByClass($classId)
     {
         try {
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('student_directory');
             $stmt = $this->db->prepare("
                 SELECT lp.student_id AS id,
                        lp.admission_no,
-                       lp.student_first_name AS first_name,
-                       lp.student_last_name AS last_name,
-                       lp.student_middle_name AS middle_name,
-                       lp.student_gender AS gender,
-                       lp.student_dob AS date_of_birth,
-                       lp.student_photo_url AS photo_url,
+                       lp.first_name AS first_name,
+                       lp.last_name AS last_name,
+                       lp.middle_name AS middle_name,
+                       lp.gender AS gender,
+                       lp.dob AS date_of_birth,
+                       lp.photo_url AS photo_url,
                        lp.stream_name,
                        lp.class_name,
                        MAX(CASE WHEN tc.term_id = 1 THEN tc.avg_overall_percentage END) AS term1_average,
@@ -5421,12 +5422,12 @@ private function getCurrentStudentTransport(int $studentId): array
                     FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . " vws
                     GROUP BY vws.student_id
                 ) sa ON sa.student_id = lp.student_id
-                WHERE lp.class_id = ? AND lp.student_status = 'active'
-                GROUP BY lp.student_id, lp.admission_no, lp.student_first_name, lp.student_last_name,
-                         lp.student_middle_name, lp.student_gender, lp.student_dob, lp.student_photo_url,
+                WHERE lp.class_id = ? AND lp.student_status = 'active' AND lp.is_current_year = 1 AND lp.enrollment_status = 'active'
+                GROUP BY lp.student_id, lp.admission_no, lp.first_name, lp.last_name,
+                         lp.middle_name, lp.gender, lp.dob, lp.photo_url,
                          lp.stream_name, lp.class_name,
                          sa.attendance_percentage, sa.days_present, sa.days_absent
-                ORDER BY lp.student_last_name, lp.student_first_name
+                ORDER BY lp.last_name, lp.first_name
             ");
             $stmt->execute([$classId]);
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -6548,7 +6549,7 @@ private function getCurrentStudentTransport(int $studentId): array
 
         $obligationStmt = $this->db->prepare(
             "SELECT sfo.id, sfo.amount_due, COALESCE(sfo.sponsored_waiver_amount,0) AS sponsored_waiver_amount
-             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
              JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id=sfo.student_academic_enrollment_id
              WHERE sae.student_id=? AND sfo.academic_year_id=? AND sfo.academic_year_term_id=?
                AND sfo.status <> 'paid' ORDER BY sfo.id"
@@ -7082,7 +7083,7 @@ private function getCurrentStudentTransport(int $studentId): array
 
         $termStmt = $this->db->prepare(
             "SELECT ayt.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
              JOIN terms t ON t.id = ayt.term_id
              WHERE ayt.academic_year_id = ?
                AND (ayt.status = 'current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
@@ -7096,7 +7097,7 @@ private function getCurrentStudentTransport(int $studentId): array
             "SELECT
                 COALESCE(SUM(afs.amount), 0) AS annual_due,
                 COALESCE(SUM(CASE WHEN afs.academic_year_term_id = ? THEN afs.amount ELSE 0 END), 0) AS current_term_due
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " afs
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = afs.academic_year_class_id
              WHERE afs.academic_year_id = ?
                AND ayc.class_id = ?
@@ -7211,7 +7212,7 @@ private function getCurrentStudentTransport(int $studentId): array
 
         $termStmt = $this->db->prepare(
             "SELECT ayt.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
              JOIN terms t ON t.id = ayt.term_id
              WHERE ayt.academic_year_id = ?
                AND (ayt.status = 'current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
@@ -7320,7 +7321,7 @@ private function getCurrentStudentTransport(int $studentId): array
         $openingArrears = max(0, round((float) ($financial['fee_arrears_amount'] ?? 0), 2));
         if ($openingArrears > 0) {
             $firstObligation = $this->db->prepare(
-                "SELECT sfo.id FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                "SELECT sfo.id FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id=sfo.academic_year_term_id
                  WHERE sfo.student_academic_enrollment_id=? AND sfo.academic_year_id=?
                    AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
@@ -7514,7 +7515,8 @@ private function getCurrentStudentTransport(int $studentId): array
         if (($phone !== '' || $phone2 !== '') && $parentFirstName !== '' && $parentLastName !== '') {
             $stmt = $this->db->prepare("
                 SELECT p.id
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
                 WHERE (
                         (? <> '' AND pp.phone = ?)
                      OR (? <> '' AND pp.phone = ?)
@@ -7540,12 +7542,7 @@ private function getCurrentStudentTransport(int $studentId): array
         }
 
         if (!$parentId && $email !== '') {
-            $stmt = $this->db->prepare("
-                SELECT p.id
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
-                WHERE pp.email = ?
-                LIMIT 1
-            ");
+            $stmt = $this->db->prepare("SELECT id FROM parents WHERE id = ? LIMIT 1");
             $stmt->execute([$email]);
             $parentId = (int) ($stmt->fetchColumn() ?: 0);
         }
@@ -8129,7 +8126,7 @@ private function getCurrentStudentTransport(int $studentId): array
             // Fallback: derive students via the aycs (academic_year_class_streams) id.
             $fallback = $this->db->prepare("
                 SELECT sae.student_id
-                FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
                 WHERE sae.academic_year_class_stream_id = ?
                   AND sae.enrollment_status IN ('pending', 'active')

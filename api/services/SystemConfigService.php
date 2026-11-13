@@ -167,7 +167,7 @@ class SystemConfigService
     {
         $stmt = $this->db->query(
             "SELECT rp.*, p.code as permission_name, p.description as permission_description
-             FROM " . ReadReplicaService::masterRef("route_permissions") . "
+             FROM " . ReadReplicaService::masterRef("route_permissions") . " rp
              JOIN permissions p ON p.id = rp.permission_id
              WHERE rp.route_id = ?",
             [$routeId]
@@ -229,9 +229,10 @@ class SystemConfigService
     public function getRoutesForRole(int $roleId): array
     {
         $stmt = $this->db->query(
-            "SELECT * FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
-             WHERE role_id = ? AND is_allowed = 1 AND is_active = 1
-             ORDER BY domain, name",
+            "SELECT r.* FROM routes_registry r
+             JOIN role_routes rr ON rr.route_id = r.id
+             WHERE rr.role_id = ? AND rr.is_allowed = 1 AND r.is_active = 1
+             ORDER BY r.domain, r.name",
             [$roleId]
         );
         return $stmt->fetchAll();
@@ -243,8 +244,9 @@ class SystemConfigService
     public function isRoleAllowedRoute(int $roleId, string $routeName): bool
     {
         $stmt = $this->db->query(
-            "SELECT is_allowed FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
-             WHERE role_id = ? AND name = ? AND is_active = 1
+            "SELECT rr.is_allowed FROM role_routes rr
+             JOIN routes_registry r ON r.id = rr.route_id
+             WHERE rr.role_id = ? AND r.name = ? AND r.is_active = 1
              LIMIT 1",
             [$roleId, $routeName]
         );
@@ -315,10 +317,11 @@ class SystemConfigService
     public function getUserRouteOverrides(int $userId): array
     {
         $stmt = $this->db->query(
-            "SELECT *, route_name, domain
-             FROM " . ReadReplicaService::masterRef("user_routes_registry") . "
-             WHERE user_id = ?
-             AND (expires_at IS NULL OR expires_at > NOW())",
+            "SELECT ur.*, r.name as route_name, r.domain
+             FROM user_routes ur
+             JOIN routes_registry r ON r.id = ur.route_id
+             WHERE ur.user_id = ?
+             AND (ur.expires_at IS NULL OR ur.expires_at > NOW())",
             [$userId]
         );
         return $stmt->fetchAll();
@@ -330,9 +333,10 @@ class SystemConfigService
     public function getUserRouteOverride(int $userId, string $routeName): ?array
     {
         $stmt = $this->db->query(
-            "SELECT * FROM " . ReadReplicaService::masterRef("user_routes_registry") . "
-             WHERE user_id = ? AND route_name = ?
-             AND (expires_at IS NULL OR expires_at > NOW())
+            "SELECT ur.* FROM user_routes ur
+             JOIN routes_registry r ON r.id = ur.route_id
+             WHERE ur.user_id = ? AND r.name = ?
+             AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
              LIMIT 1",
             [$userId, $routeName]
         );
@@ -799,7 +803,7 @@ class SystemConfigService
 
         $deniedStmt = $this->db->query(
             "SELECT DISTINCT p.code
-             FROM " . ReadReplicaService::masterRef("user_permissions") . "
+             FROM " . ReadReplicaService::masterRef("user_permissions") . " up
              JOIN permissions p ON p.id = up.permission_id
              WHERE up.user_id = ?
                AND up.permission_type = 'deny'

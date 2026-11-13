@@ -126,7 +126,7 @@ const RubricsController = {
 
     openToolModal() {
         document.getElementById('assessmentToolForm')?.reset();
-        new bootstrap.Modal(document.getElementById('assessmentToolModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('assessmentToolModal')).show();
     },
 
     async saveTool() {
@@ -270,7 +270,7 @@ const RubricsController = {
     openModal(id) {
         const modalEl = document.getElementById('rubricModal');
         if (!modalEl) return;
-        const modal = new bootstrap.Modal(modalEl);
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         document.getElementById('rubricId').value = '';
         document.getElementById('rubricCriteria').value = '';
         document.getElementById('rubricL1').value = '';

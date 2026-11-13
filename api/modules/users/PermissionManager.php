@@ -66,7 +66,7 @@ class PermissionManager
     }
     public function getPermissionsByUser($userId)
     {
-        $sql = 'SELECT rp.*, fp.form_code, fp.form_name FROM ' . ReadReplicaService::masterRef('record_permissions') . '
+        $sql = 'SELECT rp.*, fp.form_code, fp.form_name FROM record_permissions rp
                 JOIN form_permissions fp ON rp.record_id = fp.id
                 WHERE rp.user_id = ? AND rp.table_name = ?';
         $stmt = $this->db->prepare($sql);
@@ -78,7 +78,7 @@ class PermissionManager
     {
         $sql = 'SELECT rp.id, rp.role_id, rp.permission_id AS form_permission_id, rp.created_at,
                        fp.form_code, fp.form_name
-                FROM ' . ReadReplicaService::masterRef('role_permissions') . '
+                FROM role_permissions rp
                 LEFT JOIN form_permissions fp ON rp.permission_id = fp.id
                 WHERE rp.role_id = ?';
         $stmt = $this->db->prepare($sql);

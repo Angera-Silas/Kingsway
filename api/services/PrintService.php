@@ -4516,12 +4516,12 @@ final class PrintService
         $yearId = (int) ($year['id'] ?? 0);
 
         $studentStmt = $db->prepare(
-            "SELECT s.id, s.admission_no,
-                    p.first_name, p.last_name,
-                    c.name AS class_name, st.name AS stream_name,
-                    sty.name AS student_type
-             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-             WHERE s.id = ? LIMIT 1"
+            "SELECT s.student_id AS id, s.admission_no,
+                    s.first_name, s.last_name,
+                    s.class_name, s.stream_name,
+                    s.student_type_name AS student_type
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
+             WHERE s.academic_year_id = ? AND s.student_id = ? LIMIT 1"
         );
         $studentStmt->execute([$yearId, $studentId]);
         $student = $studentStmt->fetch(PDO::FETCH_ASSOC);

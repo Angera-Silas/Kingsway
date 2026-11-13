@@ -12,14 +12,42 @@
  * home.php → app_layout.php the autoloader already exists and none of this runs.
  */
 
-if (!defined('KINGSWAY_AUTOLOAD_READY')) {
-    // This shim lives at pages/_shell_bootstrap.php, so the repo root is one
-    // level up. Resolved from this file's location so it works under any host
-    // layout (docroot or a subdirectory alias).
-    $__kingswayRoot = dirname(__DIR__);
+// Everything below is guarded: when the template is included through
+// home.php → app_layout.php the autoloader already exists and none of this runs.
+//
+// Ordering matters. Config::init() resolves the configured root and defines
+// APP_BASE_PATH itself, but that define is unguarded in
+// config/config_{development,production}.php — so defining APP_BASE_PATH here
+// FIRST and calling app_base_path() afterwards re-declares the constant and
+// emits "Constant APP_BASE_PATH already defined" on every role-template fetch
+// (a fatal from PHP 9). Initialise Config before touching the constant, then
+// fall back to this file's own location only when Config cannot supply it.
+$__kingswayRoot = dirname(__DIR__);
 
+if (!defined('KINGSWAY_AUTOLOAD_READY')) {
     if (is_file($__kingswayRoot . '/vendor/autoload.php')) {
         require_once $__kingswayRoot . '/vendor/autoload.php';
         define('KINGSWAY_AUTOLOAD_READY', 1);
     }
 }
+
+if (!defined('APP_BASE_PATH')) {
+    if (class_exists(\App\Config\Config::class)) {
+        \App\Config\Config::init();
+    }
+    if (!defined('APP_BASE_PATH')) {
+        define('APP_BASE_PATH', $__kingswayRoot);
+    }
+}
+
+// Templates fetched directly by PageShell.loadRoleTemplate() run in this
+// prepend's scope, not home.php's. home.php defines $appBase (and
+// APP_BASE_PATH) before including any page; a direct pages/<module>/<role>.php
+// request has no such parent, so templates that read $appBase directly would
+// resolve to /pages/<module> and 404 every CSS/JS/link asset. Publish the
+// BASE_URL-derived prefix as a global so every page surface sees the same one
+// home.php uses.
+if (!isset($GLOBALS['appBase']) || $GLOBALS['appBase'] === '') {
+    $GLOBALS['appBase'] = app_base_path();
+}
+$appBase = $GLOBALS['appBase'];

@@ -88,7 +88,7 @@ class SharedCache
                 }
             }
             if (is_dir($candidate) && !is_writable($candidate) && is_writable(dirname($candidate))) {
-                @chmod($candidate, 0777);
+                @chmod($candidate, 02770);
                 clearstatcache(true, $candidate);
             }
             if (is_dir($candidate) && is_writable($candidate)) {

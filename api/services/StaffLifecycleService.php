@@ -137,9 +137,7 @@ final class StaffLifecycleService
         $allowed = $this->referenceData()['action_types'];
         if (!in_array($data['action_type'], $allowed, true)) throw new RuntimeException('Unsupported lifecycle action');
         $staff = $this->db->query(
-            "SELECT s.*, sda.department_id
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-             WHERE s.id = ?",
+            "SELECT id, status FROM staff_lifecycle_actions WHERE id = ?",
             [(int)$data['staff_id']]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$staff) throw new RuntimeException('Staff member not found');

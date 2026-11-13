@@ -135,7 +135,7 @@ const ManageHolidaysController = (() => {
         document.getElementById('recordId').value = '';
         document.getElementById("recordType").value = 'national';
         document.getElementById("recordActive").value = '1';
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
 
     function editRecord(index) {
@@ -148,7 +148,7 @@ const ManageHolidaysController = (() => {
         document.getElementById("recordEndDate").value = h.end_date || h.start_date || '';
         document.getElementById("recordDescription").value = h.description || '';
         document.getElementById("recordActive").value = String(h.is_active) === '0' ? '0' : '1';
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
 
     function collectPayload() {

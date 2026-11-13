@@ -9,7 +9,7 @@ const announcementsController = {
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
-    this._modal = new bootstrap.Modal(document.getElementById('announcementModal'));
+    this._modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('announcementModal'));
     this._bindEvents();
     await this._load();
   },

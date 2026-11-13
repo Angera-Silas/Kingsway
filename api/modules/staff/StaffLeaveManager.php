@@ -209,7 +209,7 @@ class StaffLeaveManager extends BaseAPI
                            COALESCE(SUM(CASE
                                WHEN sl.status = 'approved' AND YEAR(sl.start_date) = YEAR(CURDATE())
                                THEN sl.days_requested ELSE 0 END), 0) AS used_days
-                    FROM " . ReadReplicaService::qualifiedRef("leave_types") . "
+                    FROM " . ReadReplicaService::qualifiedRef("leave_types") . " lt
                     LEFT JOIN staff_leaves sl
                            ON sl.leave_type_id = lt.id
                           AND sl.staff_id = ?

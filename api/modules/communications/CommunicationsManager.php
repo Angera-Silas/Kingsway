@@ -118,7 +118,7 @@ class CommunicationsManager extends FileLifecycleBase
             }
         }
 
-        $thread = $this->db->prepare("SELECT ct.id FROM " . ReadReplicaService::qualifiedRef("communication_threads") . " JOIN communication_thread_messages tm ON tm.thread_id = ct.id WHERE ct.thread_type = 'parent_portal' AND tm.sender_address = ? AND ct.status IN ('open','pending') ORDER BY ct.id DESC LIMIT 1");
+        $thread = $this->db->prepare("SELECT ct.id FROM " . ReadReplicaService::qualifiedRef("communication_threads") . " ct JOIN communication_thread_messages tm ON tm.thread_id = ct.id WHERE ct.thread_type = 'parent_portal' AND tm.sender_address = ? AND ct.status IN ('open','pending') ORDER BY ct.id DESC LIMIT 1");
         $thread->execute([$sender]);
         $threadId = (int) ($thread->fetchColumn() ?: 0);
         if (!$threadId) {

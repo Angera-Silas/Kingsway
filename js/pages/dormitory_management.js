@@ -220,7 +220,7 @@ const DormitoryManagementController = {
       const submit = form.querySelector('button[type="submit"]');
       if (modalTitle) modalTitle.textContent = "Edit Dormitory";
       if (submit) submit.textContent = "Save Changes";
-      new bootstrap.Modal(document.getElementById("addDormModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("addDormModal")).show();
     }
   },
 
@@ -254,7 +254,7 @@ const DormitoryManagementController = {
     }
     modal.querySelector(".modal-title").textContent = title;
     modal.querySelector(".modal-body").innerHTML = bodyHtml;
-    new bootstrap.Modal(modal).show();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 };
 

@@ -113,7 +113,7 @@ const examSetupController = (() => {
   }
 
   function showModal(id) {
-    new bootstrap.Modal($(id)).show();
+    bootstrap.Modal.getOrCreateInstance($(id)).show();
   }
   function hideModal(id) {
     bootstrap.Modal.getInstance($(id))?.hide();

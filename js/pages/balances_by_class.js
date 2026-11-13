@@ -459,7 +459,7 @@ function loadStudentHistory(studentId, studentName) {
 
   var modalEl = document.getElementById('studentBillingHistoryModal');
   if (!modalEl) return;
-  var modal = new bootstrap.Modal(modalEl);
+  var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
   modal.show();
 
   window.API.apiCall('/finance/students-billing-history/' + studentId, 'GET')

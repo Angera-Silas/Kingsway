@@ -1240,9 +1240,7 @@ return $this->serverError('An internal error occurred.');
             $classIds = array_values(array_unique(array_map('intval', array_column($scope['class_teacher_pairs'] ?? [], 'class_id'))));
             if (count($classIds) === 1) {
                 $classId = $classIds[0];
-                $nameStmt = \App\Database\Database::getInstance()->getConnection()->prepare('SELECT name FROM classes WHERE id = ?');
-                $nameStmt->execute([$classId]);
-                $className = (string) ($nameStmt->fetchColumn() ?: '');
+                $className = $this->contract(\App\API\Services\AcademicContextService::class)->className($classId);
                 return $this->success(['class_id' => $classId, 'class_name' => $className], 'Class teacher default resolved.');
             }
             return $this->success(['class_id' => null, 'class_name' => null], 'All classes is the default.');
@@ -4595,47 +4593,78 @@ return $this->serverError('An internal error occurred.');
         return $this->success(null, 'Class teacher assignment removed');
     }
 
-    /** GET /api/academic/subject-assignments or /{id} */
+    /** Assignment scope ('class' | 'stream') from the query string or body; ids are unique per scope. */
+    private function subjectAssignmentScope(array $data): string
+    {
+        return \App\API\Services\StaffTeachingAssignmentService::normalizeScope($_GET['scope'] ?? $data['assignment_scope'] ?? $data['scope'] ?? 'class');
+    }
+
+    /** Validation failures (4xx) carry a user-facing message; anything else stays an opaque 500. */
+    private function subjectAssignmentFailure(\Throwable $e)
+    {
+        $code = (int) $e->getCode();
+        if ($e instanceof RuntimeException && $code >= 400 && $code < 500) {
+            return $this->respondWith($code, $e->getMessage());
+        }
+        \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        return $this->serverError('An internal error occurred.');
+    }
+
+    /** GET /api/academic/subject-assignments or /{id}?scope=class|stream */
     public function getSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments('staff.teaching_assignments.view')) return $denied;
         try {
             if ($id !== null) {
-                $row = $this->teachingAssignments->getSubjectAssignment((int)$id);
+                $row = $this->teachingAssignments->getSubjectAssignment((int)$id, $this->subjectAssignmentScope((array) $data));
                 return $row ? $this->success($row) : $this->notFound('Subject assignment not found');
             }
-            return $this->success($this->teachingAssignments->listSubjectAssignments(array_merge($_GET, $data)));
+            return $this->success($this->teachingAssignments->listSubjectAssignments(array_merge($_GET, (array) $data)));
         } catch (\Throwable $e) {
             return $this->serverError('Failed to load subject assignments', 'An internal error occurred.');
         }
     }
 
-    /** POST /api/academic/subject-assignments */
+    /** POST /api/academic/subject-assignments (stream optional: none = all streams) */
     public function postSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         try {
-            $newId=$this->teachingAssignments->saveSubjectAssignment($data,null,$this->staffAccess->userId());
-            $this->staffAccess->audit('create_subject_assignment','staff_class_assignment',$newId,null,$data);
-            return $this->created(['id'=>$newId],'Subject assignment created');
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+            $saved = $this->teachingAssignments->saveSubjectAssignmentScoped((array) $data, null, $this->staffAccess->userId());
+            $this->staffAccess->audit('create_subject_assignment', 'staff_class_assignment', $saved['id'], null, $data);
+            return $this->created($saved, 'Subject assignment created');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
-    /** PUT /api/academic/subject-assignments/{id} */
+    /** PUT /api/academic/subject-assignments/{id}?scope=class|stream */
     public function putSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
-        if(!$id)return $this->badRequest('Assignment ID is required');
-        try{$before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->saveSubjectAssignment($data,(int)$id,$this->staffAccess->userId());$this->staffAccess->audit('update_subject_assignment','staff_class_assignment',(int)$id,$before,$data);return $this->success(['id'=>(int)$id],'Subject assignment updated');}
-        catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        try {
+            $data = (array) $data;
+            $data['assignment_scope'] = $this->subjectAssignmentScope($data);
+            $before = $this->teachingAssignments->getSubjectAssignment((int)$id, $data['assignment_scope']);
+            if (!$before) return $this->notFound('Subject assignment not found');
+            $saved = $this->teachingAssignments->saveSubjectAssignmentScoped($data, (int)$id, $this->staffAccess->userId());
+            $this->staffAccess->audit('update_subject_assignment', 'staff_class_assignment', (int)$id, $before, $data);
+            return $this->success($saved, 'Subject assignment updated');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
-    /** DELETE /api/academic/subject-assignments/{id} */
+    /** DELETE /api/academic/subject-assignments/{id}?scope=class|stream */
     public function deleteSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
-        if(!$id)return $this->badRequest('Assignment ID is required');
-        $before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->removeSubjectAssignment((int)$id);$this->staffAccess->audit('remove_subject_assignment','staff_class_assignment',(int)$id,$before,['status'=>'completed']);return $this->success(null,'Subject assignment removed');
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        try {
+            $scope = $this->subjectAssignmentScope((array) $data);
+            $before = $this->teachingAssignments->getSubjectAssignment((int)$id, $scope);
+            if (!$before) return $this->notFound('Subject assignment not found');
+            $this->teachingAssignments->removeSubjectAssignment((int)$id, $scope);
+            $this->staffAccess->audit('remove_subject_assignment', 'staff_class_assignment', (int)$id, $before, ['status' => 'completed', 'assignment_scope' => $scope]);
+            return $this->success(null, 'Subject assignment removed');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     // ========================================================================

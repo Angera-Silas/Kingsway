@@ -95,7 +95,7 @@ class DeputyAcademicAnalyticsService
 
     private function countAtWorkflowStage(string $stage): int
     {
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . "
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
             JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id=wi.reference_id
             WHERE wi.reference_type='admission_application' AND wi.current_stage=?
               AND aa.status NOT IN ('cancelled','enrolled')

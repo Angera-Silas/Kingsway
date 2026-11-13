@@ -71,7 +71,7 @@ const manageSchoolGalleryController = {
       imgWrap.style.display = 'block';
       imgEl.src = url;
     }
-    new bootstrap.Modal(modalEl).show();
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
   },
 
   openModal() {
@@ -80,7 +80,7 @@ const manageSchoolGalleryController = {
     document.getElementById('galleryCategory').value = 'General';
     document.getElementById('galleryMediaType').value = 'image';
     galleryMediaTypeChanged();
-    new bootstrap.Modal(document.getElementById('wsGalleryModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsGalleryModal')).show();
   },
 
   previewImg(url) {

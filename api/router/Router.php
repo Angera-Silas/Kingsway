@@ -36,7 +36,8 @@ class Router
             // 2. IP access control - Enforce active allow/deny CIDR rules
             IpAccessControlMiddleware::handle();
 
-            // 3. Rate Limiting - Prevent brute force and flooding
+            // 3. Rate limiting - unauthenticated callers only (see the method
+            //    docblock: signed-in staff are intentionally never throttled)
             RateLimitMiddleware::handle();
 
             // 4. Auth (JWT) - Validate JWT token

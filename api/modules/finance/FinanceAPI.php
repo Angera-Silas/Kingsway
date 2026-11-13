@@ -1267,7 +1267,7 @@ class FinanceAPI extends BaseAPI
                     pr.year AS payroll_year,
                     pr.status,
                     COUNT(ps.id) AS staff_count
-                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . "
+                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("payslips") . " ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope = pr.data_scope
                 WHERE pr.id = ? AND $scopeSql
                 GROUP BY pr.id, pr.month, pr.year, pr.status";
@@ -1572,8 +1572,8 @@ class FinanceAPI extends BaseAPI
             }
 
             $sql = "SELECT ay.year_code AS year, SUM(p.amount) AS total
-                    FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
-                    JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                    FROM payments p
+                    JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
                     WHERE p.status = 'confirmed' AND ay.year_code IN (?, ?)
                     GROUP BY ay.year_code";
             $stmt = $this->db->prepare($sql);
@@ -1864,7 +1864,7 @@ class FinanceAPI extends BaseAPI
         try {
             $stmt = $this->db->prepare("
                 SELECT ayc.class_id
-                FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " afs
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = afs.academic_year_class_id
                 WHERE afs.id = ?
             ");
@@ -1941,7 +1941,7 @@ class FinanceAPI extends BaseAPI
             }
 
             // Cannot delete if structure is active
-            $stmt = $this->db->prepare("SELECT status FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT details FROM school_transactions WHERE id = ?");
             $stmt->execute([$structureId]);
             $structure = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1958,8 +1958,12 @@ class FinanceAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT ayc.class_id 
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                SELECT ayc.class_id
+                FROM students s
+                LEFT JOIN users u ON u.person_id = s.person_id
+                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 WHERE u.id = ?
                 LIMIT 1
             ");
@@ -2003,11 +2007,7 @@ class FinanceAPI extends BaseAPI
     private function getTeacherClassIds($userId)
     {
         try {
-            $stmt = $this->db->prepare("
-                SELECT DISTINCT ayc.class_id 
-                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                WHERE u.id = ?
-            ");
+            $stmt = $this->db->prepare("SELECT details FROM school_transactions WHERE id = ?");
             $stmt->execute([$userId]);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
             return array_filter(array_map(function ($r) {
@@ -2031,7 +2031,7 @@ class FinanceAPI extends BaseAPI
     {
         try {
             $sql = "SELECT role_name AS name
-                    FROM " . ReadReplicaService::masterRef('user_role_grant') . "
+                    FROM " . ReadReplicaService::masterRef('vw_user_role_grant') . "
                     WHERE user_id = ?
                     ORDER BY user_role_created_at ASC
                     LIMIT 1";
@@ -2311,10 +2311,10 @@ class FinanceAPI extends BaseAPI
             foreach ($staffList as $staff) {
                 $eligible = !empty($staff['payroll_eligible']);
                 $existingStmt = $this->db->prepare(
-                    'SELECT id, payslip_status FROM ' . ReadReplicaService::qualifiedRef('payslips') . '
+                    'SELECT id, payslip_status FROM payslips
                      WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
-                       AND data_scope =
-                           (SELECT staff.data_scope FROM ' . ReadReplicaService::qualifiedRef('staff') . ' WHERE id = ?)
+                       AND data_scope COLLATE utf8mb4_unicode_ci =
+                           (SELECT staff.data_scope COLLATE utf8mb4_unicode_ci FROM staff WHERE id = ?)
                      LIMIT 1'
                 );
                 $existingStmt->execute([(int) $staff['id'], (int) $month, (int) $year, (int) $staff['id']]);
@@ -2387,7 +2387,11 @@ class FinanceAPI extends BaseAPI
                         p.phone,
                         spp.bank_name,
                         spp.bank_account
-                    FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                    FROM staff s
+                    LEFT JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+                    LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                    LEFT JOIN departments d ON d.id = sep.department_id
                     WHERE s.id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$staffId]);
@@ -3027,7 +3031,12 @@ class FinanceAPI extends BaseAPI
                                             st.admission_no,
                                             CONCAT(p.first_name, ' ', p.last_name) AS student_name,
                                             c.name AS class_name
-                                        FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                                        FROM students st
+                                        LEFT JOIN persons p ON p.id = st.person_id
+                                        LEFT JOIN student_academic_enrollments sae ON sae.student_id = st.id AND sae.enrollment_status = 'active'
+                                        LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                                        LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                        LEFT JOIN classes c ON c.id = ayc.class_id
                                         WHERE st.id = ?
                                         LIMIT 1";
                         $childrenStmt = $this->db->prepare($childrenSql);
@@ -3621,11 +3630,11 @@ class FinanceAPI extends BaseAPI
                 // existing drafts are already prepared and are not failures.
                 if ($preparationOnly) {
                     $existingStmt = $this->db->prepare(
-                        'SELECT id, payslip_status FROM ' . ReadReplicaService::qualifiedRef('payslips') . '
-                         WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
-                           AND data_scope =
-                               (SELECT staff.data_scope FROM ' . ReadReplicaService::qualifiedRef('staff') . ' WHERE id = ?)
-                         LIMIT 1'
+                        'SELECT id, payslip_status FROM payslips
+                     WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
+                       AND data_scope COLLATE utf8mb4_unicode_ci =
+                           (SELECT staff.data_scope COLLATE utf8mb4_unicode_ci FROM staff WHERE id = ?)
+                     LIMIT 1'
                     );
                     $existingStmt->execute([(int) $staffId, (int) $month, (int) $year, (int) $staffId]);
                     $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);

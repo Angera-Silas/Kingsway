@@ -33,7 +33,7 @@ final class StaffRecordsService
         }
         $roleId = null;
         if (!empty($row['user_id'])) {
-            $roleRef = ReadReplicaService::masterRef('user_role_grant');
+            $roleRef = ReadReplicaService::masterRef('vw_user_role_grant');
             $role = $this->db->getConnection()->prepare(
                 "SELECT role_id FROM {$roleRef}
                  WHERE user_id = ? AND user_role_is_primary = 1 LIMIT 1"
@@ -171,13 +171,24 @@ final class StaffRecordsService
 
     public function roleAssignments(int $staffId): array
     {
-        $this->staffUser($staffId);
+        $staff = $this->staffUser($staffId);
+        $userId = (int) ($staff['user_id'] ?? 0);
+        if ($userId <= 0) {
+            return [];
+        }
+        // staff.user_id was dropped; the staff -> user link runs through the
+        // shared person row, which staffUser() already resolved. Assignments are
+        // then a plain user_roles/roles join keyed by that user id. roles and
+        // user_roles are master tables with no read-replica projection, so they
+        // are referenced directly exactly as availableRoles() does.
         return $this->db->query(
-            "SELECT r.id role_id, r.name, r.description, ur.created_at, (ur.is_primary = 1) AS is_primary
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-             WHERE s.id = ?
+            "SELECT r.id AS role_id, r.name, r.description, ur.created_at,
+                    (ur.is_primary = 1) AS is_primary
+             FROM user_roles ur
+             JOIN roles r ON r.id = ur.role_id
+             WHERE ur.user_id = ?
              ORDER BY ur.is_primary DESC, ur.id",
-            [$staffId]
+            [$userId]
         )->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -767,7 +778,10 @@ final class StaffRecordsService
                     DATE_ADD(p.dob, INTERVAL 60 YEAR) AS retirement_date,
                     DATEDIFF(DATE_ADD(p.dob, INTERVAL 60 YEAR), CURDATE()) AS days_remaining,
                     s.status
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+             FROM staff s
+             JOIN persons p ON p.id = s.person_id
+             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+             LEFT JOIN departments d ON d.id = sda.department_id
              WHERE s.status = 'active'
                AND p.dob IS NOT NULL
                AND TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) >= 55

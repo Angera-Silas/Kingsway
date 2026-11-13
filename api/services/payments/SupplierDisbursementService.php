@@ -28,7 +28,7 @@ class SupplierDisbursementService
     {
         $stmt = $this->db->prepare(
             "SELECT e.*, s.name AS supplier_name
-             FROM " . ReadReplicaService::qualifiedRef("expenses") . " JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
+             FROM " . ReadReplicaService::qualifiedRef("expenses") . " e JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
              WHERE e.id = ? AND e.status IN ('approved','payment_pending') LIMIT 1"
         );
         $stmt->execute([$expenseId]);
@@ -131,7 +131,7 @@ class SupplierDisbursementService
             (new KcbTransferReconciliationService($this->db, $this->kcb))
                 ->flagSubmissionException($disbursementId, (string) ($result['message'] ?? 'Submission failed.'));
         }
-        $this->db->prepare("UPDATE supplier_payment_requests SET status = ?, provider_reference = ? WHERE id = ?")
+        $this->db->prepare("UPDATE supplier_payment_requests SET disbursement_id = ?, status = ? WHERE id = ?")
             ->execute([$accepted ? 'payment_pending' : 'failed', $result['transaction_ref'] ?? null, $supplierPaymentId]);
         $this->db->prepare("UPDATE expenses SET status = ?, payment_method = 'bank_transfer', reference_number = ?, paid_by = ? WHERE id = ?")
             ->execute([$accepted ? 'payment_pending' : 'approved', $result['transaction_ref'] ?? $reference, $userId, $expenseId]);
@@ -148,7 +148,7 @@ class SupplierDisbursementService
     {
         $stmt = $this->db->prepare(
             "SELECT e.*, s.name AS supplier_name
-             FROM " . ReadReplicaService::qualifiedRef("expenses") . " JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
+             FROM " . ReadReplicaService::qualifiedRef("expenses") . " e JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
              WHERE e.id = ? AND e.status IN ('approved','payment_pending') LIMIT 1"
         );
         $stmt->execute([$expenseId]);

@@ -81,7 +81,7 @@ final class TeacherSpecializationService
         $row = $this->rows('SELECT id,staff_id,created_by,status FROM staff_learning_area_specializations WHERE id=? LIMIT 1', [$id])[0] ?? null;
         if (!$row) throw new RuntimeException('Specialization record not found', 404);
         if ((int)$row['created_by'] === $actorId) throw new RuntimeException('A specialization must be approved by another authorised user', 403);
-        if (!(int)$this->value("SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("staff_specialization_qualifications") . " JOIN staff_qualifications q ON q.id=sq.qualification_id WHERE sq.specialization_id=? AND q.verification_status='verified'", [$id])) throw new RuntimeException('At least one school-verified qualification must support the specialization', 422);
+        if (!(int)$this->value("SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("staff_specialization_qualifications") . " sq JOIN staff_qualifications q ON q.id=sq.qualification_id WHERE sq.specialization_id=? AND q.verification_status='verified'", [$id])) throw new RuntimeException('At least one school-verified qualification must support the specialization', 422);
         $this->db->beginTransaction();
         try {
             $verify = $this->db->prepare("UPDATE staff_specialization_qualifications sq JOIN qualification_learning_areas qla ON qla.qualification_id=sq.qualification_id JOIN staff_learning_area_specializations s ON s.id=sq.specialization_id SET sq.evidence_status='verified',sq.verified_by=?,sq.verified_at=NOW(),qla.mapping_status='verified',qla.verified_by=?,qla.verified_at=NOW() WHERE sq.specialization_id=? AND qla.learning_area_id=s.learning_area_id");

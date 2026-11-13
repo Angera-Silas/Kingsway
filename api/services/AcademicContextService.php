@@ -539,6 +539,17 @@ class AcademicContextService
         }
     }
 
+    /** Display name of a class master row ('' when unknown). */
+    public function className(int $classId): string
+    {
+        if ($classId <= 0) {
+            return '';
+        }
+        $stmt = $this->db->prepare('SELECT name FROM classes WHERE id = ?');
+        $stmt->execute([$classId]);
+        return (string) ($stmt->fetchColumn() ?: '');
+    }
+
     /**
      * Active streams for a class (legacy class_streams table) — used by the
      * public enrolment-form cascade endpoint (streams.php).

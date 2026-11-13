@@ -88,7 +88,7 @@ class ExpenseManager
                 $stmt = $this->db->prepare("
                     SELECT bli.allocated_amount,
                            COALESCE(SUM(e.amount), 0) as spent
-                    FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . "
+                    FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli
                     LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
                         AND e.status != 'rejected'
                     WHERE bli.id = ?
@@ -557,12 +557,12 @@ return formatResponse(false, null, 'An internal error occurred.');
             $sql = "SELECT 
                         COALESCE(ec.name, 'Uncategorized') as expense_category,
                         COUNT(*) as transaction_count,
-                        SUM(amount) as total_amount,
-                        AVG(amount) as average_amount,
-                        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_count,
-                        COUNT(CASE WHEN status = 'pending_approval' THEN 1 END) as pending_count,
-                        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_count
-                    FROM " . ReadReplicaService::qualifiedRef("expenses") . "
+                        SUM(e.amount) as total_amount,
+                        AVG(e.amount) as average_amount,
+                        COUNT(CASE WHEN e.status = 'approved' THEN 1 END) as approved_count,
+                        COUNT(CASE WHEN e.status = 'pending_approval' THEN 1 END) as pending_count,
+                        COUNT(CASE WHEN e.status = 'rejected' THEN 1 END) as rejected_count
+                    FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
                     LEFT JOIN expense_categories ec ON ec.id = e.category_id
                     WHERE 1=1";
 

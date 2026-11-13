@@ -1325,8 +1325,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 this.notify("Transaction saved successfully", "success");
-                const modal = document.getElementById("transactionModal");
-                if (modal) modal.classList.remove("show");
+                // Use the shared helper so the backdrop and body scroll-lock are
+                // reconciled; removing only `show` left the page dark and locked.
+                window.hideKwModal("transactionModal");
                 await this.loadData();
             } catch (error) {
                 console.error("Failed to save transaction:", error);
@@ -1419,8 +1420,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response) {
                 this.notify("Request submitted successfully", "success");
-                const modal = document.getElementById("requestModal");
-                if (modal) modal.classList.remove("show");
+                window.hideKwModal("requestModal");
             }
         },
 

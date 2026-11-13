@@ -103,7 +103,7 @@ const reflectionJournalController = (() => {
     setVal('rjWentWell', '');
     setVal('rjImprove', '');
     setVal('rjNextSteps', '');
-    if (!modal) modal = new bootstrap.Modal(document.getElementById('rjModal'));
+    if (!modal) modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('rjModal'));
     modal.show();
   }
 

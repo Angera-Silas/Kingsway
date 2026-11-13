@@ -105,7 +105,7 @@ class PaymentReconciliationAPI extends BaseAPI {
             $stmt->execute([$data['transaction_id']]);
 
             // Fetch inserted reconciliation record
-            $stmt = $this->db->prepare("SELECT pr.*, u.username as reconciled_by_name FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " LEFT JOIN users u ON pr.reconciled_by = u.id WHERE pr.id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT pr.*, u.username as reconciled_by_name FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " pr LEFT JOIN users u ON pr.reconciled_by = u.id WHERE pr.id = ? LIMIT 1");
             $stmt->execute([$reconciliationId]);
             $reconRecord = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -143,7 +143,7 @@ class PaymentReconciliationAPI extends BaseAPI {
                     COUNT(pr.id) as reconciled_count,
                     SUM(p.amount) as total_amount,
                     SUM(CASE WHEN pr.id IS NOT NULL THEN p.amount ELSE 0 END) as reconciled_amount
-                FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " pr ON p.id = pr.transaction_id
                 WHERE p.payment_date BETWEEN ? AND ?
                 GROUP BY p.method

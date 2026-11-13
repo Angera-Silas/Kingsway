@@ -80,7 +80,7 @@ class CommunicationReportManager extends BaseAPI
                                COUNT(DISTINCT av.viewer_id) / NULLIF(COUNT(av.id), 0) * 100,
                                2
                            ) AS read_rate
-                    FROM " . ReadReplicaService::qualifiedRef("announcements_bulletin") . "
+                    FROM " . ReadReplicaService::qualifiedRef("announcements_bulletin") . " a
                     LEFT JOIN announcement_views av ON av.announcement_id = a.id
                     GROUP BY a.id, a.title
                     ORDER BY total_recipients DESC

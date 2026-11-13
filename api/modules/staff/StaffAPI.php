@@ -50,7 +50,7 @@ class StaffAPI extends BaseAPI {
     {
         // Resolve staff_no so we match media stored under staff/documents & staff/profile_pictures.
         $entityId = $staffId;
-        $stmt = $this->db->prepare("SELECT staff_no FROM " . ReadReplicaService::qualifiedRef("staff_directory") . "  WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT staff_no FROM staff WHERE id = ?");
         $stmt->execute([$staffId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row && !empty($row['staff_no'])) {
@@ -352,7 +352,8 @@ class StaffAPI extends BaseAPI {
 
             $presentStmt = $this->db->prepare("
                 SELECT COUNT(DISTINCT sa.staff_id)
-                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                FROM staff_attendance sa
+                JOIN staff s ON s.id=sa.staff_id
                 WHERE sa.date = ? AND sa.status = 'present' AND $scopeSql
             ");
             $presentStmt->execute(array_merge([$today], $scopeParams));
@@ -400,7 +401,7 @@ class StaffAPI extends BaseAPI {
         try {
             [$scopeSqlKc, $scopeParamsKc] = DataScopeService::predicateFor('staff', 's');
             $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
-            $roleRef = ReadReplicaService::masterRef('user_role_grant');
+            $roleRef = ReadReplicaService::masterRef('vw_user_role_grant');
             $staffStmt = $this->db->prepare(
                 "SELECT s.staff_id, s.person_id, s.first_name, s.last_name,
                         s.phone, s.email
@@ -1075,6 +1076,8 @@ class StaffAPI extends BaseAPI {
             }
 
             $stmt = $this->db->prepare("
+                SELECT s.*, pd.first_name, pd.last_name, pd.email, pd.phone, pd.gender,
+                       d.name AS department_name, st.name AS staff_type_name,
                        CONCAT(sp.first_name, ' ', sp.last_name) AS supervisor_name,
                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_names
                 FROM staff s
@@ -1088,7 +1091,7 @@ class StaffAPI extends BaseAPI {
                 LEFT JOIN roles r ON r.id = ur.role_id
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY s.id
-                ORDER BY d.name, p.first_name, p.last_name
+                ORDER BY d.name, pd.first_name, pd.last_name
             ");
             $stmt->execute($params);
 
@@ -1248,7 +1251,7 @@ class StaffAPI extends BaseAPI {
             // The add-staff form does not ask administrators to choose this.
             $supervisorId = $data['supervisor_id'] ?? null;
             if (empty($supervisorId) && !empty($data['department_id'])) {
-                $head = $this->db->prepare("SELECT d.head_id FROM " . ReadReplicaService::qualifiedRef("departments") . "
+                $head = $this->db->prepare("SELECT d.head_id FROM " . ReadReplicaService::qualifiedRef("departments") . " d
                     JOIN staff h ON h.id=d.head_id AND h.status='active' AND h.data_scope='live'
                     WHERE d.id=? AND d.status='active' LIMIT 1");
                 $head->execute([(int)$data['department_id']]);
@@ -1379,7 +1382,8 @@ class StaffAPI extends BaseAPI {
                 // staff assignment is being added to it.
             } else {
                 $existingStaffPersonStmt = $this->db->prepare(
-                    'SELECT p.id AS person_id FROM ' . ReadReplicaService::qualifiedRef('person_directory') . ' 
+                    'SELECT p.id AS person_id FROM persons p JOIN staff s ON s.person_id=p.id
+                     LEFT JOIN users u ON u.person_id=p.id
                      WHERE LOWER(p.email)=LOWER(?) AND u.id IS NULL LIMIT 1'
                 );
                 $existingStaffPersonStmt->execute([$data['email']]);
@@ -1404,8 +1408,9 @@ class StaffAPI extends BaseAPI {
                 if (!$userId) {
                     $stmt = $this->db->prepare("
                         SELECT u.id
-                        FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                        WHERE LOWER(pd.email) = LOWER(?)
+                        FROM users u
+                        JOIN persons p ON p.id = u.person_id
+                        WHERE LOWER(p.email) = LOWER(?)
                     ");
                     $stmt->execute([$data['email']]);
                     $row = $stmt->fetch();
@@ -1420,11 +1425,7 @@ class StaffAPI extends BaseAPI {
 
             // Expect UsersAPI.create to have created the staff row. staff links to users only
             // through persons (staff.person_id = users.person_id); the photo lives on persons.photo_url.
-            $stmt = $this->db->prepare("
-                SELECT s.id, s.staff_no, p.photo_url
-                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                WHERE u.id = ?
-            ");
+            $stmt = $this->db->prepare("SELECT staff_no FROM staff WHERE id = ?");
             $stmt->execute([$userId]);
             $existing = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($existing) {
@@ -2013,10 +2014,10 @@ class StaffAPI extends BaseAPI {
                     lt.name as leave_type,
                     lt.days_allowed,
                     CONCAT(p.first_name, ' ', p.last_name) as approved_by_name
-                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . "
-                JOIN " . ReadReplicaService::qualifiedRef("leave_types") . " lt ON sl.leave_type_id = lt.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sl.approved_by = s.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                FROM staff_leaves sl
+                JOIN leave_types lt ON sl.leave_type_id = lt.id
+                LEFT JOIN staff s ON sl.approved_by = s.id
+                LEFT JOIN persons p ON p.id = s.person_id
                 WHERE sl.staff_id = ?
                 ORDER BY sl.start_date DESC
             ";
@@ -2042,7 +2043,7 @@ class StaffAPI extends BaseAPI {
                     sd.*,
                     d.name as department_name,
                     CASE WHEN d.head_id = ? THEN true ELSE false END as is_hod
-                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . "
+                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sd
                 JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON sd.department_id = d.id
                 WHERE sd.staff_id = ?
             ";
@@ -2218,83 +2219,31 @@ class StaffAPI extends BaseAPI {
         }
     }
 
+    /**
+     * Assign a subject to a teacher (POST /api/staff/assign-subject).
+     *
+     * Delegates to StaffTeachingAssignmentService, the single owner of subject
+     * assignments. The former body inserted a placeholder Monday-08:00
+     * timetable_entries row instead of an assignment, required a stream the
+     * staff page never sent, and wrote nothing the assignment list could show.
+     * No stream = the assignment applies to every stream of the class.
+     */
     public function assignSubject($id, $data) {
         try {
-            if (empty($data['subject_id']) || empty($data['class_id']) || empty($data['stream_id'])) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Subject ID, Class ID and Stream ID are required'
-                ], 400);
-            }
-
-            // Subjects are now assigned via timetable_entries (a scheduled Monday 08:00 lesson)
-            $ayId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-            if ($ayId <= 0) {
-                $ayId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-            }
-            if ($ayId <= 0) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'No active academic year found'
-                ], 400);
-            }
-            $stmt = $this->db->prepare(
-                "SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
-                 WHERE academic_year_id = ? AND class_id = ? AND stream_id = ?
-                 ORDER BY class_stream_id LIMIT 1"
-            );
-            $stmt->execute([$ayId, $data['class_id'], $data['stream_id']]);
-            $classStreamId = (int) $stmt->fetchColumn();
-            if ($classStreamId <= 0) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'No active class-stream found for the given class'
-                ], 400);
-            }
-            $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1");
-            $stmt->execute([$ayId]);
-            $termId = (int) $stmt->fetchColumn();
-            if ($termId <= 0) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'No current term found for the academic year'
-                ], 400);
-            }
-            $stmt = $this->db->prepare("SELECT id FROM time_slots WHERE is_active = 1 AND start_time = '08:00:00' ORDER BY period_number LIMIT 1");
-            $stmt->execute();
-            $timeSlotId = (int) $stmt->fetchColumn();
-            if ($timeSlotId <= 0) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'No matching time slot found'
-                ], 400);
-            }
-            $stmt = $this->db->prepare("SELECT learning_area_id FROM strands WHERE id = ? LIMIT 1");
-            $stmt->execute([$data['subject_id']]);
-            $learningAreaId = (int) $stmt->fetchColumn();
-            if ($learningAreaId <= 0) {
-                $learningAreaId = (int) $data['subject_id'];
-            }
-            $contextId = (int)$this->db->query(
-                "SELECT sla.id
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
-                 WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
-                [$classStreamId, $learningAreaId]
-            )->fetchColumn();
-            if ($contextId <= 0) {
-                return $this->response(['status' => 'error', 'message' => 'Learning area is not configured for the selected class stream'], 400);
-            }
-            $sql = "INSERT INTO timetable_entries (academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
-                    VALUES (?, ?, ?, 1, ?, ?, ?, 'scheduled')";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$classStreamId, $contextId, $termId, $timeSlotId, $learningAreaId, $id]);
-
+            $data = (array) $data;
+            $data['staff_id'] = (int) ($id ?: ($data['staff_id'] ?? 0));
+            $saved = (new \App\API\Services\StaffTeachingAssignmentService())->saveSubjectAssignmentScoped($data, null, (int) ($this->user_id ?? 0));
             return $this->response([
                 'status' => 'success',
-                'message' => 'Subject assigned successfully'
-            ]);
-
+                'message' => 'Subject assigned successfully',
+                'data' => $saved,
+            ], 201);
+        } catch (\RuntimeException $e) {
+            $code = (int) $e->getCode();
+            if ($code >= 400 && $code < 500) {
+                return $this->response(['status' => 'error', 'message' => $e->getMessage()], $code);
+            }
+            return $this->handleException($e);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -2325,8 +2274,8 @@ class StaffAPI extends BaseAPI {
                     s.id AS staff_id,
                     d.name AS department_name
                 FROM staff_attendance sa
-                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sa.staff_id = s.id
-                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                JOIN staff s ON sa.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE sa.date BETWEEN ? AND ?
@@ -2410,8 +2359,8 @@ class StaffAPI extends BaseAPI {
                     s.id as staff_id,
                     d.name as department_name
                 FROM staff_leaves sl
-                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sl.staff_id = s.id
-                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                JOIN staff s ON sl.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE sl.start_date >= ? AND sl.end_date <= ?
@@ -2548,14 +2497,14 @@ class StaffAPI extends BaseAPI {
             SELECT
                 s.*,
                 s.position AS raw_position,
-                p.first_name AS first_name,
-                p.last_name AS last_name,
-                CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
-                p.first_name AS user_first_name,
-                p.last_name AS user_last_name,
-                p.email AS email,
-                p.phone AS phone,
-                p.gender AS gender,
+                pd.first_name AS first_name,
+                pd.last_name AS last_name,
+                CONCAT_WS(' ', pd.first_name, pd.last_name) AS full_name,
+                pd.first_name AS user_first_name,
+                pd.last_name AS user_last_name,
+                pd.email AS email,
+                pd.phone AS phone,
+                pd.gender AS gender,
                 u.status as user_status,
                 r.id as role_id,
                 r.name as role_name,
@@ -2959,8 +2908,8 @@ class StaffAPI extends BaseAPI {
                     p.last_name,
                     d.name as department_name
                 FROM staff_contracts sc
-                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sc.staff_id = s.id
-                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                JOIN staff s ON sc.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
             ";
@@ -3548,7 +3497,11 @@ class StaffAPI extends BaseAPI {
             $profileStmt = $this->db->prepare(
                 "SELECT s.id, p.first_name, p.last_name, p.phone,
                         s.position, sda.department_id, p.email
-                 FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                 FROM staff s
+                 INNER JOIN persons p ON p.id = s.person_id
+                 LEFT JOIN staff_department_assignments sda
+                        ON sda.staff_id = s.id
+                       AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                  WHERE s.id = ? AND s.status IN ('active', 'on_leave')
                  LIMIT 1"
             );
@@ -3654,7 +3607,7 @@ class StaffAPI extends BaseAPI {
         }
 
         $profileStmt = $this->db->prepare(
-            'SELECT department_id FROM staff WHERE id = ? LIMIT 1'
+            'SELECT person_id FROM staff WHERE id = ? LIMIT 1'
         );
         $profileStmt->execute([(int) $staffId]);
         $profile = $profileStmt->fetch(\PDO::FETCH_ASSOC);

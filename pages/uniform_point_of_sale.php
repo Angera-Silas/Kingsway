@@ -1,4 +1,11 @@
-<?php $appBase=rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME']??'')),'/');if($appBase==='.')$appBase=''; ?>
+<?php
+// BASE_URL is the single configured source of truth for the URL prefix.
+// Deriving it from $_SERVER['SCRIPT_NAME'] breaks as soon as this page is
+// reached through any entry point that is not itself (soft-navigation
+// fragments, XHR includes, a docroot alias), which silently 404s every
+// CSS/JS/link asset. app_base_path() is documented as the only resolver.
+$appBase = app_base_path();
+?>
 <link rel="stylesheet" href="<?=htmlspecialchars($appBase)?>/css/pages/uniform-operations.css?v=<?=asset_version('css/pages/uniform-operations.css')?>">
 <main class="uniform-workspace">
  <header class="uniform-hero"><div><small>Uniform store · scanner terminal</small><h1>Point of Sale &amp; Dispatch</h1><p>Scan the identity attached to every unit. The journal connects receipt, buyer, payment, cashier and release.</p></div><button class="uniform-action" id="posRefresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button></header>

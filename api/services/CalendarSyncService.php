@@ -615,7 +615,7 @@ class CalendarSyncService
 
         if ($date !== $day['date']) {
             $week = $this->db->prepare(
-                "SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
+                "SELECT ac.id FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
                  WHERE ayt.academic_year_id = (
                      SELECT ay.id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt2

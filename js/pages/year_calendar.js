@@ -168,7 +168,7 @@ const YearCalendarController = (() => {
         document.getElementById('dayTitle').value = day.title || day.name || '';
         document.getElementById('dayDescription').value = day.description || '';
         renderDayEvents(day);
-        new bootstrap.Modal(document.getElementById('dayModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('dayModal')).show();
     }
     function renderDayEvents(day) {
         const list = document.getElementById('dayEventsList');

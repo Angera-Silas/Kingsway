@@ -60,7 +60,9 @@ class CommunicationPlatformService
     ): array {
         $stmt = $this->db->prepare(
             "SELECT u.id AS user_id, p.email, p.phone
-               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+               FROM parents pr
+               JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
+               JOIN persons p ON p.id = u.person_id
               WHERE pr.id = ? AND pr.status = 'active'"
         );
         $stmt->execute([$parentId]);

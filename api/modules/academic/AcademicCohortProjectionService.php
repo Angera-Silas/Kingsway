@@ -312,7 +312,7 @@ return $this->errorResponse('An internal error occurred.');
     private function findFeederClass(int $targetClassId): ?array
     {
         $row = $this->fetchRow(
-            "SELECT c.* FROM " . ReadReplicaService::qualifiedRef("academic_class_progression") . "
+            "SELECT c.* FROM " . ReadReplicaService::qualifiedRef("academic_class_progression") . " p
              JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = p.source_class_id
              WHERE p.target_class_id = ? AND p.active = 1
              ORDER BY p.id DESC LIMIT 1",
@@ -580,7 +580,11 @@ return $this->errorResponse('An internal error occurred.');
     private function countActiveEnrollment(int $classId): int
     {
         return (int) $this->fetchValue(
-            "SELECT COUNT(DISTINCT s.id) FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+            "SELECT COUNT(DISTINCT s.id) FROM students s
+             JOIN student_academic_enrollments sae ON sae.student_id = s.id
+                AND sae.enrollment_status IN ('pending', 'active')
+             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
              WHERE ayc.class_id = ? AND s.status = 'active'",
             [$classId]
         );
@@ -589,7 +593,7 @@ return $this->errorResponse('An internal error occurred.');
     private function countStreamEnrollment(int $streamId, int $yearId): int
     {
         return (int) $this->fetchValue(
-            "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+            "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
              WHERE aycs.stream_id = ? AND sae.academic_year_id = ?
                AND sae.enrollment_status IN ('pending', 'active')",

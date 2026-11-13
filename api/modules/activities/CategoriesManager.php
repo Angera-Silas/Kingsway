@@ -242,7 +242,7 @@ class CategoriesManager extends BaseAPI
                     ac.id, 
                     ac.name,
                     COUNT(a.id) as activity_count
-                FROM " . ReadReplicaService::qualifiedRef("activity_categories") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_categories") . " ac
                 LEFT JOIN activities a ON ac.id = a.category_id
                 WHERE ac.id = ?
                 GROUP BY ac.id

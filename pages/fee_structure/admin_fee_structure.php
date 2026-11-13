@@ -486,13 +486,13 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Create New Fee Structure</h3>
-                <button class="btn-close" onclick="closeModal('feeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('feeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="modalBody">
                 <!-- Form will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('feeStructureModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('feeStructureModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveFeeStructure()" id="saveBtn">💾 Save</button>
             </div>
         </div>
@@ -505,13 +505,13 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
-                <button class="btn-close" onclick="closeModal('viewFeeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="viewModalBody">
                 <!-- Details will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('viewFeeStructureModal')">Close</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
                 <button class="btn btn-warning" onclick="editFromView()" id="editFromViewBtn">✏️ Edit</button>
                 <button class="btn btn-success" onclick="approveFromView()" id="approveFromViewBtn">✅
                     Approve</button>
@@ -526,7 +526,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Confirm Delete</h3>
-                <button class="btn-close" onclick="closeModal('deleteConfirmModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('deleteConfirmModal')">×</button>
             </div>
             <div class="modal-body">
                 <p>⚠️ Are you sure you want to delete this fee structure?</p>
@@ -534,7 +534,7 @@
                 <p id="deleteWarning"></p>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('deleteConfirmModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('deleteConfirmModal')">Cancel</button>
                 <button class="btn btn-danger" onclick="confirmDelete()" id="confirmDeleteBtn">🗑️ Delete</button>
             </div>
         </div>
@@ -547,7 +547,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Duplicate Fee Structure</h3>
-                <button class="btn-close" onclick="closeModal('duplicateStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('duplicateStructureModal')">×</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -568,7 +568,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('duplicateStructureModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('duplicateStructureModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="confirmDuplicate()" id="confirmDuplicateBtn">📑
                     Duplicate</button>
             </div>

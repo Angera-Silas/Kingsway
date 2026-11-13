@@ -117,7 +117,7 @@ class StudentFundTransferService
     {
         $s=$this->db->prepare('SELECT id FROM student_transport_entitlements WHERE id=? AND student_id=? AND entitlement_status="active" FOR UPDATE'); $s->execute([$entitlementId,$studentId]);
         if (!$s->fetchColumn()) throw new RuntimeException('Source transport entitlement is invalid');
-        $s=$this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " JOIN transport_entitlement_payments p ON p.id=a.payment_id WHERE a.entitlement_id=? AND p.payment_status='confirmed'"); $s->execute([$entitlementId]); $credited=(float)$s->fetchColumn();
+        $s=$this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " a JOIN transport_entitlement_payments p ON p.id=a.payment_id WHERE a.entitlement_id=? AND p.payment_status='confirmed'"); $s->execute([$entitlementId]); $credited=(float)$s->fetchColumn();
         $s=$this->db->prepare("SELECT COALESCE(SUM(amount),0) FROM student_fund_transfer_postings WHERE posting_type='transport_debit' AND source_record_id=?"); $s->execute([$entitlementId]); $debited=(float)$s->fetchColumn();
         if (($credited-$debited) < $amount) throw new RuntimeException('Insufficient available transport credit');
         $this->db->prepare("INSERT INTO student_fund_transfer_postings (transfer_id,posting_type,source_record_id,amount) VALUES (?,?,?,?)")->execute([$this->currentTransferId,'transport_debit',$entitlementId,$amount]);
@@ -125,7 +125,7 @@ class StudentFundTransferService
 
     private function creditFeeAccount(int $studentId, float $amount, int $transferId, int $createdBy): int
     {
-        $year=(int)date('Y'); $s=$this->db->query('SELECT year FROM academic_years WHERE is_current=1 LIMIT 1'); $year=(int)($s->fetchColumn() ?: $year);
+        $year=(int)date('Y'); $s=$this->db->query('SELECT YEAR(start_date) FROM academic_years WHERE is_current=1 LIMIT 1');$year=(int)($s->fetchColumn() ?: $year);
         $ref='TRF-'.$transferId.'-FEE'; $i=$this->db->prepare("INSERT INTO fee_credit_notes (credit_number,student_id,academic_year,credit_amount,credit_reason,status,applied_amount,notes,created_by) VALUES (?,?,?,?,'error_correction','available',0,?,?)"); $i->execute([$ref,$studentId,$year,$amount,'Internal fund transfer credit',$createdBy]); $id=(int)$this->db->lastInsertId();
         $this->db->prepare("INSERT INTO student_fund_transfer_postings (transfer_id,posting_type,destination_record_id,amount) VALUES (?,?,?,?)")->execute([$transferId,'fee_credit_credit',$id,$amount]); return $id;
     }

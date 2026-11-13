@@ -229,7 +229,7 @@ final class StaffStatutoryService
     {
         $this->pdo->beginTransaction();
         try {
-            $q = $this->pdo->prepare("SELECT p.*, pr.id payroll_run_id FROM " . ReadReplicaService::qualifiedRef("payslips") . "
+            $q = $this->pdo->prepare("SELECT p.*, pr.id payroll_run_id FROM " . ReadReplicaService::qualifiedRef("payslips") . " p
                 LEFT JOIN payroll_runs pr ON pr.month=p.payroll_month AND pr.year=p.payroll_year
                 WHERE p.payroll_month=? AND p.payroll_year=? AND p.payslip_status IN ('approved','paid')
                 ORDER BY p.staff_id");

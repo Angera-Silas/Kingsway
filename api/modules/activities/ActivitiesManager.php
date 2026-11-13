@@ -440,7 +440,7 @@ class ActivitiesManager extends BaseAPI
             // Soft delete - update status to cancelled
             $stmt = $this->db->prepare("
                 UPDATE activities 
-                SET status = 'cancelled', updated_at = NOW() 
+                SET status = 'cancelled'
                 WHERE id = ?
             ");
             $stmt->execute([$id]);

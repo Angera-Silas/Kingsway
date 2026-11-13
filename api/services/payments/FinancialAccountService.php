@@ -94,7 +94,7 @@ final class FinancialAccountService
         if (!$account) throw new RuntimeException('Selected financial account is inactive or is not authorized for this purpose.');
         if (empty($account['ledger_code'])) throw new RuntimeException('Selected financial account has no chart-of-accounts mapping.');
         if ($disbursement && $actorUserId) {
-            $permission = $this->db->prepare('SELECT 1 FROM ' . ReadReplicaService::masterRef('school_financial_account_permissions') . ' JOIN user_roles ur ON ur.role_id=ap.role_id WHERE ap.financial_account_id=? AND ur.user_id=? AND ap.can_disburse=1 LIMIT 1');
+            $permission = $this->db->prepare('SELECT 1 FROM school_financial_account_permissions ap JOIN user_roles ur ON ur.role_id=ap.role_id WHERE ap.financial_account_id=? AND ur.user_id=? AND ap.can_disburse=1 LIMIT 1');
             $permission->execute([$accountId, $actorUserId]);
             if (!$permission->fetchColumn()) throw new RuntimeException('You are not authorized to disburse from the selected financial account.');
         }

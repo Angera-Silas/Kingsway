@@ -83,7 +83,7 @@ const paymentReconciliationController = {
     document.getElementById('routingPurpose').value =
       (c.purpose_candidate && ['fees', 'transport', 'uniforms'].includes(c.purpose_candidate)) ? c.purpose_candidate : 'fees';
     this.toggle();
-    new bootstrap.Modal(document.getElementById('routingResolveModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('routingResolveModal')).show();
   },
 
   async resolve() {

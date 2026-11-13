@@ -196,13 +196,14 @@ final class ReportCardRemarkService
             "SELECT teacher_notes
              FROM {$competency}
              WHERE student_id = :sid
-               AND (:term_id IS NULL OR term_id = :term_id)
+               AND (:term_id_any IS NULL OR term_id = :term_id)
                AND teacher_notes IS NOT NULL
                AND TRIM(teacher_notes) <> ''
              ORDER BY CHAR_LENGTH(teacher_notes) DESC, learner_competency_id DESC
              LIMIT 1"
         );
-        $stmt->execute([':sid' => $studentId, ':term_id' => $termId > 0 ? $termId : null]);
+        $termParam = $termId > 0 ? $termId : null;
+        $stmt->execute([':sid' => $studentId, ':term_id' => $termParam, ':term_id_any' => $termParam]);
         $notes = $stmt->fetch(PDO::FETCH_COLUMN);
 
         return is_string($notes) && trim($notes) !== '' ? trim($notes) : null;
@@ -247,13 +248,14 @@ final class ReportCardRemarkService
              WHERE ar.student_academic_enrollment_id IN (
                      SELECT sae.id FROM student_academic_enrollments sae WHERE sae.student_id = :sid
                  )
-               AND (:term_id IS NULL OR a.academic_year_term_id = :term_id)
+               AND (:term_id_any IS NULL OR a.academic_year_term_id = :term_id)
                AND ar.deleted_at IS NULL
                AND ar.remarks IS NOT NULL
                AND TRIM(ar.remarks) <> \'\'
              ORDER BY ar.id DESC'
         );
-        $stmt->execute([':sid' => $studentId, ':term_id' => $academicYearTermId > 0 ? $academicYearTermId : null]);
+        $termParam = $academicYearTermId > 0 ? $academicYearTermId : null;
+        $stmt->execute([':sid' => $studentId, ':term_id' => $termParam, ':term_id_any' => $termParam]);
 
         $remarks = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {

@@ -873,13 +873,14 @@ class DataImporter
                     'INSERT INTO food_consumption_records
                      (consumption_date, inventory_item_id, quantity_planned, quantity_used, unit,
                       cost_per_unit, recorded_by, recorded_at, notes, created_at)
-                     VALUES (:d,:iid,:qty,:qty,:unit,:cost,1,NOW(),:notes,NOW())'
+                     VALUES (:d,:iid,:qty,:qty_used,:unit,:cost,1,NOW(),:notes,NOW())'
                 );
                 $stmt->execute([
                     ':d'     => $row['purchase_date'],
                     ':iid'   => $itemId,
                     ':qty'   => (float)$row['quantity'],
-                    ':unit'  => $row['unit'] ?? 'kg',
+                    ':qty_used' => (float)$row['quantity'],
+                    ':unit'=> $row['unit'] ?? 'kg',
                     ':cost'  => (float)($row['unit_price'] ?? 0),
                     ':notes' => $row['notes'] ?? ($row['expiry_date'] ? 'expiry: ' . $row['expiry_date'] : null),
                 ]);
@@ -999,8 +1000,8 @@ class DataImporter
     private function resolveStudentTypeId(string $code): int
     {
         $c = strtoupper(trim($code) ?: 'DAY');
-        $stmt = $this->db->prepare('SELECT id FROM student_types WHERE UPPER(code) = :c OR UPPER(name) = :c LIMIT 1');
-        $stmt->execute([':c' => $c]);
+        $stmt = $this->db->prepare('SELECT id FROM student_types WHERE UPPER(code) = :c OR UPPER(name) = :c_name LIMIT 1');
+        $stmt->execute([':c' => $c, ':c_name' => $c]);
         $id = $stmt->fetchColumn();
         return $id ? (int)$id : 1;
     }

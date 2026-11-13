@@ -84,7 +84,7 @@
       imgWrap.style.display = 'block';
       imgEl.src = src;
     }
-    new bootstrap.Modal(modalEl).show();
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
   };
 
   gallery.init();

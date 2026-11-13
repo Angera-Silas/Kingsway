@@ -73,34 +73,92 @@ class MigrationService
         return $pending;
     }
 
-    public function migrate(): array
+    /**
+     * Cross-check the ledger against the files on disk AND the live schema.
+     *
+     * The ledger alone is not trustworthy: some migration files used to insert
+     * their own ledger row, so a file run with errors ignored could be recorded
+     * as applied while its CREATE TABLE never happened. For every file this
+     * reports whether it is recorded, whether its checksum still matches, and
+     * which tables/views it creates that do not exist (ignoring objects a
+     * migration later drops).
+     *
+     * @return array{summary: array<string,int>, files: list<array<string,mixed>>, orphan_ledger_rows: list<string>}
+     */
+    public function verify(): array
     {
-        $results = [];
-        foreach ($this->getPending() as $migration) {
-            $start = microtime(true);
-            $sql = file_get_contents($migration['path']);
-            $statements = explode(';', $sql);
-            $this->db->beginTransaction();
-            try {
-                foreach ($statements as $stmt) {
-                    $stmt = trim($stmt);
-                    if (!empty($stmt)) {
-                        $this->db->exec($stmt);
-                    }
-                }
-                $duration = (int)((microtime(true) - $start) * 1000);
-                $this->db->exec("INSERT INTO migrations (filename, checksum, duration_ms) VALUES ("
-                    . $this->db->quote($migration['filename']) . ", "
-                    . $this->db->quote($migration['checksum']) . ", $duration)");
-                $this->db->commit();
-                $results[] = ['filename' => $migration['filename'], 'status' => 'applied', 'duration_ms' => $duration];
-            } catch (\Exception $e) {
-                $this->db->rollBack();
-                $results[] = ['filename' => $migration['filename'], 'status' => 'failed', 'error' => $e->getMessage()];
-                break;
+        $files = glob($this->migrationsDir . '/*.sql') ?: [];
+        sort($files);
+        $ledger = $this->db->query("SELECT filename, checksum FROM migrations")->fetchAll(PDO::FETCH_KEY_PAIR);
+        $schema = (string) $this->db->query("SELECT DATABASE()")->fetchColumn();
+
+        $existing = [];
+        foreach ($this->db->query("SELECT LOWER(table_schema), LOWER(table_name) FROM information_schema.tables")->fetchAll(PDO::FETCH_NUM) as [$s, $t]) {
+            $existing[$s . '.' . $t] = true;
+        }
+
+        $parsed = [];
+        $dropped = [];
+        foreach ($files as $file) {
+            $sql = (string) file_get_contents($file);
+            $parsed[$file] = $sql;
+            foreach (self::objectNames($sql, '/\bDROP\s+(?:TABLE|VIEW)\s+(?:IF\s+EXISTS\s+)?((?:`?\w+`?\.)?`?\w+`?(?:\s*,\s*(?:`?\w+`?\.)?`?\w+`?)*)/i', $schema) as $name) {
+                $dropped[$name] = true;
             }
         }
-        return $results;
+
+        $summary = ['files' => 0, 'verified' => 0, 'unrecorded' => 0, 'checksum_drift' => 0, 'missing_objects' => 0, 'self_ledgering' => 0];
+        $rows = [];
+        foreach ($parsed as $file => $sql) {
+            $basename = basename($file);
+            $created = self::objectNames($sql, '/\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:ALGORITHM\s*=\s*\w+\s+)?(?:DEFINER\s*=\s*\S+\s+)?(?:SQL\s+SECURITY\s+\w+\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:`?\w+`?\.)?`?\w+`?)/i', $schema);
+            $missing = array_values(array_filter($created, fn ($n) => !isset($existing[$n]) && !isset($dropped[$n])));
+            $recorded = isset($ledger[$basename]);
+            $checksumOk = $recorded && hash_equals((string) $ledger[$basename], (string) md5_file($file));
+            $selfLedgering = (bool) preg_match('/INSERT\s+INTO\s+`?migrations`?/i', $sql);
+
+            $summary['files']++;
+            if (!$recorded) $summary['unrecorded']++;
+            if ($recorded && !$checksumOk) $summary['checksum_drift']++;
+            if ($missing) $summary['missing_objects']++;
+            if ($selfLedgering) $summary['self_ledgering']++;
+            if ($recorded && $checksumOk && !$missing && !$selfLedgering) $summary['verified']++;
+
+            $rows[] = [
+                'filename' => $basename,
+                'recorded' => $recorded,
+                'checksum_ok' => $checksumOk,
+                'missing_objects' => $missing,
+                'self_ledgering' => $selfLedgering,
+            ];
+        }
+
+        $onDisk = array_flip(array_map('basename', $files));
+        $orphans = array_values(array_filter(array_keys($ledger), fn ($f) => !isset($onDisk[$f])));
+        sort($orphans);
+
+        return ['summary' => $summary, 'files' => $rows, 'orphan_ledger_rows' => $orphans];
+    }
+
+    /**
+     * @return list<string> lower-case "schema.object" names captured by $pattern
+     */
+    private static function objectNames(string $sql, string $pattern, string $defaultSchema): array
+    {
+        // Strip comments so documented examples are not mistaken for DDL.
+        $sql = preg_replace(['~/\*.*?\*/~s', '~^\s*(--|#).*$~m'], '', $sql) ?? $sql;
+        if (!preg_match_all($pattern, $sql, $m)) {
+            return [];
+        }
+        $names = [];
+        foreach ($m[1] as $list) {
+            foreach (explode(',', $list) as $ref) {
+                $ref = strtolower(str_replace('`', '', trim($ref)));
+                if ($ref === '') continue;
+                $names[] = str_contains($ref, '.') ? $ref : strtolower($defaultSchema) . '.' . $ref;
+            }
+        }
+        return array_values(array_unique($names));
     }
 
     public function getStatus(): array
@@ -159,10 +217,22 @@ class MigrationService
             $dbname = defined('DB_NAME') ? DB_NAME : 'KingsWayAcademy';
             $user = defined('DB_USER') ? DB_USER : 'root';
             $pass = defined('DB_PASS') ? DB_PASS : '';
+            $host = defined('DB_HOST') ? (string) DB_HOST : '127.0.0.1';
+            $port = defined('DB_PORT') ? (string) DB_PORT : '3306';
 
-            $command = escapeshellcmd($mysql) . ' --batch --force=false -u ' . escapeshellarg($user)
-                . ' -p' . escapeshellarg($pass) . ' ' . escapeshellarg($dbname)
+            // A migration must not write its own ledger row: if it runs with
+            // errors the ledger would claim it applied. The runner records it.
+            if (preg_match('/INSERT\s+INTO\s+`?migrations`?/i', (string) file_get_contents($path))) {
+                $results[] = ['filename' => $basename, 'status' => 'failed', 'error' => 'Migration inserts its own ledger row; remove that block and let the runner record it'];
+                break;
+            }
+
+            // Password goes through MYSQL_PWD so it never appears in the process list.
+            $command = 'MYSQL_PWD=' . escapeshellarg($pass) . ' ' . escapeshellcmd($mysql)
+                . ' --batch -h ' . escapeshellarg($host) . ' -P ' . escapeshellarg($port)
+                . ' -u ' . escapeshellarg($user) . ' ' . escapeshellarg($dbname)
                 . ' < ' . escapeshellarg($path) . ' 2>&1';
+            $outputLines = [];
             exec($command, $outputLines, $exitCode);
 
             if ($exitCode !== 0) {

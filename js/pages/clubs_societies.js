@@ -230,7 +230,7 @@ const ClubsSocietiesController = {
             const input = form.querySelector(`[name="${k}"]`);
             if (input && v) input.value = v;
           });
-          new bootstrap.Modal(document.getElementById("addClubModal")).show();
+          bootstrap.Modal.getOrCreateInstance(document.getElementById("addClubModal")).show();
         }
       }
     } catch (error) {
@@ -281,7 +281,7 @@ const ClubsSocietiesController = {
     }
     modal.querySelector(".modal-title").textContent = title;
     modal.querySelector(".modal-body").innerHTML = bodyHtml;
-    new bootstrap.Modal(modal).show();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 };
 

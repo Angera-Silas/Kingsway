@@ -25,10 +25,10 @@ const admissionInterviewsController = {
       return;
     }
 
-    this._schedModal = new bootstrap.Modal(document.getElementById('aiScheduleModal'));
-    this._outcomeModal = new bootstrap.Modal(document.getElementById('aiOutcomeModal'));
-    this._viewModal = new bootstrap.Modal(document.getElementById('aiViewModal'));
-    this._sessionsModal = new bootstrap.Modal(document.getElementById('aiSessionsModal'));
+    this._schedModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('aiScheduleModal'));
+    this._outcomeModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('aiOutcomeModal'));
+    this._viewModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('aiViewModal'));
+    this._sessionsModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('aiSessionsModal'));
     this._bindFilters();
     await Promise.all([this._loadData(), this._loadStaff(), this._loadSessions(), this._loadWindows()]);
   },
