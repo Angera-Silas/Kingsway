@@ -10,8 +10,9 @@ Usage from the ai_platform directory:
     .venv/bin/python local_run.py
 
 It loads the PHP config/.env so the bearer secret and provider keys match the
-local PHP edge, then serves on 127.0.0.1:8077. Production is served by wsgi.py
-under Passenger and reads the panel environment variables instead.
+local PHP edge, then serves on 127.0.0.1:8077. Production is served by passenger_wsgi.py
+under Passenger and reads the panel environment variables instead. Both start
+the job ticker (app/ticker_launcher.py); there is no cron.
 """
 
 from __future__ import annotations
@@ -137,6 +138,14 @@ if __name__ == "__main__":
     from app.routes import create_app
 
     app = create_app()
+
+    # Same scheduler as production: no cron, the ticker runs schedules.yaml
+    # every TICK_INTERVAL_SECONDS. Started after the env load above so it
+    # inherits the DB and PHP worker settings. Single-instance via ticker.pid.
+    from app.ticker_launcher import start_ticker
+
+    start_ticker("local_run")
+
     host = os.environ.get("KINGSWAY_AI_DEV_HOST", "127.0.0.1")
     port = int(os.environ.get("KINGSWAY_AI_DEV_PORT", "8077"))
     print(f"Kingsway AI platform (local dev) on http://{host}:{port}")

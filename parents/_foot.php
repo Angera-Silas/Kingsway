@@ -214,7 +214,7 @@ $ppAdminGradeOptions = $ppAdminGradeOptions ?? ($ppGrades ?: ['PP1','PP2','Grade
 // linked learners gets a 403 capability refusal and the stream stays off.
 $parentRealtimeBase = '';
 try {
-    $parentRealtimeBase = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
+    $parentRealtimeBase = \App\API\Services\RealtimeGatewayPublisher::liveBrowserStreamBase();
 } catch (\Throwable $parentRealtimeError) {
     $parentRealtimeBase = '';
 }

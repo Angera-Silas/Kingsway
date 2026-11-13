@@ -4116,8 +4116,8 @@ if ($classId) {
                     $result['new_year_id'] = $existing['id'];
                 } else {
                     $this->dbQuery(
-                        "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status)
-                         VALUES (?, ?, ?, ?, 'planning')",
+                        "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status, state)
+                         VALUES (?, ?, ?, ?, 'active', 'upcoming')",
                         [
                             $newYearCode,
                             "$newYearCode Academic Year",
@@ -6254,40 +6254,187 @@ la.learning_area_family_id, la.name AS learning_area_family,
      * GET /api/academic/year-calendar
      * Current academic year's calendar days with a derived event type.
      */
-    public function getYearCalendar(): array
+    /**
+     * Split an academic year into its periods (each term and each holiday
+     * break between them) and return a lookup: date => period fields.
+     *
+     * Holiday breaks take the name of the inter-term holiday record that
+     * overlaps them most ("April Holiday"); otherwise "Holiday after Term 1"
+     * or "Holiday before Term 1".
+     *
+     * @return callable(string):array{term_id:?int,term_name:?string,period_type:?string,week_number:?int,period_start:?string,period_end:?string}
+     */
+    private function yearCalendarPeriods(array $termRows, array $yearRow): callable
+    {
+        $periods = [];
+        $day = static fn (string $date): \DateTimeImmutable => new \DateTimeImmutable($date);
+        $yearStart = $day((string) $yearRow['start_date']);
+        $yearEnd = $day((string) $yearRow['end_date']);
+
+        $holidays = $this->dbQuery(
+            "SELECT name, start_date, end_date FROM school_holidays
+             WHERE is_active = 1 AND holiday_type = 'inter_term' AND end_date >= ? AND start_date <= ?",
+            [$yearRow['start_date'], $yearRow['end_date']]
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $holidayName = static function (\DateTimeImmutable $from, \DateTimeImmutable $to, string $fallback) use ($holidays, $day): string {
+            $best = null;
+            $bestDays = 0;
+            foreach ($holidays as $holiday) {
+                $start = max($from, $day((string) $holiday['start_date']));
+                $end = min($to, $day((string) $holiday['end_date']));
+                $overlap = $end >= $start ? (int) $start->diff($end)->days + 1 : 0;
+                if ($overlap > $bestDays) {
+                    $bestDays = $overlap;
+                    $best = (string) $holiday['name'];
+                }
+            }
+            return $best ?? $fallback;
+        };
+        $addHoliday = static function (\DateTimeImmutable $from, \DateTimeImmutable $to, string $fallback) use (&$periods, $holidayName): void {
+            if ($to < $from) return;
+            $periods[] = ['type' => 'holiday', 'term_id' => null, 'name' => $holidayName($from, $to, $fallback), 'start' => $from, 'end' => $to];
+        };
+
+        $terms = array_values(array_filter($termRows, static fn (array $t): bool =>
+            !empty($t['opening_date']) && !empty($t['closing_date']) && $t['closing_date'] >= $t['opening_date']));
+        $cursor = $yearStart;
+        foreach ($terms as $index => $term) {
+            $label = (string) ($term['term_name'] ?: 'Term ' . (int) $term['term_id']);
+            $opening = $day((string) $term['opening_date']);
+            $closing = $day((string) $term['closing_date']);
+            $fallback = $index === 0
+                ? 'Holiday before ' . $label
+                : 'Holiday after ' . ((string) ($terms[$index - 1]['term_name'] ?: 'Term ' . (int) $terms[$index - 1]['term_id']));
+            $addHoliday($cursor, $opening->modify('-1 day'), $fallback);
+            $periods[] = ['type' => 'term', 'term_id' => (int) $term['term_id'], 'name' => $label, 'start' => $opening, 'end' => $closing];
+            $cursor = $closing->modify('+1 day');
+        }
+        if ($terms !== []) {
+            $last = end($terms);
+            $addHoliday($cursor, $yearEnd, 'Holiday after ' . ((string) ($last['term_name'] ?: 'Term ' . (int) $last['term_id'])));
+        }
+
+        return static function (string $date) use ($periods, $day): array {
+            $at = $day(substr($date, 0, 10));
+            foreach ($periods as $period) {
+                if ($at < $period['start'] || $at > $period['end']) continue;
+                // Week 1 starts on the period's first day; each Monday starts the next.
+                // A holiday that begins on a weekend (term closed on Friday) folds
+                // that weekend into week 1, so the first full holiday week is
+                // week 1, not week 2. Terms keep the calendar generator's rule.
+                $startDow = (int) $period['start']->format('N');
+                $firstMonday = $startDow === 1 ? 7 : 8 - $startDow;
+                if ($period['type'] === 'holiday' && $startDow >= 6) {
+                    $firstMonday += 7;
+                }
+                $elapsed = (int) $period['start']->diff($at)->days;
+                $week = $elapsed < $firstMonday ? 1 : 2 + intdiv($elapsed - $firstMonday, 7);
+                return [
+                    'term_id' => $period['term_id'],
+                    'term_name' => $period['name'],
+                    'period_type' => $period['type'],
+                    'week_number' => $week,
+                    'period_start' => $period['start']->format('Y-m-d'),
+                    'period_end' => $period['end']->format('Y-m-d'),
+                ];
+            }
+            return ['term_id' => null, 'term_name' => null, 'period_type' => null, 'week_number' => null, 'period_start' => null, 'period_end' => null];
+        };
+    }
+
+    /**
+     * Full calendar for ONE academic year: one row per date, plus school
+     * events that sit outside the day grid.
+     *
+     * Days come from two stores: term days (linked to a term week) and the
+     * year's base rows (academic_year_calendar_id = 0: holidays and weekends,
+     * which carry no year of their own and are scoped here by the year's date
+     * range). Term rows win over base rows on the same date; a manually edited
+     * base row still wins, because it is a deliberate override.
+     *
+     * Weeks are numbered per period, never per month: "Term 2, week 5" or
+     * "April Holiday, week 2". Every period starts at week 1 on its first day
+     * and each Monday starts the next week, the same rule the calendar
+     * generator uses for term weeks.
+     *
+     * @param int|null $academicYearId Year to show; null means the current year.
+     */
+    public function getYearCalendar(?int $academicYearId = null): array
     {
         try {
-            $rows = $this->dbQuery(
-                "SELECT
-                    d.id AS calendar_day_id,
-                    d.date,
-                    d.title AS name,
-                    COALESCE(cdt.name, 'event') AS type,
-                    cdt.code AS type_code,
-                    d.description,
-                    d.is_manual,
-                    ac.week_number,
-                    ayt.term_id,
-                    t.name AS term_name,
-                    ac.week_start,
-                    ac.week_end
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
+            $yearRow = $academicYearId
+                ? $this->dbQuery(
+                    "SELECT id, year_code, start_date, end_date, status, state, is_current
+                     FROM academic_years WHERE id = ?",
+                    [$academicYearId]
+                )->fetch(PDO::FETCH_ASSOC)
+                : $this->dbQuery(
+                    "SELECT id, year_code, start_date, end_date, status, state, is_current
+                     FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+                )->fetch(PDO::FETCH_ASSOC);
+            if (!$yearRow || \App\API\Services\AcademicYearLifecycleService::isArchived(
+                (string) $yearRow['status'],
+                (string) ($yearRow['state'] ?? '')
+            )) {
+                return $this->errorResponse('Academic year not found', 404);
+            }
+            $yearId = (int) $yearRow['id'];
+
+            $termRows = $this->dbQuery(
+                "SELECT ayt.id, ayt.term_id, t.name AS term_name, ayt.opening_date, ayt.closing_date
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                  LEFT JOIN terms t ON t.id = ayt.term_id
-                 LEFT JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
-                 WHERE ay.is_current = 1 OR d.academic_year_calendar_id = 0
-                 ORDER BY ayt.term_id, ac.week_number, d.date"
+                 WHERE ayt.academic_year_id = ?
+                 ORDER BY ayt.opening_date",
+                [$yearId]
             )->fetchAll(PDO::FETCH_ASSOC);
+
+            $dayColumns = "d.id AS calendar_day_id, d.date, d.title AS name,
+                    COALESCE(cdt.name, 'event') AS type, cdt.code AS type_code,
+                    d.description, d.is_manual";
+            $termDays = $this->dbQuery(
+                "SELECT {$dayColumns}
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
+                 LEFT JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
+                 WHERE ayt.academic_year_id = ?",
+                [$yearId]
+            )->fetchAll(PDO::FETCH_ASSOC);
+            $baseDays = $this->dbQuery(
+                "SELECT {$dayColumns}
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
+                 LEFT JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
+                 WHERE d.academic_year_calendar_id = 0 AND d.date BETWEEN ? AND ?",
+                [$yearRow['start_date'], $yearRow['end_date']]
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            // One row per date. The base store fills every date of the year
+            // (including term dates, as "School Holiday"), so it must never
+            // override a term day unless someone edited it by hand.
+            $byDate = [];
+            foreach ($termDays as $day) {
+                $byDate[(string) $day['date']] = $day;
+            }
+            foreach ($baseDays as $day) {
+                $date = (string) $day['date'];
+                if (!isset($byDate[$date]) || ((int) $day['is_manual'] === 1 && (int) $byDate[$date]['is_manual'] !== 1)) {
+                    $byDate[$date] = $day;
+                }
+            }
+            ksort($byDate);
+            $rows = array_values($byDate);
+
+            $periodFor = $this->yearCalendarPeriods($termRows, $yearRow);
+            foreach ($rows as &$row) {
+                $row = array_merge($row, $periodFor((string) $row['date']));
+            }
+            unset($row);
 
             // Attach school events (meetings, sports days, exams, AGM, prayer days,
             // results release, etc.) to their calendar date so the frontend can show
             // them alongside the day type and create/edit them from the page.
             $byDate = [];
-            $yearRow = $this->dbQuery(
-                "SELECT id, start_date, end_date FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
-            )->fetch(PDO::FETCH_ASSOC);
             if ($yearRow) {
                 $events = $this->dbQuery(
                     "SELECT id, title, type, location, start_at, status
@@ -6337,7 +6484,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
                     $titlesByDate[$row['date']][] = (string) ($row['name'] ?? '');
                 }
                 $free = $this->dbQuery(
-                    "SELECT id, title, description, type, location, start_at, status
+                    "SELECT id, title, description, type, location, start_at, end_at, status
                      FROM school_events
                      WHERE calendar_day_id IS NULL AND status <> 'cancelled'
                        AND DATE(start_at) BETWEEN ? AND ?
@@ -6363,7 +6510,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
                         continue; // already shown as that day's own row
                     }
                     $code = $typeMap[$f['type']] ?? ['special_event', 'Special Event'];
-                    $rows[] = [
+                    $rows[] = $periodFor($date) + [
                         'calendar_day_id' => null,
                         'date' => $date,
                         'end_date' => substr((string) ($f['end_at'] ?? ''), 0, 10) ?: $date,
@@ -6374,11 +6521,6 @@ la.learning_area_family_id, la.name AS learning_area_family,
                         'type_code' => $code[0],
                         'description' => $f['description'],
                         'is_manual' => 1,
-                        'week_number' => null,
-                        'term_id' => null,
-                        'term_name' => null,
-                        'week_start' => null,
-                        'week_end' => null,
                         'events' => [],
                         'event_id' => (int) $f['id'],
                         'event_title' => $f['title'],

@@ -134,7 +134,7 @@
 <?php asset_script($appBase, 'js/pages/public/ai_faq.js'); ?>
 <?php
 $__publicRealtimeOrigin = class_exists(\App\API\Services\RealtimeGatewayPublisher::class)
-    ? \App\API\Services\RealtimeGatewayPublisher::browserStreamBase()
+    ? \App\API\Services\RealtimeGatewayPublisher::liveBrowserStreamBase()
     : '';
 echo '<script>window.KINGSWAY_REALTIME_ORIGIN = '
     . json_encode($__publicRealtimeOrigin, JSON_UNESCAPED_SLASHES)

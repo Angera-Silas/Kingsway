@@ -51,6 +51,142 @@ final class RealtimeGatewayPublisher
         self::$transportOverride = $transport;
     }
 
+    private const LIVENESS_PATH = '/health';
+    private const LIVENESS_TIMEOUT_SECONDS = 1;
+    private const LIVENESS_ALIVE_TTL_SECONDS = 30;
+    private const LIVENESS_DEAD_TTL_SECONDS = 15;
+    private const LIVENESS_CACHE_FILE = 'cache/realtime_gateway_liveness.json';
+
+    /** @var callable|null Injectable liveness probe for hermetic tests. */
+    private static $livenessProbe = null;
+
+    /** @var array{alive:bool,checked:int}|null Per-request memo. */
+    private static ?array $livenessMemo = null;
+
+    /** Test hook: replace the gateway health probe (null restores it). */
+    public static function injectLivenessForTests(?callable $probe): void
+    {
+        self::$livenessProbe = $probe;
+        self::$livenessMemo = null;
+    }
+
+    /**
+     * Whether the gateway answered its health check recently.
+     *
+     * Handing browsers the address of a gateway that is down made every page
+     * retry a refused connection for as long as it stayed open, and made every
+     * save wait on a publish that could not succeed. The answer is cached in a
+     * small file (30s when alive, 15s when down), so the probe costs at most
+     * one loopback request per window across all PHP workers.
+     */
+    public static function gatewayAlive(): bool
+    {
+        $now = time();
+        $memo = self::$livenessMemo ?? self::readLivenessCache();
+        if ($memo !== null) {
+            $ttl = $memo['alive'] ? self::LIVENESS_ALIVE_TTL_SECONDS : self::LIVENESS_DEAD_TTL_SECONDS;
+            if ($now - $memo['checked'] < $ttl) {
+                self::$livenessMemo = $memo;
+                return $memo['alive'];
+            }
+        }
+
+        $alive = self::probeLiveness();
+        if ($memo !== null && $memo['alive'] !== $alive) {
+            \App\API\Includes\FileLogger::write('realtime', [
+                'event' => $alive ? 'gateway.liveness.up' : 'gateway.liveness.down',
+            ]);
+        }
+        self::$livenessMemo = ['alive' => $alive, 'checked' => $now];
+        self::writeLivenessCache(self::$livenessMemo);
+        return $alive;
+    }
+
+    /**
+     * The browser stream origin, but only while the gateway is alive. Pages
+     * rendered during an outage simply run without live updates (they refresh
+     * after saves and on navigation); the next page load reconnects.
+     */
+    public static function liveBrowserStreamBase(): string
+    {
+        $base = self::browserStreamBase();
+        return ($base !== '' && self::gatewayAlive()) ? $base : '';
+    }
+
+    private static function probeLiveness(): bool
+    {
+        try {
+            if (self::$livenessProbe !== null) {
+                return (bool) call_user_func(self::$livenessProbe);
+            }
+            if (!self::configured()) {
+                return false;
+            }
+            [, $status] = (new InterServiceClient(null, self::reader()))->get(
+                self::SERVICE,
+                self::LIVENESS_PATH,
+                ['Accept: application/json'],
+                self::LIVENESS_TIMEOUT_SECONDS
+            );
+            return $status >= 200 && $status < 300;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @return array{alive:bool,checked:int}|null */
+    private static function readLivenessCache(): ?array
+    {
+        if (self::$livenessProbe !== null) {
+            return null; // tests never share state through the file
+        }
+        try {
+            $raw = @file_get_contents(self::livenessCachePath());
+            $data = is_string($raw) ? json_decode($raw, true) : null;
+            if (is_array($data) && is_bool($data['alive'] ?? null) && is_int($data['checked'] ?? null)) {
+                return ['alive' => $data['alive'], 'checked' => $data['checked']];
+            }
+        } catch (\Throwable) {
+            // Unreadable cache: probe instead.
+        }
+        return null;
+    }
+
+    /**
+     * Shared cache location: the PHP storage cache when the web server can
+     * write it, otherwise the system temp directory. Without a shared file
+     * every page load would probe the gateway itself.
+     */
+    private static function livenessCachePath(): string
+    {
+        try {
+            $path = StorageRoot::path('php/' . self::LIVENESS_CACHE_FILE);
+            if (is_writable(dirname($path))) {
+                return $path;
+            }
+        } catch (\Throwable) {
+            // Fall through to the temp directory.
+        }
+        return rtrim(sys_get_temp_dir(), '/') . '/kingsway_realtime_gateway_liveness.json';
+    }
+
+    /** @param array{alive:bool,checked:int} $state */
+    private static function writeLivenessCache(array $state): void
+    {
+        if (self::$livenessProbe !== null) {
+            return;
+        }
+        try {
+            $path = self::livenessCachePath();
+            $tmp = $path . '.' . getmypid() . '.tmp';
+            if (@file_put_contents($tmp, json_encode($state), LOCK_EX) !== false) {
+                @rename($tmp, $path);
+            }
+        } catch (\Throwable) {
+            // Not writable (for example a CLI user): run uncached.
+        }
+    }
+
     /**
      * Whether the gateway has any configured address. Publishing is dormant
      * (returns false, never throws) until it is.
@@ -97,6 +233,11 @@ final class RealtimeGatewayPublisher
             }
             $configured = (new InterServiceClient(null, self::reader()))->isConfigured(self::SERVICE);
             if (!$configured) {
+                return false;
+            }
+            // A known-down gateway would make this save wait out the publish
+            // timeout for nothing: no browser is connected to receive it.
+            if (!self::gatewayAlive()) {
                 return false;
             }
             $secret = self::workerSecret();

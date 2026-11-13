@@ -146,14 +146,6 @@ if (strlen((string) TFA_ENCRYPTION_KEY) < 64 || !ctype_xdigit((string) TFA_ENCRY
     throw new \RuntimeException('TFA_ENCRYPTION_KEY must be a hexadecimal key of at least 64 characters in every environment.');
 }
 
-// Backs the unguessable slugs that secure role-scoped real-time buffer files.
-// Must be set per environment via .env (recommend: openssl rand -hex 32).
-$realtimeBufferSecret = trim((string) ($_ENV['REALTIME_BUFFER_SECRET'] ?? ''));
-if (strlen($realtimeBufferSecret) < 64) {
-    throw new \RuntimeException('REALTIME_BUFFER_SECRET must be a 64-character random value in production.');
-}
-define('REALTIME_BUFFER_SECRET', $realtimeBufferSecret);
-
 
 $authIdleTimeoutSeconds = max(
     300,
@@ -455,6 +447,10 @@ define('KCB_RECONCILIATION_WORKER_SECRET', $_ENV['KCB_RECONCILIATION_WORKER_SECR
 // The STK timeout sweeper falls back to the shared worker secret so an
 // unset constant cannot lock the cron job out of its own endpoint.
 define('PAYMENT_SWEEP_WORKER_SECRET', $_ENV['PAYMENT_SWEEP_WORKER_SECRET'] ?? ($_ENV['COMMUNICATION_WORKER_SECRET'] ?? ''));
+// KINGSWAY_WORKER_SECRET (config/.env) authenticates the academic activation
+// sweep (year cutover); AcademicController falls back to this constant. It
+// was never defined, so that endpoint rejected every worker call.
+define('KINGSWAY_WORKER_SECRET', $_ENV['KINGSWAY_WORKER_SECRET'] ?? '');
 
 define(
     'KCB_PUBLIC_KEY_PATH',

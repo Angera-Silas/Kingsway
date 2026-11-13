@@ -63,7 +63,6 @@ final class JobQueue
         'ai.insight.generate', 'ai.agent.run', 'ai.workflow.draft',
         'ai.agent.task',
         'curriculum.policy_interpret', 'rpc.async.dispatch',
-        'rebake_realtime_buffer', 'purge_old_realtime_events',
         'communications.sms_batch',
     ];
 

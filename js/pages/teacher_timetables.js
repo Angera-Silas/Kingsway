@@ -3,7 +3,8 @@
  * Deputy views any teacher's weekly schedule from the timetable entries.
  */
 const teacherTimetablesController = {
-  state: { teachers: [], entries: [] },
+  // yearId/termId come from the page's AcademicYearFilter selectors.
+  state: { teachers: [], entries: [], yearId: null, termId: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
@@ -40,7 +41,11 @@ const teacherTimetablesController = {
     if (!teacherId) { grid.innerHTML = '<div class="text-muted small p-3">Select a teacher to view their timetable.</div>'; return; }
     grid.innerHTML = '<div class="text-muted small p-3"><div class="spinner-border spinner-border-sm me-2"></div>Loading timetable…</div>';
     try {
-      const r = await this.API('GET', 'academic/teachers-schedule', null, { teacher_id: teacherId });
+      const r = await this.API('GET', 'academic/teachers-schedule', null, {
+        teacher_id: teacherId,
+        ...(this.state.yearId ? { academic_year_id: this.state.yearId } : {}),
+        ...(this.state.termId ? { academic_year_term_id: this.state.termId } : {}),
+      });
       const items = r?.data || r?.items || [];
       this.state.entries = Array.isArray(items) ? items : items.data || [];
       this.render();
@@ -83,6 +88,18 @@ const teacherTimetablesController = {
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
+    const yearSelect = document.getElementById('academicYearFilter');
+    const termSelect = document.getElementById('academicTermFilter');
+    if (window.AcademicYearFilter && yearSelect && termSelect) {
+      await window.AcademicYearFilter.mount(yearSelect, {
+        termSelect,
+        onChange: (yearId, _year, termId) => {
+          this.state.yearId = yearId;
+          this.state.termId = termId;
+          if (document.getElementById('teacherSelect')?.value) void this.loadData();
+        },
+      });
+    }
     await this.loadTeachers();
     window.APIRealtime?.register?.("teacher_timetables", { refresh: () => Promise.all([this.loadTeachers(), this.loadData()]) }, ["academic"]);
   },

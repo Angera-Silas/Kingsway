@@ -22,6 +22,10 @@ class CommunicationOutboxService
 
     public function processPending(int $limit = 25): array
     {
+        // Downtime must never end in a flood of out-of-date SMS/email: expire
+        // anything older than the configured age before claiming new work.
+        $expired = $this->expireStale(self::maxAgeHours());
+
         $stmt = $this->db->prepare(
             "SELECT id FROM communications
               WHERE (status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()))
@@ -30,13 +34,75 @@ class CommunicationOutboxService
         );
         $stmt->bindValue(1, max(1, min(100, $limit)), PDO::PARAM_INT);
         $stmt->execute();
-        $result = ['processed' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0];
+        $result = ['processed' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0, 'expired' => $expired];
         foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
             $outcome = $this->processOne((int) $id);
             $result['processed']++;
             $result[$outcome] = ($result[$outcome] ?? 0) + 1;
         }
         return $result;
+    }
+
+    /** COMM_OUTBOX_MAX_AGE_HOURS (default 24); 0 or less disables expiry. */
+    public static function maxAgeHours(): int
+    {
+        return (int) \App\Config\Config::get('COMM_OUTBOX_MAX_AGE_HOURS', 24);
+    }
+
+    /**
+     * Mark queued/scheduled communications older than $maxAgeHours as failed
+     * ("expired") together with their undelivered endpoints, so they are never
+     * sent. Age counts from scheduled_at when set, else created_at. Returns the
+     * number of communications expired.
+     */
+    public function expireStale(int $maxAgeHours): int
+    {
+        if ($maxAgeHours <= 0) {
+            return 0;
+        }
+        $select = $this->db->prepare(
+            "SELECT id FROM communications
+              WHERE status IN ('queued','scheduled')
+                AND COALESCE(scheduled_at, created_at) < DATE_SUB(NOW(), INTERVAL ? HOUR)
+              ORDER BY id LIMIT 500"
+        );
+        $select->bindValue(1, $maxAgeHours, PDO::PARAM_INT);
+        $select->execute();
+        $ids = array_map('intval', $select->fetchAll(PDO::FETCH_COLUMN));
+        if ($ids === []) {
+            return 0;
+        }
+
+        $reason = "Expired: not sent within {$maxAgeHours}h of its send time (COMM_OUTBOX_MAX_AGE_HOURS).";
+        $markComm = $this->db->prepare(
+            "UPDATE communications SET status = 'failed', processed_at = NOW(), locked_at = NULL, locked_by = NULL,
+                    next_attempt_at = NULL, last_error = ?
+              WHERE id = ? AND status IN ('queued','scheduled')"
+        );
+        $markEndpoints = $this->db->prepare(
+            "UPDATE communication_recipient_endpoints e
+               JOIN communication_recipients r ON r.id = e.communication_recipient_id
+                SET e.status = 'failed', e.next_attempt_at = NULL, e.last_error = ?
+              WHERE r.communication_id = ? AND e.status IN ('pending','retry')"
+        );
+        $expired = [];
+        foreach ($ids as $id) {
+            $markComm->execute([$reason, $id]);
+            if ($markComm->rowCount() !== 1) {
+                continue; // claimed or changed concurrently
+            }
+            $markEndpoints->execute([$reason, $id]);
+            $expired[] = $id;
+        }
+        if ($expired !== []) {
+            FileLogger::write('communications', [
+                'type' => 'outbox_expired_stale',
+                'max_age_hours' => $maxAgeHours,
+                'count' => count($expired),
+                'communication_ids' => array_slice($expired, 0, 100),
+            ], 'warning');
+        }
+        return count($expired);
     }
 
     public function processOne(int $communicationId, ?array $recipientRowIds = null): string

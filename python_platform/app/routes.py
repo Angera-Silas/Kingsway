@@ -6,7 +6,7 @@ Endpoints (all service-to-service, bearer-authenticated, never browser-facing):
   POST /api/agents/digest          deterministic personal digest
   POST /v1/chat/completions        OpenAI-compatible raw provider access
   GET  /v1/models                  model advertisement for health checks
-  POST /internal/worker            curl-cron dispatch (queue jobs or digest/assist)
+  POST /internal/worker            manual dispatch (queue jobs or digest/assist); the ticker drains the queue itself
   POST /internal/behavior/forget   DPA erasure for one staff member
                               (behaviour profile and conversation turns)
   POST /api/sms/execute            TALKSASA provider call relayed by PHP (PHP
@@ -143,7 +143,7 @@ def create_app(config: Config | None = None) -> Flask:
     def public_faq_refresh():
         """Refresh storage/public/faqs.json from the published school website.
 
-        Called by a single curl crontab line with X-Kingsway-Worker-Secret, so
+        Called on demand with X-Kingsway-Worker-Secret (or as a ticker job), so
         term dates, a new academic year and contact changes reach the public
         assistant without editing code or the JSON file by hand.
         """
@@ -6879,7 +6879,11 @@ def create_app(config: Config | None = None) -> Flask:
 
     @app.post("/internal/worker")
     def internal_worker():
-        """Curl-cron entry for bounded Python queue jobs or existing AI runs."""
+        """Manual entry for bounded Python queue jobs or existing AI runs.
+
+        Scheduled queue draining no longer comes through here: the ticker runs
+        the `python_queue` job from schedules.yaml in-process.
+        """
         guard = auth_guard()
         if guard is not None:
             return guard
@@ -6957,7 +6961,8 @@ def create_app(config: Config | None = None) -> Flask:
     def internal_tick():
         """Change-driven projection refresh (Python only).
 
-        ONE crontab line calls this. The engine:
+        Manual / diagnostic entry only: the Passenger-started ticker runs the
+        same engine every 2 s, so nothing schedules this endpoint. The engine:
 
         1. Ensures change-capture triggers are installed on every source table.
         2. Reads the change log and marks affected projections dirty.

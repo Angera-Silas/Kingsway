@@ -7,8 +7,8 @@ tables. Two engines meant two schedules, two advisory-lock contestants and a
 guaranteed drift whenever one of them was down. This module makes Python the
 only writer of the reads namespace:
 
-* the crontab pokes ``POST /internal/tick`` once a minute (or a supervised
-  ``worker_process.py`` runs it continuously);
+* the Passenger-started ticker (``scripts/ticker.py``) runs a tick every 2 s;
+  ``POST /internal/tick`` remains for manual runs only;
 * every tick reads ``python_platform/schedules.yaml`` for cadence and
   ``KingsWayReads.reads_meta`` for what actually happened last;
 * database triggers record which base tables changed, so projections are
@@ -98,6 +98,10 @@ class RefreshEngine:
         self._clock = clock
         self._monotonic = monotonic
         self._sleep = sleep
+        # Called with each projection refreshed because its source data
+        # changed (the ticker wires app.refresh_signal here). Scheduled
+        # rebuilds do not call it. Must never raise or block.
+        self.on_refreshed: Any = None
 
         self._refresher = ReadModelRefresher(config)
         self._polars: PolarsReadModelRefresher | None = None
@@ -676,7 +680,7 @@ class RefreshEngine:
         """Run a bounded, change-aware refresh batch.
 
         The loop keeps polling for new changes until the time budget expires,
-        so a single one-minute cron tick provides near-continuous coverage:
+        so each ticker tick provides near-continuous coverage:
         a write is typically reflected in its views within a few seconds.
         """
         started = self._monotonic()
@@ -727,6 +731,16 @@ class RefreshEngine:
                         self.clear_dirty(projection, change_id)
                     succeeded += 1
                     ran.append(projection)
+                    # Tell browsers only when a source-table write was seen
+                    # (change_id > 0). Scheduled rebuilds are a safety net and
+                    # almost never change anything: announcing them told every
+                    # open page "data changed" about three times a second, and
+                    # each page re-fetched its data for nothing.
+                    if change_id > 0 and self.on_refreshed is not None:
+                        try:
+                            self.on_refreshed(projection)
+                        except Exception:  # noqa: BLE001 - signal is best effort
+                            pass
                     self._journal(
                         {
                             "type": "read_projection_refreshed",

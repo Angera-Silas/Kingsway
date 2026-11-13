@@ -12,7 +12,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 // the previous CSP verbatim.
 $realtimeConnectOrigin = '';
 try {
-    $realtimeBase = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
+    $realtimeBase = \App\API\Services\RealtimeGatewayPublisher::liveBrowserStreamBase();
     $parts = is_string($realtimeBase) && $realtimeBase !== '' ? parse_url($realtimeBase) : null;
     if (!empty($parts['scheme']) && !empty($parts['host'])) {
         $realtimeConnectOrigin = $parts['scheme'] . '://' . $parts['host']
@@ -32,7 +32,7 @@ if (!headers_sent()) {
         . "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
         . "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
         . "img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; "
-        . "connect-src 'self' http://localhost:* ws://localhost:*" . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : '') . "; "
+        . "connect-src 'self' http://localhost:*" . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : '') . "; "
         . "frame-ancestors 'none'; form-action 'self'"
     );
 }

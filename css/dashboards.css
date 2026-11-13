@@ -1324,3 +1324,276 @@
 [data-dashboard-layout="executive-wave-mosaic"] .g-blue { background: linear-gradient(135deg,#1685bd,#48bad2); }
 [data-dashboard-layout="executive-wave-mosaic"] .g-pink { background: linear-gradient(135deg,#bd356f,#e96896); }
 [data-dashboard-layout="executive-wave-mosaic"] .g-green { background: linear-gradient(135deg,#357b61,#64b68b); }
+
+/* ==========================================================================
+   Dashboard tabs + term ribbon (components/dashboards/_dashboard_tabs.php)
+   One segment per school week; the current week fills to today in gold.
+   ========================================================================== */
+.kw-dash-head {
+    --kw-ink: #1f2d27;
+    --kw-muted: #5f6b66;
+    --kw-green: #14532d;
+    --kw-green-soft: #2f7a52;
+    --kw-gold: #ca8a04;
+    --kw-track: #e6ece8;
+    --kw-line: #dde4e0;
+    margin-bottom: 1.25rem;
+    padding: 1rem 1.25rem 0;
+    background: #fff;
+    border: 1px solid var(--kw-line);
+    border-radius: 14px;
+}
+.kw-term { padding-bottom: .9rem; }
+.kw-term[hidden] { display: none; }
+.kw-term-text {
+    display: flex;
+    align-items: baseline;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-bottom: .55rem;
+}
+.kw-term-name {
+    font-size: .95rem;
+    font-weight: 600;
+    color: var(--kw-green);
+}
+.kw-term-week {
+    font-size: .95rem;
+    color: var(--kw-muted);
+    font-variant-numeric: tabular-nums;
+}
+.kw-term-week strong {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--kw-ink);
+    letter-spacing: -.01em;
+    margin-right: .15rem;
+}
+.kw-term-track {
+    display: flex;
+    gap: 3px;
+    height: 10px;
+}
+.kw-term-seg {
+    --fill: 0;
+    position: relative;
+    flex: 1 1 0;
+    overflow: hidden;
+    background: var(--kw-track);
+    border-radius: 2px;
+}
+.kw-term-seg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform-origin: left center;
+    transform: scaleX(var(--fill));
+    background: var(--kw-green-soft);
+    animation: kw-term-fill .7s cubic-bezier(.2, .7, .2, 1) both;
+}
+.kw-term-seg.is-done::after { background: var(--kw-green); }
+.kw-term-seg.is-now { box-shadow: 0 0 0 1.5px var(--kw-gold) inset; }
+.kw-term-seg.is-now::after { background: var(--kw-gold); }
+@keyframes kw-term-fill { from { transform: scaleX(0); } }
+.kw-term-year {
+    margin-left: auto;
+    font-size: .8rem;
+    color: var(--kw-muted);
+}
+/* The school year: one group of week segments per term, holidays as gaps. */
+.kw-year {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.25rem;
+}
+.kw-year-term {
+    flex: 1 1 0;
+    min-width: 0;
+}
+.kw-year-label {
+    display: flex;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-top: .4rem;
+    font-size: .78rem;
+    color: var(--kw-muted);
+    white-space: nowrap;
+}
+.kw-year-term.is-current .kw-year-name {
+    color: var(--kw-green);
+    font-weight: 600;
+}
+/* Half-term weeks are hatched so the break reads at a glance. */
+.kw-term-seg.is-break {
+    background: repeating-linear-gradient(135deg, var(--kw-track) 0 3px, #f7f9f8 3px 6px);
+}
+.kw-term-seg.is-break::after { opacity: .5; }
+
+.kw-dash-nav {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    border-top: 1px solid var(--kw-line);
+}
+.kw-dash-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: .25rem;
+    scrollbar-width: none;
+}
+.kw-dash-tabs::-webkit-scrollbar { display: none; }
+.kw-dash-tabs .nav-link {
+    position: relative;
+    padding: .75rem .9rem .8rem;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--kw-muted);
+    font-weight: 500;
+    white-space: nowrap;
+}
+.kw-dash-tabs .nav-link:hover { color: var(--kw-ink); }
+.kw-dash-tabs .nav-link.active { color: var(--kw-green); font-weight: 600; }
+.kw-dash-tabs .nav-link.active::after {
+    content: "";
+    position: absolute;
+    left: .9rem;
+    right: .9rem;
+    bottom: -1px;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: var(--kw-gold);
+}
+.kw-dash-tabs .nav-link:focus-visible {
+    outline: 2px solid var(--kw-gold);
+    outline-offset: -2px;
+}
+.kw-dash-updated {
+    padding-bottom: .8rem;
+    font-size: .8rem;
+    color: var(--kw-muted);
+    white-space: nowrap;
+}
+
+/* Reports and Export panes */
+.kw-pane {
+    max-width: 880px;
+    padding: .25rem 0 1rem;
+}
+.kw-pane-intro { margin-bottom: 1rem; }
+.kw-pane-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #1f2d27;
+    margin: 0 0 .2rem;
+}
+.kw-pane-lede {
+    margin: 0;
+    color: #5f6b66;
+    max-width: 62ch;
+}
+.kw-pane-empty { color: #5f6b66; }
+
+.kw-report-list,
+.kw-export-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    border: 1px solid #dde4e0;
+    border-radius: 12px;
+    overflow: hidden;
+}
+.kw-report-list > li + li,
+.kw-export-list > li + li { border-top: 1px solid #edf1ee; }
+
+.kw-report {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: .9rem 1.1rem;
+    color: inherit;
+    text-decoration: none;
+}
+.kw-report:hover { background: #f6f9f7; }
+.kw-report:focus-visible {
+    outline: 2px solid #ca8a04;
+    outline-offset: -2px;
+}
+.kw-report-icon {
+    flex: none;
+    width: 2.25rem;
+    height: 2.25rem;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: #ecf3ee;
+    color: #14532d;
+    font-size: 1.05rem;
+}
+.kw-report-body { flex: 1; min-width: 0; }
+.kw-report-name {
+    display: block;
+    font-weight: 600;
+    color: #1f2d27;
+}
+.kw-report-about {
+    display: block;
+    font-size: .875rem;
+    color: #5f6b66;
+}
+.kw-report-go { color: #9aa7a1; }
+.kw-report:hover .kw-report-go { color: #14532d; }
+
+.kw-export-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .85rem 1.1rem;
+    flex-wrap: wrap;
+}
+.kw-export-name { display: block; font-weight: 600; color: #1f2d27; }
+.kw-export-count {
+    display: block;
+    font-size: .85rem;
+    color: #5f6b66;
+    font-variant-numeric: tabular-nums;
+}
+.kw-export-actions { display: flex; gap: .5rem; }
+.kw-export-all { margin-top: 1rem; }
+
+@media (max-width: 575.98px) {
+    .kw-dash-head { padding: .85rem .9rem 0; border-radius: 12px; }
+    .kw-year { gap: .6rem; }
+    .kw-year-dates { display: none; }
+    .kw-term-year { margin-left: 0; width: 100%; }
+    .kw-dash-updated { display: none; }
+    .kw-export-actions { width: 100%; }
+    .kw-export-actions .btn { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .kw-term-seg::after { animation: none; }
+}
+@media print {
+    .kw-dash-nav,
+    .kw-dash-panes > .tab-pane:not(:first-child) { display: none !important; }
+    .kw-dash-head { border: 0; padding: 0; }
+    .kw-dash-panes > .tab-pane:first-child { display: block !important; opacity: 1 !important; }
+}
+/* The shell pads every .nav-item; keep the tabs flush with the ribbon text. */
+.kw-dash-tabs .nav-item { padding: 0; margin: 0; }
+.kw-dash-tabs .nav-item:first-child .nav-link { padding-left: 0; }
+.kw-dash-tabs .nav-item:first-child .nav-link.active::after { left: 0; }
+.kw-export-actions .btn {
+    border: 1px solid #cfd8d3;
+    color: #1f2d27;
+    background: #fff;
+}
+.kw-export-actions .btn:hover:not(:disabled) {
+    border-color: #14532d;
+    color: #14532d;
+    background: #f3f8f5;
+}
+.kw-export-actions .btn:disabled { opacity: .5; }

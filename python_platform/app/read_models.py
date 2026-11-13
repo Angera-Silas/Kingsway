@@ -8,6 +8,7 @@ worker. This module is intentionally independent of the LLM provider.
 from __future__ import annotations
 
 import re
+import threading
 import time
 import uuid
 from typing import Any, Callable
@@ -2659,7 +2660,17 @@ def _qualified(schema: str, table: str) -> str:
 # still open one connection per job. This module-level cache is keyed by the
 # resolved schema, so a bounded batch of 25 projections costs exactly one or
 # two connections for the whole process instead of 25-50.
+#
+# The cache is PER THREAD. A pymysql connection is not thread-safe, and the
+# ticker runs projection refreshes (main thread) alongside operational jobs
+# such as the Python queue drain (operations thread); Flask also serves
+# requests on several threads. Sharing one connection across threads
+# corrupted result streams ("Previous unbuffered result was left
+# incomplete") and one thread's close_all_connections() closed a connection
+# another thread was mid-query on. Keys carry the thread id, and
+# close_all_connections() releases only the calling thread's connections.
 _CONNECTION_CACHE: dict = {}
+_CONNECTION_CACHE_LOCK = threading.Lock()
 
 
 # The scheduler executes every due job on ONE connection. The read-model
@@ -2680,8 +2691,13 @@ def _open_mysql_connection(config, database, connector=None):
     master connection and the reads connection the SAME object, which silently
     defeats schema separation between KingsWayAcademy and KingsWayReads.
     """
-    key = (getattr(config, "db_user", ""), (database or "").lower())
-    cached = _CONNECTION_CACHE.get(key)
+    key = (
+        threading.get_ident(),
+        getattr(config, "db_user", ""),
+        (database or "").lower(),
+    )
+    with _CONNECTION_CACHE_LOCK:
+        cached = _CONNECTION_CACHE.get(key)
     if cached is not None:
         try:
             cached.ping(reconnect=True)
@@ -2691,7 +2707,8 @@ def _open_mysql_connection(config, database, connector=None):
                 cached.close()
             except Exception:  # noqa: BLE001
                 pass
-            _CONNECTION_CACHE.pop(key, None)
+            with _CONNECTION_CACHE_LOCK:
+                _CONNECTION_CACHE.pop(key, None)
 
     if connector is not None:
         connection = connector(
@@ -2732,14 +2749,22 @@ def _open_mysql_connection(config, database, connector=None):
             ssl_verify_identity=bool(config.db_ssl_ca),
         )
 
-    _CONNECTION_CACHE[key] = connection
+    with _CONNECTION_CACHE_LOCK:
+        _CONNECTION_CACHE[key] = connection
     return connection
 
 
-def close_all_connections() -> None:
-    """Release every cached connection. Call on worker shutdown."""
-    while _CONNECTION_CACHE:
-        _key, connection = _CONNECTION_CACHE.popitem()
+def close_all_connections(all_threads: bool = False) -> None:
+    """Release the calling thread's cached connections.
+
+    Only this thread's: another thread may be mid-query on its own. Pass
+    all_threads=True only at process shutdown, when no thread is running.
+    """
+    me = threading.get_ident()
+    with _CONNECTION_CACHE_LOCK:
+        keys = [k for k in _CONNECTION_CACHE if all_threads or k[0] == me]
+        connections = [_CONNECTION_CACHE.pop(k) for k in keys]
+    for connection in connections:
         try:
             connection.close()
         except Exception:  # noqa: BLE001 - best effort on shutdown

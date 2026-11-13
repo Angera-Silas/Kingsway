@@ -1077,7 +1077,7 @@ window.schoolAdminDashboardController = {
             <tr>
                 <td>
                     <div class="d-flex align-items-center">
-                        <div class="avatar-circle bg-primary bg-opacity-10 text-primary me-2">
+                        <div class="avatar-circle bg-primary bg-opacity-10 text-primary me-2" aria-hidden="true">
                             ${this.getInitials(item.name)}
                         </div>
                         <strong>${this.escapeHtml(item.name)}</strong>
@@ -1219,10 +1219,11 @@ window.schoolAdminDashboardController = {
   // UTILITY FUNCTIONS
   // =========================================================================
   updateLastRefreshTime: function () {
-    const el = document.getElementById("lastRefreshTime");
+    // #last_refresh lives in the shared dashboard header
+    // (components/dashboards/_dashboard_tabs.php).
+    const el = document.getElementById("last_refresh");
     if (el) {
-      const now = new Date();
-      el.textContent = now.toLocaleTimeString();
+      el.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
     this.state.lastRefresh = new Date();
   },

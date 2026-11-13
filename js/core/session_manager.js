@@ -305,8 +305,12 @@ const SessionManager = (() => {
 
     if (shouldRefresh) {
       const refreshed = await refreshSession();
+      // An unreachable server is not an expired session: the refresh cookie
+      // is still valid and the next successful refresh resumes it.
+      const unreachable = auth()?.getRefreshOutcome?.() === 'unavailable';
       if (
         !refreshed &&
+        !unreachable &&
         (secondsUntilExpiry === null || secondsUntilExpiry <= 0)
       ) {
         onSessionExpired('expired_token_refresh_failed');
