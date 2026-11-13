@@ -243,7 +243,7 @@
             if (form) form.reset();
             setVal("stock_in_date", todayStr());
             const modal = document.getElementById("stockInModal");
-            if (modal) new bootstrap.Modal(modal).show();
+            if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
         },
 
         async saveStockIn() {
@@ -277,7 +277,7 @@
             const form = document.getElementById("stockOutForm");
             if (form) form.reset();
             const modal = document.getElementById("stockOutModal");
-            if (modal) new bootstrap.Modal(modal).show();
+            if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
         },
 
         updateAvailableQty() {

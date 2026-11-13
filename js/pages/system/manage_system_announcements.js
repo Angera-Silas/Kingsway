@@ -19,7 +19,7 @@
           return;
         }
       } catch (e) { console.warn("Auth init failed", e); }
-      this.modal = new bootstrap.Modal(document.getElementById("annModal"));
+      this.modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("annModal"));
       this.bind();
       await Promise.all([this.load(), this.loadStats()]);
     },
@@ -226,7 +226,7 @@
       try {
         const a = await window.API.system.getSystemAnnouncement(id);
         if (!a?.id) { window.showNotification?.("Announcement not found.", "warning"); return; }
-        const modal = new bootstrap.Modal(document.getElementById("annViewModal"));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("annViewModal"));
         document.getElementById("annViewTitle").textContent = a.title;
         document.querySelectorAll("#annViewBody [data-view]").forEach((element) => {
           element.textContent = ({

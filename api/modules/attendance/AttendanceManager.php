@@ -537,7 +537,8 @@ class AttendanceManager extends BaseAPI
 
             $sql = "SELECT COUNT(*) AS total_days,
                            SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days
-                    FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                    FROM student_attendance sa
+                    JOIN student_academic_enrollments en ON en.id = sa.student_academic_enrollment_id
                     WHERE en.student_id = ? AND en.enrollment_status = 'active'";
             $params = [(int) $studentId];
 
@@ -2178,7 +2179,8 @@ class AttendanceManager extends BaseAPI
 
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, st.code AS student_type_code, st.name AS student_type
-                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                 FROM students s
+                 LEFT JOIN student_types st ON st.id = s.student_type_id
                  WHERE s.id = ?
                  LIMIT 1"
             );
@@ -3135,7 +3137,8 @@ class AttendanceManager extends BaseAPI
             $existingCounts = ['class' => 0, 'boarding' => 0, 'activity' => 0];
             if ($streamId) {
                 $markSql = "SELECT sa.register_type, COUNT(DISTINCT sa.student_academic_enrollment_id) AS cnt
-                            FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                            FROM student_attendance sa
+                            JOIN student_academic_enrollments en ON en.id = sa.student_academic_enrollment_id
                             WHERE sa.date = ? AND en.academic_year_class_stream_id = ?";
                 $markParams = [$date, (int) $streamId];
                 if ($sessionId) {

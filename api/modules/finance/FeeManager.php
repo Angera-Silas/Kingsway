@@ -914,7 +914,7 @@ class FeeManager
 
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $checkStmt = $this->db->prepare(
-                "SELECT COUNT(*) as count FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE academic_year_fee_schedule_id IN ($placeholders)"
+                "SELECT COUNT(*) as count FROM student_fee_obligations WHERE academic_year_fee_schedule_id IN ($placeholders)"
             );
             $checkStmt->execute($ids);
             $inUse = (int) $checkStmt->fetch(PDO::FETCH_ASSOC)['count'];
@@ -3322,12 +3322,12 @@ class FeeManager
             // 3. Get active students enrolled in this level + student_type
             $levelFilter = $levelId ? " AND c.level_id = ?" : "";
             $stmt = $this->db->prepare("
-                SELECT DISTINCT s.id AS student_id, sae.academic_year_class_id
-                FROM " . ReadReplicaService::qualifiedRef("students") . " s
-                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id
-                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
-                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
-                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
+                SELECT DISTINCT s.id AS student_id
+                FROM students s
+                JOIN student_academic_enrollments sae ON sae.student_id = s.id
+                JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+                JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+                JOIN classes c ON ayc.class_id = c.id
                 WHERE 1=1
                   AND s.student_type_id = ?
                   AND s.status = 'active'
@@ -3642,7 +3642,7 @@ class FeeManager
                 LEFT JOIN school_levels sl ON sl.id = sd.level_id
                 LEFT JOIN $feeBalView v ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id AND v.academic_year_term_id = sfo.academic_year_term_id
                 WHERE sae.student_id = ?
-                ORDER BY ay.year_code DESC, t.code ASC
+                ORDER BY ay.year_code DESC, aterm.term_code ASC
             ");
             $stmt->execute([$studentId]);
             $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -4362,7 +4362,7 @@ class FeeManager
                 "SELECT ec.id, ec.name, ec.amount, ec.calculation_mode, ec.unit_label, ec.unit_price,
                         ec.billing_model, ec.billing_frequency, ec.target_scope,
                         ec.class_id, coa.account_name AS gl_account_name
-                 FROM " . ReadReplicaService::qualifiedRef("extra_charges") . "
+                 FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa ON coa.id = ec.gl_account_id
                  WHERE ec.academic_year_id = ? AND ec.status = 'active' AND ec.visible_on_fee_structure = 1
                  ORDER BY ec.display_order, ec.name"

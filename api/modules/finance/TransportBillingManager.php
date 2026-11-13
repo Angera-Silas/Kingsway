@@ -54,7 +54,7 @@ class TransportBillingManager
               (student_id, route_id, month, year, expected_amount, assignment_date, status, assigned_by, notes)
             VALUES (:sid, :rid, :m, :y, :fee, :sm, 'active', :by, :notes)
             ON DUPLICATE KEY UPDATE
-              status='active', expected_amount=:fee2, notes=:notes2, updated_at=NOW()
+              status='active', expected_amount=:fee2, notes=:notes2
         ");
         $stmt->execute([
             ':sid' => $studentId, ':rid' => $routeId,
@@ -221,7 +221,7 @@ class TransportBillingManager
             SELECT tr.name AS route_name, COUNT(*) AS bills, SUM(tmb.amount_due) AS total_due,
                    SUM(COALESCE(tbp_sum.amount_paid, 0)) AS total_paid,
                    SUM(tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0)) AS outstanding
-            FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . "
+            FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " tmb
             JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id = tmb.route_id
             LEFT JOIN (
                 SELECT bill_id, SUM(amount) AS amount_paid

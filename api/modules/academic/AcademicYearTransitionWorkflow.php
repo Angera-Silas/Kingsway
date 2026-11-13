@@ -1726,6 +1726,28 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             ][$stageCode] ?? null;
             if (!$next) return formatResponse(false, null, 'This stage has a dedicated workflow action.');
 
+            // Prevent completing configure_classes_streams until target-year
+            // classes and streams have actually been created via setup-new-year.
+            // Without them, the promotion board has no target streams and fee
+            // structures aren't copied (copyNewYearContext runs inside setupNewYear).
+            if ($stageCode === 'configure_classes_streams') {
+                $toYearId = (int) ($data['academic_year_id'] ?? 0);
+                if (!$toYearId) {
+                    $toYearCode = (string) ($data['to_year_code'] ?? $data['to_year'] ?? '');
+                    $toYearId = $this->resolveYearIdFromCode($toYearCode);
+                }
+                if ($toYearId) {
+                    $targetClassCount = $this->db->prepare(
+                        "SELECT COUNT(*) FROM academic_year_classes
+                         WHERE academic_year_id = ? AND status IN ('planning','active')"
+                    );
+                    $targetClassCount->execute([$toYearId]);
+                    if ((int) $targetClassCount->fetchColumn() === 0) {
+                        return formatResponse(false, null, 'Target-year classes and streams have not been created yet. Click "Apply to target year" (or "Prepare structure") on the Classes & Streams tab before completing this stage.');
+                    }
+                }
+            }
+
             if (in_array($stageCode, ['carry_forward_finances','generate_obligations','reconcile_balances'], true)) {
                 $financeResult = $this->runFinanceRolloverStage($stageCode, $data);
                 $data['finance_rollover'][$stageCode] = array_merge($financeResult, ['completed_at' => date('Y-m-d H:i:s')]);

@@ -150,7 +150,7 @@ class BankPaymentWebhook
                         student_id, transaction_ref, amount, transaction_date,
                         bank_name, account_number, normalized_reference, narration, status,
                         source_type, webhook_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'recorded', 'api_callback', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'recorded', 'api_callback', ?)
                 ");
 
                 $stmt->execute([
@@ -215,8 +215,18 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get student by admission number
             $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
-                $this->logWebhookError($bankName, 'Invalid admission number: ' . $accountNumber, $paymentData);
-                return formatResponse(false, null, 'Student not found for admission: ' . $accountNumber);
+                // Same rule as the KCB path: the money is already in the
+                // school's account, so hold it for manual allocation instead of
+                // leaving the deposit with no system record.
+                $held = $this->captureUnmatched(
+                    (string) $accountNumber,
+                    (float) $amount,
+                    $transactionRef,
+                    $paymentData,
+                    'Admission number not recognised: ' . $accountNumber
+                );
+                $this->logWebhookError($bankName, ($held ? 'Held unmatched: ' : 'Invalid admission number (NOT held): ') . $accountNumber, $paymentData);
+                return formatResponse(false, ['held_unmatched' => $held], 'Payment held for manual allocation: admission ' . $accountNumber . ' matches no learner');
             }
 
             // Check for duplicate transaction with row locking to prevent race condition
@@ -387,11 +397,12 @@ $admissionCol = $this->resolveAdmissionColumn();
                           AND sae.enrollment_status = 'active'
                     ) THEN aa.enrolled_student_id ELSE NULL END AS student_id
              FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
-             WHERE (aa.application_no = :reference OR (SELECT s.admission_no FROM " . ReadReplicaService::qualifiedRef('student_directory') . " s WHERE s.student_id = aa.enrolled_student_id LIMIT 1) = :reference)
+             WHERE (aa.application_no = :reference_application OR (SELECT s.admission_no FROM " . ReadReplicaService::qualifiedRef('student_directory') . " s WHERE s.student_id = aa.enrolled_student_id LIMIT 1) = :reference_admission)
                AND aa.status NOT IN ('cancelled', 'rejected')
              LIMIT 1"
         );
-        $stmt->execute(['reference' => trim($reference)]);
+        // Native prepares reject a repeated named placeholder (HY093).
+        $stmt->execute(['reference_application' => trim($reference), 'reference_admission' => trim($reference)]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
     }

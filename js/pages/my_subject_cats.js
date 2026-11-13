@@ -224,7 +224,7 @@ const mySubjectCatsCtrl = (() => {
     }
 
     function showCatModal(catId = null) {
-        const modal = new bootstrap.Modal(document.getElementById('catModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('catModal'));
         const title = document.getElementById('catModalTitle');
         const form = document.getElementById('catForm');
         

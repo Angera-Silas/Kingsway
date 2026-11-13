@@ -82,7 +82,7 @@ class PaymentTerminalManager extends BaseAPI
 
     private function assertSettlement(int $id): void
     {
-        $s=$this->db->prepare("SELECT a.id FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status='active' AND k.code IN ('bank','cash','clearing') LIMIT 1"); $s->execute([$id]);
+        $s=$this->db->prepare("SELECT a.id FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status='active' AND k.code IN ('bank','cash','clearing') LIMIT 1"); $s->execute([$id]);
         if (!$s->fetchColumn()) throw new RuntimeException('Settlement account must be an active school financial account.');
     }
 }

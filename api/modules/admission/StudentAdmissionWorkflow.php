@@ -607,7 +607,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         // 4. Last-resort current/upcoming open term.
         $resolved = $this->scalar(
             "SELECT ayt.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
              JOIN " . ReadReplicaService::qualifiedRef("admission_windows") . " aw ON aw.academic_year_term_id = ayt.id
                 AND aw.status = 'open' AND aw.accepts_new_applications = 1
                 AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
@@ -1183,7 +1183,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Verify this grade requires interview
             $sql = "SELECT aa.grade_applying_for, aa.applicant_name, aa.application_no,
                            aw.interview_results_deadline_at
-                      FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
+                      FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
                       LEFT JOIN admission_windows aw
                         ON aw.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.admission_window_id')) AS UNSIGNED)
                      WHERE aa.id = :id";
@@ -1558,7 +1558,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $appStmt = $this->db->prepare(
                 "SELECT aa.id, aa.application_no, aa.enrolled_student_id, aa.parent_id,
                         s.admission_no
-                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
+                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
                  LEFT JOIN students s ON s.id = aa.enrolled_student_id
                  WHERE aa.id = :id LIMIT 1"
             );
@@ -1681,7 +1681,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         if ($source === 'mpesa_reconciliation') {
             $stmt = $this->db->prepare(
                 "SELECT mt.*, a.status AS account_status, a.currency AS account_currency
-                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . "
+                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . " mt
                  LEFT JOIN school_financial_accounts a ON a.id = mt.financial_account_id
                  WHERE (mt.mpesa_code = :raw_reference OR mt.normalized_reference = :normalized_reference)
                  ORDER BY mt.id DESC LIMIT 10"
@@ -1705,7 +1705,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $stmt = $this->db->prepare(
             "SELECT bt.*, a.status AS account_status, a.currency AS account_currency
-             FROM " . ReadReplicaService::qualifiedRef("bank_transactions") . "
+             FROM " . ReadReplicaService::qualifiedRef("bank_transactions") . " bt
              LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a ON a.id = bt.financial_account_id
              WHERE (bt.transaction_ref = :raw_reference_one OR bt.normalized_reference = :normalized_reference
                     OR bt.bank_reference = :raw_reference_two)
@@ -2563,7 +2563,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         $stmt = $this->db->prepare("
             SELECT c.level_id, aa.academic_year
-            FROM " . ReadReplicaService::qualifiedRef("classes") . "
+            FROM " . ReadReplicaService::qualifiedRef("classes") . " c
             JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = :application_id
             WHERE c.id = :class_id
             LIMIT 1
@@ -2591,7 +2591,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $sumStmt = $this->db->prepare("
             SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
             WHERE ayc.class_id IN (SELECT c2.id FROM " . ReadReplicaService::qualifiedRef("classes") . " c2 WHERE c2.level_id = :level_id)
               AND ayc.academic_year_id = :academic_year_id
@@ -2616,7 +2616,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $fallbackStmt = $this->db->prepare("
             SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
             WHERE ayc.class_id IN (SELECT c2.id FROM " . ReadReplicaService::qualifiedRef("classes") . " c2 WHERE c2.level_id = :level_id)
               AND ayc.academic_year_id = :academic_year_id
@@ -2790,7 +2790,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $existingRelationship;
         }
 
-        $parentStmt = $this->db->prepare("SELECT gender FROM parents WHERE id = :parent_id LIMIT 1");
+        $parentStmt = $this->db->prepare('SELECT id FROM parents WHERE id = :parent_id FOR UPDATE');
         $parentStmt->execute(['parent_id' => $parent_id]);
         $gender = strtolower((string) $parentStmt->fetchColumn());
 
@@ -3262,7 +3262,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone,
                    p.national_id_no, p.gender, p.dob,
                    par.id AS parent_id, par.occupation, par.address
-            FROM " . ReadReplicaService::qualifiedRef("persons") . "
+            FROM " . ReadReplicaService::qualifiedRef("persons") . " p
             JOIN " . ReadReplicaService::qualifiedRef("parents") . " par ON par.person_id = p.id
             WHERE p.national_id_no = :id_no
             LIMIT 1

@@ -188,7 +188,7 @@ const ViewCalendarController = (() => {
         document.getElementById('eventDescription').value = event?.description || '';
         document.getElementById('eventVenue').value = event?.venue || event?.location || '';
         document.getElementById('eventModalLabel').textContent = event ? 'Edit Event' : 'Add Event';
-        new bootstrap.Modal(document.getElementById('eventModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('eventModal')).show();
     }
 
     async function save() {

@@ -30,9 +30,9 @@ const staffOnboardingController = {
     const addBtn = document.getElementById('newOnboardingBtn');
     if (addBtn) addBtn.style.display = this._canCreate ? '' : 'none';
 
-    this._modals.initiate  = new bootstrap.Modal(document.getElementById('initiateOnboardModal'));
-    this._modals.doc       = new bootstrap.Modal(document.getElementById('obDocModal'));
-    this._modals.review    = new bootstrap.Modal(document.getElementById('obReviewModal'));
+    this._modals.initiate  = bootstrap.Modal.getOrCreateInstance(document.getElementById('initiateOnboardModal'));
+    this._modals.doc       = bootstrap.Modal.getOrCreateInstance(document.getElementById('obDocModal'));
+    this._modals.review    = bootstrap.Modal.getOrCreateInstance(document.getElementById('obReviewModal'));
     this._offcanvas = new bootstrap.Offcanvas(document.getElementById('obDetailOffcanvas'));
 
     this._bindFilters();

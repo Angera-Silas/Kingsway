@@ -150,7 +150,7 @@ class TermHolidayManager
                 cs.subject_name,
                 cs.room_name,
                 cs.teacher_name
-            FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
+            FROM vw_timetable_entries cs
             WHERE cs.academic_year_term_id = :term_id
               AND cs.status = 'scheduled'
             ORDER BY cs.day_of_week, cs.start_time
@@ -161,7 +161,7 @@ class TermHolidayManager
         // Term-linked activity/exam counts for quick admin view
         $activityStmt = $this->db->prepare("
             SELECT COUNT(*) AS total
-            FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
+            FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " asch
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = :term_id
             WHERE asch.schedule_date BETWEEN ayt.opening_date AND ayt.closing_date
         ");

@@ -69,7 +69,7 @@ class ParentRefundService
     public function createRequest(int $creditId, int $userId, array $data): array
     {
         $stmt = $this->db->prepare(
-            "SELECT c.*, sp.parent_id FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . "
+            "SELECT c.*, sp.parent_id FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " c
              JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = c.student_id
              WHERE c.id = ? AND c.status IN ('available','partially_applied')
              ORDER BY sp.is_primary_contact DESC, sp.parent_id ASC LIMIT 1"

@@ -21,7 +21,7 @@ const stockController = {
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
-    this._stockInModal = new bootstrap.Modal(document.getElementById('stockInModal'));
+    this._stockInModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('stockInModal'));
     this._bindEvents();
     await this.loadReferencesComposed();
     await Promise.all([this._load(), this._loadItems()]);
@@ -50,8 +50,11 @@ const stockController = {
     if (tbody) tbody.innerHTML='<tr><td colspan="8" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
     try {
       const cache = this.state.referenceCache;
-      const r = cache?.movements !== undefined ? cache.movements : await callAPI('/inventory/stock','GET');
-      this._data=Array.isArray(r?.data)?r.data:(Array.isArray(r)?r:[]);
+      const r = cache?.movements !== undefined ? cache.movements : await callAPI('/inventory/movements/list','GET');
+      // StockMovementsManager::listMovements returns { items, pagination } with
+      // transaction_type in|out and reference_type purchase|sale|adjustment|transfer.
+      const rows = r?.data?.items ?? r?.items ?? r?.data ?? r;
+      this._data=(Array.isArray(rows)?rows:[]).map(m=>({...m, type: m.type || (m.reference_type==='adjustment' ? 'adjustment' : (m.transaction_type==='out' ? 'stock_out' : 'stock_in'))}));
       this._filtered=[...this._data];
       this._setStats();
       this._applyFilters();
@@ -143,7 +146,10 @@ const stockController = {
     const ref=  document.getElementById('stock_in_reference')?.value.trim();
     if (!item||!qty||!date) { showNotification('Item, quantity and date are required.','warning'); return; }
     try {
-      await callAPI('/inventory/stock','POST',{item_id:item,quantity:qty,unit_price:price||null,source:src,transaction_date:date,supplier:supp,reference:ref,type:'stock_in'});
+      // Stock-in is an inbound movement (StockMovementsManager::recordMovement).
+      const txType = src==='purchase' ? 'purchase' : (src==='transfer' ? 'transfer_in' : 'adjustment_in');
+      const notes = [src && `Source: ${src}`, supp && `Supplier: ${supp}`, ref && `Ref: ${ref}`].filter(Boolean).join('; ');
+      await callAPI('/inventory/movements/record','POST',{item_id:item,quantity:qty,unit_cost:price||0,transaction_type:txType,transaction_date:date,notes,update_quantity:true});
       showNotification('Stock-in recorded.','success');
       this._stockInModal.hide();
       await this._load();

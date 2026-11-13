@@ -251,7 +251,7 @@
             if (form) form.reset();
             setVal("item_id", "");
             const modal = document.getElementById("itemModal");
-            if (modal) new bootstrap.Modal(modal).show();
+            if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
         },
 
         openEditModal(item) {
@@ -270,7 +270,7 @@
             setVal("supplier",     item.supplier || "");
             setVal("description",  item.description || "");
             const modal = document.getElementById("itemModal");
-            if (modal) new bootstrap.Modal(modal).show();
+            if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
         },
 
         async saveItem() {
@@ -344,7 +344,7 @@
             modal.querySelector(".modal-title") && (modal.querySelector(".modal-title").textContent = title);
             const form = modal.querySelector("form");
             if (form) form.reset();
-            new bootstrap.Modal(modal).show();
+            bootstrap.Modal.getOrCreateInstance(modal).show();
         },
 
         async submitAdjust() {

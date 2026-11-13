@@ -152,7 +152,7 @@ private function fetchStudent($studentId)
     {
         $stmt = $this->db->prepare(
             "SELECT pa.teacher_feedback
-             FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . "
+             FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " pa
              JOIN portfolios p ON p.id = pa.portfolio_id
              WHERE p.student_id = ?
                AND pa.teacher_feedback IS NOT NULL

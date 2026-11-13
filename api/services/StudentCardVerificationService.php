@@ -202,7 +202,7 @@ final class StudentCardVerificationService
     {
         return $this->rows("
             SELECT lb.title AS book_title, li.due_date, li.status
-            FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . "
+            FROM " . ReadReplicaService::qualifiedRef("library_issues") . " li
             JOIN " . ReadReplicaService::qualifiedRef("library_books") . " lb ON lb.id = li.book_id
             WHERE li.borrower_type = 'student'
               AND li.borrower_id = ?
@@ -215,7 +215,7 @@ final class StudentCardVerificationService
     {
         return $this->rows("
             SELECT cs.session_date AS date, cs.summary AS notes, cs.session_type
-            FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . "
+            FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . " cs
             JOIN counseling_cases cc ON cc.id = cs.case_id
             WHERE cc.counselee_type = 'student'
               AND cc.student_id = ?

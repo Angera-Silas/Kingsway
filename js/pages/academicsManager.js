@@ -298,7 +298,7 @@ const academicsManager = {
         `;
 
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -541,7 +541,7 @@ const academicsManager = {
         `;
 
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -728,7 +728,7 @@ const academicsManager = {
             `;
 
             document.body.appendChild(modal);
-            const bsModal = new bootstrap.Modal(modal);
+            const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
             bsModal.show();
             modal.addEventListener('hidden.bs.modal', () => modal.remove());
         } catch (error) {
@@ -807,7 +807,7 @@ const academicsManager = {
         `;
 
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
         this.populateClassModalOptions(cls || null);
@@ -1046,7 +1046,7 @@ const academicsManager = {
         `;
 
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -1241,7 +1241,7 @@ const academicsManager = {
         `;
 
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -1446,7 +1446,7 @@ const academicsManager = {
         `;
 
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -1651,7 +1651,7 @@ const academicsManager = {
             </div>
         `;
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -1695,7 +1695,7 @@ const academicsManager = {
             </div>
         `;
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -1736,7 +1736,7 @@ const academicsManager = {
             </div>
         `;
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
@@ -1815,7 +1815,7 @@ const academicsManager = {
             </div>
         `;
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },

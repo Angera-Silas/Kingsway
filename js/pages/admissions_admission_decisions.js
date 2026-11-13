@@ -292,7 +292,7 @@ const admissionDecisionsController = {
                 const payload = response?.data || response || {};
                 if (payload.application) {
                     this.renderApplicationDetails(payload);
-                    const modal = new bootstrap.Modal(document.getElementById('viewApplicationModal'));
+                    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('viewApplicationModal'));
                     modal.show();
                     
                     // Setup make decision button
@@ -455,7 +455,7 @@ const admissionDecisionsController = {
                         document.getElementById('interviewResultsCard').style.display = 'none';
                     }
                     
-                    const modal = new bootstrap.Modal(document.getElementById('makeDecisionModal'));
+                    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('makeDecisionModal'));
                     modal.show();
                 }
             })

@@ -306,7 +306,7 @@ class HealthAPI extends BaseAPI
             if ($studentId) {
                 $stmt = $this->db->prepare(
                     "SELECT v.*, p.first_name, p.last_name, s.admission_no
-                     FROM " . ReadReplicaService::qualifiedRef("student_vaccinations") . "
+                     FROM " . ReadReplicaService::qualifiedRef("student_vaccinations") . " v
                      JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = v.student_id
                      " . $this->studentJoin() . "
                      WHERE v.student_id = ? ORDER BY v.date_given DESC"
@@ -318,7 +318,7 @@ class HealthAPI extends BaseAPI
                     : "WHERE 1=1";
                 $stmt = $this->db->query(
                     "SELECT v.*, p.first_name, p.last_name, s.admission_no, c.name AS class_name
-                     FROM " . ReadReplicaService::qualifiedRef("student_vaccinations") . "
+                     FROM " . ReadReplicaService::qualifiedRef("student_vaccinations") . " v
                      JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = v.student_id
                      " . $this->studentJoin() . "
                      $where ORDER BY v.next_due_date, v.date_given DESC LIMIT 500"

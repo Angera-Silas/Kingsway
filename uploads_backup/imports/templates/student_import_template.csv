@@ -1,2 +1,2 @@
 Admission Number,First Name *,Middle Name,Last Name *,Date of Birth *,Gender *,Class *,Stream,Student Type *,Status *,KNEC Assessment No.,NEMIS Number,Paid This Academic Year (KES),Paid This Term (KES),Parent Relationship *,Parent First Name *,Parent Last Name *,Parent Gender,Primary Phone *,Secondary Phone,Parent Email
-25,Benedict,,Cherono,27/09/2013,Male,Grade 9,A,Full Boarder,Active,235231110004,ERER565DD,"Ksh43,000.00","Ksh8,000.00",Father,Amos,Kibet,Male,722173504,,amos@angisoft.co.ke
+EXAMPLE-001,Sample,,Learner,01/01/2015,Female,Grade 5,A,Full Boarder,Active,,,Ksh0.00,Ksh0.00,Mother,Sample,Parent,Female,700000000,,parent@example.com

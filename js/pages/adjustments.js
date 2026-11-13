@@ -18,8 +18,8 @@ const adjustmentsController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._modal        = new bootstrap.Modal(document.getElementById('ajModal'));
-    this._approveModal = new bootstrap.Modal(document.getElementById('ajApproveModal'));
+    this._modal        = bootstrap.Modal.getOrCreateInstance(document.getElementById('ajModal'));
+    this._approveModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('ajApproveModal'));
     await Promise.all([this._loadStats(), this._loadData(), this._loadStudents()]);
   },
 

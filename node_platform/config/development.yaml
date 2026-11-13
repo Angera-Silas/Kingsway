@@ -2,7 +2,7 @@ app:
   name: "kingsway-realtime-gateway"
   env: "development"
   port: 3000
-  host: "0.0.0.0"
+  host: "127.0.0.1"  # loopback only; nginx/Passenger front the gateway (review P0-5)
   instanceId: "dev-1"
 
 storage:

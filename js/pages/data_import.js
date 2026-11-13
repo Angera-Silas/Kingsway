@@ -29,7 +29,7 @@ const dataImportController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._logsModal = new bootstrap.Modal(document.getElementById('diLogsModal'));
+    this._logsModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('diLogsModal'));
     this._bindDrop();
     await this._loadTypes();
   },

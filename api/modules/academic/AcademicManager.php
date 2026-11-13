@@ -87,7 +87,7 @@ class AcademicManager extends BaseAPI
                                 p.file_size, p.file_path, p.status, p.download_count,
                                 p.created_at,
                                 la.name AS learning_area, la.name AS subject_name
-                        FROM " . ReadReplicaService::qualifiedRef("past_papers") . "
+                        FROM " . ReadReplicaService::qualifiedRef("past_papers") . " p
                         LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = p.learning_area_id";
             } else {
                 if ($classId) { $where[] = 'm.academic_year_class_stream_id IN (SELECT class_stream_id FROM ' . ReadReplicaService::qualifiedRef('academic_calendar') . ' WHERE class_id = ?)'; $params[] = $classId; }
@@ -1413,7 +1413,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         if ($streamLearningAreaId > 0 && $lessonPlanId <= 0 && $schemeId <= 0) {
             $streamArea = $this->dbQuery(
                 "SELECT aysla.academic_year_class_stream_id, aycla.learning_area_id
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla
                    ON aycla.id = aysla.academic_year_class_learning_area_id
                  WHERE aysla.id = ? LIMIT 1",
@@ -1460,7 +1460,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         if ($strandId > 0) {
             $validCurriculum = $this->dbQuery(
                 "SELECT 1
-                 FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                 FROM " . ReadReplicaService::qualifiedRef("strands") . " strand
                  JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " sub ON sub.strand_id = strand.id
                  WHERE strand.id = ? AND sub.id = ?
                    AND strand.learning_area_id = ?
@@ -1814,7 +1814,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
                 if (!$streamId && $academicYearId) {
                     $streamId = $this->dbQuery(
                         "SELECT aycs.id
-                         FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . "
+                         FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                          JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                          WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
                            AND EXISTS (SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope WHERE tscope.academic_year_class_stream_id = aycs.id)
@@ -2348,7 +2348,12 @@ if ($classId) {
                         fs.score, fs.score AS marks, fs.max_score, fs.percentage,
                         fs.cbc_grade, fs.cbc_grade AS grade, fs.remarks,
                         fs.updated_at
-                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                 FROM students s
+                 JOIN persons p ON p.id = s.person_id
+                 JOIN student_academic_enrollments sae ON sae.student_id = s.id
+                      AND sae.academic_year_class_stream_id = :aycs
+                      AND sae.enrollment_status = 'active'
+                 LEFT JOIN formative_scores fs ON fs.student_id = s.id AND fs.assessment_id = :aid
                  WHERE s.status = 'active'
                  ORDER BY p.last_name, p.first_name",
                 [':aycs' => (int) $assessment['academic_year_class_stream_id'], ':aid' => $assessmentId]
@@ -2784,7 +2789,7 @@ if ($classId) {
                 "INSERT INTO learner_competencies
                     (student_id, competency_id, academic_year, term_id, performance_level_id, evidence, teacher_notes, assessed_by, assessed_date)
                  VALUES (:sid, :cid, :yr, :tid, :lvl, :ev, :notes, :aby, CURDATE())
-                 ON DUPLICATE KEY UPDATE performance_level_id=:lvl, evidence=:ev, teacher_notes=:notes, assessed_by=:aby, updated_at=NOW()"
+                 ON DUPLICATE KEY UPDATE performance_level_id=VALUES(performance_level_id), evidence=VALUES(evidence), teacher_notes=VALUES(teacher_notes), assessed_by=VALUES(assessed_by), updated_at=NOW()"
             );
             foreach ($ratings as $r) {
                 $levelId = $lvlMap[$r['level_code'] ?? ''] ?? null;
@@ -2863,8 +2868,8 @@ if ($classId) {
                      cbc_grade, raw_grade, points, pathway, remarks, entered_by, academic_year_id)
                  VALUES (:sid, :et, :ey, :la, :sc, :mx, :pct, :cg, :rg, :pt, :pw, :rmk, :eby, :ayid)
                  ON DUPLICATE KEY UPDATE
-                    score=:sc, max_score=:mx, percentage=:pct, cbc_grade=:cg,
-                    raw_grade=:rg, points=:pt, pathway=:pw, remarks=:rmk, entered_by=:eby, updated_at=NOW()"
+                    score=VALUES(score), max_score=VALUES(max_score), percentage=VALUES(percentage), cbc_grade=VALUES(cbc_grade),
+                    raw_grade=VALUES(raw_grade), points=VALUES(points), pathway=VALUES(pathway), remarks=VALUES(remarks), entered_by=VALUES(entered_by), updated_at=NOW()"
             );
             foreach ($results as $r) {
                 $score   = (float) ($r['score']     ?? 0);
@@ -3296,7 +3301,7 @@ if ($classId) {
             )->fetch(PDO::FETCH_ASSOC) ?: null;
             $expectedAreas = (int) $this->dbQuery(
                 "SELECT COUNT(DISTINCT cla.learning_area_id)
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id=sla.academic_year_class_learning_area_id
                  WHERE sla.academic_year_class_stream_id=:stream_id
                    AND sla.status IN ('planned','active','in_progress','covered')",
@@ -3566,7 +3571,7 @@ if ($classId) {
                         st.transition_type AS transfer_type, st.reason,
                         sc.status, sc.amount_outstanding AS fee_balance_at_request,
                         st.executed_at AS completed_at
-                 FROM " . ReadReplicaService::qualifiedRef("student_transitions") . "
+                 FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " st
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("student_clearances") . " sc ON sc.student_id = st.student_id
                       AND sc.clearance_type = 'finance'
                  WHERE st.student_id = ?
@@ -3652,7 +3657,7 @@ if ($classId) {
                         sa.salary AS to_salary, sa.salary AS from_salary,
                         sa.employment_date AS effective_date, sa.status,
                         d.name AS to_department, NULL AS from_department
-                 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . "
+                 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sa.department_id
                  WHERE sa.created_staff_id = ?
                  ORDER BY sa.employment_date ASC",
@@ -4450,7 +4455,8 @@ if ($classId) {
                     "SELECT
                        SUM(sa.status = 'present') AS present_count,
                        SUM(sa.status = 'absent')  AS absent_count
-                     FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                     FROM student_attendance sa
+                     JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
                      WHERE sae.academic_year_class_stream_id = ?
                        AND sa.date = ?",
                     [$streamId, $today]
@@ -4544,7 +4550,7 @@ if ($classId) {
 
             $gradingPending = (int) $this->dbQuery(
                 "SELECT COUNT(DISTINCT aclat.staff_id)
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . "
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat
                  WHERE aclat.academic_year_term_id = ?
                    AND NOT EXISTS (
                      SELECT 1 FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
@@ -4680,7 +4686,8 @@ if ($classId) {
             )->fetchColumn();
 
             $truancy = (int) $this->dbQuery(
-                "SELECT COUNT(DISTINCT sae.student_id) FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                "SELECT COUNT(DISTINCT sae.student_id) FROM student_attendance sa
+                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
                  WHERE sa.status = 'absent' AND sae.academic_year_id = ?
                  GROUP BY sae.student_id HAVING COUNT(*) > 5",
                 [$yearId]
@@ -4963,7 +4970,7 @@ if ($classId) {
             if (!$area) return $this->errorResponse('The selected learning area does not exist or is inactive', 400);
             if (!empty($data['sub_strand_id'])) {
                 $subStrand = $this->dbQuery(
-                    "SELECT ss.id FROM " . ReadReplicaService::qualifiedRef("sub_strands") . "
+                    "SELECT ss.id FROM " . ReadReplicaService::qualifiedRef("sub_strands") . " ss
                      JOIN " . ReadReplicaService::qualifiedRef("strands") . " s ON s.id = ss.strand_id
                      WHERE ss.id = :id AND s.learning_area_id = :area_id AND ss.status = 'active'",
                     [':id' => (int) $data['sub_strand_id'], ':area_id' => (int) $data['learning_area_id']]
@@ -5007,7 +5014,7 @@ if ($classId) {
                     )->fetchColumn();
                 }
                 $subStrand = $this->dbQuery(
-                    "SELECT ss.id FROM " . ReadReplicaService::qualifiedRef("sub_strands") . "
+                    "SELECT ss.id FROM " . ReadReplicaService::qualifiedRef("sub_strands") . " ss
                      JOIN " . ReadReplicaService::qualifiedRef("strands") . " s ON s.id = ss.strand_id
                      WHERE ss.id = :id AND s.learning_area_id = :area_id AND ss.status = 'active'",
                     [':id' => (int) $data['sub_strand_id'], ':area_id' => $areaId]
@@ -5596,7 +5603,7 @@ if ($classId) {
 
                     $competencies = $this->dbQuery(
                         "SELECT sc.id, cc.id AS competency_id, cc.name AS competency_name, sc.weight
-                         FROM " . ReadReplicaService::qualifiedRef("strand_competency") . "
+                         FROM " . ReadReplicaService::qualifiedRef("strand_competency") . " sc
                          JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id = sc.competency_id
                          WHERE sc.strand_id=:sid ORDER BY cc.name",
                         [':sid' => $strand['id']]
@@ -7073,7 +7080,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
             if (!$st) return $this->errorResponse('Student not found', 404);
 
             $portfolios = $this->dbQuery(
-                "SELECT * FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE student_id = :sid ORDER BY academic_year DESC",
+                "SELECT * FROM portfolios WHERE student_id = :sid ORDER BY academic_year DESC",
                 [':sid' => $studentId]
             )->fetchAll(PDO::FETCH_ASSOC);
 
@@ -7118,7 +7125,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
 
             $fbRows = $this->dbQuery(
                 "SELECT pa.teacher_feedback
-                 FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . "
+                 FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " pa
                  JOIN portfolios p ON p.id = pa.portfolio_id
                  WHERE p.student_id = :sid
                    AND pa.teacher_feedback IS NOT NULL
@@ -7581,7 +7588,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
     {
         try {
             $art = $this->dbQuery(
-                "SELECT pa.id, pa.portfolio_id, p.student_id, pa.media_id, pa.artifact_title FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . "
+                "SELECT pa.id, pa.portfolio_id, p.student_id, pa.media_id, pa.artifact_title FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " pa
                  JOIN portfolios p ON p.id = pa.portfolio_id WHERE pa.id = :id",
                 [':id' => $artifactId]
             )->fetch(PDO::FETCH_ASSOC);

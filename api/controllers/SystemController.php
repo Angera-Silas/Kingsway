@@ -694,7 +694,10 @@ class SystemController extends BaseController
             'status' => 'active',
             'uptime' => $this->formatUptime(),
             'window' => \App\API\Middleware\RateLimitMiddleware::TIME_WINDOW,
-            'max_requests' => \App\API\Middleware\RateLimitMiddleware::AUTHENTICATED_REQUESTS_LIMIT,
+            // Anonymous bucket. Authenticated requests are no longer counted or
+            // throttled, so reporting a per-user budget would be a lie.
+            'max_requests' => \App\API\Middleware\RateLimitMiddleware::ANONYMOUS_REQUESTS_LIMIT,
+            'applies_to' => 'anonymous requests only',
             'source' => 'RateLimitMiddleware',
             'timestamp' => date('c'),
         ], 'Rate limiting status retrieved');

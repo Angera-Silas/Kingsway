@@ -1426,7 +1426,7 @@ class SchedulesAPI extends BaseAPI {
                     a.start_time,
                     a.end_time,
                     a.venue
-                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " a
                 JOIN activities ac ON a.activity_id = ac.id
                 ORDER BY a.schedule_date, a.start_time
             ";
@@ -1724,7 +1724,7 @@ class SchedulesAPI extends BaseAPI {
     public function listTimetableDrafts(array $filters = []): array
     {
         $sql = "SELECT d.*, COUNT(e.id) AS entry_count
-                FROM " . ReadReplicaService::qualifiedRef("timetable_drafts") . "
+                FROM " . ReadReplicaService::qualifiedRef("timetable_drafts") . " d
                 LEFT JOIN timetable_draft_entries e ON e.draft_id = d.id
                 WHERE 1=1";
         $params = [];
@@ -1807,7 +1807,7 @@ class SchedulesAPI extends BaseAPI {
         }catch(Exception $e){if($this->db->inTransaction())$this->db->rollBack();return errorResponse($e->getMessage(),400);}
     }
 
-    public function listDutyRosterDrafts(array $filters=[]): array { $q=$this->db->prepare("SELECT d.*,COUNT(e.id) entry_count FROM " . ReadReplicaService::qualifiedRef("duty_roster_drafts") . " LEFT JOIN duty_roster_draft_entries e ON e.draft_id=d.id GROUP BY d.id ORDER BY d.updated_at DESC");$q->execute();return successResponse($q->fetchAll(PDO::FETCH_ASSOC)); }
+    public function listDutyRosterDrafts(array $filters=[]): array { $q=$this->db->prepare("SELECT d.*,COUNT(e.id) entry_count FROM " . ReadReplicaService::qualifiedRef("duty_roster_drafts") . " d LEFT JOIN duty_roster_draft_entries e ON e.draft_id=d.id GROUP BY d.id ORDER BY d.updated_at DESC");$q->execute();return successResponse($q->fetchAll(PDO::FETCH_ASSOC)); }
     public function getDutyRosterDraft($id): array { $q=$this->db->prepare("SELECT * FROM duty_roster_drafts WHERE id=?");$q->execute([(int)$id]);$d=$q->fetch(PDO::FETCH_ASSOC);if(!$d)return errorResponse('Duty roster draft not found',404);$q=$this->db->prepare("SELECT * FROM duty_roster_draft_entries WHERE draft_id=? ORDER BY date,start_time");$q->execute([(int)$id]);$d['entries']=$q->fetchAll(PDO::FETCH_ASSOC);return successResponse($d); }
 
     public function saveExamTimetableDraft(array $data): array

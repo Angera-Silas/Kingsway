@@ -84,9 +84,9 @@
         const groupEl = document.getElementById("groupModal");
         const contactsEl = document.getElementById("contactsModal");
         const templateEl = document.getElementById("templateModal");
-        if (groupEl) this.groupModal = new bootstrap.Modal(groupEl);
-        if (contactsEl) this.contactsModal = new bootstrap.Modal(contactsEl);
-        if (templateEl) this.templateModal = new bootstrap.Modal(templateEl);
+        if (groupEl) this.groupModal = bootstrap.Modal.getOrCreateInstance(groupEl);
+        if (contactsEl) this.contactsModal = bootstrap.Modal.getOrCreateInstance(contactsEl);
+        if (templateEl) this.templateModal = bootstrap.Modal.getOrCreateInstance(templateEl);
         this.bindEvents();
         this.updateCharMetrics();
         this.subscribeRealtime();

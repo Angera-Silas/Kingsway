@@ -340,7 +340,7 @@ class DashboardManager
 
         $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
         $stmt = $this->db->prepare(
-            "SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
+            "SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("vw_role_routes_detailed") . "
              WHERE role_id IN ({$placeholders}) AND route_name = ? AND is_allowed = 1"
         );
         $params = array_merge($roleIds, [$route]);

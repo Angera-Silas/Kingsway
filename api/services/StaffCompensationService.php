@@ -18,7 +18,7 @@ final class StaffCompensationService
     {
         $roles = $this->db->query(
             "SELECT r.id, r.name, rate.gross_salary, rate.effective_from, rate.effective_to
-             FROM " . ReadReplicaService::masterRef("roles") . "
+             FROM " . ReadReplicaService::masterRef("roles") . " r
              LEFT JOIN staff_role_salary_rates rate ON rate.id = (
                  SELECT latest.id FROM staff_role_salary_rates latest
                  WHERE latest.role_id = r.id ORDER BY latest.effective_from DESC, latest.id DESC LIMIT 1
@@ -65,7 +65,7 @@ final class StaffCompensationService
         $awardBatches = $this->db->query(
             "SELECT b.id,b.award_kind,b.award_name,b.award_type,b.amount_per_month,b.selection_mode,
                     b.status,b.created_at,d.name AS department,
-                    (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("staff_payroll_award_recipients") . " WHERE r.batch_id=b.id) AS recipient_count,
+                    (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("staff_payroll_award_recipients") . " r WHERE r.batch_id=b.id) AS recipient_count,
                     (SELECT GROUP_CONCAT(CONCAT(LPAD(p.payroll_month,2,'0'),'/',p.payroll_year)
                          ORDER BY p.payroll_year,p.payroll_month SEPARATOR ', ')
                      FROM staff_payroll_award_periods p WHERE p.batch_id=b.id) AS periods
@@ -231,8 +231,7 @@ final class StaffCompensationService
         if ($mode === 'department_all') {
             if ($departmentId < 1) throw new RuntimeException('Choose a department.');
             $staffQuery = $this->db->prepare(
-                "SELECT s.id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                 WHERE s.status = 'active' AND s.data_scope = 'live' AND sep.department_id = ?"
+                "SELECT id FROM staff WHERE id = ? AND status = 'active' AND data_scope = 'live'"
             );
             $staffQuery->execute([$departmentId]);
             $staffIds = array_map('intval', $staffQuery->fetchAll(PDO::FETCH_COLUMN));

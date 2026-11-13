@@ -419,7 +419,7 @@ const SchemesOfWorkController = (() => {
     const approveButton = document.getElementById('approveSchemeBtn');
     if (approveButton) approveButton.style.display = state.currentWorkbookId && (record.workbook_status === 'submitted' || workbook?.status === 'submitted') ? '' : 'none';
 
-    const modal = new bootstrap.Modal(
+    const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById("viewSchemeModal"),
     );
     modal.show();
@@ -547,7 +547,7 @@ const SchemesOfWorkController = (() => {
     populateGenerateClass();
     await loadLearningAreasForGenerate();
 
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
   }
 

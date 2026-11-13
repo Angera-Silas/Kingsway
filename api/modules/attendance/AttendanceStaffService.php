@@ -126,7 +126,7 @@ class AttendanceStaffService
                     if ($checkIn > $expectedPlus) $status = 'late';
                 }
                 $leave = $controller->getDb()->query("SELECT id FROM staff_leaves WHERE staff_id = ? AND ? BETWEEN start_date AND end_date AND status = 'approved'", [$staffId, $date])->fetch(\PDO::FETCH_ASSOC);
-                $rosterOff = $controller->getDb()->query("SELECT sdr.id FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . " JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id WHERE sdr.staff_id = ? AND sdr.date = ? AND sdt.code IN ('OFF','WEEKEND_OFF')", [$staffId, $date])->fetch(\PDO::FETCH_ASSOC);
+                $rosterOff = $controller->getDb()->query("SELECT sdr.id FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . " sdr JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id WHERE sdr.staff_id = ? AND sdr.date = ? AND sdt.code IN ('OFF','WEEKEND_OFF')", [$staffId, $date])->fetch(\PDO::FETCH_ASSOC);
                 $patternOff = $controller->getDb()->query("SELECT id FROM staff_off_day_patterns WHERE staff_id = ? AND day_of_week = ? AND is_off = 1 AND ? >= effective_from AND (effective_to IS NULL OR ? <= effective_to)", [$staffId, $dayName, $date, $date])->fetch(\PDO::FETCH_ASSOC);
                 $isOffDay = ($rosterOff || $patternOff);
                 $isOnLeave = (bool)$leave;

@@ -1352,7 +1352,7 @@ class PaymentsAPI extends BaseAPI
                 if (!empty($disbursement['expense_id'])) {
                     $this->db->prepare("UPDATE expenses SET status = 'paid', paid_at = NOW(), reference_number = ? WHERE id = ?")
                         ->execute([$transactionRef, $disbursement['expense_id']]);
-                    $this->db->prepare("UPDATE supplier_payment_requests SET status = 'paid', provider_reference = ? WHERE disbursement_id = ?")
+                    $this->db->prepare("UPDATE supplier_payment_requests SET status = 'paid', payment_reference = ? WHERE disbursement_id = ?")
                         ->execute([$transactionRef, $disbursement['id']]);
                 }
                 if (!empty($disbursement['payslip_id'])) {
@@ -1855,50 +1855,67 @@ class PaymentsAPI extends BaseAPI
                         : $bankService->processGenericBankPayment($webhookData, $bankName);
                     $handled = true;
                 } elseif (stripos($accountRef, 'TRP') === 0 || strpos($narration, 'transport') !== false) {
-                    $result = [
-                        'status' => false,
-                        'message' => 'Transport payment processing not yet implemented.'
-                    ];
-                    $handled = true;
-                } elseif (stripos($accountRef, 'PAY') === 0 || strpos($narration, 'payroll') !== false) {
-                    $result = [
-                        'status' => false,
-                        'message' => 'Payroll payment processing not yet implemented.'
-                    ];
-                    $handled = true;
-                } elseif (stripos($accountRef, 'DEPT') === 0 || strpos($narration, 'department') !== false) {
-                    $result = [
-                        'status' => false,
-                        'message' => 'Department payment processing not yet implemented.'
-                    ];
+                    // Transport: TRP<admission> is the bank-side alias of the
+                    // canonical TRN-<admission> reference. Route it through the
+                    // payment router, which allocates to the learner's active
+                    // transport entitlement (with ledger posting) or holds it
+                    // as an unmatched transport case.
+                    $admission = trim((string) preg_replace('/^TRP[\s\/-]*/i', '', (string) $accountRef));
+                    $result = $this->routeBankDeposit($webhookData, 'TRN-' . $admission, $bankAccount);
                     $handled = true;
                 } elseif (stripos($accountRef, 'CHQ') === 0 || strpos($narration, 'cheque') !== false) {
-                    $result = [
-                        'status' => false,
-                        'message' => 'Cheque payment processing not yet implemented.'
-                    ];
+                    // Cheque deposit: CHQ<admission or application ref> is a fee
+                    // payment by cheque. Strip the prefix and post it like any
+                    // bank fee deposit; if it resolves to no learner, hold it.
+                    $learnerRef = trim((string) preg_replace('/^CHQ[\s\/-]*/i', '', (string) $accountRef));
+                    $chequeData = $webhookData;
+                    $chequeData['account_number'] = $learnerRef;
+                    $chequeData['account_ref'] = $learnerRef;
+                    $chequeData['narration'] = trim('Cheque deposit ' . ($webhookData['narration'] ?? ''));
+                    // processGenericBankPayment holds unknown learners as
+                    // unmatched cases itself (data.held_unmatched).
+                    $result = $learnerRef !== ''
+                        ? $bankService->processGenericBankPayment($chequeData, $bankName)
+                        : $this->holdBankDeposit($webhookData, (string) $accountRef, $bankAccount, 'Cheque deposit reference names no learner');
+                    $handled = true;
+                } elseif (stripos($accountRef, 'PAY') === 0 || strpos($narration, 'payroll') !== false) {
+                    // Payroll-tagged deposits (salary advance repayments,
+                    // overpayment refunds) have no automatic ledger: record
+                    // them for finance to allocate against the staff member.
+                    $result = $this->holdBankDeposit($webhookData, (string) $accountRef, $bankAccount, 'Payroll-tagged deposit: allocate to the staff payroll recovery manually');
+                    $handled = true;
+                } elseif (stripos($accountRef, 'DEPT') === 0 || strpos($narration, 'department') !== false) {
+                    // Department income (farm, bakery, sewing, other units):
+                    // record for finance to post to the department's income
+                    // account.
+                    $result = $this->holdBankDeposit($webhookData, (string) $accountRef, $bankAccount, 'Department income deposit: post to the department income account manually');
                     $handled = true;
                 }
             }
 
             if (!$handled) {
-                $result = [
-                    'status' => false,
-                    'message' => 'Unknown or unsupported payment type.'
-                ];
+                // An unrecognised reference is still money in the school's
+                // account: hold it for finance rather than discarding it.
+                $result = $this->holdBankDeposit($webhookData, (string) ($accountRef ?: $routingReference), $bankAccount, 'Unrecognised bank reference: ' . ($accountRef ?: $routingReference ?: '(none)'));
             }
-            if ($result['status']) {
+
+            // formatResponse() reports failure as status 'error' (a truthy
+            // string), so success must be checked explicitly — otherwise a
+            // rejected deposit was acknowledged as "processed successfully".
+            $status = $result['status'] ?? false;
+            $succeeded = $status === true || $status === 'success';
+            $held = !$succeeded && !empty($result['data']['held_unmatched']);
+            if ($succeeded || $held) {
                 return [
                     'status' => true,
-                    'message' => 'Payment processed successfully',
+                    'message' => $held ? 'Payment held for manual allocation' : ($result['message'] ?? 'Payment processed successfully'),
                     'data' => $result['data'] ?? null
                 ];
-            } else {
-                return [
-                    'status' => false,
-                    'message' => $result['message']
-                ];
             }
+            return [
+                'status' => false,
+                'message' => $result['message'] ?? 'Bank payment could not be processed'
+            ];
         } catch (\Exception $e) {
             $errorEntry = "[{$this->timestamp}] ERROR: " . $e->getMessage() . "\n\n";
             (new \App\API\Services\UploadService())->writeFile($logFile, $errorEntry, FILE_APPEND);
@@ -1908,6 +1925,62 @@ class PaymentsAPI extends BaseAPI
                 'code' => 400,
             ];
         }
+    }
+
+    /** Provider transaction id of a bank notification ('' when absent). */
+    private function bankTransactionId(array $webhookData): string
+    {
+        return (string) ($webhookData['transactionReference'] ?? $webhookData['transaction_ref']
+            ?? $webhookData['reference_number'] ?? $webhookData['transaction_id'] ?? $webhookData['trans_id'] ?? '');
+    }
+
+    private function bankAmount(array $webhookData): float
+    {
+        return (float) ($webhookData['transactionAmount'] ?? $webhookData['amount'] ?? $webhookData['trans_amount'] ?? 0);
+    }
+
+    /**
+     * Route a bank deposit through PaymentRoutingService with an explicit
+     * canonical reference. A routed-but-unmatched payment is still recorded
+     * (status true: the bank notification is acknowledged, finance reconciles).
+     */
+    private function routeBankDeposit(array $webhookData, string $reference, ?string $bankAccount): array
+    {
+        $tx = $this->bankTransactionId($webhookData);
+        $amount = $this->bankAmount($webhookData);
+        if ($amount <= 0) {
+            return ['status' => false, 'message' => 'Bank notification has no positive amount'];
+        }
+        $router = new \App\API\Services\payments\PaymentRoutingService($this->db);
+        if ($tx === '') {
+            return $this->holdBankDeposit($webhookData, $reference, $bankAccount, 'Bank notification has no transaction reference');
+        }
+        $routed = $router->routeIncoming('generic_bank', $webhookData, $tx, $amount, $bankAccount, $reference);
+        $processed = ($routed['status'] ?? '') === 'processed';
+        return [
+            'status' => true,
+            'message' => $processed ? 'Payment routed successfully' : 'Payment received for manual reconciliation',
+            'data' => $routed,
+        ];
+    }
+
+    /** Record a deposit in the unmatched queue for manual allocation by finance. */
+    private function holdBankDeposit(array $webhookData, string $reference, ?string $bankAccount, string $reason): array
+    {
+        $amount = $this->bankAmount($webhookData);
+        if ($amount <= 0) {
+            return ['status' => false, 'message' => 'Bank notification has no positive amount'];
+        }
+        $held = (new \App\API\Services\payments\PaymentRoutingService($this->db))->holdUnmatched(
+            'generic_bank',
+            $webhookData,
+            $this->bankTransactionId($webhookData),
+            $amount,
+            $bankAccount,
+            $reference,
+            $reason
+        );
+        return ['status' => true, 'message' => 'Payment received for manual reconciliation', 'data' => $held];
     }
 
     /**

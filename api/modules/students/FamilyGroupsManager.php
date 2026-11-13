@@ -637,17 +637,18 @@ class FamilyGroupsManager
     {
         try {
             $sql = "
-                SELECT 
-                    s.id,
+                SELECT DISTINCT
+                    s.student_id AS id,
                     s.admission_no,
-                    CONCAT(p.first_name, COALESCE(CONCAT(' ', p.middle_name), ''), ' ', p.last_name) AS full_name,
-                    p.gender,
-                    s.status,
-                    c.name AS class_name,
-                    sm.name AS stream_name
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                WHERE sp.student_id IS NULL AND s.status = 'active'
-                ORDER BY c.name, p.first_name
+                    CONCAT(s.first_name, COALESCE(CONCAT(' ', s.middle_name), ''), ' ', s.last_name) AS full_name,
+                    s.gender,
+                    s.student_status AS status,
+                    s.class_name,
+                    s.stream_name
+                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
+                WHERE s.student_status = 'active'
+                  AND NOT EXISTS (SELECT 1 FROM student_parents sp WHERE sp.student_id = s.student_id)
+                ORDER BY s.class_name, s.first_name
             ";
 
             $stmt = $this->pdo->query($sql);
@@ -684,10 +685,17 @@ class FamilyGroupsManager
                     c.name AS class_name,
                     sm.name AS stream_name,
                     CONCAT(c.name, ' - ', sm.name) AS class_stream
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                FROM students s
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae 
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
                 WHERE s.status = 'active'
                 AND s.id NOT IN (
-                    SELECT student_id FROM " . ReadReplicaService::qualifiedRef("student_parents") . " WHERE parent_id = :parent_id
+                    SELECT student_id FROM student_parents WHERE parent_id = :parent_id
                 )
                 ORDER BY c.name, p.first_name
             ";
@@ -961,7 +969,7 @@ class FamilyGroupsManager
             $placeholders = implode(',', array_fill(0, count($parentIds), '?'));
             $stmt = $this->pdo->prepare("
                 SELECT DISTINCT sp.student_id
-                FROM " . ReadReplicaService::qualifiedRef("student_parents") . "
+                FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sp.student_id
                 WHERE sp.parent_id IN ({$placeholders})
                   AND s.status = 'active'

@@ -222,7 +222,7 @@ class AccountsManager extends BaseAPI
             if ($kindCode === 'mobile_money') throw new Exception('A mobile-money Paybill or Till account must have a settlement financial account.');
             return $accountId > 0 ? $accountId : null;
         }
-        $s=$this->db->prepare("SELECT a.id FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing')");
+        $s=$this->db->prepare("SELECT a.id FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing')");
         $s->execute([$requested]);
         if (!$s->fetchColumn()) throw new Exception('Selected settlement financial account does not exist or is not usable.');
         return $requested;

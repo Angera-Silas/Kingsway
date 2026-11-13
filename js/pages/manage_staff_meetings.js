@@ -195,7 +195,7 @@ const StaffMeetingsController = (() => {
         document.getElementById("recordType").value = 'general';
         document.getElementById("recordDepartment").value = '';
         clearAttendeeSelection();
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
 
     function clearAttendeeSelection() {
@@ -225,7 +225,7 @@ const StaffMeetingsController = (() => {
             const ids = new Set(detail.attendees.map((a) => String(a.staff_id)));
             for (const o of sel.options) { if (ids.has(o.value)) o.selected = true; }
         }).catch(() => {});
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
 
     async function getMeetingDetails(id) {
@@ -319,7 +319,7 @@ const StaffMeetingsController = (() => {
             <h6 class="mt-3 fw-bold">Attendees (${attendees.length ? d.attendees.length : 0})</h6>
             <ul class="list-group mb-2">${attendees}</ul>
             <p class="small text-muted mb-0"><i class="bi bi-calendar-check me-1"></i>This meeting appears on the academic calendar and events pages.</p>`;
-        new bootstrap.Modal(document.getElementById('detailModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('detailModal')).show();
     }
 
     function exportCSV() {

@@ -375,7 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (_) { /* ignore — code may already be sent */ }
     }
 
-    const tfaModal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+    const tfaModal = bootstrap.Modal.getOrCreateInstance(modalEl, { backdrop: 'static', keyboard: false });
     tfaModal.show();
 
     // Focus the input after modal opens
@@ -494,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tfaBackBtn')?.addEventListener('click', () => {
     bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
     tfaState = null;
-    const loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+    const loginModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('loginModal'));
     loginModal.show();
     resetLoginBtn();
   });

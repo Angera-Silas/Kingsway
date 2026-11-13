@@ -219,11 +219,12 @@ class StudentLeadershipService
 
         // Awards history for the same learner.
         $stmt = $this->db->prepare("
-            SELECT a.id, a.award_type, a.title, a.award_description, a.issued_by,
+            SELECT a.id, sat.name AS award_type, a.title, a.award_description, a.issued_by,
                    a.certificate_no, a.issue_date, a.status, a.notes,
                    ay.year_code AS academic_year, ay.year_name,
                    ayt.term_id AS term_number
             FROM student_awards a
+            LEFT JOIN student_award_types sat ON sat.id = a.award_type_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = a.academic_year_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = a.academic_year_term_id
             WHERE a.student_id = ?

@@ -1434,7 +1434,7 @@ class AcademicAPI extends BaseAPI
                     pm.updated_at,
                     CAST(NULL AS CHAR) AS organizer,
                     COALESCE((SELECT GROUP_CONCAT(DISTINCT target_class.name ORDER BY target_class.name SEPARATOR ', ')
-                              FROM " . ReadReplicaService::qualifiedRef("parent_meeting_targets") . "
+                              FROM " . ReadReplicaService::qualifiedRef("parent_meeting_targets") . " class_target
                               JOIN " . ReadReplicaService::qualifiedRef("classes") . " target_class ON target_class.id = class_target.target_id
                               WHERE class_target.meeting_id = pm.id AND class_target.target_type = 'class'), '—') AS class_name,
                     CAST(NULL AS CHAR) AS parent_name,
@@ -1640,7 +1640,7 @@ class AcademicAPI extends BaseAPI
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON te.academic_year_class_stream_id = aycs.id
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " ON te.teacher_id = staff.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " staff ON te.teacher_id = staff.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = staff.person_id
                 WHERE te.learning_area_id = ? AND te.status = 'scheduled'
                 GROUP BY c.id
@@ -2389,7 +2389,7 @@ SELECT
             // Get total count
             $countSql = "
                 SELECT COUNT(DISTINCT st.id)
-                FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("strands") . " st
                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON st.learning_area_id = la.id
                 $where
             ";
@@ -4441,7 +4441,7 @@ return errorResponse($e->getMessage(), 400);
                     st.*,
                     la.name as learning_area_name,
                     la.code as learning_area_code
-                FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("strands") . " st
                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON st.learning_area_id = la.id
                 WHERE st.id = ?
             ";
@@ -4476,7 +4476,7 @@ return errorResponse($e->getMessage(), 400);
                     st.*,
                     la.name as learning_area_name,
                     la.code as learning_area_code
-                FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("strands") . " st
                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON st.learning_area_id = la.id
                 WHERE 1=1
             ";
@@ -4624,7 +4624,7 @@ return errorResponse($e->getMessage(), 400);
                 SELECT 
                     ut.*,
                     st.name as unit_name
-                FROM " . ReadReplicaService::qualifiedRef("sub_strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("sub_strands") . " ut
                 JOIN " . ReadReplicaService::qualifiedRef("strands") . " st ON ut.strand_id = st.id
                 $where
                 ORDER BY ut.sort_order ASC
@@ -6620,9 +6620,10 @@ return errorResponse($e->getMessage(), 400);
     private function resolveAycsId($classId, $streamId = null, $academicYearId = null)
     {
         $sql = "
-            SELECT aycs.class_stream_id
-            FROM " . ReadReplicaService::qualifiedRef("academic_calendar") . " aycs
-            WHERE aycs.class_id = ? AND aycs.academic_year_class_status = 'active'
+            SELECT aycs.id
+            FROM academic_year_class_streams aycs
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE ayc.class_id = ? AND ayc.status = 'active'
         ";
         $params = [$classId];
         if ($streamId !== null) {
@@ -6719,13 +6720,13 @@ return errorResponse($e->getMessage(), 400);
             $sql = "
                 SELECT DISTINCT
                     s.id as teacher_id,
-                    CONCAT(pd.first_name, ' ', pd.last_name) as teacher_name,
+                    CONCAT(p.first_name, ' ', p.last_name) as teacher_name,
                     p.email,
                     p.phone,
                     COUNT(DISTINCT ayc.class_id) as class_count
-                FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " te
-                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON te.teacher_id = s.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                FROM timetable_entries te
+                JOIN staff s ON te.teacher_id = s.id
+                LEFT JOIN persons p ON p.id = s.person_id
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = te.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 WHERE te.learning_area_id = ? AND te.status = 'scheduled'
@@ -6900,7 +6901,11 @@ return errorResponse($e->getMessage(), 400);
                     c.name as class_name,
                     st.name AS stream_name,
                     'subject_teacher' as role
-                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . "   
+                FROM timetable_entries te
+                JOIN academic_year_class_streams aycs ON aycs.id = te.academic_year_class_stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON ayc.class_id = c.id
+                JOIN streams st ON aycs.stream_id = st.id
                 WHERE te.teacher_id = ? AND te.status = 'scheduled'
             ";
 
@@ -8019,7 +8024,7 @@ return errorResponse($e->getMessage(), 400);
                             ROUND(SUM(present_marks) * 100.0 / NULLIF(SUM(days_marked), 0), 2) AS attendance_percentage,
                             SUM(present_marks) AS days_present,
                             SUM(days_marked - present_marks) AS days_absent
-                        FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                        FROM {$attendanceRef}
                         WHERE academic_year = ?
                         GROUP BY student_id
                     ) att ON att.student_id = s.id
@@ -8120,7 +8125,7 @@ return errorResponse($e->getMessage(), 400);
                         ON sae.student_id = tss.student_id AND sae.academic_year_id = {$yearId}
                     {$classAverageJoin}
                     WHERE tss.student_id = ?
-                      AND tss.term_id = (SELECT term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " WHERE id = ?)
+                      AND tss.term_id = (SELECT term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " class_subject_avg WHERE id = ?)
                     ORDER BY subject_name ASC
                 ";
                 $scoresStmt = $this->db->prepare($scoresSql);
@@ -8888,7 +8893,7 @@ return errorResponse($e->getMessage(), 400);
             $code = $data['code'] ?? strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 6));
 
             // Check for duplicate class name in the same academic year
-            $checkSql = "SELECT 1 FROM " . ReadReplicaService::qualifiedRef("classes") . " JOIN academic_year_classes ayc ON ayc.class_id = c.id WHERE c.name = ? AND ayc.academic_year_id = ?";
+            $checkSql = "SELECT 1 FROM " . ReadReplicaService::qualifiedRef("classes") . " c JOIN academic_year_classes ayc ON ayc.class_id = c.id WHERE c.name = ? AND ayc.academic_year_id = ?";
             $stmt = $this->db->prepare($checkSql);
             $stmt->execute([$name, $academicYearId]);
             if ($stmt->fetch()) {
@@ -9197,7 +9202,7 @@ return errorResponse($e->getMessage(), 400);
             if ($studentCount === null) {
                 $countSql = "
                     SELECT COUNT(DISTINCT sae.student_id)
-                    FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                    FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                     WHERE aycs.academic_year_class_id = ? AND sae.enrollment_status = 'active'
                 ";

@@ -394,13 +394,6 @@
                             <option value="">All Departments</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold">&nbsp;</label>
-                        <button class="btn btn-sa btn-sm w-100" id="loadStaffForMarkingBtn"
-                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
-                            <i class="bi bi-arrow-clockwise me-1"></i>Load
-                        </button>
-                    </div>
                 </div>
 
                 <!-- Quick actions -->
@@ -433,7 +426,7 @@
                         <tbody id="markStaffTableBody">
                             <tr>
                                 <td colspan="5" class="text-center text-muted py-3">
-                                    Select date and click <strong>Load</strong> to populate the register.
+                                    Select a date to populate the register.
                                 </td>
                             </tr>
                         </tbody>

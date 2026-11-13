@@ -26,8 +26,8 @@ const expensesController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._modal         = new bootstrap.Modal(document.getElementById('expenseModal'));
-    this._approvalModal = new bootstrap.Modal(document.getElementById('approvalModal'));
+    this._modal         = bootstrap.Modal.getOrCreateInstance(document.getElementById('expenseModal'));
+    this._approvalModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('approvalModal'));
     this._setupPermissions();
     this._bindEvents();
     await Promise.all([this._loadCategories(), this._loadBudgetLines(), this._load()]);

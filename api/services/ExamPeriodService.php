@@ -189,7 +189,7 @@ final class ExamPeriodService
         $missingTeacherAssignments = [];
         $streamStmt = $this->db->prepare("SELECT class_stream_id AS id, class_teacher_id, COALESCE(stream_name, CONCAT('stream ', class_stream_id)) AS stream_name FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " WHERE academic_year_class_id=? AND class_stream_status='active' ORDER BY class_stream_id");
         $streamTeachers = $this->db->prepare(
-            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . "
+            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . " x
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla ON sla.id=x.academic_year_class_stream_learning_area_id
               AND sla.academic_year_class_stream_id=x.academic_year_class_stream_id
               AND sla.academic_year_class_learning_area_id=?
@@ -881,7 +881,8 @@ final class ExamPeriodService
              JOIN " . ReadReplicaService::qualifiedRef('student_parents') . " sp ON sp.student_id=s.id
              JOIN " . ReadReplicaService::qualifiedRef('parents') . " pr ON pr.id=sp.parent_id AND pr.status='active'
              JOIN " . ReadReplicaService::qualifiedRef('persons') . " guardian ON guardian.id=pr.person_id
-             JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON aterm.academic_year_term_id=ar.academic_year_term_id
+             JOIN assessments a ON a.id=ar.assessment_id
+             JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON aterm.academic_year_term_id=a.academic_year_term_id
              WHERE ar.assessment_id IN ({$marks}) AND ar.is_submitted=1
                AND (COALESCE(guardian.phone, '') <> '' OR COALESCE(guardian.email, '') <> '')"
         );
@@ -1242,7 +1243,7 @@ private function resultRows(int $periodId,?int $staffId,bool $includeDeleted=fal
     {
         $streamStmt = $this->db->prepare("SELECT class_stream_id AS id,class_teacher_id,COALESCE(stream_name,CONCAT('stream ',class_stream_id)) AS stream_name FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " WHERE academic_year_class_id=? AND class_stream_status='active'");
         $streamTeachers = $this->db->prepare(
-            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . "
+            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . " x
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla ON sla.id=x.academic_year_class_stream_learning_area_id
               AND sla.academic_year_class_stream_id=x.academic_year_class_stream_id
               AND sla.academic_year_class_learning_area_id=?

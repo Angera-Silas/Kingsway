@@ -2,8 +2,6 @@
 
 namespace App\API\Middleware;
 
-use App\Database\Database;
-use PDO;
 
 class DeviceMiddleware
 {
@@ -76,14 +74,7 @@ class DeviceMiddleware
                 return false;
             }
 
-            $db = Database::getInstance();
-            $stmt = $db->query(
-                "SELECT id FROM blocked_devices WHERE ? LIKE CONCAT('%', user_agent_pattern, '%') LIMIT 1",
-                [$userAgent]
-            );
-
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            return !empty($result);
+            return \App\API\Services\DeviceBlocklistService::isUserAgentBlocked($userAgent);
         } catch (\Exception $e) {
             // Log but don't block on database error
             \App\API\Services\Logger::legacyError("Device blacklist check failed: " . $e->getMessage());

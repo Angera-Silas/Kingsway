@@ -69,7 +69,7 @@ const PTAManagementController = (() => {
         document.getElementById('formModalTitle').innerHTML = '<i class="fas fa-users-cog me-2"></i>Add PTA Member';
         document.getElementById('recordForm')?.reset(); document.getElementById('recordId').value = '';
         document.getElementById('recordStatus').value = 'active'; document.getElementById('recordRole').value = 'Member';
-        populateParentSelect(); new bootstrap.Modal(document.getElementById('formModal')).show();
+        populateParentSelect(); bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     function editRecord(index) {
         const item = allData[index]; if (!item) return;
@@ -81,7 +81,7 @@ const PTAManagementController = (() => {
         }
         if (parentSelect) parentSelect.value = item.parent_id || '';
         document.getElementById('recordRole').value = item.role || 'Member'; document.getElementById('recordStatus').value = item.status || 'active';
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     async function saveRecord() {
         const id = document.getElementById('recordId').value, parentId = Number(document.getElementById('recordParent').value || 0);

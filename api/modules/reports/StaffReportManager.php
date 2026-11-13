@@ -9,14 +9,11 @@ class StaffReportManager extends BaseAPI
     {
         // Count staff by type (teaching/non-teaching) with department breakdown
         try {
-            $sql = "SELECT
-                        st.name AS staff_type,
-                        d.name AS department,
-                        COUNT(*) AS total
-                    FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                    WHERE s.status = 'active'
-                    GROUP BY st.name, d.id, d.name
-                    ORDER BY st.name, d.name";
+            $sql = "SELECT st.name AS staff_type, COUNT(*) as total
+                         FROM staff s
+                         LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                         WHERE s.status = 'active'
+                         GROUP BY st.name";
             return $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
             // Fallback without departments

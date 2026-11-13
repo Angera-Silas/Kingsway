@@ -272,7 +272,7 @@ const draftFeeStructureController = {
         if (sub) sub.textContent = 'Enter the fee amount for each grade and term.';
 
         this.renderEditor();
-        new bootstrap.Modal(document.getElementById('dfsModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('dfsModal')).show();
     },
 
     async editBundle(id) {
@@ -297,7 +297,7 @@ const draftFeeStructureController = {
             await this.loadBundleGrid(gradeIds[0], gradeIds[gradeIds.length - 1], yearId, this.studentTypes.map(t => t.id));
             this.renderEditor();
             this.state.dirty = false;
-            new bootstrap.Modal(document.getElementById('dfsModal')).show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('dfsModal')).show();
         } catch (e) {
             console.error('editBundle', e);
             showNotification?.('Failed to load bundle for editing', 'error');
@@ -680,7 +680,7 @@ const draftFeeStructureController = {
             });
         });
 
-        new bootstrap.Modal(document.getElementById('dfsPrintModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('dfsPrintModal')).show();
     },
 
     executePrint() {

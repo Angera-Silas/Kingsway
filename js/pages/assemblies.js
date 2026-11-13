@@ -150,7 +150,7 @@ const AssembliesController = (() => {
           dateEl.previousElementSibling.textContent = "Date";
         if (statusEl?.previousElementSibling)
           statusEl.previousElementSibling.textContent = "Type";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     function editRecord(index) {
         const item = allData[index]; if (!item) return;
@@ -164,7 +164,7 @@ const AssembliesController = (() => {
           item.date || item.assembly_date || "";
         document.getElementById("recordStatus").value =
           item.type || item.assembly_type || "general";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     async function saveRecord() {
         const id = document.getElementById('recordId').value;

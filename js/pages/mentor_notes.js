@@ -1,7 +1,7 @@
 /**
  * Mentor Notes Controller
  * Notes and guidance from mentorship sessions (read-only for intern).
- * API: GET /staff/mentor-notes
+ * API: GET /staff/mentor-meetings
  */
 
 const mentorNotesController = (() => {
@@ -27,9 +27,11 @@ const mentorNotesController = (() => {
   async function load(typeFilter) {
     show('mnLoading'); hide('mnNotesList'); hide('mnEmpty');
     try {
-      const query = typeFilter ? `?type=${encodeURIComponent(typeFilter)}` : '';
-      const r = await callAPI(`/staff/mentor-notes${query}`, 'GET');
-      allNotes = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      // Mentor notes are the notes recorded on mentor meetings
+      // (StaffController::getMentorMeetings); type is filtered client-side.
+      const r = await callAPI('/staff/mentor-meetings', 'GET');
+      const meetings = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      allNotes = meetings.filter((m) => !typeFilter || m.type === typeFilter);
       hide('mnLoading');
       if (!allNotes.length) { show('mnEmpty'); return; }
       renderNotes(allNotes);

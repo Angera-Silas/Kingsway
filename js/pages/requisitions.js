@@ -1,7 +1,7 @@
 /**
  * Requisitions Controller — manage_requisitions.php
  * Create and approve stock/item requisitions.
- * API: /inventory/requisitions
+ * API: /inventory/requisitions/{list,create,update-status/{id}}
  */
 const requisitionsController = {
   _data: [], _filtered: [], _page: 1, _perPage: 20, _modal: null, _itemCount: 0,
@@ -20,7 +20,7 @@ const requisitionsController = {
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
-    this._modal = new bootstrap.Modal(document.getElementById('requisitionModal'));
+    this._modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('requisitionModal'));
     this._bindEvents();
     await this.loadReferencesComposed();
     await this._load();
@@ -49,8 +49,10 @@ const requisitionsController = {
     if (tbody) tbody.innerHTML='<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
     try {
       const cache = this.state.referenceCache;
-      const r = cache?.requisitions !== undefined ? cache.requisitions : await callAPI('/inventory/requisitions','GET');
-      this._data=Array.isArray(r?.data)?r.data:(Array.isArray(r)?r:[]);
+      const r = cache?.requisitions !== undefined ? cache.requisitions : await callAPI('/inventory/requisitions/list','GET');
+      // RequisitionsManager::listRequisitions returns { items, pagination }.
+      const rows = r?.data?.items ?? r?.items ?? r?.data ?? r;
+      this._data=Array.isArray(rows)?rows:[];
       this._filtered=[...this._data];
       this._setStats();
       this._applyFilters();
@@ -154,7 +156,7 @@ const requisitionsController = {
     });
     if (!items.length) { showNotification('Add at least one item.','warning'); return; }
     try {
-      await callAPI('/inventory/requisitions','POST',{department:dept,purpose,notes,priority,required_by:reqBy||null,items});
+      await callAPI('/inventory/requisitions/create','POST',{department:dept,purpose,notes,priority,required_by:reqBy||null,items});
       showNotification('Requisition submitted.','success');
       this._modal.hide();
       await this._load();
@@ -164,7 +166,7 @@ const requisitionsController = {
   approve: async function(id) {
     if (!(await window.confirmAction('Confirm', 'Approve this requisition?'))) return;
     try {
-      await callAPI('/inventory/requisitions/'+id,'PUT',{status:'approved'});
+      await callAPI('/inventory/requisitions/update-status/'+id,'PUT',{status:'approved'});
       showNotification('Requisition approved.','success');
       await this._load();
     } catch(e) { showNotification(e.message||'Failed.','danger'); }
@@ -173,7 +175,7 @@ const requisitionsController = {
   reject: async function(id) {
     const reason=await window.promptAction('Input', 'Reason for rejection:'); if (!reason) return;
     try {
-      await callAPI('/inventory/requisitions/'+id,'PUT',{status:'rejected',rejection_reason:reason});
+      await callAPI('/inventory/requisitions/update-status/'+id,'PUT',{status:'rejected',remarks:reason,rejection_reason:reason});
       showNotification('Requisition rejected.','warning');
       await this._load();
     } catch(e) { showNotification(e.message||'Failed.','danger'); }

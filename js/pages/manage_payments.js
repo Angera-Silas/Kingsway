@@ -28,7 +28,7 @@ const managePaymentsController = {
       return;
     }
 
-    this.paymentModal = new bootstrap.Modal(document.getElementById("paymentModal"));
+    this.paymentModal = bootstrap.Modal.getOrCreateInstance(document.getElementById("paymentModal"));
     this.attachEventListeners();
     this.setDefaultDates();
     this.setTableLoadingState();

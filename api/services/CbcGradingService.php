@@ -90,7 +90,7 @@ final class CbcGradingService
         $stmt = $this->db->query(
             "SELECT gr.grade_code, gr.grade_name, gr.min_mark, gr.max_mark,
                     gr.grade_points, gr.performance_level, gr.description
-             FROM " . ReadReplicaService::qualifiedRef("grading_scales") . "
+             FROM " . ReadReplicaService::qualifiedRef("grading_scales") . " gs
              JOIN " . ReadReplicaService::qualifiedRef("grade_rules") . " gr ON gr.scale_id = gs.id
              WHERE gs.status = 'active'
              ORDER BY gs.id, gr.sort_order, gr.min_mark DESC"

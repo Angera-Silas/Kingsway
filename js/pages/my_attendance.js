@@ -15,7 +15,8 @@ const MyAttendanceController = {
         document.getElementById('myAttendanceFrom').value = from.toISOString().slice(0, 10);
         document.getElementById('myAttendanceTo').value = now.toISOString().slice(0, 10);
         document.getElementById('myAttendanceRefresh')?.addEventListener('click', () => this.load());
-        document.getElementById('myAttendanceApply')?.addEventListener('click', () => this.load());
+        // Rule 6: the date range auto-loads on change.
+        ['myAttendanceFrom', 'myAttendanceTo'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.load()));
         await this.load();
     },
 

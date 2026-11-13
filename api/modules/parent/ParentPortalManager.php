@@ -417,9 +417,10 @@ class ParentPortalManager extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT u.id, u.password_hash, u.status, u.data_scope, pd.email
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-                 WHERE pd.email = :email
+                "SELECT u.id, u.password_hash, u.status, u.data_scope, p.email
+                 FROM users u
+                 JOIN persons p ON p.id = u.person_id
+                 WHERE p.email = :email
                    AND u.status = 'active'
                  LIMIT 1"
             );
@@ -574,8 +575,7 @@ class ParentPortalManager extends BaseAPI
         if ($this->parentId < 1) return $this->errorResponse('Not authenticated', 401);
         try {
             $scope = $this->db->prepare(
-                'SELECT s.id FROM ' . ReadReplicaService::qualifiedRef('student_directory') . ' 
-                 WHERE s.id = ? AND sp.parent_id = ? LIMIT 1'
+                'SELECT 1 FROM student_parents WHERE student_id = ? AND parent_id = ? LIMIT 1'
             );
             $scope->execute([$studentId, $this->parentId]);
             if (!$scope->fetchColumn()) return $this->errorResponse('Student is not linked to this parent account.', 403);
@@ -1011,7 +1011,8 @@ class ParentPortalManager extends BaseAPI
             // Recent 30 entries
             $stmt = $this->db->prepare(
                 "SELECT sa.date, sa.status, sa.absence_reason
-                 FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                 FROM student_attendance sa
+                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
                  WHERE sae.student_id = :sid
                  ORDER BY sa.date DESC, sa.id DESC
                  LIMIT 30"
@@ -1027,7 +1028,8 @@ class ParentPortalManager extends BaseAPI
                         SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS days_present,
                         SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS days_absent,
                         SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS days_late
-                 FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                 FROM student_attendance sa
+                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
                  WHERE sae.student_id = :sid AND sa.date BETWEEN :start AND :end
                  GROUP BY DATE_FORMAT(sa.date, '%Y-%m')
                  ORDER BY month ASC"
@@ -1878,7 +1880,7 @@ class ParentPortalManager extends BaseAPI
                     "SELECT cv.id, cv.code, cv.name AS value_name,
                             lva.evidence, lva.incident_date,
                             (lva.id IS NOT NULL) AS has_evidence
-                     FROM " . ReadReplicaService::qualifiedRef("core_values") . "
+                     FROM " . ReadReplicaService::qualifiedRef("core_values") . " cv
                      LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_values_acquisition") . " lva
                             ON lva.value_id = cv.id
                            AND lva.student_id = :sid
@@ -2119,9 +2121,9 @@ class ParentPortalManager extends BaseAPI
                     "SELECT im.id, im.conversation_id, im.sender_id, im.subject,
                             im.message_body AS message, im.status, im.created_at,
                             CASE WHEN im.sender_id = :pid THEN 'parent' ELSE 'staff' END AS sender_type,
-                            CASE WHEN im.sender_id = :pid THEN 'You'
+                            CASE WHEN im.sender_id = :pid_name THEN 'You'
                                  ELSE (SELECT CONCAT_WS(' ', sp.first_name, sp.last_name)
-                                       FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                                       FROM users su JOIN persons sp ON sp.id = su.person_id
                                        WHERE su.id = im.sender_id)
                             END AS sender_name
                      FROM internal_messages im
@@ -2130,7 +2132,7 @@ class ParentPortalManager extends BaseAPI
                      ORDER BY im.created_at DESC
                      LIMIT 100"
                 );
-                $stmt->execute([':pid' => $this->user_id, ':cid' => (int)$conversation['id']]);
+                $stmt->execute([':pid' => $this->user_id, ':pid_name' => $this->user_id, ':cid' => (int)$conversation['id']]);
                 $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 $this->markMessagesRead((int)$conversation['id']);
@@ -2564,7 +2566,7 @@ class ParentPortalManager extends BaseAPI
                 $entStmt = $this->db->prepare(
                     "SELECT te.id, te.amount_due, te.student_id,
                             te.entitlement_status, r.name AS route_name
-                     FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . "
+                     FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " te
                      LEFT JOIN transport_routes r ON r.id = te.route_id
                      WHERE te.student_id = ? AND te.entitlement_status = 'active'
                      ORDER BY te.id DESC LIMIT 1"
@@ -3076,7 +3078,9 @@ class ParentPortalManager extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT u.id AS user_id, pr.id AS parent_id, p.id AS person_id,
                     p.first_name, p.last_name, p.email
-             FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+             FROM users u
+             JOIN persons p ON p.id = u.person_id
+             JOIN parents pr ON pr.person_id = u.person_id
              WHERE u.id = :uid
                AND u.status = 'active'
                AND pr.status = 'active'
@@ -3504,12 +3508,13 @@ class ParentPortalManager extends BaseAPI
             // Admission interview evidence remains part of the learner's
             // academic history after enrollment; do not discard it at intake.
             $interview = $this->db->prepare(
-                "SELECT application_no, scheduled_date, conducted_at, interview_status AS status,
-                        academic_readiness_score, behavior_score, communication_score,
-                        overall_score, interview_recommendation AS recommendation, interview_remarks AS remarks
-                   FROM " . ReadReplicaService::qualifiedRef("admission_applications_interviews") . "
-                  WHERE enrolled_student_id = ? AND interview_status = 'completed'
-                  ORDER BY interview_record_id DESC LIMIT 1"
+                "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                        ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                        ai.overall_score, ai.recommendation, ai.remarks
+                   FROM admission_applications aa
+                   JOIN admission_interviews ai ON ai.application_id = aa.id
+                  WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+                  ORDER BY ai.id DESC LIMIT 1"
             );
             $interview->execute([$studentId]);
             $payload['admission_interview'] = $interview->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -3703,7 +3708,7 @@ class ParentPortalManager extends BaseAPI
         }
 
         // Any active admin account
-        $userRoleGrant = ReadReplicaService::masterRef('user_role_grant');
+        $userRoleGrant = ReadReplicaService::masterRef('vw_user_role_grant');
         $stmt = $this->db->prepare(
             "SELECT urg.user_id AS id
              FROM {$userRoleGrant} urg

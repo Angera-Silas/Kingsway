@@ -88,7 +88,7 @@ const approvedLessonPlansController = {
           ${p.extension ? `<div class="col-12"><strong>Extension Activities:</strong><br><span class="small">${this.esc(p.extension)}</span></div>` : ''}
           ${p.remarks ? `<div class="col-12"><strong>Approver Remarks:</strong><br><span class="small">${this.esc(p.remarks)}</span></div>` : ''}
         </div>`;
-      new bootstrap.Modal(document.getElementById('alpViewModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('alpViewModal')).show();
     } catch (e) { this.notify(e.message, 'danger'); }
   },
 

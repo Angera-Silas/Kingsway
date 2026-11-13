@@ -284,7 +284,7 @@ const SportsController = {
     const teamForm = document.getElementById("teamForm");
     if (teamForm) teamForm.reset();
     const modal = document.getElementById("addTeamModal");
-    if (modal) new bootstrap.Modal(modal).show();
+    if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 
   async saveTeam(e) {
@@ -321,7 +321,7 @@ const SportsController = {
     if (fixtureForm) fixtureForm.reset();
     this.populateTeamDropdown("fixtureTeamId");
     const modal = document.getElementById("addFixtureModal");
-    if (modal) new bootstrap.Modal(modal).show();
+    if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 
   async populateTeamDropdown(dropdownId) {
@@ -376,7 +376,7 @@ const SportsController = {
     if (resultForm) resultForm.reset();
     await this.populateFixtureDropdown("resultFixtureId");
     const modal = document.getElementById("recordResultModal");
-    if (modal) new bootstrap.Modal(modal).show();
+    if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 
   async populateFixtureDropdown(dropdownId) {
@@ -455,7 +455,7 @@ const SportsController = {
     }
     modal.querySelector(".modal-title").textContent = title;
     modal.querySelector(".modal-body").innerHTML = bodyHtml;
-    new bootstrap.Modal(modal).show();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 };
 

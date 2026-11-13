@@ -249,7 +249,7 @@
             document.getElementById("bt_id").value = "";
             document.getElementById("bt_date").value = new Date().toISOString().split("T")[0];
 
-            var modal = new bootstrap.Modal(document.getElementById("bankTransactionModal"));
+            var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("bankTransactionModal"));
             modal.show();
         },
 

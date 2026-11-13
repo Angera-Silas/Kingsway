@@ -103,7 +103,7 @@ class StudentTransportPaymentManager
             "SELECT b.id AS bill_id, b.billing_month, b.amount_due, b.payment_status,
                     p.id AS payment_id, p.amount AS amount_paid, p.payment_method,
                     p.transaction_id, p.payment_date, p.notes
-             FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . "
+             FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
              LEFT JOIN transport_bill_payments p ON p.bill_id = b.id
              WHERE b.student_id = ?
              ORDER BY b.billing_month DESC, p.payment_date DESC"
@@ -116,7 +116,7 @@ class StudentTransportPaymentManager
     public function getPaymentSummary($studentId)
     {
         $sql = "SELECT COALESCE(SUM(p.amount), 0) AS total_paid
-                FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . "
+                FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
                 JOIN transport_bill_payments p ON p.bill_id = b.id
                 WHERE b.student_id = ?";
         $stmt = $this->db->prepare($sql);
@@ -185,7 +185,7 @@ class StudentTransportPaymentManager
     {
         $stmt = $this->db->prepare(
             "SELECT b.amount_due, COALESCE(SUM(p.amount), 0) AS paid
-             FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . "
+             FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
              LEFT JOIN transport_bill_payments p ON p.bill_id = b.id
              WHERE b.id = ?
              GROUP BY b.id"

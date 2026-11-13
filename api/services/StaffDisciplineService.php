@@ -211,7 +211,10 @@ final class StaffDisciplineService
         $staffId = null;
         if ($status === 'escalated') {
             $stmt = $this->db->query(
-                "SELECT s.id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                "SELECT s.id FROM staff s
+                 JOIN user_roles ur ON ur.user_id = s.person_id
+                 JOIN users u ON u.id = ur.user_id
+                 JOIN roles r ON r.id = ur.role_id
                  WHERE LOWER(r.name) = 'deputy head - discipline' AND s.status='active'
                  LIMIT 1"
             );

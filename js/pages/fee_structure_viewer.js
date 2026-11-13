@@ -998,7 +998,7 @@ class FeeStructureViewerController {
   showModal(modalId) {
     const modalEl = document.getElementById(modalId);
     if (modalEl) {
-      const modal = new bootstrap.Modal(modalEl);
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
       modal.show();
     }
   }

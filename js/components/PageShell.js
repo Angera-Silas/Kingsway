@@ -116,7 +116,11 @@ const PageShell = (() => {
      * @param {Object} options
      * @param {string}   options.loadingId   - ID of the loading spinner element
      * @param {string}   options.contentId   - ID of the content container element
-     * @param {string}   options.templateDir - Path prefix for template URLs (e.g. '/pages/boarding/')
+     * @param {string}   options.templateDir - Path prefix for template URLs
+     *                                         ('/pages/boarding/' or 'pages/boarding/';
+     *                                          resolved against window.APP_BASE, never
+     *                                          against window.location, so a
+     *                                          subdirectory deploy keeps working)
      * @param {string}   [options.module]    - Module name for the access-denied message
      * @param {string}   [options.scriptSrc] - Optional JS controller to load after template injection
      * @param {Array}    options.levels      - Array of { file, test } objects, checked in order.
@@ -133,6 +137,21 @@ const PageShell = (() => {
             levels = [],
             afterLoad,
         } = options;
+
+        // Resolve an app-relative path against window.APP_BASE (the configured
+        // BASE_URL prefix — '/Kingsway' in development, '' at a host root).
+        // Routes historically passed '/pages/<module>/', which is root-relative
+        // and therefore 404s on any subdirectory deploy; normalising here fixes
+        // every caller in role_shell_routes.js at once, and keeps working when
+        // a caller already omits the leading slash or passes a full URL.
+        const resolveAppPath = (value, fallbackBase) => {
+            const raw = String(value === undefined || value === null ? '' : value).trim();
+            if (raw === '' || raw === fallbackBase) return raw;
+            if (/^([a-z]+:)?\/\//i.test(raw)) return raw;      // absolute URL
+            const base = (window.APP_BASE || '').replace(/\/+$/, '');
+            const path = raw.replace(/^\/+/, '');
+            return path === '' ? base : base + '/' + path;
+        };
 
         const loadingEl = document.getElementById(loadingId);
         const contentEl = document.getElementById(contentId);
@@ -158,7 +177,8 @@ const PageShell = (() => {
             });
             if (existing?.dataset.kingswayScriptState === 'error') {
                 existing.remove();
-            } else if (existing) {
+                // Script was removed; fall through to create a fresh one below
+            } else if (existing && existing.dataset.kingswayScriptState !== 'error') {
                 if (existing.dataset.kingswayScriptState === 'loading') {
                     return new Promise((resolve, reject) => {
                         existing.addEventListener('load', () => resolve(existing), { once: true });
@@ -232,7 +252,7 @@ const PageShell = (() => {
         // navigations. Give each fetch a fresh URL so a service-worker or
         // browser cache cannot restore an older table after the template has
         // changed.
-        const templateUrl = (window.APP_BASE || '') + templateDir + match.file +
+        const templateUrl = resolveAppPath(templateDir, '/pages/') + match.file +
             '?v=' + Date.now();
 
         fetch(templateUrl)
@@ -281,7 +301,7 @@ const PageShell = (() => {
                 }
 
                 if (scriptSrc) {
-                    await ensureExternalScript((window.APP_BASE || '') + scriptSrc);
+                    await ensureExternalScript(resolveAppPath(scriptSrc, '/js/pages/'));
                 }
 
                 // Apply page-specific post-processing before generic role-based UI.

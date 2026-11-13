@@ -93,7 +93,7 @@ const managePublicEventsController = {
         document.getElementById('eventCategory').value    = ev.category || 'Academic';
       }
     }
-    new bootstrap.Modal(document.getElementById('wsEventModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsEventModal')).show();
   },
 
   async save() {

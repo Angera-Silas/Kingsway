@@ -71,7 +71,7 @@ class PaymentRoutingService
                 $admission = trim((string)preg_replace('/^TRN-/i', '', $reference));
                 $s=$this->db->prepare('SELECT id FROM students WHERE admission_no=? AND status IN ("active","enrolled") LIMIT 1'); $s->execute([$admission]); $studentId=(int)$s->fetchColumn();
                 if ($studentId) {
-                    $e=$this->db->prepare("SELECT e.id FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.student_id=? AND e.entitlement_status='active' AND p.period_start<=CURDATE() AND p.period_end>=CURDATE() ORDER BY DATEDIFF(p.period_end,p.period_start) ASC,e.id DESC LIMIT 1"); $e->execute([$studentId]); $entitlementId=(int)$e->fetchColumn();
+                    $e=$this->db->prepare("SELECT e.id FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " e JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.student_id=? AND e.entitlement_status='active' AND p.period_start<=CURDATE() AND p.period_end>=CURDATE() ORDER BY DATEDIFF(p.period_end,p.period_start) ASC,e.id DESC LIMIT 1"); $e->execute([$studentId]); $entitlementId=(int)$e->fetchColumn();
                     $financialAccountId = $this->accountFinancialId($providerId, $accountIdentifier, 'transport');
                     if ($entitlementId && $financialAccountId && (new TransportPaymentService($this->db))->reconcileEntitlement($entitlementId,$studentId,$amount,$providerCode,$providerTransactionId,$financialAccountId)) return ['status'=>'processed','purpose'=>'transport','student_id'=>$studentId,'reference'=>$reference,'provider_transaction_id'=>$providerTransactionId];
                 }
@@ -151,6 +151,33 @@ class PaymentRoutingService
                 'exception' => get_class($error),
             ]);
         }
+    }
+
+    /**
+     * Record a received payment that has no automatic ledger (payroll recovery,
+     * department income, unresolvable cheques) in the shared unmatched queue so
+     * finance allocates it from the unmatched-payments screen. Money that
+     * arrived is never dropped; a replayed notification updates the same case
+     * (uq_unmatched_provider_tx).
+     */
+    public function holdUnmatched(string $providerCode, array $payload, string $providerTransactionId, float $amount, ?string $accountIdentifier, string $rawReference, string $reason): array
+    {
+        if ($amount <= 0) throw new RuntimeException('A positive amount is required');
+        $providerId = $this->providerId($providerCode);
+        $tx = trim($providerTransactionId) !== ''
+            ? trim($providerTransactionId)
+            : 'BANK-' . $rawReference . '-' . number_format($amount, 2, '.', '') . '-' . sha1(json_encode($payload) ?: '');
+        return $this->unmatched(
+            $providerId,
+            $tx,
+            $this->normalizer->accountIdentifier((string) $accountIdentifier),
+            $amount,
+            $rawReference,
+            $this->normalizer->reference($rawReference),
+            'unknown',
+            $reason,
+            $payload
+        );
     }
 
     public function listRoutes(): array { return $this->db->query("SELECT r.*,p.code provider_code,sa.account_name settlement_account_name,sa.account_identifier settlement_account_identifier,(SELECT GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') FROM " . ReadReplicaService::qualifiedRef("payment_collection_route_channels") . " rch JOIN financial_channels fc ON fc.id=rch.channel_id WHERE rch.route_id=r.id) route_channels FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r JOIN payment_providers p ON p.id=r.provider_id LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sa ON sa.id=COALESCE(r.settlement_financial_account_id,r.financial_account_id) WHERE r.active=1 ORDER BY p.code,r.account_identifier,r.purpose")->fetchAll(PDO::FETCH_ASSOC); }

@@ -145,14 +145,14 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
-                <button class="btn-close" onclick="closeModal('viewFeeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="viewModalBody">
                 <!-- Read-only details -->
                 <div id="structureDetails"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('viewFeeStructureModal')">Close</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
                 <button class="btn btn-outline" onclick="printStructure()">
                     <i class="bi bi-printer"></i> Print
                 </button>
@@ -167,7 +167,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Export Fee Structures</h3>
-                <button class="btn-close" onclick="closeModal('exportModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('exportModal')">×</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -189,7 +189,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('exportModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('exportModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="confirmExport()">
                     <i class="bi bi-download"></i> Export
                 </button>

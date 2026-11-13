@@ -501,9 +501,12 @@ class PromotionManager
         ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $terms = $this->db->query(
-            "SELECT academic_year_term_id AS id, term_name AS name
-             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-             ORDER BY opening_date ASC"
+            "
+            SELECT ayt.id, t.name
+            FROM academic_year_terms ayt
+            JOIN terms t ON t.id = ayt.term_id
+            ORDER BY ayt.opening_date ASC
+        "
         )->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         return [
@@ -723,7 +726,7 @@ class PromotionManager
 
     private function getStudentStatus(int $studentId): ?array
     {
-        $stmt = $this->db->prepare("SELECT id, status FROM " . ReadReplicaService::qualifiedRef("student_directory") . "   WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT id, status FROM students WHERE id = ?");
         $stmt->execute([$studentId]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         return $result ?: null;

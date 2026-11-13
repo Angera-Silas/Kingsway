@@ -492,7 +492,7 @@ const academicsController = {
             document.getElementById('classAcademicYear').value = new Date().getFullYear();
         }
 
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
     },
 
@@ -681,7 +681,7 @@ const academicsController = {
             document.getElementById('streamStatus').value = 'active';
         }
 
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
     },
 
@@ -807,7 +807,7 @@ const academicsController = {
             this.populateAssignStreams(classId, streamId);
         }
 
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
     },
 

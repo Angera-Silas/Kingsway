@@ -175,7 +175,7 @@ class KcbTransferReconciliationService
 
             $insert = $this->db->prepare("INSERT INTO disbursement_transactions
                 (disbursement_type,payment_purpose,source_financial_account_id,payroll_id,payslip_id,
-                 refund_request_id,expense_id,statutory_remittance_attempt_id,recipient_id,recipient_type,recipient_name,
+                 refund_request_id,expense_id,statutory_remittance_attempt_id,recipient_id,recipient_name,
                  amount,currency,idempotency_reference,account_number,bank_code,bank_name,channel,status,
                  reconciliation_status,retry_of_disbursement_id,submitted_by,approved_by,approved_at,released_at,
                  next_status_inquiry_at,created_at)
@@ -347,7 +347,7 @@ class KcbTransferReconciliationService
                 ->execute([$accepted ? 'processing' : 'failed', $reference, $newId, $row['payslip_id']]);
         }
         if (!empty($row['expense_id'])) {
-            $this->db->prepare("UPDATE supplier_payment_requests SET disbursement_id=?,status=?,provider_reference=? WHERE disbursement_id=?")
+            $this->db->prepare("UPDATE parent_refund_requests SET disbursement_id=?,status=?,provider_reference=?,updated_at=NOW() WHERE id=?")
                 ->execute([$newId, $accepted ? 'payment_pending' : 'failed', $reference, $row['id']]);
             $this->db->prepare("UPDATE expenses SET status=? WHERE id=?")
                 ->execute([$accepted ? 'payment_pending' : 'approved', $row['expense_id']]);

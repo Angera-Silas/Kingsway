@@ -29,9 +29,9 @@ const UniformSalesController = {
      * Initialize the controller
      */
     init: function() {
-        this.newSaleModal = new bootstrap.Modal(document.getElementById('newSaleModal'));
-        this.restockModal = new bootstrap.Modal(document.getElementById('restockModal'));
-        this.viewSizesModal = new bootstrap.Modal(document.getElementById('viewSizesModal'));
+        this.newSaleModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('newSaleModal'));
+        this.restockModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('restockModal'));
+        this.viewSizesModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('viewSizesModal'));
 
         this.bindEvents();
         this.loadDashboard();
@@ -780,7 +780,7 @@ const UniformSalesController = {
         document.getElementById('upNotes').value = '';
         document.getElementById('upError').classList.add('d-none');
         this.syncUniformPhoneField();
-        new bootstrap.Modal(document.getElementById('uniformPaymentModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('uniformPaymentModal')).show();
     },
 
     /** A phone number is only meaningful for a prompt. */

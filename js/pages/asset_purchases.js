@@ -17,8 +17,8 @@ const assetPurchasesController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._modal        = new bootstrap.Modal(document.getElementById('apModal'));
-    this._disposeModal = new bootstrap.Modal(document.getElementById('apDisposeModal'));
+    this._modal        = bootstrap.Modal.getOrCreateInstance(document.getElementById('apModal'));
+    this._disposeModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('apDisposeModal'));
     await Promise.all([this._loadData(), this._loadVendors(), this._loadCategories()]);
   },
 

@@ -805,7 +805,7 @@ class WebsiteManager extends BaseAPI
             if ($id) {
                 $stmt = $this->db->prepare(
                     "SELECT j.*, d.name AS department
-                     FROM " . ReadReplicaService::qualifiedRef("job_vacancies") . "
+                     FROM " . ReadReplicaService::qualifiedRef("job_vacancies") . " j
                      LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = j.department_id
                      WHERE j.id=?"
                 );
@@ -1541,7 +1541,7 @@ class WebsiteManager extends BaseAPI
                         i.id AS interview_id, i.scheduled_at AS interview_scheduled_at,
                         i.mode AS interview_mode, i.location AS interview_location,
                         i.status AS interview_status, i.score AS interview_score, i.notes AS interview_notes,
-                        (SELECT sa.id FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_id,
+                        (SELECT sa.id FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_id,
                         (SELECT sa.status FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_status
                  FROM job_applications a
                  LEFT JOIN job_application_interviews i ON i.id = (
@@ -1674,7 +1674,7 @@ class WebsiteManager extends BaseAPI
         );
 
         $threadStmt = $this->db->prepare(
-            "SELECT t.id FROM " . ReadReplicaService::qualifiedRef("communication_threads") . "
+            "SELECT t.id FROM " . ReadReplicaService::qualifiedRef("communication_threads") . " t
              JOIN communication_thread_inquiries ti ON ti.thread_id = t.id
              WHERE ti.inquiry_id = ? LIMIT 1"
         );

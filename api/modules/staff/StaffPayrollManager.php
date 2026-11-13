@@ -74,15 +74,16 @@ class StaffPayrollManager extends BaseAPI
                 p.phone,
                 spp.kra_pin, spp.nssf_no, spp.nhif_no,
                 (SELECT COUNT(DISTINCT ur.role_id)
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                 FROM users u
+                 INNER JOIN user_roles ur ON ur.user_id = u.id
                  WHERE u.person_id = s.person_id) AS role_count,
                 (SELECT sda.department_id
-                 FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda
+                 FROM staff_department_assignments sda
                  WHERE sda.staff_id = s.id
                    AND sda.effective_to IS NULL
                  LIMIT 1) AS department_id
-            FROM " . ReadReplicaService::qualifiedRef("staff") . " s
-            INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+            FROM staff s
+            INNER JOIN persons p ON p.id = s.person_id
             LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
             WHERE s.id = ? AND s.status = 'active'";
             $eligStmt = $this->db->prepare($eligibilitySql);
@@ -1038,7 +1039,12 @@ class StaffPayrollManager extends BaseAPI
                        st.name AS staff_type_name,
                        spp.kra_pin, spp.nssf_no, spp.nhif_no,
                        COALESCE(spp.basic_salary, 0) AS salary
-                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                FROM staff s
+                INNER JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
+                LEFT JOIN staff_types st ON s.staff_type_id = st.id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 WHERE s.id = ?
             ");
             $stmt->execute([$staffId]);
@@ -1098,7 +1104,7 @@ class StaffPayrollManager extends BaseAPI
             // Get other deductions (loans, SACCO, advances, etc.)
             $stmt = $this->db->prepare("
                 SELECT sd.*, dt.name AS type_name, dt.code AS type_code, dt.category
-                FROM " . ReadReplicaService::qualifiedRef("staff_deductions") . "
+                FROM " . ReadReplicaService::qualifiedRef("staff_deductions") . " sd
                 LEFT JOIN deduction_types dt ON sd.deduction_type_id = dt.id
                 WHERE sd.staff_id = ? 
                 AND sd.status = 'active'
@@ -1473,10 +1479,11 @@ class StaffPayrollManager extends BaseAPI
     public function p9Employee(int $staffId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT s.staff_no, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS employee_name,
-                    p.national_id_no, spp.kra_pin, spp.nssf_no, spp.nhif_no
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-             WHERE s.id = ? LIMIT 1"
+            "SELECT s.staff_no, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS employee_name,
+                    s.national_id_no, spp.kra_pin, spp.nssf_no, spp.nhif_no
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+             LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.staff_id
+             WHERE s.staff_id = ? LIMIT 1"
         );
         $stmt->execute([$staffId]);
         return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;

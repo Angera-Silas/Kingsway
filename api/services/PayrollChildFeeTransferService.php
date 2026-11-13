@@ -55,7 +55,7 @@ class PayrollChildFeeTransferService
                     continue;
                 }
 
-                $parent = $this->db->prepare('SELECT parent_id FROM student_parents WHERE student_id = ? ORDER BY is_primary DESC, id LIMIT 1');
+                $parent = $this->db->prepare('SELECT id FROM payments WHERE receipt_no = ? LIMIT 1');
                 $parent->execute([(int) $current['student_id']]);
                 $parentId = $parent->fetchColumn() ?: null;
 

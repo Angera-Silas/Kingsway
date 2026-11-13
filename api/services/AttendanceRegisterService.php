@@ -561,7 +561,7 @@ $existingSql = "SELECT ar.*, ass.code AS session_code,
     private function reconcile(int $id, int $streamId, int $sessionId, string $date, int $expected, string $now): void
     {
         $stmt = $this->db->prepare("SELECT COUNT(DISTINCT sa.student_academic_enrollment_id)
-              FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+              FROM student_attendance sa JOIN student_academic_enrollments en ON en.id=sa.student_academic_enrollment_id
              WHERE sa.date=? AND sa.session_id=? AND en.academic_year_class_stream_id=?");
         $stmt->execute([$date, $sessionId, $streamId]); $marked = (int) $stmt->fetchColumn();
         $row = $this->db->prepare("SELECT opens_at, due_at, overdue_at, status FROM attendance_registers WHERE id=?"); $row->execute([$id]); $current = $row->fetch(PDO::FETCH_ASSOC);

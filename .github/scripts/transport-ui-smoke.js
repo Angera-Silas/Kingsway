@@ -6,10 +6,10 @@ function assert(condition, message) {
     if (!condition) throw new Error(message);
 }
 
+const executablePath = ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium']
+    .find(candidate => fs.existsSync(candidate));
+
 (async () => {
-    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH
-        || ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium']
-            .find(candidate => fs.existsSync(candidate));
     const browser = await puppeteer.launch({
         headless: true,
         ...(executablePath ? { executablePath } : {}),
@@ -19,91 +19,165 @@ function assert(condition, message) {
     try {
         const page = await browser.newPage();
         const errors = [];
-        page.on('pageerror', error => errors.push(error.message));
+        page.on('pageerror', error => errors.push(`${error.name}: ${error.message}`));
+        page.on('console', message => {
+            if (message.type() === 'error') errors.push(`console.error: ${message.text()}`);
+        });
 
-        const templatePath = path.resolve(__dirname, '../../pages/transport/admin_transport.php');
-        const template = fs.readFileSync(templatePath, 'utf8')
-            .replace(/<\?php[\s\S]*?\?>/g, '')
-            .replace(/<script[\s\S]*?<\/script>/gi, '');
-        await page.setContent(`<!doctype html><html><body>${template}</body></html>`);
+        const template = fs.readFileSync(
+            path.resolve(__dirname, '../../pages/transport/admin_transport.php'),
+            'utf8'
+        ).replace(/<\?php[\s\S]*?\?>/g, '').replace(/<script[\s\S]*?<\/script>/gi, '');
+
+        await page.setContent(`<!doctype html><html><body><div id="transport-content">${template}</div></body></html>`);
 
         await page.evaluate(() => {
             window.__calls = [];
-            window.showNotification = () => {};
+            window.__notifications = [];
+            window.showNotification = (message, kind) => window.__notifications.push(`${kind}:${message}`);
             window.confirm = () => true;
-            window.KingswayFileLifecycle = { exportText: () => window.__calls.push('export') };
-            window.bootstrap = {
-                Modal: {
-                    getOrCreateInstance: element => ({ show: () => element.dataset.open = 'true' }),
-                    getInstance: element => ({ hide: () => element.dataset.open = 'false' }),
+            window.KingswayFileLifecycle = { exportText: () => window.__calls.push('export-csv') };
+            const rows = [{ id: 7, name: 'Londiani Town Route', code: 'R-LON-01', start_point: 'Londiani', end_point: 'Kingsway', morning_departure: '06:30', afternoon_departure: '16:30', vehicle_registration: 'KCB 123A', student_count: 24, stop_count: 3, status: 'active' }];
+            const record = name => async (data) => { window.__calls.push(`${name} ${JSON.stringify(data || {})}`); return { data: { id: 99 } }; };
+            // The controller must commit through the canonical wrappers, not
+            // through hand-built `/api/transport/<type>s` paths.
+            window.API = {
+                transport: {
+                    getAllRoutes: async () => { window.__calls.push('getAllRoutes'); return { data: rows }; },
+                    getAllVehicles: async () => { window.__calls.push('getAllVehicles'); return { data: [{ id: 3, registration_number: 'KCB 123A', type: 'Bus', model: 'Hiace', capacity: 40, status: 'active' }] }; },
+                    getAllDrivers: async () => { window.__calls.push('getAllDrivers'); return { data: [] }; },
+                    getAllStops: async () => { window.__calls.push('getAllStops'); return { data: [] }; },
+                    getBills: async (params) => { window.__calls.push(`getBills ${params.month}`); return { data: [] }; },
+                    getBillsSummary: async (params) => { window.__calls.push(`getBillsSummary ${params.month}`); return { data: { summary: { total_due: 2500 } } }; },
+                    createRoute: record('createRoute'),
+                    updateRoute: record('updateRoute'),
+                    createVehicle: record('createVehicle'),
+                    updateVehicle: record('updateVehicle'),
+                    createDriver: record('createDriver'),
+                    updateDriver: record('updateDriver'),
+                    createStop: record('createStop'),
+                    updateStop: record('updateStop'),
                 },
             };
-            const record = name => async payload => { window.__calls.push(name); return { data: payload?.id || 99 }; };
-            window.APIRealtime = { register: () => {} };
-            window.API = { transport: {
-                getAllRoutes: async () => [{ id: 1, name: 'Londiani', code: 'LON', start_point: 'School', end_point: 'Town', fee: 2500, max_capacity: 40, student_count: 12, stop_count: 3, status: 'active' }],
-                getAllVehicles: async () => [{ id: 2, registration_number: 'KAA 001A', type: 'Bus', capacity: 40, status: 'active' }],
-                getAllDrivers: async () => [{ id: 3, first_name: 'Test', last_name: 'Driver', staff_no: 'DRV001', status: 'active' }],
-                getAllStops: async () => [{ id: 4, name: 'Market', route_id: 1, sequence: 1, status: 'active' }],
-                getBills: async () => [{ first_name: 'Test', last_name: 'Learner', route_name: 'Londiani', amount_due: 2500, amount_paid: 1000, balance: 1500, payment_status: 'partial' }],
-                getBillsSummary: async () => ({ summary: { total_due: 2500, total_paid: 1000, total_outstanding: 1500, total_bills: 1 } }),
-                createRoute: record('createRoute'), updateRoute: record('updateRoute'), deleteRoute: record('deleteRoute'),
-                syncRouteStops: record('syncRouteStops'),
-                createVehicle: record('createVehicle'), updateVehicle: record('updateVehicle'), deleteVehicle: record('deleteVehicle'), assignVehicle: record('assignVehicle'),
-                syncVehicleRoutes: record('syncVehicleRoutes'),
-                createDriver: record('createDriver'), updateDriver: record('updateDriver'), deleteDriver: record('deleteDriver'),
-                syncDriverRoutes: record('syncDriverRoutes'),
-                createStop: record('createStop'), updateStop: record('updateStop'), deleteStop: record('deleteStop'),
-            }};
+            window.bootstrap = {
+                Modal: {
+                    getInstance: element => ({ hide: () => { element.dataset.open = 'false'; } }),
+                },
+                Modal2: null,
+            };
+            // openEditor() constructs a modal directly; Bootstrap's real global
+            // exposes Modal as a constructor alongside getInstance.
+            window.bootstrap.Modal = class Modal {
+                constructor(element) { this.element = element; }
+                show() { this.element.dataset.open = 'true'; }
+                hide() { this.element.dataset.open = 'false'; }
+                static getInstance(element) { return new Modal(element); }
+            };
+            window.APIRealtime = { register: () => {}, attachCurrentRouteControllers: () => {} };
         });
 
         await page.addScriptTag({ path: path.resolve(__dirname, '../../js/pages/transport_admin.js') });
-        await page.waitForFunction(() => document.querySelector('[data-kpi="routes"]')?.textContent === '1');
+        await page.waitForFunction(() => typeof window.transportAdminController !== 'undefined', { timeout: 10000 });
 
-        const initial = await page.evaluate(() => ({
-            routeRows: document.querySelectorAll('#transportRoutesBody tr').length,
-            vehicleRows: document.querySelectorAll('#transportVehiclesBody tr').length,
-            driverRows: document.querySelectorAll('#transportDriversBody tr').length,
-            stopRows: document.querySelectorAll('#transportStopsBody tr').length,
-            month: document.getElementById('transportBillingMonth').value,
+        await page.evaluate(() => window.transportAdminController.init());
+        await page.waitForFunction(() => document.querySelectorAll('#transportRoutesBody tr').length > 0, { timeout: 10000 });
+
+        // --- 1. The script must parse and the controller must exist -----------
+        assert(errors.length === 0, `Page errors after load: ${errors.join(' | ')}`);
+
+        // --- 2. KPI cards must be filled from the loaded state ---------------
+        const kpis = await page.evaluate(() => ({
+            routes: document.querySelector('[data-kpi="routes"]')?.textContent,
+            vehicles: document.querySelector('[data-kpi="vehicles"]')?.textContent,
+            learners: document.querySelector('[data-kpi="learners"]')?.textContent,
+            attention: document.querySelector('[data-kpi="attention"]')?.textContent,
         }));
-        assert(Object.values(initial).every(Boolean), 'Initial transport data did not render completely.');
+        assert(kpis.routes === '1', `KPI routes should be 1, got "${kpis.routes}"`);
+        assert(kpis.vehicles === '1', `KPI vehicles should be 1, got "${kpis.vehicles}"`);
+        assert(kpis.learners === '24', `KPI learners should be 24, got "${kpis.learners}"`);
+        assert(kpis.attention === '0', `KPI attention should be 0, got "${kpis.attention}"`);
 
+        // --- 3. Tabs must switch panels -------------------------------------
+        await page.click('[data-panel="vehiclesPanel"]');
+        const tabbed = await page.evaluate(() => ({
+            vehicles: document.getElementById('vehiclesPanel')?.classList.contains('active'),
+            routes: document.getElementById('routesPanel')?.classList.contains('active'),
+        }));
+        assert(tabbed.vehicles === true, 'Vehicles tab did not activate its panel');
+        assert(tabbed.routes === false, 'Routes panel stayed active after a tab switch');
+        assert(errors.length === 0, `Page errors after tab switch: ${errors.join(' | ')}`);
+
+        // --- 4. The Add route button must open the editor --------------------
+        await page.click('[data-panel="routesPanel"]');
         await page.click('#transportAddRoute');
-        assert(await page.$eval('#transportEditorModal', el => el.dataset.open === 'true'), 'Add-route modal did not open.');
-        await page.type('[name="name"]', 'Test Route');
-        await page.type('[name="description"]', 'Londiani Road, Market and Tuluet junction');
-        await page.click('#transportAddRouteStop');
-        await page.type('[data-stop-field="name"]', 'Londiani Junction');
+        const editor = await page.evaluate(() => ({
+            open: document.getElementById('transportEditorModal')?.dataset.open,
+            title: document.getElementById('transportEditorTitle')?.textContent,
+            fields: document.getElementById('transportEditorBody')?.querySelectorAll('input,select').length,
+            vehicleOptions: document.getElementById('traRouteVehicleSelect')?.options.length,
+            driverOptions: document.getElementById('traRouteDriverSelect')?.options.length,
+        }));
+        assert(editor.open === 'true', 'Add route did not open the editor modal');
+        assert(/Route/i.test(editor.title || ''), 'Editor title did not describe a route');
+        assert(editor.fields >= 5, 'Editor form did not render its fields');
+        assert(editor.vehicleOptions >= 1, 'Vehicle select was not populated with real field names');
+        assert(editor.driverOptions >= 1, 'Driver select was not populated with real field names');
+
+        // --- 5. Save must be wired and must reach the API --------------------
+        await page.type('#traRouteName', 'Test Route');
+        await page.type('#traRouteMorning', '07:15');
         await page.click('#transportEditorSave');
-        await page.waitForFunction(() => window.__calls.includes('createRoute'));
-        await page.waitForFunction(() => window.__calls.includes('syncRouteStops'));
+        await page.waitForFunction(() => window.__calls.some(c => c.startsWith('createRoute')), { timeout: 10000 });
+        assert(
+            await page.evaluate(() => document.getElementById('transportEditorModal')?.dataset.open === 'false'),
+            'Editor modal did not close after a successful save'
+        );
+        assert(
+            await page.evaluate(() => window.__notifications.some(n => n.startsWith('success:'))),
+            'A success toast was not raised after saving'
+        );
 
-        for (const [tab, panel, add, expectedField] of [
-            ['vehiclesPanel', 'vehiclesPanel', 'transportAddVehicle', 'registration_number'],
-            ['driversPanel', 'driversPanel', 'transportAddDriver', 'first_name'],
-            ['stopsPanel', 'stopsPanel', 'transportAddStop', 'name'],
-        ]) {
-            await page.click(`[data-panel="${tab}"]`);
-            assert(await page.$eval(`#${panel}`, el => el.classList.contains('active')), `${tab} did not activate.`);
-            await page.click(`#${add}`);
-            assert(await page.$(`[name="${expectedField}"]`), `${tab} modal fields were not rendered.`);
-        }
+        // --- 6. Row action buttons must open the editor for that record ------
+        await page.click('[data-panel="vehiclesPanel"]');
+        await page.click('#transportVehiclesBody tr:first-child button');
+        const editModal = await page.evaluate(() => ({
+            open: document.getElementById('transportEditorModal')?.dataset.open,
+            title: document.getElementById('transportEditorTitle')?.textContent,
+            reg: document.getElementById('traVehicleReg')?.value,
+        }));
+        assert(editModal.open === 'true', 'Row action button did not open the editor');
+        assert(/Vehicle/i.test(editModal.title || ''), 'Row action opened the wrong editor');
+        assert(editModal.reg === 'KCB 123A', `Editor was not pre-filled (got "${editModal.reg}")`);
 
-        await page.click('[data-panel="billingPanel"]');
-        await page.click('#transportLoadBilling');
-        await page.waitForFunction(() => document.querySelectorAll('#transportBillingBody tr').length === 1);
-        assert(await page.$eval('#transportBillingSummary', el => el.textContent.includes('2,500.00')), 'Billing summary did not render.');
-
+        // --- 7. CSV export must be wired ------------------------------------
         await page.click('[data-panel="routesPanel"]');
         await page.click('#transportExport');
-        assert(await page.evaluate(() => window.__calls.includes('export')), 'CSV export was not invoked.');
-        assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
-        console.log('Transport UI smoke test passed.');
+        assert(
+            await page.evaluate(() => window.__calls.includes('export-csv')),
+            'Export CSV button was not wired'
+        );
+
+        // --- 8. Collections Load must be wired -------------------------------
+        await page.click('[data-panel="billingPanel"]');
+        await page.evaluate(() => { document.getElementById('transportBillingMonth').value = '2026-11'; });
+        await page.click('#transportLoadBilling');
+        await page.waitForFunction(() => window.__calls.includes('getBills 2026-11'), { timeout: 10000 });
+
+        // --- 9. Search filtering must not throw ------------------------------
+        await page.click('[data-panel="routesPanel"]');
+        await page.type('#transportSearch', 'londiani');
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const filtered = await page.evaluate(() => ({
+            visible: Array.from(document.querySelectorAll('#transportRoutesBody tr')).filter(r => r.style.display !== 'none').length,
+        }));
+        assert(filtered.visible === 1, 'Search filter hid the matching row');
+
+        assert(errors.length === 0, `Final page errors: ${errors.join(' | ')}`);
+        console.log('Transport workspace smoke test passed.');
     } finally {
         await browser.close();
     }
 })().catch(error => {
-    console.error(`Transport UI smoke test failed: ${error.message}`);
+    console.error(`Transport workspace smoke test failed: ${error.message}`);
     process.exit(1);
 });

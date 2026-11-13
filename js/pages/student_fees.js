@@ -915,7 +915,7 @@ const StudentFeesController = {
           .join("") ||
         '<tr><td colspan="5" class="text-muted text-center">No payments recorded.</td></tr>';
 
-      const modal = new bootstrap.Modal(this.ui.feeDetailsModal);
+      const modal = bootstrap.Modal.getOrCreateInstance(this.ui.feeDetailsModal);
       modal.show();
     } catch (error) {
       console.error("Failed to load fee statement:", error);
@@ -970,7 +970,7 @@ const StudentFeesController = {
       this.updateAssistanceCoverageFields();
     };
     if (ids.length === 1) await this.loadAssistanceAwards(ids[0]);
-    new bootstrap.Modal(this.ui.assistanceModal).show();
+    bootstrap.Modal.getOrCreateInstance(this.ui.assistanceModal).show();
   },
 
   loadAssistanceAwards: async function (studentId) {
@@ -1032,7 +1032,7 @@ const StudentFeesController = {
     this.ui.waiverScope.value = "full";
     this.ui.waiverAmount.value = "";
     this.ui.waiverAmountWrap.classList.add("d-none");
-    new bootstrap.Modal(this.ui.waiverModal).show();
+    bootstrap.Modal.getOrCreateInstance(this.ui.waiverModal).show();
   },
 
   saveWaiver: async function () {
@@ -1083,7 +1083,7 @@ const StudentFeesController = {
     }
 
     this.resetPaymentForm();
-    const modal = new bootstrap.Modal(this.ui.paymentModal);
+    const modal = bootstrap.Modal.getOrCreateInstance(this.ui.paymentModal);
     modal.show();
   },
 
@@ -1491,7 +1491,7 @@ const StudentFeesController = {
   openBillingHistory: function(studentId, studentName) {
     document.getElementById('historyStudentName').textContent = studentName;
     document.getElementById('billingHistoryContent').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
-    var modal = new bootstrap.Modal(document.getElementById('studentBillingHistoryModal'));
+    var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('studentBillingHistoryModal'));
     modal.show();
 
     window.API.apiCall('/finance/students-billing-history/' + studentId, 'GET')
@@ -1769,7 +1769,7 @@ const StudentFeesController = {
     this.ui.paymentStudent.value = studentId;
     this.ui.paymentStudentId.value = studentId;
     this.updateOutstandingAmount(studentId);
-    const modal = new bootstrap.Modal(this.ui.paymentModal);
+    const modal = bootstrap.Modal.getOrCreateInstance(this.ui.paymentModal);
     modal.show();
   },
 
@@ -1807,7 +1807,7 @@ const StudentFeesController = {
 
       this.ui.promptAmount.value = balance.balance || balance.total_balance || row.current_balance || 0;
 
-      const modal = new bootstrap.Modal(this.ui.promptParentModal);
+      const modal = bootstrap.Modal.getOrCreateInstance(this.ui.promptParentModal);
       modal.show();
     } catch (error) {
       console.error("Failed to load student details for STK push:", error);
@@ -1883,7 +1883,7 @@ const StudentFeesController = {
         return;
       }
 
-      const modal = new bootstrap.Modal(this.ui.paymentTrendsModal);
+      const modal = bootstrap.Modal.getOrCreateInstance(this.ui.paymentTrendsModal);
       this.ui.paymentTrendsContent.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Loading payment trends...</p></div>';
       modal.show();
 

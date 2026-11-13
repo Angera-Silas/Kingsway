@@ -520,7 +520,7 @@ const manageTeachersController = {
     const firstTab = document.getElementById("tab-personal");
     if (firstTab) new bootstrap.Tab(firstTab).show();
 
-    const modal = new bootstrap.Modal(document.getElementById("teacherFormModal"));
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("teacherFormModal"));
     modal.show();
   },
 
@@ -596,7 +596,7 @@ const manageTeachersController = {
       const firstTab = document.getElementById("tab-personal");
       if (firstTab) new bootstrap.Tab(firstTab).show();
 
-      const modal = new bootstrap.Modal(
+      const modal = bootstrap.Modal.getOrCreateInstance(
         document.getElementById("teacherFormModal"),
       );
       modal.show();
@@ -786,7 +786,7 @@ const manageTeachersController = {
         }
       }
 
-      const modal = new bootstrap.Modal(
+      const modal = bootstrap.Modal.getOrCreateInstance(
         document.getElementById("viewTeacherModal"),
       );
       modal.show();
@@ -805,7 +805,7 @@ const manageTeachersController = {
       `${teacher.first_name || ""} ${teacher.last_name || ""}`.trim() ||
       "—";
 
-    const modal = new bootstrap.Modal(
+    const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById("deleteTeacherModal"),
     );
     modal.show();

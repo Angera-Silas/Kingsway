@@ -111,7 +111,7 @@ const VendorsController = (() => {
     document.getElementById('vendorId').value = '';
     document.getElementById('vendorStatus').value = 'active';
     document.getElementById('vendorCategory').value = 'other';
-    new bootstrap.Modal(document.getElementById('vendorModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('vendorModal')).show();
   }
 
   async function editVendor(id) {
@@ -129,7 +129,7 @@ const VendorsController = (() => {
     document.getElementById('bankName').value         = v.bank_name     || '';
     document.getElementById('accountNumber').value    = v.account_number|| '';
     document.getElementById('vendorNotes').value      = v.notes         || '';
-    new bootstrap.Modal(document.getElementById('vendorModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('vendorModal')).show();
   }
 
   async function saveVendor() {

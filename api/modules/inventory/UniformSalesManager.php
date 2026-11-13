@@ -666,7 +666,7 @@ return $this->formatError('An internal error occurred.', 500);
                     SUM(CASE WHEN us.payment_status = 'paid' THEN us.quantity * us.unit_price ELSE 0 END) as paid_amount,
                     SUM(CASE WHEN us.payment_status != 'paid' THEN us.quantity * us.unit_price ELSE 0 END) as pending_amount,
                     COUNT(*) as sale_count
-                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . "
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
                 JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE us.sale_date BETWEEN ? AND ?
                 GROUP BY us.item_id
@@ -976,7 +976,7 @@ return $this->formatError('An internal error occurred.', 500);
 
             $lines = $this->dbQuery(
                 "SELECT ri.*, ii.name AS item_name, ii.code AS item_code
-                 FROM " . ReadReplicaService::qualifiedRef("requisition_items") . "
+                 FROM " . ReadReplicaService::qualifiedRef("requisition_items") . " ri
                  JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON ii.id = ri.item_id
                  WHERE ri.requisition_id = ?",
                 [$id]
@@ -1082,7 +1082,11 @@ return $this->formatError('An internal error occurred.', 500);
                         COALESCE(SUM(upr.amount), 0) AS total_paid,
                         SUM(us.quantity * us.unit_price) - COALESCE(SUM(upr.amount), 0) AS total_balance,
                         MAX(us.sale_date) AS last_purchase
-                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                 FROM students s
+                 JOIN persons p ON p.id = s.person_id
+                 JOIN uniform_sales us ON us.student_id = s.id
+                 LEFT JOIN uniform_payment_records upr ON upr.sale_id = us.id
+                 $where
                  GROUP BY s.id, p.first_name, p.last_name, s.admission_no
                  HAVING total_balance > 0
                  ORDER BY total_balance DESC
@@ -1093,7 +1097,11 @@ return $this->formatError('An internal error occurred.', 500);
             $total = (int)$this->dbQuery(
                 "SELECT COUNT(*) FROM (
                     SELECT s.id
-                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                    FROM students s
+                    JOIN persons p ON p.id = s.person_id
+                    JOIN uniform_sales us ON us.student_id = s.id
+                    LEFT JOIN uniform_payment_records upr ON upr.sale_id = us.id
+                    $where
                     GROUP BY s.id
                     HAVING SUM(us.quantity * us.unit_price) - COALESCE(SUM(upr.amount), 0) > 0
                 ) t",

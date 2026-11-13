@@ -671,7 +671,7 @@ const PayrollManagerController = {
     }
     this.resetPayrollForm();
     this.applyPayrollFormMode();
-    const modal = new bootstrap.Modal(
+    const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById("processPayrollModal")
     );
     modal.show();
@@ -689,7 +689,7 @@ const PayrollManagerController = {
     const year = new Date().getFullYear();
     document.getElementById("bulkPayrollMonth").value = month;
     document.getElementById("bulkPayrollYear").value = year;
-    const modal = new bootstrap.Modal(document.getElementById("bulkPayrollModal"));
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("bulkPayrollModal"));
     modal.show();
     await this.prepareBulkPayrollRows();
   },
@@ -1322,7 +1322,7 @@ const PayrollManagerController = {
 
       if (response && response.id) {
         this.renderPayslip(response);
-        var modal = new bootstrap.Modal(
+        var modal = bootstrap.Modal.getOrCreateInstance(
           document.getElementById("viewPayslipModal")
         );
         modal.show();
@@ -1350,7 +1350,7 @@ const PayrollManagerController = {
       document.getElementById("payrollYear").value = response.payroll_year;
       document.getElementById("payrollStaffSelect").value = response.staff_id;
 
-      const modal = new bootstrap.Modal(document.getElementById("processPayrollModal"));
+      const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("processPayrollModal"));
       modal.show();
       await this.onStaffSelected();
 
@@ -2007,7 +2007,7 @@ const PayrollManagerController = {
       okBtn.style.background = "#0d4f2a";
     }
 
-    var bsModal = new bootstrap.Modal(modal);
+    var bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
 
     // Remove old listeners by cloning
@@ -2036,7 +2036,7 @@ const PayrollManagerController = {
     const sourceSelect = document.getElementById("payrollPaymentSourceFinancialAccount");
     if (sourceSelect && payrollId) sourceSelect.dataset.payrollId = String(payrollId);
 
-    var bsModal = new bootstrap.Modal(modal);
+    var bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
 
     // Remove old listeners by cloning

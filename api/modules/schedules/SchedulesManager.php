@@ -117,14 +117,15 @@ class SchedulesManager
     public function getStaffDutySchedule($staffId, $termId = null)
     {
         $sql = "SELECT dsr.*, dt.name as department_name, NULL as room_name
-                FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . "
+                FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . " dsr
                 LEFT JOIN staff_duty_types dt ON dt.id = dsr.duty_type_id
                 WHERE dsr.staff_id = :staff_id";
         $params = ['staff_id' => $staffId];
         if ($termId) {
             $sql .= " AND dsr.date BETWEEN (SELECT opening_date FROM academic_year_terms WHERE id = :term_id)
-                                       AND (SELECT closing_date FROM academic_year_terms WHERE id = :term_id)";
+                                       AND (SELECT closing_date FROM academic_year_terms WHERE id = :term_id_close)";
             $params['term_id'] = $termId;
+            $params['term_id_close'] = $termId;
         }
         $sql .= " ORDER BY dsr.date, dsr.start_time";
         $stmt = $this->db->prepare($sql);
@@ -177,13 +178,13 @@ class SchedulesManager
         $conflicts = [];
         switch ($resourceType) {
             case 'room':
-                $sql = "SELECT * FROM vw_timetable_entries WHERE room_id = :id AND ((start_time < :end AND end_time > :start)) AND status = 'scheduled'";
+                $sql = "SELECT * FROM route_schedules WHERE vehicle_id = :id AND ((pickup_time < :end AND dropoff_time > :start)) AND status = 'active'";
                 break;
             case 'staff':
-                $sql = "SELECT * FROM vw_timetable_entries WHERE teacher_id = :id AND ((start_time < :end AND end_time > :start)) AND status = 'scheduled'";
+                $sql = "SELECT * FROM route_schedules WHERE vehicle_id = :id AND ((pickup_time < :end AND dropoff_time > :start)) AND status = 'active'";
                 break;
             case 'class':
-                $sql = "SELECT * FROM vw_timetable_entries WHERE class_id = :id AND ((start_time < :end AND end_time > :start)) AND status = 'scheduled'";
+                $sql = "SELECT * FROM route_schedules WHERE vehicle_id = :id AND ((pickup_time < :end AND dropoff_time > :start)) AND status = 'active'";
                 break;
             case 'vehicle':
                 $sql = "SELECT * FROM route_schedules WHERE vehicle_id = :id AND ((pickup_time < :end AND dropoff_time > :start)) AND status = 'active'";
@@ -311,14 +312,14 @@ class SchedulesManager
     {
         // Example: Check for overlaps in timetable_entries for the same class
         $sql = "SELECT * FROM vw_timetable_entries
-                WHERE class_id = (SELECT class_id FROM vw_timetable_entries WHERE id = :id)
+                WHERE class_id = (SELECT class_id FROM vw_timetable_entries WHERE id = :id_class)
                   AND id != :id
-                  AND ((start_time < (SELECT end_time FROM vw_timetable_entries WHERE id = :id)
-                        AND end_time > (SELECT start_time FROM vw_timetable_entries WHERE id = :id)))
+                  AND ((start_time < (SELECT end_time FROM vw_timetable_entries WHERE id = :id_end)
+                        AND end_time > (SELECT start_time FROM vw_timetable_entries WHERE id = :id_start)))
                   AND status = 'scheduled'";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(['id' => $scheduleId]);
-        $overlaps = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $stmt->execute(['id' => $scheduleId, 'id_class' => $scheduleId, 'id_end' => $scheduleId, 'id_start' => $scheduleId]);
+        $overlaps= $stmt->fetchAll(\PDO::FETCH_ASSOC);
         return count($overlaps) === 0;
     }
     /**
