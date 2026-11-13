@@ -2,10 +2,22 @@ const YearCalendarController = (() => {
     let allData = [];
     let filtered = [];
     let currentDayDate = null;
+    // The academic year being shown (null = current year until the filter loads).
+    let yearId = null;
+    let yearInfo = null;
     async function init() {
         await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
-        await loadData(); setupEventListeners();
+        setupEventListeners();
+        const select = document.getElementById('academicYearFilter');
+        if (window.AcademicYearFilter && select) {
+            // Calls back once with the default (current) year, then on every change.
+            await window.AcademicYearFilter.mount(select, {
+                onChange: (id, year) => { yearId = id; yearInfo = year; loadData(); },
+            });
+        } else {
+            await loadData();
+        }
     }
     function setupEventListeners() {
         document.getElementById('searchInput')?.addEventListener('input', filterData);
@@ -16,7 +28,7 @@ const YearCalendarController = (() => {
     }
     async function loadData() {
         try {
-            const r = await window.API.academic.getYearCalendar().catch(() => null);
+            const r = await window.API.academic.getYearCalendar(yearId).catch(() => null);
             allData = r?.data || r || [];
             if (!Array.isArray(allData)) allData = [];
             populateTermFilter(allData);
@@ -49,15 +61,15 @@ const YearCalendarController = (() => {
         const sel = document.getElementById('termFilter');
         if (!sel) return;
         const current = sel.value;
+        // Terms and holiday breaks in calendar order (the rows arrive sorted).
         const terms = [];
         for (const d of data) {
             const t = termOf(d);
             if (t && !terms.includes(t)) terms.push(t);
         }
-        terms.sort();
-        sel.innerHTML = '<option value="">All Terms</option>' +
-            terms.map(t => `<option value="${t}">${t}</option>`).join('');
-        sel.value = current;
+        sel.innerHTML = '<option value="">All terms and holidays</option>' +
+            terms.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+        sel.value = terms.includes(current) ? current : '';
     }
     function populateTypeFilter(data) {
         const sel = document.getElementById('filterSelect');
@@ -76,11 +88,11 @@ const YearCalendarController = (() => {
     function termOf(d) {
         return d.term_name || d.term || '';
     }
+    // Week of the term or holiday break, numbered by the server (never by
+    // month): week 1 starts on the period's first day.
     function weekOf(d) {
         const w = Number(d.week_number);
-        if (Number.isFinite(w) && w > 0) return w;
-        const dt = new Date(d.date || d.event_date);
-        return Math.ceil(dt.getDate() / 7);
+        return Number.isFinite(w) && w > 0 ? w : 0;
     }
     function dateCell(d) {
         const start = d.date || d.event_date || "--";
@@ -92,12 +104,16 @@ const YearCalendarController = (() => {
     }
 
     function renderStats(data) {
-        const items = Array.isArray(data) ? data : [];
+        // Count calendar days, once each. Free-standing events (rows with an
+        // event_id and no calendar day) are listed in the table but are not days.
+        const days = (Array.isArray(data) ? data : []).filter((d) => d.calendar_day_id || !d.event_id);
+        const uniqueDates = (rows) => new Set(rows.map((d) => d.date)).size;
         const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
-        el("statEvents", items.length);
-        el("statTermDays", items.filter((d) => typeCode(d) === "school_day" || typeCode(d) === "half_day" || typeCode(d) === "exam_day").length);
-        el("statHolidays", items.filter((d) => ["holiday", "public_holiday", "school_holiday"].includes(typeCode(d))).length);
-        el("statExamDays", items.filter((d) => typeCode(d) === "exam_day" || String(d.name || d.title || "").toLowerCase().includes("exam")).length);
+        el("statEvents", uniqueDates(days));
+        el("statTermDays", uniqueDates(days.filter((d) => ["school_day", "half_day", "exam_day"].includes(typeCode(d)))));
+        el("statHolidays", uniqueDates(days.filter((d) => ["holiday", "public_holiday", "school_holiday"].includes(typeCode(d)))));
+        const exams = (Array.isArray(data) ? data : []).filter((d) => typeCode(d) === "exam_day");
+        el("statExamDays", uniqueDates(exams));
     }
     function renderTable(items) {
         filtered = items;
@@ -255,20 +271,25 @@ const YearCalendarController = (() => {
     function exportCSV() {
         const rows = filtered.length ? filtered : allData;
         if (!rows.length) return;
-        const headers = ['#', 'Term', 'Week', 'Date', 'Day', 'Event', 'Type'];
+        const headers = ['#', 'Term / holiday', 'Week', 'Date', 'Day', 'Event', 'Type'];
         const csvRows = rows.map((d, i) => {
             return [
                 i + 1,
                 termOf(d),
-                weekOf(d),
+                weekOf(d) || '',
                 d.date || d.event_date,
                 d.day_name || new Date(d.date || d.event_date).toLocaleDateString("en-US", { weekday: "short" }),
                 d.name || d.event || d.title,
                 typeLabel(d),
             ];
         });
-        let csv = headers.join(",") + "\n" + csvRows.map((r) => r.map((v) => '"' + (v || "") + '"').join(",")).join("\n");
-        KingswayFileLifecycle.exportText(csv, "year_calendar.csv", "text/csv");
+        const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+        const csv = [headers, ...csvRows].map((r) => r.map(cell).join(",")).join("\r\n");
+        const yearLabel = String(yearInfo?.year_code || 'current').replace(/[^0-9A-Za-z]+/g, '-');
+        KingswayFileLifecycle.exportText('\ufeff' + csv, `year_calendar_${yearLabel}.csv`, "text/csv;charset=utf-8");
+    }
+    function print() {
+        window.print();
     }
     async function markExamWeek() {
         if (!currentDayDate) { showNotification('Select a day first', 'warning'); return; }
@@ -290,7 +311,7 @@ const YearCalendarController = (() => {
             .replace(/"/g, "&quot;");
     }
     function showNotification(message, type) { window.showNotification(message, type); }
-    return { init, refresh: loadData, exportCSV, openEditDay, saveDay, addEvent, deleteEvent, markExamWeek };
+    return { init, refresh: loadData, exportCSV, print, openEditDay, saveDay, addEvent, deleteEvent, markExamWeek };
 })();
 document.addEventListener('DOMContentLoaded', () => YearCalendarController.init());
 

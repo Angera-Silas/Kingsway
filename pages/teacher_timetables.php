@@ -21,9 +21,13 @@
   </div>
 
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <select id="teacherSelect" class="form-select form-select-sm" style="width:320px">
-      <option value="">— Select teacher —</option>
-    </select>
+    <div class="d-flex gap-2 flex-wrap">
+      <select id="academicYearFilter" class="form-select form-select-sm" style="width:200px" aria-label="Academic year"><option>Loading…</option></select>
+      <select id="academicTermFilter" class="form-select form-select-sm" style="width:140px" aria-label="Term"><option>Loading…</option></select>
+      <select id="teacherSelect" class="form-select form-select-sm" style="width:320px">
+        <option value="">— Select teacher —</option>
+      </select>
+    </div>
     <button class="btn btn-outline-success btn-sm" onclick="teacherTimetablesController.loadData()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>

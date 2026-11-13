@@ -302,7 +302,7 @@ class DirectorAnalyticsService
         $academicYearQuery = "
             SELECT start_date, end_date
             FROM academic_years
-            WHERE status IN ('active', 'registration', 'current')
+            WHERE status = 'active'
             ORDER BY start_date DESC LIMIT 1
         ";
         $ayStmt = $this->db->query($academicYearQuery);

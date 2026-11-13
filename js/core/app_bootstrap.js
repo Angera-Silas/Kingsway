@@ -65,9 +65,13 @@ const KingswayBootstrap = (() => {
 
       await safe('service worker', () => window.ServiceWorkerManager?.initialize?.());
 
-      // Static-first role-scoped real-time: hand the Service Worker the signed
-      // buffer URLs the user's roles authorize, so it polls them with zero PHP.
-      await safe('realtime manager', () => window.RealtimeManager?.initialize?.());
+      // Live updates arrive over the Node SSE stream only. The shell enables it
+      // when PHP hands it a validated gateway origin. Without it (or while the
+      // gateway is down) pages still refresh after the user's own saves and on
+      // navigation, and catch up when the stream reconnects.
+      if (window.KINGSWAY_REALTIME_SSE_ENABLED) {
+        await safe('realtime stream', () => window.RealtimeSSE?.initialize?.());
+      }
 
       window.__APP_BOOTED__ = true;
       const detail = { route, user: window.AuthContext?.getUser?.() || null };

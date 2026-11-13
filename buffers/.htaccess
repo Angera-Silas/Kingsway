@@ -1,12 +1,4 @@
-Options -Indexes
-
-<IfModule mod_headers.c>
-    Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
-    Header always set Pragma "no-cache"
-    Header always set Expires "0"
-    Header always set X-Content-Type-Options "nosniff"
-</IfModule>
-
-<FilesMatch "\.tmp$">
-    Require all denied
-</FilesMatch>
+# The static realtime buffer transport was removed on 2026-11-13; live updates
+# use the Node SSE stream only. Nothing here may be served: leftover event
+# files from before the removal stay private until the directory is deleted.
+Require all denied

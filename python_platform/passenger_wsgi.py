@@ -1,6 +1,8 @@
 """
 Kingsway AI Platform - WSGI entry point with auto-starting projection ticker.
 
+This is the file Passenger runs in production.
+
 DirectAdmin Python Selector (Passenger) deployment:
   Application root:      /home/<user>/python_apps/kingsway_ai
   Application startup:   passenger_wsgi.py
@@ -13,56 +15,25 @@ KINGSWAY_DB_SSL_CA for remote database TLS. The database account should be
 limited to SELECT on the master sources and read-model DDL/DML on the reads
 schema. Read-model settings are independent from the AI provider settings.
 
-Auto-starting Ticker:
-  When TICKER_ENABLED=true, the ticker subprocess starts automatically
-  and provides 1-2 second projection refresh latency without cron jobs.
+Auto-starting Ticker (replaces cron entirely):
+  When TICKER_ENABLED=true (the default), the ticker subprocess starts as soon
+  as this file is loaded by Passenger. No PASSENGER_BASE_URI condition: that
+  variable is unset for DirectAdmin apps mounted at the domain root.
+  It runs python_platform/schedules.yaml every TICK_INTERVAL_SECONDS (2 s).
+  Launch logic and proof-of-life files: app/ticker_launcher.py.
 """
 
 import os
-import subprocess
 import sys
 
-# Track ticker process for potential cleanup
-_ticker_process = None
-
-
-def _start_ticker():
-    """Start the projection refresh ticker as a background subprocess."""
-    if os.environ.get("TICKER_ENABLED", "true").lower() != "true":
-        return None
-
-    venv_python = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        ".venv",
-        "bin",
-        "python",
-    )
-    if not os.path.exists(venv_python):
-        venv_python = sys.executable
-
-    ticker_script = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "scripts", "ticker.py"
-    )
-
-    try:
-        _ticker_process = subprocess.Popen(
-            [venv_python, ticker_script],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=os.environ.copy(),
-        )
-        print(f"[PASSENGER] Started projection ticker (PID: {_ticker_process.pid})")
-        return _ticker_process
-    except Exception as e:
-        print(f"[PASSENGER] Could not start ticker: {e}")
-        return None
-
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app
+from app.ticker_launcher import start_ticker
 
 application = create_app()
 
-# Auto-start ticker for Passenger deployment
-if os.environ.get("PASSENGER_BASE_URI"):
-    _start_ticker()
+# Auto-start ticker for Passenger deployment. The PASSENGER_BASE_URI gate was
+# removed: DirectAdmin mounts apps at the domain root, where Passenger never
+# sets it, so the ticker silently never started. TICKER_ENABLED is the switch.
+_ticker_process = start_ticker("passenger")

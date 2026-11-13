@@ -12,7 +12,7 @@ $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
 // Browser-facing realtime origin: environment-agnostic resolver — public URL
 // first; the internal address is only usable when the client shares the host
 // with PHP (loopback development). Never handed to a remote browser.
-$nodeRealtimeOrigin = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
+$nodeRealtimeOrigin = \App\API\Services\RealtimeGatewayPublisher::liveBrowserStreamBase();
 
 // Define the filesystem root so page files under pages/ can resolve
 // Absolute paths used by page asset helpers for cache-busting version parameters.
@@ -27,7 +27,7 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
-    $connectSources = "'self' http://localhost:* ws://localhost:*";
+    $connectSources = "'self' http://localhost:*";
     if ($nodeRealtimeOrigin !== '') {
         $connectSources .= ' ' . $nodeRealtimeOrigin;
     }
@@ -215,7 +215,6 @@ $files = [
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
     'js/core/realtime_dispatch.js',
-    'js/core/realtime_manager.js',
     'js/core/realtime_sse.js',
     'js/core/realtime_presence.js',
     'js/core/realtime_jobs_widget.js',
@@ -244,6 +243,7 @@ $files = [
     'js/utils/file_lifecycle.js',
     'js/utils/print_manager.js',
     'js/utils/academic_context.js',
+    'js/components/academic_year_filter.js',
     'js/utils/form-validation.js',
     'js/core/recipient_picker.js',
     'js/core/markdown.js',

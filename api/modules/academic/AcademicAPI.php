@@ -6442,9 +6442,24 @@ return errorResponse($e->getMessage(), 400);
         }
     }
 
-    public function getTeacherSchedule($teacherId)
+    /**
+     * A teacher's weekly lessons. Without a year or term this returned every
+     * term the teacher was ever timetabled in, overlaid on one grid, so pass
+     * academic_year_term_id (or at least academic_year_id) to scope it.
+     */
+    public function getTeacherSchedule($teacherId, array $filters = [])
     {
         try {
+            $scope = '';
+            $bindings = [$teacherId];
+            if (!empty($filters['academic_year_term_id'])) {
+                $scope .= ' AND te.academic_year_term_id = ?';
+                $bindings[] = (int) $filters['academic_year_term_id'];
+            }
+            if (!empty($filters['academic_year_id'])) {
+                $scope .= ' AND ayc.academic_year_id = ?';
+                $bindings[] = (int) $filters['academic_year_id'];
+            }
             $sql = "
                 SELECT 
                     te.id,
@@ -6471,14 +6486,14 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = te.learning_area_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("rooms") . " r ON r.id = aycs.room_id
-                WHERE te.teacher_id = ? AND te.status = 'scheduled'
+                WHERE te.teacher_id = ? AND te.status = 'scheduled'{$scope}
                 ORDER BY 
                     FIELD(te.day_of_week, 1, 2, 3, 4, 5, 6, 7),
                     ts.period_number ASC
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$teacherId]);
+            $stmt->execute($bindings);
             $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($schedules as &$schedule) {

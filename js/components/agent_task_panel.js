@@ -58,7 +58,7 @@
       this.onProgress = options.onProgress || (() => {});
 
       this.taskId = null;
-      this.eventSource = null;
+      this.streamController = null;
       this.pollInterval = null;
       this.pollDelayMs = 2000;
       this.isDestroyed = false;
@@ -149,19 +149,39 @@
       
       this.showLoading('Waiting for agent response...');
       
-      const streamUrl = `${gatewayOrigin}/api/agents/tasks/${encodeURIComponent(this.taskId)}/stream?token=${encodeURIComponent(token)}`;
-      this.eventSource = new EventSource(streamUrl);
-      
-      this.eventSource.addEventListener('delta', (e) => this.handleStreamEvent(e, 'delta'));
-      this.eventSource.addEventListener('status', (e) => this.handleStreamEvent(e, 'status'));
-      this.eventSource.addEventListener('final', (e) => this.handleStreamEvent(e, 'final'));
-      this.eventSource.addEventListener('error', (e) => this.handleStreamEvent(e, 'error'));
-      
-      this.eventSource.onerror = () => {
-        // SSE failed, fall back to polling
-        this.logger('SSE connection lost, falling back to polling');
+      const stream = window.KingswayEventStream;
+      if (!stream?.read) {
         this.startPollingFallback();
-      };
+        return;
+      }
+
+      // The access token goes in the Authorization header. It must never be
+      // put in the URL, where proxies and access logs would record it.
+      const controller = new AbortController();
+      this.streamController = controller;
+      const streamUrl = `${gatewayOrigin}/api/agents/tasks/${encodeURIComponent(this.taskId)}/stream`;
+      stream.read(streamUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+        onEvent: (name, data) => {
+          if (['delta', 'status', 'final', 'error'].includes(name)) {
+            this.handleStreamEvent({ data }, name);
+          }
+        },
+      }).then(() => {
+        // The server closed the stream. If the task did not finish over it,
+        // keep following it by polling.
+        if (this.streamController === controller) this.startPollingFallback();
+      }, (error) => {
+        if (controller.signal.aborted) return;
+        this.logger('Task stream unavailable, falling back to polling', error?.message || error);
+        this.startPollingFallback();
+      });
+    }
+
+    closeStream() {
+      this.streamController?.abort();
+      this.streamController = null;
     }
 
     handleStreamEvent(event, type) {
@@ -186,10 +206,7 @@
       if (this.pollInterval) return;
       
       // Close SSE if open
-      if (this.eventSource) {
-        this.eventSource.close();
-        this.eventSource = null;
-      }
+      this.closeStream();
       
       this.showLoading('Polling for task status...');
       this.pollDelayMs = 2000;
@@ -271,10 +288,7 @@
     handleError(data) {
       if (this.isDestroyed) return;
       if (data?.retryable && this.taskId) {
-        if (this.eventSource) {
-          this.eventSource.close();
-          this.eventSource = null;
-        }
+        this.closeStream();
         this.updateStatus('Live updates paused. Reconnecting…');
         this.startPollingFallback();
         return;
@@ -287,10 +301,7 @@
     }
 
     cleanup() {
-      if (this.eventSource) {
-        this.eventSource.close();
-        this.eventSource = null;
-      }
+      this.closeStream();
       if (this.pollInterval) {
         clearTimeout(this.pollInterval);
         this.pollInterval = null;

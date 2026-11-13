@@ -98,7 +98,9 @@ class AcademicYearManager
             $data['year_name'],
             $data['start_date'],
             $data['end_date'],
-            $data['status'] ?? 'planning'
+            // Every new year is active - upcoming (state defaults to 'upcoming').
+            // Archiving has its own path, so a caller-supplied status is ignored.
+            'active'
         ]);
         $yearId = (int) $this->db->lastInsertId();
 
@@ -490,7 +492,7 @@ class AcademicYearManager
             'year_name' => $nextYearCode,
             'start_date' => $nextStart->format('Y-m-d'),
             'end_date' => $nextEnd->format('Y-m-d'),
-            'status' => 'planning',
+            'status' => 'active',
             'created_by' => $userId
         ]);
     }

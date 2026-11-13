@@ -13,6 +13,9 @@ const academicsController = {
     teachersLoadPromise: null,
 
     state: {
+        // Academic year being viewed (AcademicYearFilter); null until it loads.
+        yearId: null,
+        yearInfo: null,
         classes: [],
         allClasses: [],
         streams: [],
@@ -79,6 +82,8 @@ const academicsController = {
             // Teachers are shared by class/stream/assignment dropdowns.
             await this.loadTeachers();
 
+            await this.mountYearFilter();
+
             if (document.getElementById('classesTableBody')) {
                 // Exactly one paginated table request.
                 await this.loadClasses(1);
@@ -103,6 +108,37 @@ const academicsController = {
         }
     },
 
+    /** Mount the shared academic-year selector; reload the page data on change. */
+    async mountYearFilter() {
+        const select = document.getElementById('academicYearFilter');
+        if (!select || !window.AcademicYearFilter) return;
+        await window.AcademicYearFilter.mount(select, {
+            onChange: (yearId, year) => {
+                const changed = this.state.yearId !== null && this.state.yearId !== yearId;
+                this.state.yearId = yearId;
+                this.state.yearInfo = year;
+                if (changed) void this.reloadForYear();
+            },
+        });
+    },
+
+    /** Query parameters that scope every list call to the selected year. */
+    yearParams() {
+        return this.state.yearId ? { academic_year_id: this.state.yearId } : {};
+    },
+
+    yearLabel() {
+        return this.state.yearInfo?.year_name || this.state.yearInfo?.year_code || '';
+    },
+
+    async reloadForYear() {
+        await this.loadClasses(1, { force: true });
+        await this.loadClassData({ force: true });
+        const activeTab = document.querySelector('#classesTabs .nav-link.active')?.getAttribute('data-bs-target');
+        if (activeTab === '#streams') await this.loadStreams();
+        else if (activeTab === '#class-teachers') await this.loadClassTeachers();
+    },
+
     setupEventListeners() {
         if (this.eventsBound) {
             return;
@@ -123,8 +159,6 @@ const academicsController = {
                         void this.loadStreams();
                     } else if (target === '#class-teachers') {
                         void this.loadClassTeachers();
-                    } else if (target === '#timetables') {
-                        void this.loadTimetables();
                     } else if (target === '#all-classes') {
                         void this.loadClasses(
                             this.state.currentPage || 1
@@ -188,7 +222,8 @@ const academicsController = {
         const params = {
             limit: 500,
             search: this.state.searchTerm,
-            ...this.state.filters
+            ...this.state.filters,
+            ...this.yearParams()
         };
 
         try {
@@ -252,9 +287,9 @@ const academicsController = {
         try {
             // Load static data for dropdowns and full summary-card totals.
             const [classesRes, levelsRes, streamsRes] = await Promise.all([
-                window.API.academic.listClasses({ limit: 500 }),
+                window.API.academic.listClasses({ limit: 500, ...this.yearParams() }),
                 window.API.academic.listLevels().catch(() => []),
-                window.API.academic.listStreams().catch(() => [])
+                window.API.academic.listStreams(this.yearParams()).catch(() => [])
             ]);
             const classes = Array.isArray(classesRes) ? classesRes : classesRes?.data || [];
             const levels = Array.isArray(levelsRes) ? levelsRes : levelsRes?.data || [];
@@ -293,7 +328,6 @@ const academicsController = {
             // Populate stream class dropdown
             const streamClassSelect = document.getElementById('streamClass');
             const assignClassSelect = document.getElementById('assignClass');
-            const timetableClassSelect = document.getElementById('timetableClassFilter');
             const classOptions = classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
             if (streamClassSelect && classes.length > 0) {
                 streamClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
@@ -303,10 +337,6 @@ const academicsController = {
                     '<option value="">Select Class</option>' +
                     classOptions;
             }
-            if (timetableClassSelect && classes.length > 0) {
-                timetableClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
-            }
-
             this.updateClassStatistics();
         } catch (error) {
             console.error('Error loading class data:', error);
@@ -482,14 +512,14 @@ const academicsController = {
                 document.getElementById('classCapacity').value = classData.capacity || '';
                 document.getElementById('classRoom').value = classData.room_number || '';
                 document.getElementById('classTeacher').value = classData.teacher_id || '';
-                document.getElementById('classAcademicYear').value = classData.academic_year || new Date().getFullYear();
+                document.getElementById('classAcademicYear').value = classData.academic_year || this.yearLabel();
                 document.getElementById('classStatus').value = classData.status || 'active';
             }
         } else {
             action.textContent = 'Add';
             classIdInput.value = '';
             form.reset();
-            document.getElementById('classAcademicYear').value = new Date().getFullYear();
+            document.getElementById('classAcademicYear').value = this.yearLabel();
         }
 
         const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
@@ -506,7 +536,10 @@ const academicsController = {
             capacity: parseInt(document.getElementById('classCapacity').value) || 0,
             room_number: document.getElementById('classRoom').value.trim(),
             teacher_id: document.getElementById('classTeacher').value || null,
-            academic_year: document.getElementById('classAcademicYear').value,
+            // New classes go into the year being viewed. (The old free-text
+            // "2024" never matched a year code such as 2026/2027, so every
+            // class silently landed in the current year.)
+            ...(classId ? {} : this.yearParams()),
             status: document.getElementById('classStatus').value
         };
 
@@ -602,7 +635,7 @@ const academicsController = {
     // ==================== STREAMS MANAGEMENT ====================
     async loadStreams() {
         try {
-            const response = await window.API.academic.listStreams();
+            const response = await window.API.academic.listStreams(this.yearParams());
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
             this.state.streams = data;
@@ -740,7 +773,7 @@ const academicsController = {
     // ==================== CLASS TEACHERS MANAGEMENT ====================
     async loadClassTeachers() {
         try {
-            const response = await window.API.academic.listStreams();
+            const response = await window.API.academic.listStreams(this.yearParams());
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
             const streamsWithTeachers = data.filter(stream => stream.teacher_id || stream.teacher_name);
@@ -787,61 +820,15 @@ const academicsController = {
                 <td>${this._escH(item.teacher_contact || '-')}</td>
                 <td>
                     <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-warning"
-                                onclick="academicsController.showAssignTeacherModal(${item.class_id || 'null'}, ${item.id})"
-                                title="Reassign">
+                        <a class="btn btn-outline-warning"
+                           href="${window.APP_BASE || ''}/home.php?route=assign_class_teachers${this.state.yearId ? `&academic_year_id=${this.state.yearId}` : ''}"
+                           title="Change class teacher (opens Class Teachers)">
                             <i class="bi bi-person-check"></i>
-                        </button>
+                        </a>
                     </div>
                 </td>
             </tr>
         `).join('');
-    },
-
-    showAssignTeacherModal(classId = null, streamId = null) {
-        const modal = document.getElementById('assignTeacherModal');
-        if (!modal) return;
-
-        if (classId) {
-            document.getElementById('assignClass').value = classId;
-            this.populateAssignStreams(classId, streamId);
-        }
-
-        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
-        bsModal.show();
-    },
-
-    async assignTeacher(event) {
-        event.preventDefault();
-
-        const data = {
-            class_id: document.getElementById('assignClass').value,
-            stream_id: document.getElementById('assignStream').value || null,
-            teacher_id: document.getElementById('assignTeacher').value
-        };
-
-        if (!data.class_id || !data.teacher_id) {
-            this.showToast('Please select a class and teacher', 'warning', 'Validation');
-            return;
-        }
-
-        try {
-            if (data.stream_id) {
-                await window.API.academic.updateStream(data.stream_id, { teacher_id: data.teacher_id });
-            } else {
-                await window.API.academic.updateClass(data.class_id, { teacher_id: data.teacher_id });
-            }
-            this.showToast('Teacher assigned successfully', 'success', 'Success');
-            
-            const modal = bootstrap.Modal.getInstance(document.getElementById('assignTeacherModal'));
-            modal.hide();
-            await this.loadClasses();
-            await this.loadStreams();
-            await this.loadClassTeachers();
-        } catch (error) {
-            console.error('Error assigning teacher:', error);
-            this.showToast(error.message || 'Failed to assign teacher', 'error', 'Error');
-        }
     },
 
     async populateAssignStreams(classId, selectedStreamId = null) {
@@ -869,103 +856,6 @@ const academicsController = {
             console.error('Error loading assign streams:', error);
             select.innerHTML = '<option value="">Assign to class record</option>';
         }
-    },
-
-    // ==================== TIMETABLES MANAGEMENT ====================
-    async loadTimetables() {
-        try {
-            // Load timetables
-            const response = await window.API.academic.listSchedules();
-            const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
-            
-            this.renderTimetablesSelect(data);
-        } catch (error) {
-            console.error('Error loading timetables:', error);
-            const container = document.getElementById('timetableContainer');
-            if (container) {
-                container.innerHTML = `<p class="text-danger text-center">Failed to load timetables: ${this._escH(error.message || 'Request failed')}</p>`;
-            }
-            this.showToast('Failed to load timetables', 'error', 'Error');
-        }
-    },
-
-    renderTimetablesSelect(timetables) {
-        const select = document.getElementById('timetableClassFilter');
-        if (!select) return;
-
-        select.innerHTML = '<option value="">Select Class</option>' +
-            this.state.classes.map(cls => 
-                `<option value="${cls.id}">${cls.name}</option>`
-            ).join('');
-    },
-
-    async loadTimetableForClass(classId) {
-        if (!classId) {
-            document.getElementById('timetableContainer').innerHTML = 
-                '<p class="text-muted text-center">Select a class to view timetable</p>';
-            return;
-        }
-
-        try {
-            const response = await window.API.academic.listSchedules({ class_id: classId });
-            const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
-            
-            if (!data.length) {
-                document.getElementById('timetableContainer').innerHTML = 
-                    '<p class="text-muted text-center">No timetable found for this class</p>';
-                return;
-            }
-
-            this.renderTimetable(data);
-        } catch (error) {
-            console.error('Error loading timetable:', error);
-            document.getElementById('timetableContainer').innerHTML = 
-                '<p class="text-danger text-center">Failed to load timetable</p>';
-        }
-    },
-
-    renderTimetable(timetableData) {
-        const container = document.getElementById('timetableContainer');
-        if (!container) return;
-
-        const schedules = Array.isArray(timetableData) ? timetableData : [];
-        if (!schedules.length) {
-            container.innerHTML = '<p class="text-muted text-center">No timetable found for this class</p>';
-            return;
-        }
-
-        container.innerHTML = `
-            <div class="table-responsive">
-                <table class="table table-hover table-sm align-middle">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Day</th>
-                            <th>Time</th>
-                            <th>Subject</th>
-                            <th>Teacher</th>
-                            <th>Room</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${schedules.map((slot) => `
-                            <tr>
-                                <td>${slot.day_of_week || '-'}</td>
-                                <td>${slot.start_time || '-'} - ${slot.end_time || '-'}</td>
-                                <td>${slot.subject_name || slot.learning_area_name || '-'}</td>
-                                <td>${slot.teacher_name || 'Not assigned'}</td>
-                                <td>${slot.room_name || '-'}</td>
-                                <td><span class="badge ${slot.status === 'active' ? 'bg-success' : 'bg-secondary'}">${slot.status || 'active'}</span></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    },
-
-    generateTimetable() {
-        this.showToast('Timetable generation feature coming soon', 'info', 'Info');
     },
 
     // ==================== SUBJECT / LEARNING AREA MANAGEMENT ====================

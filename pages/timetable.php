@@ -44,6 +44,14 @@
     <div class="card mb-4">
         <div class="card-body">
             <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label" for="academicYearFilter">Academic year</label>
+                    <select class="form-select" id="academicYearFilter"><option>Loading…</option></select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="academicTermFilter">Term</label>
+                    <select class="form-select" id="academicTermFilter"><option>Loading…</option></select>
+                </div>
                 <div class="col-md-3" id="viewTypeField">
                     <label class="form-label">View Type</label>
                     <select class="form-select" id="viewType">

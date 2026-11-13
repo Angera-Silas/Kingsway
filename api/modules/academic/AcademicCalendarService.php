@@ -266,9 +266,27 @@ class AcademicCalendarService
             );
             $yearStart = new \DateTimeImmutable((string) $year['start_date']);
             $yearEnd = new \DateTimeImmutable((string) $year['end_date']);
+            // A weekday inside a term is a school day and gets its own term
+            // row below. Writing a "School Holiday" base row for it as well
+            // made every school day of a new year read as a holiday wherever
+            // the base rows were shown.
+            $termRanges = [];
+            foreach ($terms as $term) {
+                if (!empty($term['opening_date']) && !empty($term['closing_date'])) {
+                    $termRanges[] = [(string) $term['opening_date'], (string) $term['closing_date']];
+                }
+            }
             for ($date = $yearStart; $date <= $yearEnd; $date = $date->modify('+1 day')) {
                 $isoDow = (int) $date->format('N');
                 $weekend = $isoDow >= 6;
+                $ymd = $date->format('Y-m-d');
+                if (!$weekend) {
+                    $inTerm = false;
+                    foreach ($termRanges as [$opening, $closing]) {
+                        if ($ymd >= $opening && $ymd <= $closing) { $inTerm = true; break; }
+                    }
+                    if ($inTerm) continue;
+                }
                 $insertBaseDay->execute([
                     0,
                     $date->format('Y-m-d'),
@@ -335,8 +353,15 @@ class AcademicCalendarService
                  WHERE t.academic_year_id=? AND d.date BETWEEN ? AND ? AND d.is_manual=0"
             );
             foreach ($holidays as $holiday) {
-                $type = in_array($holiday['holiday_type'], ['national', 'religious'], true) ? 'public_holiday' : 'holiday';
-                $applyHoliday->execute([(int) $types[$type], $holiday['name'], $academicYearId, $holiday['start_date'], $holiday['end_date']]);
+                $isPublic = in_array($holiday['holiday_type'], ['national', 'religious'], true);
+                $type = $isPublic ? 'public_holiday' : 'holiday';
+                // Public holidays apply to term days too. Inter-term holiday
+                // ranges only label days outside terms (the base rows below),
+                // so a range overlapping a term never turns school days into
+                // holidays. Same rule as sp_rebuild_academic_year_calendar.
+                if ($isPublic) {
+                    $applyHoliday->execute([(int) $types[$type], $holiday['name'], $academicYearId, $holiday['start_date'], $holiday['end_date']]);
+                }
                 $this->db->prepare(
                     "UPDATE academic_year_calendar_days
                      SET calendar_day_type_id=?, title=?

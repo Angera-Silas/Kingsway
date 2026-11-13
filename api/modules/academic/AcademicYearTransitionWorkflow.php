@@ -1376,8 +1376,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Create academic year record
             $yearStmt = $this->db->prepare(
-                "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status, is_current)
-                 VALUES (:year, :name, :start_date, :end_date, 'planning', 0)"
+                // A new year is "active - upcoming" (see AcademicYearLifecycleService);
+                // 'planning' is a legacy enum value nothing treats as a lifecycle state.
+                "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status, state, is_current)
+                 VALUES (:year, :name, :start_date, :end_date, 'active', 'upcoming', 0)"
             );
             $yearStmt->execute([
                 'year' => $toYearCode,

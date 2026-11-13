@@ -12,7 +12,7 @@ use RuntimeException;
  * Shared hosting allows exactly one PDO connection, so we re-point that single
  * lazy PDO between logical namespaces per operation instead of opening a second
  * connection. The default (master) namespace remains the transactional
- * KingsWayAcademy schema and is the ONLY write authority; the buffers namespace
+ * master schema (DB_NAME) and is the ONLY write authority; the buffers namespace
  * is the offload schema for the job queue, AI cache buffers, export scratch and
  * realtime staging; the reads namespace is the materialized read replica that
  * serves analytic/reporting reads (§4.5) so the primary connection is freed
@@ -36,49 +36,50 @@ final class ConnectionManager
     public const NS_LOGS = 'logs';
 
     /**
-     * Logical namespace -> physical schema. Names resolve from config/env at
-     * runtime (DB_NAME and DB_READS_NAME etc.) so production deployments can
-     * rename databases without touching business logic. The app DB user must
-     * own these schemas; on shared hosts that forbid a second database,
-     * re-map an entry to a schema the account already owns or use prefixed
-     * tables instead.
+     * Logical namespace -> config/.env key holding its physical schema name.
+     *
+     * There are NO built-in schema names: local and production databases are
+     * named differently, so a hardcoded fallback would silently point
+     * production at a schema that does not exist (or worse, the wrong one).
+     * Every name comes from config/.env; a missing key fails loudly, and only
+     * when that namespace is actually used.
      *
      * @var array<string,string>
      */
-    private const SCHEMAS = [
-        self::NS_MASTER => 'KingsWayAcademy',
-        self::NS_BUFFERS => 'KingsWayBuffers',
-        self::NS_READS => 'KingsWayReads',
-        self::NS_LOGS => 'KingsWayLogs',
+    private const ENV_KEYS = [
+        self::NS_MASTER => 'DB_NAME',
+        self::NS_BUFFERS => 'DB_BUFFERS_NAME',
+        self::NS_READS => 'DB_READS_NAME',
+        self::NS_LOGS => 'DB_LOGS_NAME',
     ];
 
-    /** @var array<string,string>|null Resolved (env-overridable) schema map. */
-    private static $resolvedSchemas = null;
+    /** @var array<string,string> Memoized resolved names, per namespace. */
+    private static $resolvedSchemas = [];
 
-    private static function resolveSchemas(): array
+    /**
+     * @throws \RuntimeException when the namespace is unknown or its config/.env
+     *                           key is not set.
+     */
+    private static function resolveSchema(string $namespace): string
     {
-        if (self::$resolvedSchemas === null) {
-            $db = \App\Config\Config::get('DB_NAME');
-            $resolved = self::SCHEMAS;
-            if (is_string($db) && $db !== '') {
-                $resolved[self::NS_MASTER] = $db;
-            }
-            // Optional per-namespace overrides: DB_BUFFERS_NAME, DB_READS_NAME, DB_LOGS_NAME.
-            foreach ([self::NS_BUFFERS => 'DB_BUFFERS_NAME', self::NS_READS => 'DB_READS_NAME', self::NS_LOGS => 'DB_LOGS_NAME'] as $ns => $key) {
-                $val = \App\Config\Config::get($key);
-                if (is_string($val) && $val !== '') {
-                    $resolved[$ns] = $val;
-                }
-            }
-            self::$resolvedSchemas = $resolved;
+        if (isset(self::$resolvedSchemas[$namespace])) {
+            return self::$resolvedSchemas[$namespace];
         }
-        return self::$resolvedSchemas;
+        $key = self::ENV_KEYS[$namespace] ?? null;
+        if ($key === null) {
+            throw new \RuntimeException("Unknown database namespace '{$namespace}'.");
+        }
+        $name = \App\Config\Config::get($key);
+        if (!is_string($name) || trim($name) === '') {
+            throw new \RuntimeException("{$key} is not configured in config/.env (schema for the '{$namespace}' namespace).");
+        }
+        return self::$resolvedSchemas[$namespace] = trim($name);
     }
 
     /** Test seam: forget the memoized schema map so env overrides re-resolve. */
     public static function resetResolvedSchemasForTest(): void
     {
-        self::$resolvedSchemas = null;
+        self::$resolvedSchemas = [];
     }
 
     private function __construct()
@@ -88,13 +89,12 @@ final class ConnectionManager
 
     public static function supports(string $namespace): bool
     {
-        return isset(self::SCHEMAS[$namespace]);
+        return isset(self::ENV_KEYS[$namespace]);
     }
 
     public static function schemaFor(string $namespace): string
     {
-        $schemas = self::resolveSchemas();
-        return $schemas[$namespace] ?? $schemas[self::NS_MASTER];
+        return self::resolveSchema($namespace);
     }
 
     /**

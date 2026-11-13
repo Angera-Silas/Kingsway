@@ -1013,8 +1013,8 @@ class DataImporter
         $id = $stmt->fetchColumn();
         if ($id) return (int)$id;
         $stmt = $this->db->prepare(
-            'INSERT INTO academic_years (year_code, year_name, start_date, end_date, status)
-             VALUES (:y,:n,:s,:e,"registration")'
+            'INSERT INTO academic_years (year_code, year_name, start_date, end_date, status, state)
+             VALUES (:y,:n,:s,:e,"active","upcoming")'
         );
         $stmt->execute([
             ':y'  => (string)$year,

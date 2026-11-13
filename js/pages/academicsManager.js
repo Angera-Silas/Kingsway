@@ -262,16 +262,12 @@ const academicsManager = {
                                 </div>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Status *</label>
-                                <select class="form-select" id="yearStatus" required>
-                                    <option value="planning" ${(year?.status === 'planning' || !year) ? 'selected' : ''}>Planning - Setting up the year</option>
-                                    <option value="registration" ${year?.status === 'registration' ? 'selected' : ''}>Registration - Open for student enrollment</option>
-                                    <option value="active" ${year?.status === 'active' ? 'selected' : ''}>Active - Year is ongoing</option>
-                                    <option value="closing" ${year?.status === 'closing' ? 'selected' : ''}>Closing - Preparing to end year</option>
-                                    <option value="archived" ${year?.status === 'archived' ? 'selected' : ''}>Archived - Year completed</option>
-                                </select>
+                                <label class="form-label">Status</label>
+                                <p class="form-control-plaintext mb-0">${isEdit
+                                    ? (year?.status === 'archived' ? 'Archived' : `Active - ${year?.state || 'upcoming'}`)
+                                    : 'Active - upcoming'}</p>
                                 <small class="form-text text-muted">
-                                    ${!isEdit ? 'New years start in "Planning" status' : 'Update status as year progresses'}
+                                    The year rollover makes a year current and later completed. Archiving is a separate action.
                                 </small>
                             </div>
                             ${!isEdit ? `
@@ -310,8 +306,7 @@ const academicsManager = {
             start_date: document.getElementById('startDate').value,
             end_date: document.getElementById('endDate').value,
             registration_start: document.getElementById('regStart').value || null,
-            registration_end: document.getElementById('regEnd').value || null,
-            status: document.getElementById('yearStatus').value
+            registration_end: document.getElementById('regEnd').value || null
         };
 
         // Validation

@@ -3,6 +3,7 @@ import { getConfig } from '../config/index.js';
 import { getLogger } from '../logger/index.js';
 import { getThreatDetector } from '../security/threatDetector.js';
 import { FileRateLimiter } from '../security/fileRateLimiter.js';
+import { bearerToken } from '../realtime/sse.js';
 
 export function registerAgentRoutes(app) {
   const config = getConfig();
@@ -441,8 +442,9 @@ export function registerAgentRoutes(app) {
    * SSE for task progress (component-level subscription)
    */
   const streamAgentTask = async (req, reply) => {
-    // Validate JWT from query param (SSE can't use headers easily)
-    const token = req.query.token?.replace('Bearer ', '');
+    // The access token arrives in the Authorization header only; a token in
+    // the query string would be written to proxy and access logs.
+    const token = bearerToken(req);
     if (!token) return reply.code(401).send({ error: 'Unauthorized' });
 
     let auth;

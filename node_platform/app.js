@@ -10,7 +10,6 @@ import { createInternalClient, getInternalClient, configureGlobalFetchTls } from
 import { createCache, getCache } from './src/clients/cache.js';
 import { createBus, getBus } from './src/realtime/bus.js';
 import { createSSE, getSSE } from './src/realtime/sse.js';
-import { registerWebSocket } from './src/realtime/websocket.js';
 import { getAggregationEngine } from './src/aggregation/engine.js';
 import { registerViewRoutes } from './src/routes/views.js';
 import { registerPublicRoutes } from './src/routes/public.js';
@@ -123,8 +122,6 @@ async function createApp(env = {}) {
       }
     }
   });
-
-  await registerWebSocket(app);
 
   registerHealthRoutes(app);
   registerPublicRoutes(app);

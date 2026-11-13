@@ -32,7 +32,8 @@ final class ReadProjectionSynchronizer
      * the shared FIFO path past its own budget.
      *
      * Every projection with a budget this tight MUST therefore have its own
-     * crontab line (see deploy/kingsway.crontab.example).
+     * entry in python_platform/schedules.yaml (run by the Passenger-started
+     * ticker; there is no cron - see docs/OPERATIONS_SCHEDULER.md).
      */
     private const INLINE_REFRESH_BUDGET_SECONDS = 300;
 

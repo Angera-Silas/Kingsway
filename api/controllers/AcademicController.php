@@ -3018,7 +3018,9 @@ return $this->serverError('An internal error occurred.');
     public function getStreamsList($id = null, $data = [], $segments = [])
     {
         $classId = $data['class_id'] ?? $id ?? null;
-        $result = $this->api->listClassStreams($classId);
+        // Pass the filters through: academic_year_id scopes the list to one
+        // year. Without it, streams from every year came back together.
+        $result = $this->api->listClassStreams($classId, is_array($data) ? $data : []);
         return $this->handleResponse($result);
     }
 
@@ -3922,7 +3924,7 @@ return $this->serverError('An internal error occurred.');
     public function getTeachersSchedule($id = null, $data = [], $segments = [])
     {
         $teacherId = $data['teacher_id'] ?? $id ?? null;
-        $result = $this->api->getTeacherSchedule($teacherId);
+        $result = $this->api->getTeacherSchedule($teacherId, is_array($data) ? $data : []);
         return $this->handleResponse($result);
     }
 
@@ -5208,7 +5210,9 @@ return $this->serverError('An internal error occurred.');
      */
     public function getYearCalendar($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->academicManager->getYearCalendar());
+        // GET /api/academic/year-calendar?academic_year_id=N (default: current year)
+        $yearId = (int) ($id ?: ($data['academic_year_id'] ?? 0));
+        return $this->handleResponse($this->academicManager->getYearCalendar($yearId > 0 ? $yearId : null));
     }
 
     /**

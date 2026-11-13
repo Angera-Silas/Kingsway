@@ -177,6 +177,8 @@ class AuthMiddleware
             // Node threat detector posts alerts here with COMMUNICATION_WORKER_SECRET.
             'system/send-security-alert',
             'system/monitoring-worker',
+            // Ticker job; SystemController checks COMMUNICATION_WORKER_SECRET.
+            'system/prune-rate-limit',
             // MCP authenticates with its own expiring machine token inside
             // McpController, never with a staff JWT.
             'mcp',

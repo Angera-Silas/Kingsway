@@ -15,14 +15,15 @@ const ResultsAnalysisController = (() => {
       pagination.page = page;
       const params = new URLSearchParams({ page, limit: pagination.limit });
 
-      const term = document.getElementById("termFilterResults")?.value;
-      if (term) params.append("term", term);
+      // The server reads term_id (an academic_year_terms id) and
+      // academic_year_id. The old "term"/"year" parameters were ignored, so
+      // these filters never changed the analysis.
+      if (currentTerm) params.append("term_id", currentTerm);
       const cls = document.getElementById("classFilterResults")?.value;
       if (cls) params.append("class_id", cls);
       const subject = document.getElementById("subjectFilterResults")?.value;
       if (subject) params.append("subject_id", subject);
-      const year = document.getElementById("yearFilterResults")?.value;
-      if (year) params.append("year", year);
+      if (currentAcademicYear) params.append("academic_year_id", currentAcademicYear);
 
       const response = await window.API.apiCall(
         `/academic/results-analysis?${params.toString()}`,
@@ -64,9 +65,11 @@ const ResultsAnalysisController = (() => {
         }).catch(() => []),
       ]);
 
-      const classes = Array.isArray(classResp?.data || classResp)
+      // One entry per class: the list has a row per class per academic year.
+      const classRows = Array.isArray(classResp?.data || classResp)
         ? classResp?.data || classResp
         : [];
+      const classes = [...new Map(classRows.map((c) => [String(c.class_id || c.id), c])).values()];
       const subjects = Array.isArray(subjectResp?.data || subjectResp)
         ? subjectResp?.data || subjectResp
         : [];
@@ -94,16 +97,6 @@ const ResultsAnalysisController = (() => {
         });
       }
 
-      const yearSelect = document.getElementById("yearFilterResults");
-      if (yearSelect) {
-        years.forEach((y) => {
-          const opt = document.createElement("option");
-          opt.value = y.academic_year || y.year || y.id;
-          opt.textContent = y.year_code || y.year_name || y.year || "";
-          if (y.is_current) opt.selected = true;
-          yearSelect.appendChild(opt);
-        });
-      }
     } catch (e) {
       console.warn("Failed to load reference data:", e);
     }
@@ -369,17 +362,12 @@ const ResultsAnalysisController = (() => {
   }
 
   function attachListeners() {
-    document
-      .getElementById("termFilterResults")
-      ?.addEventListener("change", () => loadData(1));
+    // Year and term changes are handled by AcademicYearFilter (see init).
     document
       .getElementById("classFilterResults")
       ?.addEventListener("change", () => loadData(1));
     document
       .getElementById("subjectFilterResults")
-      ?.addEventListener("change", () => loadData(1));
-    document
-      .getElementById("yearFilterResults")
       ?.addEventListener("change", () => loadData(1));
     document
       .getElementById("exportResultsBtn")
@@ -395,34 +383,26 @@ const ResultsAnalysisController = (() => {
   }
 
   async function init() {
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload results when academic year or term changes
-          loadData();
-        }
+    // Year and term come from the shared selector (default: the current
+    // year, all terms). The term list follows the chosen year.
+    let ready = false;
+    const yearSelect = document.getElementById("yearFilterResults");
+    const termSelect = document.getElementById("termFilterResults");
+    if (window.AcademicYearFilter && yearSelect && termSelect) {
+      await window.AcademicYearFilter.mount(yearSelect, {
+        termSelect,
+        allTermsLabel: "All terms",
+        onChange: (yearId, _year, termId) => {
+          currentAcademicYear = yearId;
+          currentTerm = termId;
+          if (ready) loadData();
+        },
       });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      currentTerm = window.AcademicContext.getTermId();
-      
-      // Update filters to use current context
-      if (currentTerm) {
-        const termFilter = document.getElementById('termFilterResults');
-        if (termFilter) termFilter.value = currentTerm;
-      }
     }
-    
+
     attachListeners();
     await loadReferenceData();
+    ready = true;
     await loadData();
   }
 

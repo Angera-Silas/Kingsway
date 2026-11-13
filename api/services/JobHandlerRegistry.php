@@ -41,29 +41,6 @@ class JobHandlerRegistry
         }
 
         self::$registry = [
-            'rebake_realtime_buffer' => static function (array $payload, PDO $pdo): void {
-                $scope = isset($payload['scope'])
-                    ? EventBroadcaster::normalizeScope((string) $payload['scope'])
-                    : EventBroadcaster::DEFAULT_SCOPE;
-                EventBroadcaster::rebakeBuffer($pdo, $scope);
-            },
-            // Housekeeping: drop outbox events older than keep_hours and reset
-            // the auto-increment, keeping the sync table small and fast.
-            'purge_old_realtime_events' => static function (array $payload, PDO $pdo): void {
-                $keepHours = isset($payload['keep_hours']) ? max(1, (int) $payload['keep_hours']) : 24;
-                $cutoff = date('Y-m-d H:i:s', time() - ($keepHours * 3600));
-                $stmt = $pdo->prepare("DELETE FROM system_realtime_events WHERE created_at < ?");
-                $stmt->execute([$cutoff]);
-                // ALTER TABLE takes a metadata lock. Only reset the identity
-                // when the outbox is actually empty; doing it after every purge
-                // would briefly block concurrent event writers at peak time.
-                $remaining = (int) $pdo->query(
-                    "SELECT COUNT(*) FROM system_realtime_events"
-                )->fetchColumn();
-                if ($remaining === 0) {
-                    $pdo->exec("ALTER TABLE system_realtime_events AUTO_INCREMENT = 1");
-                }
-            },
             // Read-model health canary (roadmap §4.5). Pass-through projections
             // are recorded as not_offloaded and are not treated as failures;
             // only an enabled materialized projection that is stale, missing,
