@@ -840,43 +840,10 @@ const timetableController = (() => {
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 350);
   }
 
-  async function generateTimetable() {
-    const classId = document.getElementById("generateClass")?.value || "";
-    const termId = document.getElementById("generateTerm")?.value || "";
-    const algorithm = document.getElementById("generateAlgorithm")?.value || "auto";
-
-    try {
-      await API.schedules.startSchedulingWorkflow({
-        reference_type: "timetable",
-        reference_id: classId ? Number(classId) : 0,
-        initial_data: {
-          term_id: termId ? Number(termId) : null,
-          algorithm,
-        },
-      });
-    } catch (error) {
-      // Workflow creation is optional; continue with guided mode.
-    }
-
-    if (classId) {
-      const classFilter = document.getElementById("classFilter");
-      if (classFilter) {
-        classFilter.value = classId;
-      }
-    }
-
-    const modalEl = document.getElementById("generateTimetableModal");
-    bootstrap.Modal.getInstance(modalEl)?.hide();
-
-    if (!editMode) {
-      enterEditMode();
-    }
-    await loadTimetable();
-
-    showNotification(
-      "Guided generation mode enabled. Click timetable cells to add lessons for the selected class/term.",
-      "success",
-    );
+  // Generate opens the solver dialog (js/pages/timetable_drafting.js), which
+  // builds a draft from allocations, weekly lessons and lesson periods.
+  function generateTimetable() {
+    window.TimetableDrafting?.openGenerate?.();
   }
 
   const htmlEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -1647,4 +1614,29 @@ const timetableController = (() => {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();
+
+  // Public API for the page's inline onclick handlers. (This return had been
+  // lost, which left every timetableController.* button doing nothing.)
+  return {
+    loadTimetable,
+    enterEditMode,
+    editCell,
+    saveCell,
+    removeCell,
+    exportTimetable,
+    printMyTimetable,
+    // The master print is the timetable card with "All classes" selected.
+    printMasterTimetable: printMyTimetable,
+    generateTimetable,
+    openMatrixDraft,
+    renderMatrixTable,
+    saveMatrixDraft,
+    cancelMatrixDraft,
+    submitMatrixDraft,
+    showTeacherWorkload,
+    showRoomUtilization,
+    openDraftReview: () => window.TimetableDrafting?.openDraftReview?.(currentAcademicYear, currentTerm),
+    checkConflicts: () => window.TimetableDrafting?.checkConflicts?.(),
+    showConflictReportModal: () => window.TimetableDrafting?.reportConflict?.(),
+  };
 })();

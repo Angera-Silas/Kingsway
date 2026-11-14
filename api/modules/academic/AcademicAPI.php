@@ -1100,34 +1100,30 @@ class AcademicAPI extends BaseAPI
     public function getUnifiedCalendarEvents(array $params = [])
     {
         try {
-            $calendarSync = new CalendarSyncService($this->db);
-            $events = $calendarSync->getUnifiedEvents(false);
-
             $yearId = !empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : null;
+            // term_id is an academic_year_terms id (what the context lists).
             $termId = !empty($params['term_id']) ? (int) $params['term_id'] : null;
             $weekNo = isset($params['week_number']) && $params['week_number'] !== '' ? (int) $params['week_number'] : null;
             $type = isset($params['type']) ? trim((string) $params['type']) : '';
             $search = isset($params['search']) ? trim((string) $params['search']) : '';
             $scope = isset($params['scope']) ? trim((string) $params['scope']) : 'current_term';
 
-            $current = $this->currentCalendarContext();
-
-            if ($termId === null && $yearId !== null) {
-                $termIds = $this->termIdsForYear($yearId);
-                if ($termIds) {
-                    $events = array_values(array_filter($events, function ($ev) use ($termIds) {
-                        return $ev['term_id'] !== null && in_array($ev['term_id'], $termIds, true);
-                    }));
-                }
+            $current = $this->currentCalendarContext($yearId);
+            if ($current['year_id'] === null) {
+                // An unknown year (or no current year) has no events.
+                return successResponse(['events' => [], 'total' => 0, 'context' => $current]);
             }
 
-            if ($termId === null && $yearId === null && $scope === 'current_term' && $current['current_term_id'] !== null) {
+            $calendarSync = new CalendarSyncService($this->db);
+            $events = $calendarSync->getUnifiedEvents(false, $current['year_id']);
+
+            if ($termId === null && $scope === 'current_term' && $current['current_term_id'] !== null) {
                 $termId = $current['current_term_id'];
             }
 
             if ($termId !== null) {
                 $events = array_values(array_filter($events, function ($ev) use ($termId) {
-                    return $ev['term_id'] !== null && (int) $ev['term_id'] === $termId;
+                    return ($ev['academic_year_term_id'] ?? null) !== null && (int) $ev['academic_year_term_id'] === $termId;
                 }));
             }
 
@@ -1167,9 +1163,11 @@ class AcademicAPI extends BaseAPI
         }
     }
     /**
-     * Current year / term context used to pre-fill calendar filters.
+     * Year / term context used to pre-fill calendar filters: the given year
+     * (default: the current one), its terms, and its default term (the one
+     * running today, else the next to open, else the year's last term).
      */
-    private function currentCalendarContext(): array
+    private function currentCalendarContext(?int $yearId = null): array
     {
         $context = [
             'today' => date('Y-m-d'),
@@ -1181,10 +1179,15 @@ class AcademicAPI extends BaseAPI
             'weeks' => [],
         ];
 
-        $year = $this->db->prepare(
-            "SELECT id, year_name, year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
-        );
-        $year->execute();
+        if ($yearId !== null) {
+            $year = $this->db->prepare("SELECT id, year_name, year_code FROM academic_years WHERE id = ? LIMIT 1");
+            $year->execute([$yearId]);
+        } else {
+            $year = $this->db->prepare(
+                "SELECT id, year_name, year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+            );
+            $year->execute();
+        }
         $yearRow = $year->fetch(PDO::FETCH_ASSOC);
         if (!$yearRow) {
             return $context;
@@ -1221,6 +1224,16 @@ class AcademicAPI extends BaseAPI
             $cur->execute([$context['year_id']]);
             $curRow = $cur->fetch(PDO::FETCH_ASSOC);
         }
+        if (!$curRow) {
+            $cur = $this->db->prepare(
+                "SELECT ayt.academic_year_term_id AS id, ayt.term_name
+                 FROM " . ReadReplicaService::qualifiedRef("academic_term") . " ayt
+                 WHERE ayt.academic_year_id = ?
+                 ORDER BY ayt.closing_date DESC LIMIT 1"
+            );
+            $cur->execute([$context['year_id']]);
+            $curRow = $cur->fetch(PDO::FETCH_ASSOC);
+        }
         if ($curRow) {
             $context['current_term_id'] = (int) $curRow['id'];
             $context['current_term_name'] = $curRow['term_name'];
@@ -1237,13 +1250,6 @@ class AcademicAPI extends BaseAPI
         $context['weeks'] = array_map('intval', $weeksStmt->fetchAll(PDO::FETCH_COLUMN));
 
         return $context;
-    }
-
-    private function termIdsForYear(int $yearId): array
-    {
-        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ?");
-        $stmt->execute([$yearId]);
-        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
     public function createCalendarEvent($data)
@@ -9402,6 +9408,10 @@ return errorResponse($e->getMessage(), 400);
                 'room_id' => !empty($data['room_id']) ? (int) $data['room_id'] : null,
                 'status' => in_array(($data['status'] ?? 'active'), ['planning', 'active', 'completed'], true) ? $data['status'] : 'active'
             ]);
+
+            // A new stream carries all of its class's learning areas from the
+            // start; learners placed in it get them through their enrolment.
+            (new LearningAreaSetupService($this->db))->syncStreamsForClasses([$aycId]);
 
             $this->logAction('stream_created', "Stream {$streamName} created for class {$class['name']}", [
                 'class_id' => $classId,

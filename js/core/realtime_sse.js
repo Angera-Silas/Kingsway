@@ -39,6 +39,11 @@
   let retryTimer = 0;
   let stallTimer = 0;
   let retryAttempt = 0;
+  // Fresh capabilities the gateway refused in a row. Repeated refusal of a
+  // token PHP just minted is a configuration fault (signing key, issuer, or a
+  // proxy stripping the header), not something retrying can fix.
+  let rejectedCapabilities = 0;
+  const MAX_REJECTED_CAPABILITIES = 3;
   let fastFailures = 0;
   let capability = null;
   let hasConnectedBefore = false;
@@ -164,6 +169,7 @@
 
   function onStreamReady() {
     retryAttempt = 0;
+    rejectedCapabilities = 0;
     fastFailures = 0;
     // Changes may have been missed while the stream was down: refresh the
     // current page's registered data dependencies once.
@@ -201,7 +207,9 @@
 
     try {
       await readEventStream(new URL('/events', capability.url).toString(), {
-        headers: { Authorization: `Bearer ${capability.token}` },
+        headers: { Authorization: `Bearer ${capability.token}`,
+          // Same capability for gateways whose proxy strips Authorization.
+          'X-Kingsway-SSE-Token': capability.token },
         signal: current.signal,
         onEvent: deliver,
         onOpen: feedStallWatchdog,
@@ -209,7 +217,16 @@
       });
     } catch (error) {
       // Expired or revoked capability: mint a fresh one on the next attempt.
-      if (error?.status === 401 || error?.status === 403) capability = null;
+      if (error?.status === 401 || error?.status === 403) {
+        capability = null;
+        rejectedCapabilities += 1;
+        if (rejectedCapabilities >= MAX_REJECTED_CAPABILITIES) {
+          // Live updates stay off for this page view; pages still work and
+          // refresh on navigation. Reported once, silently to the user.
+          stopped = true;
+          window.AppLogger?.warn?.('realtime', 'Gateway refused freshly issued stream capabilities; live updates paused for this page.', { status: error.status });
+        }
+      }
       // Anything else (network drop, stall or page-hide abort) just retries.
     } finally {
       window.clearTimeout(stallTimer);

@@ -5629,9 +5629,11 @@ if ($classId) {
         try {
             $conds = ["ar.is_submitted=1", "a.status IN ('submitted','pending_approval')"];
             $params = [];
-            if (!empty($query['class_id'])) { $conds[] = 'a.academic_year_class_stream_id=:cid'; $params[':cid'] = (int) $query['class_id']; }
+            // class_id is a class (the filter lists classes), not a stream.
+            if (!empty($query['class_id'])) { $conds[] = 'ayc.class_id=:cid'; $params[':cid'] = (int) $query['class_id']; }
             if (!empty($query['subject_id'])) { $conds[] = 'a.learning_area_id=:sid'; $params[':sid'] = (int) $query['subject_id']; }
             if (!empty($query['term_id'])) { $conds[] = 'a.academic_year_term_id=:tid'; $params[':tid'] = (int) $query['term_id']; }
+            if (!empty($query['academic_year_id'])) { $conds[] = 'ayc.academic_year_id=:yid'; $params[':yid'] = (int) $query['academic_year_id']; }
             $where = 'WHERE ' . implode(' AND ', $conds);
 
             $assessments = $this->dbQuery(
@@ -5925,11 +5927,18 @@ la.learning_area_family_id, la.name AS learning_area_family,
 
     /**
      * GET /api/academic/intern-classes
-     * Classes a teaching intern is attached to for the current academic year.
+     * Classes a teaching intern is attached to in an academic year
+     * (?academic_year_id=, default: the current year).
      */
     public function getInternClasses(int $staffId, array $query = []): array
     {
         try {
+            $yearId = (int) ($query['academic_year_id'] ?? 0);
+            $yearClause = $yearId > 0 ? 'aycd.academic_year_id = :year' : 'aycd.is_current_year = 1';
+            $bind = [':staff' => $staffId];
+            if ($yearId > 0) {
+                $bind[':year'] = $yearId;
+            }
             $rows = $this->dbQuery(
                 "SELECT
                     aycd.class_id AS class_id,
@@ -5948,10 +5957,10 @@ la.learning_area_family_id, la.name AS learning_area_family,
                  JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx ON sctx.staff_id = ayclat.staff_id
                  LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = aycd.id
                  LEFT JOIN streams st ON st.id = aycs.stream_id
-                 WHERE ayclat.staff_id = :staff AND aycd.is_current_year = 1
+                 WHERE ayclat.staff_id = :staff AND {$yearClause}
                  GROUP BY aycd.class_id, la.id, aycd.id, sctx.first_name, sctx.last_name
                  ORDER BY aycd.class_name, la.name",
-                [':staff' => $staffId]
+                $bind
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {

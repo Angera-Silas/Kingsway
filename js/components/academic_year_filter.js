@@ -20,7 +20,8 @@
  *
  * Pages that can show a whole year (reports, analysis) pass allTermsLabel,
  * e.g. 'All terms': that option is listed first and is the default, and
- * onChange receives termId = null while it is selected.
+ * onChange receives termId = null while it is selected. Pass
+ * allTermsDefault: false to list it but still open on the default term.
  *
  * termId is the academic_year_terms id (what timetable/exam endpoints call
  * academic_year_term_id). The choice is kept in the URL (?academic_year_id=N
@@ -105,7 +106,7 @@
       .sort((a, b) => String(b.start_date || '').localeCompare(String(a.start_date || '')));
   }
 
-  async function mount(select, { onChange, termSelect = null, allTermsLabel = '' } = {}) {
+  async function mount(select, { onChange, termSelect = null, allTermsLabel = '', allTermsDefault = true } = {}) {
     if (!select) return null;
     select.disabled = true;
     let years = [];
@@ -163,7 +164,7 @@
         return null;
       }
       const fromLink = terms.find((term) => Number(term.id) === requestedTermId);
-      if (allTermsLabel && !fromLink) {
+      if (allTermsLabel && allTermsDefault && !fromLink) {
         requestedTermId = 0;
         termSelect.value = '';
         return null;

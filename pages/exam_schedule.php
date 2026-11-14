@@ -93,6 +93,10 @@
 <section class="academic-card p-3 mb-4" id="examPeriodWorkflow">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
         <div><h3 class="h5 mb-1">Exam periods and results</h3><p class="text-muted mb-0">Select the academic term and classes. Every stream in a class takes each learning area paper at the same sitting time.</p></div>
+        <div class="d-flex gap-2 align-items-end">
+            <div><label class="form-label small text-muted mb-1" for="examPeriodYearFilter">Academic year</label><select class="form-select form-select-sm" id="examPeriodYearFilter"></select></div>
+            <div><label class="form-label small text-muted mb-1" for="examPeriodTermFilter">Term</label><select class="form-select form-select-sm" id="examPeriodTermFilter"></select></div>
+        </div>
         <div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsCsv"><i class="bi bi-download me-1"></i>Export CSV</button><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsPrint"><i class="bi bi-printer me-1"></i>Print / PDF</button></div>
     </div>
     <div class="table-responsive"><table class="table table-hover align-middle" id="examPeriodsTable">

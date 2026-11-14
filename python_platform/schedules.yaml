@@ -788,14 +788,16 @@ jobs:
 - name: kcb_reconciliation
   kind: http
   endpoint: /api/finance/kcb-reconciliation-worker
-  secret_env: [KCB_RECONCILIATION_WORKER_SECRET]
+  # Same fallback as PHP: its own secret, else COMMUNICATION_WORKER_SECRET.
+  secret_env: [KCB_RECONCILIATION_WORKER_SECRET, COMMUNICATION_WORKER_SECRET]
   payload:
     limit: 25
   interval: 60
 - name: stk_sweep
   kind: http
   endpoint: /api/payments/stk-sweep-worker
-  secret_env: [COMMUNICATION_WORKER_SECRET]
+  # PHP checks PAYMENT_SWEEP_WORKER_SECRET, falling back to COMMUNICATION_WORKER_SECRET.
+  secret_env: [PAYMENT_SWEEP_WORKER_SECRET, COMMUNICATION_WORKER_SECRET]
   payload:
     limit: 25
     stall_minutes: 30
@@ -803,8 +805,17 @@ jobs:
 - name: sms_contact_sync
   kind: http
   endpoint: /api/communications/sync-sms-contacts
+  secret_env: [COMMUNICATION_WORKER_SECRET]
   payload: {}
   interval: 120
+- name: extra_charge_obligations
+  kind: http
+  endpoint: /api/finance/extra-charge-obligations-worker
+  # Formerly the MariaDB event ev_generate_due_extra_charge_obligations (needed
+  # event_scheduler=ON). Idempotent, so hourly is safe and catches up quickly.
+  secret_env: [COMMUNICATION_WORKER_SECRET]
+  payload: {}
+  interval: 3600
 - name: realtime_cleanup
   kind: http
   endpoint: /api/realtime/cleanup

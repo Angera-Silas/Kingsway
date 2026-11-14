@@ -166,14 +166,13 @@
     <div>
         <label class="form-label small fw-semibold mb-1">Academic Year</label>
         <select class="form-select form-select-sm" id="yearFilter" style="width:175px">
-            <option value="">All Years</option>
+            <option value="">Loading…</option>
         </select>
     </div>
     <div>
         <label class="form-label small fw-semibold mb-1">Term</label>
         <select class="form-select form-select-sm" id="termFilter" style="width:165px">
-            <option value="">All Terms</option>
-            <!-- Loaded dynamically from /academic/terms-list -->
+            <option value="">Loading…</option>
         </select>
     </div>
     <div>

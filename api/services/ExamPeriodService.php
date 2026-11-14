@@ -102,7 +102,7 @@ final class ExamPeriodService
         $kindSelect=$extended?'ep.assessment_kind, ep.assessment_authority, ep.national_assessment_code, ep.assessment_type_classification_id,':'\'school_based\' AS assessment_kind, NULL AS assessment_authority, NULL AS national_assessment_code, NULL AS assessment_type_classification_id,';
         $publicationSelect=$this->hasColumn('exam_periods','results_published_at')?'ep.results_published_by, ep.results_published_at, ep.results_release_mode,':'NULL AS results_published_by, NULL AS results_published_at, NULL AS results_release_mode,';
         return $this->db->query(
-            "SELECT ep.id, ep.title, ep.academic_year_term_id, aterm.term_id, aterm.year_name AS academic_year_name,
+            "SELECT ep.id, ep.title, ep.academic_year_term_id, aterm.term_id, aterm.academic_year_id, aterm.year_name AS academic_year_name,
                     ep.starts_on, ep.ends_on, ep.status, ep.kind, ep.entry_mode,
                     {$kindSelect}
                     ep.created_at, ep.published_at, ep.results_opened_at, ep.completed_at,

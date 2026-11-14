@@ -543,7 +543,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/id-card-generate-legacy
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateLegacy($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -564,7 +563,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/id-card-generate-class
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateClass($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -586,7 +584,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/id-card-get/{id}
      */
-    // TODO: Delegate to StudentIDCardService
     public function getIdCardGet($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -607,7 +604,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/id-card-statistics-get
      */
-    // TODO: Delegate to StudentIDCardService
     public function getIdCardStatisticsGet($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -628,7 +624,6 @@ class StudentsController extends BaseController
      * GET /api/students/id-card-meta
      * Returns academic years, classes, streams, card statuses, school settings, permissions
      */
-    // TODO: Delegate to StudentIDCardService
     public function getIdCardMeta($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -649,7 +644,6 @@ class StudentsController extends BaseController
      * GET /api/students/id-cards
      * Returns students with ID card status, accepts filters
      */
-    // TODO: Delegate to StudentIDCardService
     public function getIdCards($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -672,7 +666,6 @@ class StudentsController extends BaseController
      * Returns card status map for students (student_id -> status)
      * Used by Node.js gateway for aggregation
      */
-    // TODO: Delegate to StudentIDCardService
     public function getCardStatus($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -694,7 +687,6 @@ class StudentsController extends BaseController
      * GET /api/students/id-card-details/{studentId}
      * Returns full student card preview data including school profile, QR payload, card history
      */
-    // TODO: Delegate to StudentIDCardService
     public function getIdCardDetails($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -721,7 +713,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-mark-printed/{cardId}
      * Mark card as printed
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardMarkPrinted($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -744,7 +735,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-mark-lost/{cardId}
      * Mark card as lost
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardMarkLost($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -768,7 +758,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-cards/print
      * Canonical single and bulk student ID-card PDF endpoint.
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardsPrint(
         $id = null,
         $data = [],
@@ -821,7 +810,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card/generate-bulk
      * Bulk generate cards for selected students
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateBulk($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -858,7 +846,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card/generate-bulk-pdf
      * Generate bulk PDF for selected students with A4 layout
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -887,7 +874,6 @@ class StudentsController extends BaseController
      * Returns renderer HTML (CR80, QR as data URI, front|back side-by-side)
      * which the frontend opens in a print window.
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -914,7 +900,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card/{cardId}/generate-qr
      * Generate QR code for a card
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateQr($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -937,7 +922,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-mark-issued/{cardId}
      * Mark card as issued
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardMarkIssued($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -960,7 +944,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-renew/{cardId}
      * Renew expired card (create new card, mark old as replaced)
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardRenew($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -983,7 +966,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-replace/{cardId}
      * Replace lost/damaged card (create new card, mark old as replaced)
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardReplace($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -1007,7 +989,6 @@ class StudentsController extends BaseController
      * POST /api/students/id-card/{cardId}/revoke
      * Revoke a card
      */
-    // TODO: Delegate to StudentIDCardService
     public function postIdCardRevoke($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -1031,7 +1012,6 @@ class StudentsController extends BaseController
      * GET /api/students/id-card-history/{studentId}
      * Get card history for a student
      */
-    // TODO: Delegate to StudentIDCardService
     public function getIdCardHistory($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -1054,7 +1034,6 @@ class StudentsController extends BaseController
      * GET /api/students/id-card/verify/{cardNumber}
      * Verify card by number
      */
-    // TODO: Delegate to StudentIDCardService
     public function getIdCardVerify($id = null, $data = [], $segments = [])
     {
         // Public endpoint - no auth required for verification
@@ -1086,7 +1065,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/transfer/verify-eligibility
      */
-    // TODO: Delegate to StudentTransferService
     public function postTransferVerifyEligibility($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_TRANSFER_PERMS, 'Insufficient permission to verify student transfers')) {
@@ -1100,7 +1078,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/transfer/approve
      */
-    // TODO: Delegate to StudentTransferService
     public function postTransferApprove($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_TRANSFER_PERMS, 'Insufficient permission to approve student transfers')) {
@@ -1114,7 +1091,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/transfer/execute
      */
-    // TODO: Delegate to StudentTransferService
     public function postTransferExecute($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_TRANSFER_PERMS, 'Insufficient permission to execute student transfers')) {
@@ -1128,7 +1104,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/transfer/workflow-status
      */
-    // TODO: Delegate to StudentTransferService
     public function getTransferWorkflowStatus($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view transfer status')) {
@@ -1148,7 +1123,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/transfer/history/{id}
      */
-    // TODO: Delegate to StudentTransferService
     public function getTransferHistory($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view transfer history')) {
@@ -1180,7 +1154,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/promotion/multiple
      */
-    // TODO: Delegate to StudentPromotionService
     public function postPromotionMultiple($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to promote students')) {
@@ -1194,7 +1167,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/promotion/entire-class
      */
-    // TODO: Delegate to StudentPromotionService
     public function postPromotionEntireClass($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to promote students')) {
@@ -1208,7 +1180,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/promotion/multiple-classes
      */
-    // TODO: Delegate to StudentPromotionService
     public function postPromotionMultipleClasses($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to promote students')) {
@@ -1222,7 +1193,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/promotion/graduate-grade9
      */
-    // TODO: Delegate to StudentPromotionService
     public function postPromotionGraduateGrade9($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to graduate students')) {
@@ -1236,7 +1206,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/promotion/batches
      */
-    // TODO: Delegate to StudentPromotionService
     public function getPromotionBatches($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view promotion batches')) {
@@ -1250,7 +1219,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/promotion/history/{id}
      */
-    // TODO: Delegate to StudentPromotionService
     public function getPromotionHistory($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view promotion history')) {
@@ -1920,7 +1888,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/parents/list
      */
-    // TODO: Delegate to StudentParentService
     public function getParentsList($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::PARENT_ACCESS_PERMS, 'Insufficient permission to view parent records')) {
@@ -1947,7 +1914,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/parents/children
      */
-    // TODO: Delegate to StudentParentService
     public function getParentsChildren($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::PARENT_ACCESS_PERMS, 'Insufficient permission to view parent records')) {
@@ -1970,7 +1936,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/add
      */
-    // TODO: Delegate to StudentParentService
     public function postParentsAdd($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to link parent records')) {
@@ -1984,7 +1949,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/create
      */
-    // TODO: Delegate to StudentParentService
     public function postParentsCreate($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(array_merge(self::STUDENT_EDIT_PERMS, self::STUDENT_CREATE_PERMS), 'Insufficient permission to create parent records')) {
@@ -1999,7 +1963,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/update
      */
-    // TODO: Delegate to StudentParentService
     public function postParentsUpdate($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update parent records')) {
@@ -2019,7 +1982,6 @@ class StudentsController extends BaseController
     /**
      * PUT /api/students/parents/update/{id}
      */
-    // TODO: Delegate to StudentParentService
     public function putParentsUpdate($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update parent records')) {
@@ -2039,7 +2001,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/remove
      */
-    // TODO: Delegate to StudentParentService
     public function postParentsRemove($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to unlink parent records')) {
@@ -2053,7 +2014,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/delete
      */
-    // TODO: Delegate to StudentParentService
     public function postParentsDelete($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to delete parent records')) {
@@ -2073,7 +2033,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/link-child
      */
-    // TODO: Delegate to StudentParentService
     public function postParentsLinkChild($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to link parent/child records')) {
@@ -2098,7 +2057,6 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/unlink-child
      */
-    // TODO: Delegate to StudentParentService
     public function postParentsUnlinkChild($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to unlink parent/child records')) {
@@ -2120,7 +2078,6 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/parents/available-students
      */
-    // TODO: Delegate to StudentParentService
     public function getParentsAvailableStudents($id = null, $data = [], $segments = [])
     {
         $parentId = $data['parent_id'] ?? $id ?? null;
@@ -2408,13 +2365,11 @@ class StudentsController extends BaseController
      * FAMILY GROUPS (FIXED NAMING)
      * ===================================================== */
 
-    // TODO: Delegate to StudentParentService
     public function getFamilyParentGet($id = null, $data = [])
     {
         return $this->parentService->getFamilyParentGet($id, $data, [], $this);
     }
 
-    // TODO: Delegate to StudentParentService
     public function putFamilyParentUpdate($id = null, $data = [])
     {
         return $this->parentService->putFamilyParentUpdate($id, $data, [], $this);
@@ -2951,7 +2906,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * GET /api/students/family-groups-meta-v2
      */
-    // TODO: Delegate to StudentParentService
     public function getFamilyGroupsMetaV2($id = null, $data = [], $segments = [])
     {
         return $this->parentService->getFamilyGroupsMetaV2($id, $data, $segments, $this);
@@ -2960,7 +2914,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * GET /api/students/family-groups-v2
      */
-    // TODO: Delegate to StudentParentService
     public function getFamilyGroupsV2($id = null, $data = [], $segments = [])
     {
         return $this->parentService->getFamilyGroupsV2($id, $data, $segments, $this);
@@ -2969,7 +2922,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * GET /api/students/family-group/{parentId}
      */
-    // TODO: Delegate to StudentParentService
     public function getFamilyGroup($id = null, $data = [], $segments = [])
     {
         return $this->parentService->getFamilyGroup($id, $data, $segments, $this);
@@ -2978,7 +2930,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * GET /api/students/family-groups/stats
      */
-    // TODO: Delegate to StudentParentService
     public function getFamilyGroupsStats($id = null, $data = [], $segments = [])
     {
         return $this->parentService->getFamilyGroupsStats($id, $data, $segments, $this);
@@ -2987,7 +2938,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * POST /api/students/family-group/{parentId}/link-student
      */
-    // TODO: Delegate to StudentParentService
     public function postFamilyGroupLinkStudent($id = null, $data = [], $segments = [])
     {
         return $this->parentService->postFamilyGroupLinkStudent($id, $data, $segments, $this);
@@ -3000,7 +2950,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * GET /api/students/promotion-meta-v2
      */
-    // TODO: Delegate to StudentPromotionService
     public function getPromotionMetaV2($id = null, $data = [], $segments = [])
     {
         return $this->promotionService->getPromotionMetaV2($id, $data, $segments, $this);
@@ -3009,7 +2958,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * GET /api/students/promotion-candidates-v2
      */
-    // TODO: Delegate to StudentPromotionService
     public function getPromotionCandidatesV2($id = null, $data = [], $segments = [])
     {
         return $this->promotionService->getPromotionCandidatesV2($id, $data, $segments, $this);
@@ -3018,7 +2966,6 @@ return $this->badRequest('An internal error occurred.');
     /**
      * POST /api/students/promotion-execute-v2
      */
-    // TODO: Delegate to StudentPromotionService
     public function postPromotionExecuteV2($id = null, $data = [], $segments = [])
     {
         return $this->promotionService->postPromotionExecuteV2($id, $data, $segments, $this);

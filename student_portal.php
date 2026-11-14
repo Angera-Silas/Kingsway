@@ -13,6 +13,7 @@
  * — a browser user can never widen their own sections.
  */
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+require_once __DIR__ . '/config/asset_helpers.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -22,7 +23,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
     <title>ID Card Verification | Kingsway Preparatory School</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="css/app-common.css">
+    <link rel="stylesheet" href="css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
     <style>
         :root { --kw-green: #0d4f2a; --kw-green-light: #198754; --kw-gold: #f9c80e; }
         body { background: #f5f5f5; padding: 20px; }
@@ -47,7 +48,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
             <p class="text-muted"><small>ID card verification — role-based details for school staff and guardians | Kingsway Preparatory School</small></p>
         </div>
     </div>
-    <script src="js/api.js"></script>
-    <script src="js/pages/student_card_verification.js"></script>
+    <script src="js/api.js?v=<?= asset_version('js/api.js') ?>"></script>
+    <script src="js/pages/student_card_verification.js?v=<?= asset_version('js/pages/student_card_verification.js') ?>"></script>
 </body>
 </html>

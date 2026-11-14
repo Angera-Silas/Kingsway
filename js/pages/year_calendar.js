@@ -288,6 +288,17 @@ const YearCalendarController = (() => {
         const yearLabel = String(yearInfo?.year_code || 'current').replace(/[^0-9A-Za-z]+/g, '-');
         KingswayFileLifecycle.exportText('\ufeff' + csv, `year_calendar_${yearLabel}.csv`, "text/csv;charset=utf-8");
     }
+    /** The official term-by-term calendar PDF for the selected year. */
+    async function downloadPdf() {
+        if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('academic')) {
+            window.showNotification?.('You do not have permission to print', 'warning');
+            return;
+        }
+        if (!yearId || !window.PrintManager?.printAcademicCalendar) return;
+        const label = String(yearInfo?.year_code || yearInfo?.year_name || yearId).replace(/[^0-9A-Za-z-]+/g, '-');
+        await window.PrintManager.printAcademicCalendar({ academicYear: yearId, filename: `academic_calendar_${label}` }).catch(() => {});
+    }
+
     function print() {
         window.print();
     }
@@ -311,7 +322,7 @@ const YearCalendarController = (() => {
             .replace(/"/g, "&quot;");
     }
     function showNotification(message, type) { window.showNotification(message, type); }
-    return { init, refresh: loadData, exportCSV, print, openEditDay, saveDay, addEvent, deleteEvent, markExamWeek };
+    return { init, refresh: loadData, exportCSV, print, downloadPdf, openEditDay, saveDay, addEvent, deleteEvent, markExamWeek };
 })();
 document.addEventListener('DOMContentLoaded', () => YearCalendarController.init());
 

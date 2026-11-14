@@ -451,16 +451,7 @@ class BaseAPI extends FileLifecycleBase
 
     protected function getSearchParams()
     {
-        $search = isset($_GET['search']) ? $this->sanitizeInput($_GET['search']) : '';
-        // $sort is interpolated into ORDER BY by callers, so it must be a bare
-        // identifier. htmlspecialchars() does not stop "id,(SELECT SLEEP(5))".
-        $sort = isset($_GET['sort']) && is_string($_GET['sort']) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,63}$/', $_GET['sort'])
-            ? $_GET['sort']
-            : 'id';
-        $order = isset($_GET['order']) ? strtoupper($this->sanitizeInput($_GET['order'])) : 'ASC';
-        $order = in_array($order, ['ASC', 'DESC']) ? $order : 'ASC';
-
-        return [$search, $sort, $order];
+        return searchParamsFromQuery($_GET);
     }
 
     protected function uploadFile($file, $destination, $allowedTypes = ['jpg', 'jpeg', 'png', 'pdf'])

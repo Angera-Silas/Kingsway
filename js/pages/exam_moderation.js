@@ -17,6 +17,19 @@ const ModerationController = {
         await window.GradingScale?.preload?.();
         await this.loadReferencesComposed();
         this.setupFilters();
+        // Filter-driven view: the selected year (default: current) and term
+        // load straight away, and again whenever either changes.
+        const yearEl = document.getElementById('modYearFilter');
+        if (window.AcademicYearFilter && yearEl) {
+            let ready = false;
+            await window.AcademicYearFilter.mount(yearEl, {
+                termSelect: document.getElementById('modTermFilter'),
+                allTermsLabel: 'All terms',
+                onChange: (yearId) => { this.state.yearId = Number(yearId || 0); if (ready) this.loadPending(); },
+            });
+            ready = true;
+        }
+        await this.loadPending();
         window.APIRealtime?.register?.("exam_moderation", { refresh: async () => { await this.loadReferencesComposed(); await this.loadPending(); } }, ["academic"]);
     },
     // Composed startup read: one authorized Node view supplies moderation
@@ -62,7 +75,6 @@ const ModerationController = {
     setupFilters() {
         document.getElementById('modClassFilter')?.addEventListener('change', () => this.loadPending());
         document.getElementById('modSubjectFilter')?.addEventListener('change', () => this.loadPending());
-        document.getElementById('modTermFilter')?.addEventListener('change', () => this.loadPending());
     },
     async loadPending() {
         const classId = document.getElementById('modClassFilter')?.value;
@@ -72,6 +84,7 @@ const ModerationController = {
         if (classId) params.append('class_id', classId);
         if (subjectId) params.append('subject_id', subjectId);
         if (termId) params.append('term_id', termId);
+        if (this.state.yearId) params.append('academic_year_id', this.state.yearId);
         const qs = params.toString();
         try {
             let data = await this.callAPI('/academic/pending-moderation' + (qs ? '?' + qs : ''), 'GET');

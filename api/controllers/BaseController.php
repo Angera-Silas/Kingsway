@@ -221,12 +221,7 @@ abstract class BaseController extends FileLifecycleBase
      */
     protected function getSearchParams()
     {
-        $search = isset($_GET['search']) ? trim($_GET['search']) : '';
-        $sort = isset($_GET['sort']) ? preg_replace('/\W/', '', $_GET['sort']) : 'id';
-        $order = isset($_GET['order']) ? strtoupper(trim($_GET['order'])) : 'ASC';
-        $order = in_array($order, ['ASC', 'DESC']) ? $order : 'ASC';
-
-        return [$search, $sort, $order];
+        return \App\API\Includes\searchParamsFromQuery($_GET);
     }
 
     /**

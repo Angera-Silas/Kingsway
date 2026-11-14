@@ -472,6 +472,7 @@
                 <option value="">Select year</option>
             </select>
             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearFilters()">Reset</button>
+            <button class="btn btn-sm btn-outline-primary" type="button" id="adminMatrixPrint" onclick="printActiveFeeStructure()" title="PDF of the active fee structure for the selected year"><i class="bi bi-printer me-1"></i>Print PDF</button>
             <span class="badge rounded-pill text-bg-success">Active</span>
         </div>
     </div>

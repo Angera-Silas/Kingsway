@@ -138,12 +138,6 @@ class SchedulesExtractPayload(BaseJobPayload):
     file_id: int
     source: str  # ministry_csv, timetable_excel, calendar_ics
 
-class SchedulesProposeRowsPayload(BaseJobPayload):
-    academic_year_id: int
-    term_id: int
-    constraints: List[Dict[str, Any]] = []
-
-
 # ─── Staff Contracts ───
 
 class StaffImportPayload(BaseJobPayload):
@@ -488,7 +482,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "maintenance.summary_export": MaintenanceSummaryExportPayload,
     # Schedules
     "schedules.extract": SchedulesExtractPayload,
-    "schedules.propose_rows": SchedulesProposeRowsPayload,
     # Staff
     "staff.bulk_import": StaffImportPayload,
     "staff.export": StaffExportPayload,
@@ -554,7 +547,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "maintenance.summary_export": MaintenanceSummaryExportPayload,
     # Schedules
     "schedules.extract": SchedulesExtractPayload,
-    "schedules.propose_rows": SchedulesProposeRowsPayload,
     # Staff
     "staff.bulk_import": StaffImportPayload,
     "staff.export": StaffExportPayload,
@@ -605,7 +597,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "maintenance.summary_export": MaintenanceSummaryExportPayload,
     # Schedules
     "schedules.extract": SchedulesExtractPayload,
-    "schedules.propose_rows": SchedulesProposeRowsPayload,
     # Staff
     "staff.bulk_import": StaffImportPayload,
     "staff.export": StaffExportPayload,
@@ -635,7 +626,6 @@ CONTRACT_REGISTRY: Dict[str, type[BaseJobPayload]] = {
     "maintenance.summary_export": MaintenanceSummaryExportPayload,
     # Schedules
     "schedules.extract": SchedulesExtractPayload,
-    "schedules.propose_rows": SchedulesProposeRowsPayload,
     # Staff
     "staff.bulk_import": StaffImportPayload,
     "staff.export": StaffExportPayload,

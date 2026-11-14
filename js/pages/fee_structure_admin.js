@@ -105,6 +105,7 @@ class FeeStructureAdminController {
     );
 
     window.exportFeeStructures = () => this.exportFeeStructures();
+    window.printActiveFeeStructure = () => this.printActiveFeeStructure();
     window.showDuplicateModal = () => this.showDuplicateModal();
     window.showCreateFeeStructureModal = () => this.openCreateModal();
     window.applyFilters = () => this.applyFilters();
@@ -358,6 +359,29 @@ class FeeStructureAdminController {
     } catch (error) {
       body.innerHTML = `<div class="alert alert-danger mb-0">${this._esc(error.message || 'Failed to load active fee matrix')}</div>`;
     }
+  }
+
+  /** PDF of the active fee structure for the year chosen above the matrix. */
+  async printActiveFeeStructure() {
+    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('finance') && !window.AuthContext.canPrint('fees')) {
+      this.showError('You do not have permission to print fee structures');
+      return;
+    }
+    const year = document.getElementById('adminMatrixAcademicYearFilter')?.value || '';
+    if (!year) {
+      this.showError('Choose an academic year first');
+      return;
+    }
+    if (!window.PrintManager?.printSimpleFeeStructure) {
+      this.showError('Printing is not available on this page');
+      return;
+    }
+    await window.PrintManager.printSimpleFeeStructure({
+      academicYear: year,
+      scope: 'all',
+      studentType: 'both',
+      filename: `fee_structure_${year}`,
+    }).catch(() => {});
   }
 
   getGroupKey(structure) {

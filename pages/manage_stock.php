@@ -1,7 +1,7 @@
 <?php
 /**
  * Manage Stock Page (Stock Movement & Adjustments)
- * HTML structure only - logic will be in js/pages/stock.js
+ * HTML structure only - logic is in js/pages/manage_stock.js
  * Embedded in app_layout.php
  */
 ?>

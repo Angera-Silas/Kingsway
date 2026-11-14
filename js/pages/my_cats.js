@@ -54,46 +54,6 @@ const myCatsCtrl = (() => {
         }
     }
 
-    async function loadYears() {
-        try {
-            const response = await apiCall('academic/years-list');
-            state.years = response || [];
-            const select = document.getElementById('yearFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Years</option>';
-                state.years.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year.id;
-                    option.textContent = year.year_name;
-                    if (year.is_current) option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load years:', error);
-        }
-    }
-
-    async function loadTerms() {
-        try {
-            const response = await apiCall('academic/terms-list');
-            state.terms = response || [];
-            const select = document.getElementById('termFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Terms</option>';
-                state.terms.forEach(term => {
-                    const option = document.createElement('option');
-                    option.value = term.id;
-                    option.textContent = `${term.name} (${term.year_code || ''})`;
-                    if (term.status === 'current') option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load terms:', error);
-        }
-    }
-
     async function loadTeachingScope() {
         try {
             const response = await apiCall('academic/my-classes');
@@ -316,8 +276,6 @@ const myCatsCtrl = (() => {
         document.getElementById('createCatBtn')?.addEventListener('click', () => showCatModal());
         document.getElementById('saveCatBtn')?.addEventListener('click', saveCat);
         
-        document.getElementById('yearFilter')?.addEventListener('change', loadCats);
-        document.getElementById('termFilter')?.addEventListener('change', loadCats);
         document.getElementById('classFilter')?.addEventListener('change', loadCats);
         document.getElementById('catClass')?.addEventListener('change', (event) => populateSubjectOptions(event.target.value));
     }
@@ -329,30 +287,18 @@ const myCatsCtrl = (() => {
             return;
         }
 
-        // Initialize Academic Context if available
-        if (window.AcademicContext) {
-            window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadYears();
-                    loadTerms();
-                    loadCats();
-                }
-            });
-
-            if (!window.AcademicContext.isLoaded()) {
-                await window.AcademicContext.init();
-            }
-
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
-        }
-
         document.getElementById('myCatsLoading').style.display = 'none';
         document.getElementById('myCatsContent').style.display = 'block';
 
-        await Promise.all([loadYears(), loadTerms(), loadTeachingScope()]);
-        await loadCats();
+        await loadTeachingScope();
         bindEvents();
+        // Year and term: the shared filter (current year, running term, kept
+        // in the URL), which loads the CATs now and on every change.
+        const yearSelect = document.getElementById('yearFilter');
+        const mounted = window.AcademicYearFilter && yearSelect
+            ? await window.AcademicYearFilter.mount(yearSelect, { termSelect: document.getElementById('termFilter'), onChange: () => loadCats() })
+            : null;
+        if (!mounted) await loadCats();
     }
 
     return {

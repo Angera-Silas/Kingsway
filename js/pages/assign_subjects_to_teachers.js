@@ -8,20 +8,41 @@ const AssignSubjectsController = (() => {
     let subjects = [];
     let classes = [];
     let pagination = { page: 1, limit: 15, total: 0 };
+    // Allocations belong to one academic year and term. Both come from the
+    // page's filters so next year's allocations can be prepared in advance.
+    let yearId = null;
+    let yearLabel = '';
+    let termId = null;
+    let filtersReady = false;
+
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    function scopeParams() {
+        const params = {};
+        if (yearId) params.academic_year_id = yearId;
+        if (termId) params.academic_year_term_id = termId;
+        return params;
+    }
+
+    function filterParams() {
+        const params = new URLSearchParams(scopeParams());
+        const teacher = document.getElementById('teacherFilter')?.value;
+        if (teacher) params.append('teacher_id', teacher);
+        const subject = document.getElementById('subjectFilter')?.value;
+        if (subject) params.append('subject_id', subject);
+        const cls = document.getElementById('classFilter')?.value;
+        if (cls) params.append('class_id', cls);
+        const search = document.getElementById('searchAssignments')?.value;
+        if (search) params.append('search', search);
+        return params;
+    }
 
     async function loadData(page = 1) {
         try {
             pagination.page = page;
-            const params = new URLSearchParams({ page, limit: pagination.limit });
-
-            const teacher = document.getElementById('teacherFilter')?.value;
-            if (teacher) params.append('teacher_id', teacher);
-            const subject = document.getElementById('subjectFilter')?.value;
-            if (subject) params.append('subject_id', subject);
-            const cls = document.getElementById('classFilter')?.value;
-            if (cls) params.append('class_id', cls);
-            const search = document.getElementById('searchAssignments')?.value;
-            if (search) params.append('search', search);
+            const params = filterParams();
+            params.set('page', page);
+            params.set('limit', pagination.limit);
 
             const response = await window.API.apiCall(`/academic/subject-assignments?${params.toString()}`, 'GET');
             const data = response?.data || response || [];
@@ -118,11 +139,11 @@ const AssignSubjectsController = (() => {
         tbody.innerHTML = items.map((a, i) => `
             <tr>
                 <td>${(pagination.page - 1) * pagination.limit + i + 1}</td>
-                <td>${a.teacher_name || ((a.first_name || '') + ' ' + (a.last_name || '')).trim() || '-'}</td>
-                <td>${a.subject_name || '-'}</td>
-                <td>${a.class_name || '-'} ${a.stream_name ? '(' + a.stream_name + ')' : ''}</td>
-                <td>${a.periods_per_week || a.periods || '-'}</td>
-                <td><span class="badge bg-${a.status === 'active' ? 'success' : 'secondary'}">${a.status || 'active'}</span></td>
+                <td>${esc(a.teacher_name || ((a.first_name || '') + ' ' + (a.last_name || '')).trim() || '-')}</td>
+                <td>${esc(a.subject_name || '-')}</td>
+                <td>${esc(a.class_name || '-')} ${a.stream_name ? '(' + esc(a.stream_name) + ')' : ''}</td>
+                <td>${esc(a.periods_per_week || a.periods || '-')}</td>
+                <td><span class="badge bg-${a.status === 'active' ? 'success' : 'secondary'}">${esc(a.status || 'active')}</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-warning btn-sm" onclick="AssignSubjectsController.edit(${Number(a.id)}, '${a.assignment_scope === 'stream' ? 'stream' : 'class'}')" title="Edit"><i class="bi bi-pencil"></i></button>
@@ -165,7 +186,7 @@ const AssignSubjectsController = (() => {
         el.innerHTML = '<option value="">All streams</option>';
         if (!classId) return;
         try {
-            const resp = await window.API.academic.listStreams({ class_id: classId });
+            const resp = await window.API.academic.listStreams({ class_id: classId, ...scopeParams() });
             const rows = resp?.data || resp || [];
             const seen = new Set();
             (Array.isArray(rows) ? rows : []).forEach((s) => {
@@ -205,7 +226,8 @@ const AssignSubjectsController = (() => {
             stream_id: document.getElementById('assignStream')?.value || null,
             assignment_scope: editingScope,
             periods_per_week: document.getElementById('assignPeriods').value || 5,
-            status: document.getElementById('assignStatus').value
+            status: document.getElementById('assignStatus').value,
+            ...scopeParams()
         };
         if (!payload.teacher_id || !payload.subject_id || !payload.class_id) {
             showNotification('Please fill all required fields', 'error');
@@ -258,15 +280,67 @@ const AssignSubjectsController = (() => {
             clearTimeout(window._assignSearchTimeout);
             window._assignSearchTimeout = setTimeout(() => loadData(1), 300);
         });
-        document.getElementById('exportAssignmentsBtn')?.addEventListener('click', () => {
-            window.open((window.APP_BASE || '') + '/api/?route=academic/subject-assignments/export&format=csv', '_blank');
+        document.getElementById('exportAssignmentsBtn')?.addEventListener('click', () => exportCsv());
+        document.getElementById('printAssignmentsBtn')?.addEventListener('click', () => {
+            if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('academic')) {
+                showNotification('You do not have permission to print', 'warning');
+                return;
+            }
+            window.print();
+        });
+    }
+
+    /** CSV of every allocation matching the current filters (all pages). */
+    async function exportCsv() {
+        if (window.AuthContext?.canExport && !window.AuthContext.canExport('academic')) {
+            showNotification('You do not have permission to export', 'warning');
+            return;
+        }
+        try {
+            const rows = [];
+            for (let page = 1; page <= 50; page++) {
+                const params = filterParams();
+                params.set('page', page);
+                params.set('limit', 200);
+                const response = await window.API.apiCall(`/academic/subject-assignments?${params.toString()}`, 'GET');
+                const data = response?.data || response || {};
+                const items = Array.isArray(data) ? data : (data.items || []);
+                rows.push(...items);
+                const total = Number(data.pagination?.total || 0);
+                if (!items.length || rows.length >= total) break;
+            }
+            const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            const lines = [['Teacher', 'Learning area', 'Class', 'Stream', 'Status', 'Academic year'].map(cell).join(',')];
+            rows.forEach((a) => lines.push([
+                a.teacher_name, a.subject_name, a.class_name, a.stream_name, a.status || 'active', a.academic_year || yearLabel,
+            ].map(cell).join(',')));
+            const safeYear = String(yearLabel || 'year').replace(/[^0-9A-Za-z-]+/g, '-');
+            await window.KingswayFileLifecycle.exportText('\ufeff' + lines.join('\r\n'), `subject_teachers_${safeYear}.csv`, 'text/csv;charset=utf-8');
+        } catch (e) {
+            showNotification(e.message || 'Export failed', 'error');
+        }
+    }
+
+    async function mountYearFilter() {
+        const yearSelect = document.getElementById('academicYearFilter');
+        const termSelect = document.getElementById('academicTermFilter');
+        if (!window.AcademicYearFilter || !yearSelect) return;
+        await window.AcademicYearFilter.mount(yearSelect, {
+            termSelect,
+            onChange: (id, year, term) => {
+                yearId = id;
+                yearLabel = year?.year_name || year?.year_code || '';
+                termId = term || null;
+                if (filtersReady) loadData(1);
+            },
         });
     }
 
     async function init() {
         if (window.AuthContext?.ready) await window.AuthContext.ready();
         attachListeners();
-        await loadReferenceData();
+        await Promise.all([mountYearFilter(), loadReferenceData()]);
+        filtersReady = true;
         await loadData();
     }
 

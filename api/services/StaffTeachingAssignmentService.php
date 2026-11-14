@@ -85,12 +85,29 @@ final class StaffTeachingAssignmentService
     }
 
     /** Current term-in-year instance; falls back to the latest defined term for the year. */
-    private function currentTermId(int $yearId): int
+    /**
+     * The term an allocation belongs to. An explicit term must belong to the
+     * year. Otherwise: the running term, else the next term to open (so a new
+     * year is prepared from Term 1, not its last term), else the last term.
+     */
+    private function currentTermId(int $yearId, int $requestedTermId = 0): int
     {
+        if ($requestedTermId > 0) {
+            $id = (int)$this->db->query(
+                "SELECT id FROM academic_year_terms WHERE id = ? AND academic_year_id = ? LIMIT 1",
+                [$requestedTermId, $yearId]
+            )->fetchColumn();
+            if (!$id) throw new RuntimeException('This term is not part of the selected academic year', 422);
+            return $id;
+        }
         $id = (int)$this->db->query(
             "SELECT id FROM academic_year_terms
               WHERE academic_year_id = ?
-              ORDER BY (status = 'current') DESC, id DESC LIMIT 1",
+              ORDER BY (status = 'current') DESC,
+                       (closing_date >= CURDATE()) DESC,
+                       CASE WHEN closing_date >= CURDATE() THEN opening_date END ASC,
+                       closing_date DESC
+              LIMIT 1",
             [$yearId]
         )->fetchColumn();
         if (!$id) throw new RuntimeException('No term configured for the selected academic year', 422);
@@ -113,28 +130,48 @@ final class StaffTeachingAssignmentService
     // The row id exposed to callers is the academic_year_class_streams id.
     // ---------------------------------------------------------------------
 
+    /**
+     * Every open stream of one academic year with its class teacher, if any,
+     * so unassigned streams show up as gaps to fill. The year defaults to the
+     * current one; closed (completed) streams are left out.
+     */
     public function listClassTeachers(array $filters = []): array
     {
-        $where = ['csd.class_teacher_id IS NOT NULL']; $params = [];
-        if (!empty($filters['academic_year_id'])) { $where[] = 'csd.academic_year_id = ?'; $params[] = (int)$filters['academic_year_id']; }
-        if (!empty($filters['teacher_id']))       { $where[] = 'csd.class_teacher_id = ?'; $params[] = (int)$filters['teacher_id']; }
-        return $this->db->query(
-            "SELECT csd.id, csd.class_teacher_id teacher_id, csd.class_id, csd.stream_id,
-                    csd.id class_stream_id, csd.academic_year_id, csd.class_stream_status status,
-                    csd.class_name class_name, csd.stream_name stream_name,
-                    CONCAT(sctx.first_name,' ',sctx.last_name) teacher_name, sctx.email teacher_email
-               FROM " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd
-               LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx ON sctx.staff_id = csd.class_teacher_id
-              WHERE " . implode(' AND ', $where) . "
-              ORDER BY csd.class_name, csd.stream_name",
-            $params
-        )->fetchAll(PDO::FETCH_ASSOC);
+        $yearId = (int)($filters['academic_year_id'] ?? 0) ?: $this->currentYearId();
+        $where = ['csd.academic_year_id = ?', "csd.class_stream_status <> 'completed'"];
+        $params = [$yearId];
+        if (!empty($filters['teacher_id'])) { $where[] = 'csd.class_teacher_id = ?'; $params[] = (int)$filters['teacher_id']; }
+        return $this->classTeacherRows(implode(' AND ', $where), $params);
     }
 
     public function getClassTeacher(int $id): ?array
     {
-        foreach ($this->listClassTeachers([]) as $r) if ((int)$r['id'] === $id) return $r;
-        return null;
+        return $this->classTeacherRows('csd.id = ?', [$id])[0] ?? null;
+    }
+
+    private function classTeacherRows(string $whereSql, array $params): array
+    {
+        $rows = $this->db->query(
+            "SELECT csd.id, csd.class_teacher_id teacher_id, csd.class_id, csd.stream_id,
+                    csd.id class_stream_id, csd.academic_year_id, csd.class_stream_status status,
+                    csd.class_name class_name, csd.stream_name stream_name, csd.grade_level, csd.level_id,
+                    csd.year_name academic_year,
+                    CONCAT(sctx.first_name,' ',sctx.last_name) teacher_name, sctx.email teacher_email
+               FROM " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd
+               LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx ON sctx.staff_id = csd.class_teacher_id
+              WHERE $whereSql",
+            $params
+        )->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            // A class teacher id whose staff record no longer exists is not a
+            // class teacher: report it so the stream is reassigned.
+            $row['teacher_missing'] = !empty($row['teacher_id']) && trim((string) ($row['teacher_name'] ?? '')) === '';
+        }
+        unset($row);
+        usort($rows, static fn($a, $b) =>
+            [\App\API\Services\ClassLessonLoadService::classOrder((string) $a['class_name']), (string) $a['stream_name']]
+            <=> [\App\API\Services\ClassLessonLoadService::classOrder((string) $b['class_name']), (string) $b['stream_name']]);
+        return $rows;
     }
 
     public function saveClassTeacher(array $data, ?int $id = null, int $userId = 0): int
@@ -161,8 +198,10 @@ final class StaffTeachingAssignmentService
             if (!$aycsId) throw new RuntimeException('This class/stream is not set up for the selected academic year', 422);
         }
 
+        // A new assignment must not silently replace another teacher; an edit
+        // of this stream's row is how the class teacher is changed.
         $current = $this->db->query("SELECT class_teacher_id FROM academic_year_class_streams WHERE id = ?", [$aycsId])->fetchColumn();
-        if ($current && (int)$current !== $staffId) {
+        if (!$id && $current && (int)$current !== $staffId) {
             throw new RuntimeException('This class/stream already has an active class teacher', 409);
         }
         $this->db->query("UPDATE academic_year_class_streams SET class_teacher_id = ? WHERE id = ?", [$staffId, $aycsId]);
@@ -202,7 +241,7 @@ final class StaffTeachingAssignmentService
     public function listSubjectAssignments(array $filters = []): array
     {
         $where = ["v.role IN ('subject_teacher','assistant','hod')"]; $params = [];
-        foreach (['teacher_id'=>'staff_id','staff_id'=>'staff_id','subject_id'=>'subject_id','class_id'=>'class_id','academic_year_id'=>'academic_year_id'] as $key=>$col) {
+        foreach (['teacher_id'=>'staff_id','staff_id'=>'staff_id','subject_id'=>'subject_id','class_id'=>'class_id','academic_year_id'=>'academic_year_id','academic_year_term_id'=>'academic_year_term_id'] as $key=>$col) {
             if (isset($filters[$key]) && $filters[$key] !== '') { $where[] = "v.$col = ?"; $params[] = $filters[$key]; }
         }
         if (!empty($filters['search'])) {
@@ -280,7 +319,7 @@ final class StaffTeachingAssignmentService
 
         $role = (string) ($data['role'] ?? 'subject_teacher');
         if (!in_array($role, ['subject_teacher','assistant','hod'], true)) $role = 'subject_teacher';
-        $termId = $this->currentTermId($yearId);
+        $termId = $this->currentTermId($yearId, (int)($data['academic_year_term_id'] ?? 0));
 
         $aycId = $this->resolveYearClassId($yearId, $classId);
         $areaId = (int)$this->db->query(

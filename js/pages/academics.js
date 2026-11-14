@@ -740,7 +740,9 @@ const academicsController = {
                 await window.API.academic.updateStream(streamId, data);
                 this.showToast('Stream updated successfully', 'success', 'Success');
             } else {
-                await window.API.academic.createStream(data);
+                // Create the stream in the year being viewed. Without a year
+                // the server picks the newest year, not the one on screen.
+                await window.API.academic.createStream({ ...data, ...this.yearParams() });
                 this.showToast('Stream created successfully', 'success', 'Success');
             }
 

@@ -215,6 +215,92 @@ class LearningAreaSetupService
      * Return the curriculum coverage for one class: each learning area with its
      * strand and sub-strand counts for that grade (for display/planning).
      */
+    /**
+     * The rule every academic year relies on: each active stream of a class
+     * carries every learning area of that class. A learner's learning areas
+     * come from their enrolment's stream, so a stream missing an area means
+     * every learner placed in it silently loses that area.
+     *
+     * Adds the missing stream links only (status 'planned'); existing links,
+     * including a deliberate per-stream 'skipped', are left as they are.
+     * Idempotent: safe to run from the rollover, at promotion and whenever a
+     * stream or class learning area is added.
+     *
+     * @return int number of stream learning-area links added
+     */
+    public function syncStreamsForClasses(array $academicYearClassIds): int
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $academicYearClassIds))));
+        if ($ids === []) return 0;
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare(
+            "INSERT INTO academic_year_class_stream_learning_areas
+                 (academic_year_class_stream_id, academic_year_class_learning_area_id, status)
+             SELECT s.id, la.id, 'planned'
+               FROM academic_year_class_streams s
+               JOIN academic_year_class_learning_areas la
+                 ON la.academic_year_class_id = s.academic_year_class_id AND la.status <> 'skipped'
+              WHERE s.academic_year_class_id IN ({$in})
+                AND s.status IN ('planning', 'active')
+                AND NOT EXISTS (
+                    SELECT 1 FROM academic_year_class_stream_learning_areas x
+                     WHERE x.academic_year_class_stream_id = s.id
+                       AND x.academic_year_class_learning_area_id = la.id
+                )"
+        );
+        $stmt->execute($ids);
+        return $stmt->rowCount();
+    }
+
+    /** Apply the stream rule to every class of an academic year. */
+    public function syncStreamsForYear(int $academicYearId): int
+    {
+        $stmt = $this->db->prepare('SELECT id FROM academic_year_classes WHERE academic_year_id = ?');
+        $stmt->execute([$academicYearId]);
+        return $this->syncStreamsForClasses($stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Classes (of the given academic_year_classes ids) that have no learning
+     * areas at all. Learners must not be enrolled into these: they would have
+     * nothing to be taught or assessed in.
+     *
+     * @return array<int,string> academic_year_class_id => class name
+     */
+    public function classesWithoutLearningAreas(array $academicYearClassIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $academicYearClassIds))));
+        if ($ids === []) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+
+        // Single-table reads (no live joins on the read path).
+        $withAreas = $this->db->prepare(
+            "SELECT DISTINCT academic_year_class_id FROM academic_year_class_learning_areas
+              WHERE academic_year_class_id IN ({$in}) AND status <> 'skipped'"
+        );
+        $withAreas->execute($ids);
+        $missing = array_values(array_diff($ids, array_map('intval', $withAreas->fetchAll(PDO::FETCH_COLUMN))));
+        if ($missing === []) return [];
+
+        $in = implode(',', array_fill(0, count($missing), '?'));
+        $classOf = $this->db->prepare("SELECT id, class_id FROM academic_year_classes WHERE id IN ({$in})");
+        $classOf->execute($missing);
+        $classIds = $classOf->fetchAll(PDO::FETCH_KEY_PAIR);
+        if ($classIds === []) return [];
+
+        $in = implode(',', array_fill(0, count($classIds), '?'));
+        $names = $this->db->prepare("SELECT id, name FROM classes WHERE id IN ({$in})");
+        $names->execute(array_values(array_unique(array_map('intval', $classIds))));
+        $nameOf = $names->fetchAll(PDO::FETCH_KEY_PAIR);
+
+        $result = [];
+        foreach ($classIds as $aycId => $classId) {
+            $result[(int) $aycId] = (string) ($nameOf[$classId] ?? ('Class ' . $classId));
+        }
+        uksort($result, static fn (int $a, int $b): int => (int) $classIds[$a] <=> (int) $classIds[$b]);
+        return $result;
+    }
+
     public function getClassCoverage(int $aycId): array
     {
         $sql = "

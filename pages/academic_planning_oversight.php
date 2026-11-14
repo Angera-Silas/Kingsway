@@ -23,7 +23,11 @@
         <small class="opacity-75">Monitor schemes of work, lesson delivery, coverage, approvals and reconciliation.</small>
         <div class="small mt-2" id="apoContext">Loading current academic context…</div>
     </div>
-    <button class="btn btn-light btn-sm" id="apoRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <div class="d-flex flex-wrap gap-2 align-items-end">
+        <div><label class="form-label small mb-1" for="apoYear">Academic year</label><select class="form-select form-select-sm" id="apoYear"></select></div>
+        <div><label class="form-label small mb-1" for="apoTerm">Term</label><select class="form-select form-select-sm" id="apoTerm"></select></div>
+        <button class="btn btn-light btn-sm" id="apoRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    </div>
 </div>
 
 <div class="row g-3 mb-3" id="apoKpis">

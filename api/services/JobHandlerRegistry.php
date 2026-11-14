@@ -140,6 +140,7 @@ class JobHandlerRegistry
                     'user_id' => $operatorId,
                     'permissions' => $permissions,
                     'request_id' => (string) ($payload['request_id'] ?? ''),
+                    'school' => DraftSchoolFacts::current($pdo),
                 ], $input, $metadata);
             },
             'ai.analytics.insight' => static function (array $payload, PDO $pdo): void {
@@ -1127,32 +1128,6 @@ class JobHandlerRegistry
                     $meta['extracted_rows'] = $result['extracted_rows'] ?? 0;
                     $meta['conflicts'] = $result['conflicts'] ?? [];
                     $meta['proposed_rows'] = $result['proposed_rows'] ?? 0;
-                    \App\API\Services\JobQueue::updateMeta($jobId, $meta);
-                }
-            },
-            'schedules.propose_rows' => static function (array $payload, PDO $pdo): void {
-                $jobId = (string) ($payload['job_id'] ?? '');
-                $academicYearId = (int) ($payload['academic_year_id'] ?? 0);
-                $termId = (int) ($payload['term_id'] ?? 0);
-                $constraints = isset($payload['constraints']) && is_array($payload['constraints']) ? $payload['constraints'] : [];
-
-                if ($jobId === '' || $academicYearId <= 0 || $termId <= 0) {
-                    throw new RuntimeException('schedules.propose_rows: job_id, academic_year_id, term_id required');
-                }
-
-                $bridge = new \App\API\Services\PythonDocumentBridge();
-                if (!$bridge->available()) {
-                    throw new RuntimeException('Python service not configured for schedules.propose_rows');
-                }
-
-                $result = $bridge->proposeScheduleRows($jobId, $academicYearId, $termId, $constraints);
-
-                $job = \App\API\Services\JobQueue::fetchJob($jobId);
-                if ($job) {
-                    $meta = $job['meta'] ?? [];
-                    $meta['proposed_rows'] = $result['proposed_rows'] ?? 0;
-                    $meta['conflicts'] = $result['conflicts'] ?? [];
-                    $meta['coverage'] = $result['coverage'] ?? 0;
                     \App\API\Services\JobQueue::updateMeta($jobId, $meta);
                 }
             },

@@ -12,6 +12,7 @@ use Exception;
  * Handles all Chaplaincy Department API endpoints (Phase A: team & volunteers).
  *
  * ROUTES:
+ * GET    /api/chaplaincy/services          → getServices()   (chapel services)
  * GET    /api/chaplaincy/team-roles        → getTeamRoles()
  * GET    /api/chaplaincy/team              → getTeam()
  * POST   /api/chaplaincy/team/member       → postTeamMember()   (add borrowed staff)
@@ -37,6 +38,26 @@ class ChaplaincyController extends BaseController
     public function getIndex()
     {
         return $this->success(['message' => 'Chaplaincy API is running']);
+    }
+
+    /**
+     * GET /api/chaplaincy/services?limit=N&upcoming=1
+     * Chapel services list (formerly ChapelController, GET /api/chapel/services).
+     */
+    public function getServices($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        try {
+            $limit = max(1, min((int) ($_GET['limit'] ?? 10), 50));
+            $upcoming = !empty($_GET['upcoming']);
+            $result = $this->contract('App\API\Modules\system\SystemAPI')->listChapelServices($limit, $upcoming);
+            return $this->success($result['data'] ?? []);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('chaplaincy', ['action' => 'list_chapel_services', 'error' => $e->getMessage()]);
+            return $this->serverError('Chapel services could not be loaded.');
+        }
     }
 
     /**

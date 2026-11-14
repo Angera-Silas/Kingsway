@@ -184,6 +184,11 @@
      *   onDelete     {fn(row)}  called when Delete is clicked (editable only)
      *   onReady      {fn(inst)} called after first successful load
      */
+    /** The academic_year_terms id of an event (unique across years). */
+    function termOf(ev) {
+        return ev && ev.academic_year_term_id != null ? ev.academic_year_term_id : null;
+    }
+
     function createTable(options) {
         var container = document.getElementById(options.containerId);
         if (!container) return null;
@@ -198,6 +203,7 @@
                 weekNumber: null,
                 type: "",
                 search: "",
+                yearId: options.yearId || null,
             },
             apiMethod: options.apiMethod || function (params) {
                 return window.API.academic.getCustom({ action: "unified-events", ...params });
@@ -207,12 +213,17 @@
             load: function () {
                 var self = this;
                 self.setLoading(true);
-                return Promise.resolve(self.apiMethod({ scope: "year" }))
+                var params = { scope: "year" };
+                if (self.state.yearId) params.academic_year_id = self.state.yearId;
+                return Promise.resolve(self.apiMethod(params))
                     .then(function (res) {
                         var data = res && res.data ? res.data : res;
                         var events = (data && data.events) || (Array.isArray(data) ? data : []);
                         self.state.allEvents = events;
                         self.state.context = (data && data.context) || null;
+                        if (self.state.scope === "current_term") {
+                            self.state.termId = (self.state.context && self.state.context.current_term_id) || null;
+                        }
                         self.applyContext();
                         self.applyFilters();
                         self.setLoading(false);
@@ -234,7 +245,7 @@
                     var tid = st.termId || (st.context && st.context.current_term_id);
                     if (tid) {
                         out = out.filter(function (ev) {
-                            return ev.term_id !== null && String(ev.term_id) === String(tid);
+                            return termOf(ev) !== null && String(termOf(ev)) === String(tid);
                         });
                     }
                 } else if (st.scope === "upcoming") {
@@ -245,7 +256,7 @@
 
                 if (st.termId && st.scope !== "current_term") {
                     out = out.filter(function (ev) {
-                        return ev.term_id !== null && String(ev.term_id) === String(st.termId);
+                        return termOf(ev) !== null && String(termOf(ev)) === String(st.termId);
                     });
                 }
                 if (st.weekNumber) {
@@ -275,8 +286,10 @@
             applyContext: function () {
                 var ctx = this.state.context;
                 if (!ctx) return;
+                var termBtn = container.querySelector("[data-scope='current_term']");
+                if (termBtn) termBtn.textContent = ctx.current_term_name || "Current Term";
                 var termSelect = container.querySelector("[data-role='term']");
-                if (termSelect && ctx.terms && ctx.terms.length) {
+                if (termSelect && Array.isArray(ctx.terms)) {
                     var current = termSelect.value;
                     termSelect.innerHTML =
                         '<option value="">All Terms</option>' +
@@ -294,7 +307,7 @@
                     }
                 }
                 var weekSelect = container.querySelector("[data-role='week']");
-                if (weekSelect && ctx.weeks && ctx.weeks.length) {
+                if (weekSelect && Array.isArray(ctx.weeks)) {
                     weekSelect.innerHTML =
                         '<option value="">All Weeks</option>' +
                         ctx.weeks
@@ -390,6 +403,17 @@
                 var table = container.querySelector("[data-role='table']");
                 if (table) table.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">Failed to load calendar events.</td></tr>';
             },
+            /** Show another academic year (null = the current one). */
+            setYear: function (yearId) {
+                this.state.yearId = yearId || null;
+                this.state.termId = null;
+                this.state.weekNumber = null;
+                var weekSelect = container.querySelector("[data-role='week']");
+                if (weekSelect) weekSelect.value = "";
+                var termSelect = container.querySelector("[data-role='term']");
+                if (termSelect) termSelect.value = "";
+                return this.load();
+            },
             setScope: function (scope) {
                 this.state.scope = scope;
                 if (scope === "current_term") {
@@ -435,7 +459,7 @@
                 '<label class="form-label small mb-1 d-block">View</label>' +
                 '<div class="btn-group btn-group-sm" role="group" data-role="scopeBtns">' +
                 '<button type="button" class="btn btn-outline-primary" data-scope="current_term">Current Term</button>' +
-                '<button type="button" class="btn btn-outline-primary" data-scope="year">This Year</button>' +
+                '<button type="button" class="btn btn-outline-primary" data-scope="year">Whole Year</button>' +
                 '<button type="button" class="btn btn-outline-primary" data-scope="upcoming">Upcoming</button>' +
                 "</div>";
             scopeEl.querySelectorAll("[data-scope]").forEach(function (btn) {
@@ -485,7 +509,7 @@
             });
         }
 
-        inst.load();
+        if (options.autoLoad !== false) inst.load();
         return inst;
     }
 
