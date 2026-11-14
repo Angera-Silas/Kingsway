@@ -15,6 +15,7 @@ import { registerViewRoutes } from './src/routes/views.js';
 import { registerPublicRoutes } from './src/routes/public.js';
 import { registerInternalRoutes } from './src/routes/internal.js';
 import { registerAgentRoutes } from './src/routes/agents.js';
+import { restoreProxyStrippedAuthorization } from './src/utils/proxyAuthorization.js';
 
 function safeRequestPath(url) {
   return String(url || '').split('?', 1)[0].slice(0, 256);
@@ -85,6 +86,7 @@ async function createApp(env = {}) {
       'x-browser-session-id',
       'idempotency-key',
       'x-kingsway-sse-token',
+      'x-kingsway-authorization',
       'last-event-id',
     ],
     exposedHeaders: ['x-request-id'],
@@ -99,6 +101,7 @@ async function createApp(env = {}) {
   // rather than relying on @fastify/cors, whose hook runs late enough that the
   // SSE plugin has already flushed the response headers.
   app.addHook('onRequest', async (req, reply) => {
+    restoreProxyStrippedAuthorization(req);
     reply.header('cache-control', 'no-store');
     reply.header('x-content-type-options', 'nosniff');
 
@@ -114,7 +117,8 @@ async function createApp(env = {}) {
       reply.header(
         'access-control-allow-headers',
         'content-type, authorization, x-csrf-token, x-request-id, '
-        + 'x-browser-session-id, idempotency-key, x-kingsway-sse-token, last-event-id'
+        + 'x-browser-session-id, idempotency-key, x-kingsway-sse-token, '
+        + 'x-kingsway-authorization, last-event-id'
       );
       reply.header('access-control-max-age', '600');
       if (requestOrigin && config.security.webOrigins.includes(requestOrigin)) {
