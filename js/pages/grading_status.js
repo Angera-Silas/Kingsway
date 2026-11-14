@@ -120,7 +120,8 @@ const GradingStatusController = (() => {
         limit: state.pagination.limit,
       });
 
-      if (filters.term) params.append("term", filters.term);
+      if (filters.yearId) { params.append("academic_year_id", filters.yearId); params.append("year_id", filters.yearId); }
+      if (filters.term) params.append("term_id", filters.term);
       if (filters.class_id) params.append("class_id", filters.class_id);
       if (filters.status) params.append("status", filters.status);
 
@@ -395,12 +396,6 @@ const GradingStatusController = (() => {
       ?.addEventListener("click", () => printGrading());
 
     // Filters
-    document
-      .getElementById("termFilter")
-      ?.addEventListener("change", (e) => {
-        filters.term = e.target.value;
-        loadData(1);
-      });
 
     document
       .getElementById("classFilter")
@@ -426,34 +421,21 @@ const GradingStatusController = (() => {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload grading status when academic year or term changes
-          loadData();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      state.currentTerm = window.AcademicContext.getTermId();
-      
-      // Update filters to use current context
-      if (state.currentTerm) {
-        filters.term = state.currentTerm;
-      }
-    }
-
     attachEventListeners();
     await loadReferenceData();
-    await loadData();
+    // The shared year/term selector (current year, running term by default)
+    // loads the status now and on every change.
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById("yearFilter"), {
+      termSelect: document.getElementById("termFilter"),
+      allTermsLabel: "All terms",
+      allTermsDefault: false,
+      onChange: (yearId, year, termId) => {
+        filters.yearId = yearId;
+        filters.term = termId || "";
+        loadData(1);
+      },
+    });
+    if (!mounted) await loadData();
   }
 
   // ---- Public API ----

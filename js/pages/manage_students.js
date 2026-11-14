@@ -1485,7 +1485,9 @@ window.studentsManagementController = window.studentsManagementController || {
         window.API.students.get(id),
         window.API.students.getParents(id),
         window.API.students.getFees(id),
-        window.API.students.getAttendance(id, { academic_year: new Date().getFullYear() }),
+        // The selected academic year (js/core/year_scope.js adds it); the
+        // current year by default. Never the calendar year.
+        window.API.students.getAttendance(id, {}),
         window.API.students.getPerformance(id),
         window.API.students.getDiscipline(id),
       ]);

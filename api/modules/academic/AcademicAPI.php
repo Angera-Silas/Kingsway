@@ -1759,6 +1759,8 @@ SELECT
     {
         try {
             [$page, $limit, $offset] = $this->getPaginationParams();
+            // Year-aware (2026-11-15): standard keys; the current year by default.
+            $params = $this->normalizeYearFilters(is_array($params) ? $params : []);
 
             // Build WHERE clause
             $where = ["1=1"];
@@ -2888,16 +2890,52 @@ return errorResponse($e->getMessage(), 400);
                 ], 400);
             }
 
-            // Check if year is current
-            $stmt = $this->db->prepare("SELECT is_current FROM academic_years WHERE id = ?");
+            // Every year's data matters (user, 2026-11-14): only an upcoming
+            // year created by mistake, still holding no learners, results or
+            // fees, may be deleted. Current and completed years never are.
+            $stmt = $this->db->prepare("SELECT is_current, state, year_code FROM academic_years WHERE id = ?");
             $stmt->execute([$yearId]);
             $year = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($year && $year['is_current']) {
+            if (!$year) {
+                return errorResponse(['status' => 'error', 'message' => 'Academic year not found'], 404);
+            }
+            if ((int) $year['is_current'] === 1 || (string) $year['state'] !== 'upcoming') {
                 return errorResponse([
                     'status' => 'error',
-                    'message' => 'Cannot delete current academic year'
-                ], 400);
+                    'message' => $year['year_code'] . ' cannot be deleted: only an upcoming year that holds no records can be deleted. '
+                        . 'Current and completed years keep their records permanently.'
+                ], 409);
+            }
+            foreach ([
+                'student_academic_enrollments' => 'academic_year_id',
+                'student_fee_obligations' => 'academic_year_id',
+            ] as $table => $column) {
+                $check = $this->db->prepare("SELECT 1 FROM {$table} WHERE {$column} = ? LIMIT 1");
+                $check->execute([$yearId]);
+                if ($check->fetchColumn()) {
+                    return errorResponse([
+                        'status' => 'error',
+                        'message' => $year['year_code'] . ' already holds learner or fee records and cannot be deleted.'
+                    ], 409);
+                }
+            }
+            $terms = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ?");
+            $terms->execute([$yearId]);
+            $termIds = array_map('intval', $terms->fetchAll(PDO::FETCH_COLUMN) ?: []);
+            $hasAssessments = false;
+            if ($termIds) {
+                $check = $this->db->prepare(
+                    'SELECT 1 FROM assessments WHERE academic_year_term_id IN (' . implode(',', array_fill(0, count($termIds), '?')) . ') LIMIT 1'
+                );
+                $check->execute($termIds);
+                $hasAssessments = (bool) $check->fetchColumn();
+            }
+            if ($hasAssessments) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => $year['year_code'] . ' already holds assessments and cannot be deleted.'
+                ], 409);
             }
 
             $stmt = $this->db->prepare("DELETE FROM academic_years WHERE id = ?");
@@ -3109,6 +3147,11 @@ return errorResponse($e->getMessage(), 400);
         try {
             $id = is_scalar($params) ? (int) $params : (int) ($params['id'] ?? 0);
             $filters = is_array($params) ? $params : [];
+            // Year-aware (2026-11-15): a list reads the selected year (the
+            // current year by default); one scheme by id is read in any year.
+            if ($id <= 0) {
+                $filters = $this->normalizeYearFilters($filters);
+            }
             $where = ['1=1'];
             $bindings = [];
 
@@ -4838,6 +4881,8 @@ return errorResponse($e->getMessage(), 400);
     {
         try {
             [$page, $limit, $offset] = $this->getPaginationParams();
+            // Year-aware (2026-11-14): standard keys; the current year by default.
+            $params = $this->normalizeYearFilters(is_array($params) ? $params : []);
 
             $examSchedules = ReadReplicaService::qualifiedRef('exam_schedules');
             $academicYearTerms = ReadReplicaService::qualifiedRef('academic_year_terms');
@@ -7375,6 +7420,20 @@ return errorResponse($e->getMessage(), 400);
     /**
      * Resolve the current academic year id (is_current = 1, else latest).
      */
+    /**
+     * Whether the current user may edit records of a year (default: the
+     * current year): {id, label, state, is_current, editable}. Pages use it
+     * to show a completed year read-only.
+     */
+    public function yearAccess(?int $yearId = null): array
+    {
+        $yearId = $yearId ?: (int) ($this->resolveCurrentAcademicYearId() ?: 0);
+        $meta = $yearId > 0 ? $this->yearMeta($yearId) : null;
+        return $meta
+            ? $this->successResponse($meta)
+            : $this->errorResponse('Academic year not found', 404);
+    }
+
     private function resolveCurrentAcademicYearId()
     {
         static $cached = null;

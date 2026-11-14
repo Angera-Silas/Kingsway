@@ -21,10 +21,10 @@ const compCtrl = {
       return;
     }
     await Promise.all([
-      this._loadTerms(),
       this._loadClasses(),
       this._loadCompetencies(),
     ]);
+    await this._mountYearFilter();
   },
 
   refresh: function () {
@@ -33,15 +33,12 @@ const compCtrl = {
 
   // ── DROPDOWN LOADERS ──────────────────────────────────────────────────
 
-  _loadTerms: async function () {
-    try {
-      const r    = await callAPI('/academic/terms-list', 'GET');
-      const list = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const sel  = document.getElementById('compTermSelect');
-      if (!sel) return;
-      sel.innerHTML = '<option value="">— Select term —</option>';
-      list.forEach(t => sel.insertAdjacentHTML('beforeend', `<option value="${t.id}">${this._esc(t.name)}</option>`));
-    } catch (e) { console.warn('Terms load failed:', e); }
+  /** The shared year/term selector: the sheet shows that year-term (running term by default). */
+  _mountYearFilter: async function () {
+    await window.AcademicYearFilter?.mount(document.getElementById('compYearSelect'), {
+      termSelect: document.getElementById('compTermSelect'),
+      onChange: () => this.loadSheet(),
+    });
   },
 
   _loadClasses: async function () {
@@ -135,7 +132,7 @@ const compCtrl = {
           `<option value="${v}" ${rating === v ? 'selected' : ''}>${v ? v.charAt(0).toUpperCase() + v.slice(1) : '— —'}</option>`
         ).join('');
         return `<td class="text-center p-1">
-          <select class="form-select form-select-sm comp-rating-sel"
+          <select class="form-select form-select-sm comp-rating-sel" data-year-write
             data-student="${s.id}" data-comp="${c.id}"
             onchange="compCtrl._updateBadge(this)"
             style="font-size:.78rem;padding:2px 4px;min-width:100px;">
@@ -154,7 +151,7 @@ const compCtrl = {
     container.innerHTML = `
       <div class="d-flex justify-content-between align-items-center px-3 pt-3 pb-2 border-bottom">
         <span class="fw-semibold">${this._students.length} students · ${this._competencies.length} competencies</span>
-        <button class="btn btn-success btn-sm" onclick="compCtrl.saveAll()">
+        <button class="btn btn-success btn-sm" onclick="compCtrl.saveAll()" data-year-write>
           <i class="bi bi-floppy me-1"></i> Save All Ratings
         </button>
       </div>
@@ -172,7 +169,7 @@ const compCtrl = {
         </table>
       </div>
       <div class="px-3 py-2 border-top">
-        <button class="btn btn-success" onclick="compCtrl.saveAll()">
+        <button class="btn btn-success" onclick="compCtrl.saveAll()" data-year-write>
           <i class="bi bi-floppy me-1"></i> Save All Ratings
         </button>
         <span class="text-muted small ms-3">Changes are saved in bulk when you click Save.</span>

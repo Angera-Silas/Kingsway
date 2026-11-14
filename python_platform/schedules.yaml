@@ -293,6 +293,9 @@ jobs:
 - name: learner_placement
   kind: projection
   interval: 60
+- name: learner_placement_history
+  kind: projection
+  interval: 60
 - name: learner_values_acquisition
   kind: projection
   interval: 60

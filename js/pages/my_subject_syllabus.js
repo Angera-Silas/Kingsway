@@ -26,28 +26,26 @@ const MySyllabusController = {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadSyllabus();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this.state.currentTerm = window.AcademicContext.getTermId();
-    }
     
     this.bindEvents();
     await this.loadReferenceData();
-    await this.loadSyllabus();
+    // The shared year/term selector (view only: it never changes the
+    // school's current year). Current year and running term by default.
+    await this.mountYearFilter();
+  },
+
+  async mountYearFilter() {
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('academicYearSelect'), {
+      termSelect: document.getElementById('termSelect'),
+      allTermsLabel: 'All terms',
+      allTermsDefault: false,
+      onChange: (yearId, year, termId) => {
+        this.state.currentAcademicYear = yearId;
+        this.state.currentTerm = termId;
+        this.loadSyllabus();
+      },
+    });
+    if (!mounted) await this.loadSyllabus();
   },
 
   bindEvents() {
@@ -60,26 +58,7 @@ const MySyllabusController = {
       });
     }
 
-    // Academic year selector
-    const yearSelect = document.getElementById('academicYearSelect');
-    if (yearSelect) {
-      yearSelect.addEventListener('change', async (e) => {
-        this.state.currentAcademicYear = e.target.value;
-        if (window.AcademicContext) {
-          await window.AcademicContext.setCurrentAcademicYear(e.target.value);
-        }
-        await this.loadSyllabus();
-      });
-    }
 
-    // Term selector
-    const termSelect = document.getElementById('termSelect');
-    if (termSelect) {
-      termSelect.addEventListener('change', async (e) => {
-        this.state.currentTerm = e.target.value;
-        await this.loadSyllabus();
-      });
-    }
   },
 
   async loadReferenceData() {
@@ -96,18 +75,7 @@ const MySyllabusController = {
           this.state.subjects.map(subject => `<option value="${subject.subject_id}">${subject.subject_name}</option>`).join('');
       }
 
-      // Load academic years
-      const years = await window.API.academic.listYears() || [];
-      const yearSelect = document.getElementById('academicYearSelect');
-      if (yearSelect) {
-        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-        
-        // Set current academic year if available
-        if (this.state.currentAcademicYear) {
-          yearSelect.value = this.state.currentAcademicYear;
-        }
-      }
+      // The year/term selects belong to AcademicYearFilter (mountYearFilter).
     } catch (error) {
       console.error('Error loading reference data:', error);
     }
@@ -171,7 +139,7 @@ const MySyllabusController = {
               <button class="btn btn-outline-primary" onclick="MySyllabusController.viewDetails(${entry.id})" title="View Details">
                 <i class="bi bi-eye"></i>
               </button>
-              <button class="btn btn-outline-success" onclick="MySyllabusController.markComplete(${entry.id})" title="Mark Complete">
+              <button class="btn btn-outline-success" onclick="MySyllabusController.markComplete(${entry.id})" title="Mark Complete" data-year-write>
                 <i class="bi bi-check-circle"></i>
               </button>
             </div>

@@ -24,26 +24,12 @@ const ViewSyllabusController = {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadSyllabus();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-    }
     
     this.bindEvents();
-    await this.loadSyllabus();
+    // The shared year/term selector (current year, running term by default)
+    // loads the page now and on every change.
+    const yearBar = await window.AcademicYearFilter?.mountBar({ onChange: (yearId) => { this.state.currentAcademicYear = yearId; this.loadSyllabus(); } });
+    if (!yearBar) await this.loadSyllabus();
   },
 
   bindEvents() {

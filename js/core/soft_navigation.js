@@ -346,7 +346,26 @@
     }
 
     if (!route) return null;
-    return { route, params };
+    return { route, params: withSelectedYear(params) };
+  }
+
+  /**
+   * Keep the academic year the user picked while moving between pages: a
+   * director viewing 2026/2027 stays in 2026/2027. AcademicYearFilter writes
+   * ?academic_year_id= only for a non-current year, so the current year adds
+   * nothing. A link that names its own year keeps it.
+   */
+  function withSelectedYear(params) {
+    try {
+      const yearId = new URLSearchParams(window.location.search).get('academic_year_id');
+      if (!yearId || !/^\d+$/.test(yearId)) return params;
+      const next = new URLSearchParams(params || '');
+      if (next.has('academic_year_id')) return params;
+      next.set('academic_year_id', yearId);
+      return next.toString();
+    } catch (_) {
+      return params;
+    }
   }
 
   /**

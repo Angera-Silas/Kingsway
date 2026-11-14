@@ -77,7 +77,7 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(1)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-        <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" onclick="termTransitionController.closeTerm()">
+        <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" onclick="termTransitionController.closeTerm()" data-year-write>
         <i class="bi bi-arrow-right me-1"></i> Confirm and Continue
       </button>
     </div>
@@ -175,7 +175,7 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(3)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-        <button class="btn btn-success ms-auto" onclick="termTransitionController.saveTerm2Setup()">
+        <button class="btn btn-success ms-auto" onclick="termTransitionController.saveTerm2Setup()" data-year-write>
         Save Setup and Review Activation <i class="bi bi-arrow-right ms-1"></i>
       </button>
     </div>
@@ -204,7 +204,7 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(4)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-success ms-auto btn-lg" id="ttActivateBtn" onclick="termTransitionController.activateTerm2()">
+      <button class="btn btn-success ms-auto btn-lg" id="ttActivateBtn" onclick="termTransitionController.activateTerm2()" data-year-write>
         <i class="bi bi-play-fill me-1"></i> Close Current &amp; Activate Next Term
       </button>
     </div>

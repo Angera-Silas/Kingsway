@@ -24,6 +24,78 @@ final class TeacherScopeService
         $this->db = $db;
     }
 
+    /**
+     * Every year-specific class stream (academic_year_class_streams.id) the
+     * teacher was class teacher or subject teacher of, in ANY academic year.
+     *
+     * Year-aware access (2026-11-14): a teacher keeps read access to the
+     * learners they taught in completed years, not only this year's class.
+     *
+     * @return int[]
+     */
+    public function streamIdsAllYears(array $user): array
+    {
+        $staffId = $this->staffId($user);
+        if (!$staffId) return [];
+
+        $ids = [];
+        $collect = function (string $sql) use ($staffId, &$ids): void {
+            try {
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([$staffId]);
+                foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                    if ((int) $id > 0) $ids[(int) $id] = true;
+                }
+            } catch (\Throwable $ignored) {
+                // An older installation may lack a table; the others still count.
+            }
+        };
+
+        $collect(
+            "SELECT class_stream_id FROM " . ReadReplicaService::masterSourceRef('academic_calendar') . "
+             WHERE class_teacher_id = ?"
+        );
+        $collect(
+            "SELECT academic_year_class_stream_id
+             FROM " . ReadReplicaService::masterSourceRef('academic_year_class_stream_learning_area_teachers') . "
+             WHERE staff_id = ?"
+        );
+        // Class-level (legacy) subject assignments cover every stream of the
+        // class; resolved with keyed reads, no join (Hard Rule 1).
+        try {
+            $areas = $this->db->prepare(
+                "SELECT DISTINCT academic_year_class_learning_area_id
+                 FROM " . ReadReplicaService::masterSourceRef('academic_year_class_learning_area_teachers') . "
+                 WHERE staff_id = ?"
+            );
+            $areas->execute([$staffId]);
+            $areaIds = array_values(array_filter(array_map('intval', $areas->fetchAll(PDO::FETCH_COLUMN) ?: [])));
+            if ($areaIds) {
+                $classes = $this->db->prepare(
+                    "SELECT DISTINCT academic_year_class_id
+                     FROM " . ReadReplicaService::masterSourceRef('academic_year_class_learning_areas') . "
+                     WHERE id IN (" . implode(',', array_fill(0, count($areaIds), '?')) . ")"
+                );
+                $classes->execute($areaIds);
+                $classIds = array_values(array_filter(array_map('intval', $classes->fetchAll(PDO::FETCH_COLUMN) ?: [])));
+                if ($classIds) {
+                    $streams = $this->db->prepare(
+                        "SELECT id FROM " . ReadReplicaService::masterSourceRef('academic_year_class_streams') . "
+                         WHERE academic_year_class_id IN (" . implode(',', array_fill(0, count($classIds), '?')) . ")"
+                    );
+                    $streams->execute($classIds);
+                    foreach ($streams->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                        if ((int) $id > 0) $ids[(int) $id] = true;
+                    }
+                }
+            }
+        } catch (\Throwable $ignored) {
+            // An older installation may lack a table; the others still count.
+        }
+
+        return array_map('intval', array_keys($ids));
+    }
+
     public function forUser(array $user, ?int $academicYearId = null, ?int $termId = null): array
     {
         $staffId = $this->staffId($user);

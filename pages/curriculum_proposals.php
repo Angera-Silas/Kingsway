@@ -8,7 +8,7 @@
 <div class="curriculum-workspace">
   <section class="cw-hero mb-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
     <div><div class="small text-uppercase opacity-75 fw-bold">Academic governance</div><h3 class="mb-1">Curriculum Proposals & History</h3><p class="mb-0 opacity-75">Trace how every learning area changes across academic years and terms.</p></div>
-    <button class="btn btn-warning fw-semibold" id="newProposalBtn"><i class="bi bi-plus-circle me-1"></i> New Proposal</button>
+    <button class="btn btn-warning fw-semibold" id="newProposalBtn" data-year-write><i class="bi bi-plus-circle me-1"></i> New Proposal</button>
   </section>
 
   <div class="card border-0 shadow-sm mb-4"><div class="card-body">
@@ -48,7 +48,7 @@
     <div class="col-md-6 admin-source d-none"><label class="form-label">Authority source</label><select class="form-select" id="proposalSource"><option value="school">School decision</option><option value="ministry">Ministry of Education</option><option value="import">Curriculum import</option><option value="teacher">Teacher proposal</option></select></div>
     <div class="col-md-6 admin-source d-none"><label class="form-label">Circular / document reference</label><input class="form-control" id="proposalReference"></div>
   </div></form>
-</div><div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-outline-success" id="saveDraftBtn">Save Draft</button><button class="btn btn-success" id="saveSubmitBtn">Save & Submit</button></div></div></div></div>
+</div><div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-outline-success" id="saveDraftBtn" data-year-write>Save Draft</button><button class="btn btn-success" id="saveSubmitBtn" data-year-write>Save & Submit</button></div></div></div></div>
 
 <div class="modal fade" id="reviewModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">School Administrator Review</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="hidden" id="reviewProposalId"><div id="reviewSummary" class="cw-diff mb-3"></div><label class="form-label">Review notes</label><textarea class="form-control" id="reviewNotes" rows="4"></textarea></div><div class="modal-footer"><button class="btn btn-outline-danger" data-decision="rejected">Reject</button><button class="btn btn-success" data-decision="approved">Approve & Apply</button></div></div></div></div>
 

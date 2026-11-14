@@ -14,7 +14,9 @@ const studentGrowthController = {
     const classSelect = document.getElementById('sgClassFilter');
     if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map((c) => `<option value="${Number(c.id)}">${this.esc(c.name || c.class_name)}</option>`).join('');
     const termSelect = document.getElementById('sgPerfTermFilter');
-    if (termSelect) termSelect.innerHTML = '<option value="">Current Term</option>' + this.state.terms.map((t) => `<option value="${Number(t.id)}" ${t.status === 'current' ? 'selected' : ''}>${this.esc(t.name || t.term_name)}</option>`).join('');
+    // A learner's growth spans every year they studied here: list each term
+    // with its year (Term 1 repeats every year), all terms by default.
+    if (termSelect) termSelect.innerHTML = '<option value="">All terms</option>' + this.state.terms.map((t) => `<option value="${Number(t.id)}">${this.esc(t.name || t.term_name)} · ${this.esc(t.year_name || t.year_code || '')}</option>`).join('');
     const areaSelect = document.getElementById('sgGrowthLASelect');
     if (areaSelect) areaSelect.innerHTML = '<option value="">— Select learning area —</option>' + this.state.areas.map((a) => `<option value="${Number(a.id)}">${this.esc(a.name || a.subject_name)}</option>`).join('');
     const search = document.getElementById('sgSearchInput'); let timer;

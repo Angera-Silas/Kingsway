@@ -44,7 +44,7 @@
                         </div>
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
-                                <button id="createCatBtn" class="btn btn-primary" data-permission="assessments_create">
+                                <button id="createCatBtn" class="btn btn-primary" data-permission="assessments_create" data-year-write>
                                     <i class="bi bi-plus-lg me-1"></i>New Formative Assessment
                                 </button>
                                 <button id="refreshBtn" class="btn btn-outline-secondary">
@@ -157,7 +157,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveCatBtn">Save CAT</button>
+                <button type="button" class="btn btn-primary" id="saveCatBtn" data-year-write>Save CAT</button>
             </div>
         </div>
     </div>

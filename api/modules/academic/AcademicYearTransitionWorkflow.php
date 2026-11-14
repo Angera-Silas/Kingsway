@@ -1500,15 +1500,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     /**
      * Close the outgoing year.
      *
-     * Marking a year completed is NOT archiving, and no archiving vocabulary
-     * belongs anywhere in this workflow. Closing only moves the year to
-     * active - completed: every read path and every ordinary user still sees
-     * its data, and only school admin / system admin / director may write to
-     * it. Nothing is moved, copied, sealed or deleted.
-     *
-     * Archiving is a separate, deliberate, system-administrator-only action
-     * (see AcademicYearManager::archiveYear) that permanently hides a year.
-     * It is never reachable from here.
+     * Closing only moves the year to active - completed: every read path and
+     * every user still sees its data, and only school admin / system admin /
+     * director, or a user granted academic_years_edit_completed, may write to
+     * it. Nothing is moved, copied, sealed or deleted. The system has no
+     * archiving.
      */
     public function closeOutgoingYear(int $instance_id): array
     {
@@ -2372,13 +2368,13 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $this->advanceStage($instance_id, 'review_promotion_candidates', 'Term operations deferred to active-term setup; promotion review started', $data);
         }
 
-        // A closed (active - completed) year is readable by everyone but only
-        // school admin / system admin / director may write to it, so promotion
-        // writes into such a year must carry an authorised role.
+        // A completed year is readable by everyone; promotion writes into it
+        // need an editing role or the edit-completed permission.
         $writeGuard = \App\API\Services\CompletedYearWriteGuard::check(
             $toYearId,
             $this->currentRoleNames(),
-            $this->db
+            $this->db,
+            (int) ($this->getCurrentUserId() ?? 0) ?: null
         );
         if (!$writeGuard['allowed']) {
             return formatResponse(false, null, $writeGuard['reason']);

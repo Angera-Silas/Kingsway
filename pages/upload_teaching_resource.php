@@ -127,7 +127,7 @@
 
           <div class="d-grid mt-4">
             <button class="btn btn-primary btn-lg" id="utrUploadBtn"
-                    onclick="uploadResourceController.upload()">
+                    onclick="uploadResourceController.upload()" data-year-write>
               <i class="bi bi-cloud-upload me-2"></i> Upload Resource
             </button>
           </div>

@@ -19,7 +19,7 @@
             </button>
             <button class="btn btn-outline-secondary btn-sm" id="printCurriculumBtn" data-curriculum-print><i class="bi bi-printer"></i> Print / PDF</button>
             <a class="btn btn-outline-success btn-sm" href="home.php?route=curriculum_proposals"><i class="bi bi-lightbulb"></i> Propose Change</a>
-            <button class="btn btn-success btn-sm" id="addLearningAreaBtn" data-curriculum-manage>
+            <button class="btn btn-success btn-sm" id="addLearningAreaBtn" data-curriculum-manage data-year-write>
                 <i class="bi bi-plus-circle"></i> Add Learning Area
             </button>
         </div>
@@ -127,7 +127,7 @@
             <label class="form-label" for="newLearningAreaDescription">Description</label><textarea class="form-control" id="newLearningAreaDescription" rows="2"></textarea>
             <div class="form-text">Use the official CBC learning-area name and code. The area will be added to the school syllabus as active.</div>
         </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="saveLearningAreaBtn">Add Learning Area</button></div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="saveLearningAreaBtn" data-year-write>Add Learning Area</button></div>
     </div></div>
 </div>
 
@@ -139,7 +139,7 @@
             <label class="form-label" for="assignLearningAreaYear">Academic year *</label><select class="form-select mb-3" id="assignLearningAreaYear"></select>
             <div id="assignLearningAreaClasses" class="border rounded p-3" style="max-height:45vh;overflow:auto">Choose an academic year to load its classes.</div>
         </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveLearningAreaAssignmentBtn">Assign to selected classes</button></div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveLearningAreaAssignmentBtn" data-year-write>Assign to selected classes</button></div>
     </div></div>
 </div>
 
@@ -200,7 +200,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveCurriculumBtn">Save Entry</button>
+                <button type="button" class="btn btn-primary" id="saveCurriculumBtn" data-year-write>Save Entry</button>
             </div>
         </div>
     </div>

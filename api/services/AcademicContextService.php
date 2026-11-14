@@ -431,10 +431,8 @@ class AcademicContextService
      */
     public function getAcademicYears()
     {
-        // Archived years are hidden completely; they are not part of ordinary
-        // access any more.
+        // Every year stays visible: there is no archiving.
         $sql = "SELECT * FROM academic_years
-                WHERE " . AcademicYearLifecycleService::visibleSql() . "
                 ORDER BY year_name DESC";
         
         try {
@@ -619,12 +617,11 @@ class AcademicContextService
         )->fetchAll(PDO::FETCH_COLUMN) ?: [];
     }
 
-    /** All academic years for the picker, newest first. Archived years are hidden. */
+    /** All academic years for the picker, newest first. */
     public function yearsForPicker(): array
     {
         return $this->db->query(
             'SELECT id,year_code,year_name,status,is_current,start_date,end_date FROM academic_years
-             WHERE ' . AcademicYearLifecycleService::visibleSql() . '
              ORDER BY start_date DESC'
         )->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
@@ -669,7 +666,6 @@ class AcademicContextService
     {
         return $this->db->query(
             "SELECT id, year_code, year_name, status, is_current FROM academic_years
-             WHERE " . AcademicYearLifecycleService::visibleSql() . "
              ORDER BY id DESC"
         )->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }

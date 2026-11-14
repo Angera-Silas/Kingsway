@@ -218,7 +218,7 @@
         <small>Generate, print, and distribute CBC end-of-term report cards in bulk</small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-light btn-sm" id="generateReports" onclick="termReportsCtrl.generateReports()">
+        <button class="btn btn-light btn-sm" id="generateReports" onclick="termReportsCtrl.generateReports()" data-year-write>
             <i class="bi bi-file-earmark-check me-1"></i>Prepare Report Documents
         </button>
         <button class="btn btn-light btn-sm" id="bulkPrint" onclick="termReportsCtrl.bulkPrint()">
@@ -274,15 +274,11 @@
 <div class="tr-filter d-flex gap-3 flex-wrap align-items-end">
     <div>
         <label class="form-label small fw-semibold mb-1">Academic Year</label>
-        <select class="form-select form-select-sm" id="academicYear" style="width:175px">
-            <option value="">Select Year</option>
-        </select>
+        <select class="form-select form-select-sm" id="academicYear" style="width:175px" aria-label="Academic year"></select>
     </div>
     <div>
         <label class="form-label small fw-semibold mb-1">Term</label>
-        <select class="form-select form-select-sm" id="term" style="width:165px">
-            <option value="">Select Term</option>
-        </select>
+        <select class="form-select form-select-sm" id="term" style="width:165px" aria-label="Term"></select>
     </div>
     <div>
         <label class="form-label small fw-semibold mb-1">Class</label>

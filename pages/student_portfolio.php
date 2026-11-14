@@ -205,7 +205,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="pfSavePortfolioBtn" onclick="PortfolioController.savePortfolio()">Create Portfolio</button>
+                <button type="button" class="btn btn-primary btn-sm" id="pfSavePortfolioBtn" onclick="PortfolioController.savePortfolio()" data-year-write>Create Portfolio</button>
             </div>
         </div>
     </div>
@@ -310,7 +310,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="pfSaveArtifactBtn" onclick="PortfolioController.saveArtifact()">Save Artifact</button>
+                <button type="button" class="btn btn-primary btn-sm" id="pfSaveArtifactBtn" onclick="PortfolioController.saveArtifact()" data-year-write>Save Artifact</button>
             </div>
         </div>
     </div>

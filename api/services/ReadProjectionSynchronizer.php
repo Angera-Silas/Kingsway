@@ -622,6 +622,7 @@ final class ReadProjectionSynchronizer
         'parents' => ['idx_pk' => ['id']],
         'exam_schedules' => ['idx_pk' => ['id']],
         'learner_placement' => ['idx_pk' => ['enrollment_id']],
+        'learner_placement_history' => ['idx_pk' => ['enrollment_id'], 'idx_year_student' => ['academic_year_id', 'student_id']],
         'exam_context' => ['idx_pk' => ['result_id']],
         'scheme_lesson_context' => ['idx_pk' => ['scheme_id']],
         'learner_guardian' => ['idx_pk' => ['student_parent_id']],

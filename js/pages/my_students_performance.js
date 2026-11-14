@@ -41,9 +41,15 @@ const myStudentsPerformanceController = {
       this.state.years = this.list(yearsResponse, ['academic_years', 'years']);
       this.state.currentYearId = Number(context.academic_year_id || context.current_year?.id || 0) || null;
       this.state.currentTermId = Number(context.term_id || context.current_term?.id || 0) || null;
-      this.renderYears();
-      await this.loadTerms();
-      await this.loadPerformance();
+      // The shared year/term selector (current year, running term by default)
+      // loads the results now and on every change.
+      const mounted = await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+        termSelect: document.getElementById('termFilter'),
+        allTermsLabel: 'All terms',
+        allTermsDefault: false,
+        onChange: () => this.loadPerformance(),
+      });
+      if (!mounted) await this.loadPerformance();
       window.APIRealtime?.register?.('my_students_performance', {
         refresh: () => this.loadPerformance(),
       }, ['academic', 'results']);
@@ -52,11 +58,6 @@ const myStudentsPerformanceController = {
     }
   },
   bind() {
-    document.getElementById('yearFilter')?.addEventListener('change', async () => {
-      await this.loadTerms();
-      await this.loadPerformance();
-    });
-    document.getElementById('termFilter')?.addEventListener('change', () => this.loadPerformance());
     document.getElementById('classFilter')?.addEventListener('change', () => this.render());
     document.getElementById('exportBtn')?.addEventListener('click', () => this.exportCsv());
     document.getElementById('printBtn')?.addEventListener('click', () => {
@@ -65,33 +66,6 @@ const myStudentsPerformanceController = {
       }
       window.print();
     });
-  },
-  renderYears() {
-    const select = document.getElementById('yearFilter');
-    if (!select) return;
-    select.innerHTML = '<option value="">All assigned years</option>' + this.state.years.map(year => {
-      const id = Number(year.id || year.academic_year_id);
-      const name = year.year_name || year.name || year.year_code || `Year ${id}`;
-      return `<option value="${id}">${this.esc(name)}</option>`;
-    }).join('');
-    if (this.state.currentYearId) select.value = String(this.state.currentYearId);
-  },
-  async loadTerms() {
-    const yearId = Number(document.getElementById('yearFilter')?.value || 0);
-    const select = document.getElementById('termFilter');
-    if (!select) return;
-    select.innerHTML = '<option value="">All terms</option>';
-    const query = yearId ? `?academic_year_id=${encodeURIComponent(yearId)}` : '';
-    const response = await this.api(`/academic/terms${query}`);
-    this.state.terms = this.list(response, ['terms', 'academic_terms']);
-    select.innerHTML = '<option value="">All terms</option>' + this.state.terms.map(term => {
-      const id = Number(term.id || term.academic_year_term_id || term.term_id);
-      const name = term.term_name || term.name || `Term ${term.term_number || id}`;
-      return `<option value="${id}">${this.esc(name)}</option>`;
-    }).join('');
-    if (this.state.currentTermId && (!yearId || yearId === this.state.currentYearId)) {
-      select.value = String(this.state.currentTermId);
-    }
   },
   async loadPerformance() {
     const loading = document.getElementById('performanceLoading');
@@ -105,7 +79,7 @@ const myStudentsPerformanceController = {
       const params = new URLSearchParams({ report_type: 'performance', class_teacher_only: '1' });
       const yearId = document.getElementById('yearFilter')?.value;
       const termId = document.getElementById('termFilter')?.value;
-      if (yearId) params.set('year_id', yearId);
+      if (yearId) { params.set('academic_year_id', yearId); params.set('year_id', yearId); }
       if (termId) params.set('term_id', termId);
       const response = await this.api(`/academic/reports?${params.toString()}`);
       const payload = response?.data || response || {};

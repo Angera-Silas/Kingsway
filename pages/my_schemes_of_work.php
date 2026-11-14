@@ -19,7 +19,7 @@
                 <button class="btn btn-light btn-sm" onclick="MySchemesOfWorkController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="MySchemesOfWorkController.createScheme()">
+                <button class="btn btn-outline-light btn-sm" onclick="MySchemesOfWorkController.createScheme()" data-year-write>
                     <i class="bi bi-plus-circle"></i> Create Scheme
                 </button>
                 <button class="btn btn-outline-light btn-sm" onclick="MySchemesOfWorkController.exportSchemes()">
@@ -110,7 +110,7 @@
         <div class="col-md-2"><label class="form-label">Draft title</label><input id="tsTitle" class="form-control" placeholder="Term plan"></div>
       </div></form>
       <div id="tsWeeks" class="d-grid gap-3"><div class="alert alert-secondary">Select a stream and learning area to load the term weeks.</div></div>
-    </div><div class="modal-footer"><span id="tsSaveStatus" class="small text-muted me-auto"></span><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button><button class="btn btn-outline-success" id="saveTeacherScheme"><i class="bi bi-save me-1"></i>Save progress</button><button class="btn btn-success" id="submitTeacherScheme"><i class="bi bi-send me-1"></i>Submit completed scheme</button></div>
+    </div><div class="modal-footer"><span id="tsSaveStatus" class="small text-muted me-auto"></span><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button><button class="btn btn-outline-success" id="saveTeacherScheme" data-year-write><i class="bi bi-save me-1"></i>Save progress</button><button class="btn btn-success" id="submitTeacherScheme" data-year-write><i class="bi bi-send me-1"></i>Submit completed scheme</button></div>
   </div></div>
 </div>
 

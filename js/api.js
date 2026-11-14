@@ -1955,7 +1955,6 @@ const ENDPOINT_PERMISSIONS = {
   "/students/academic-year-create-next": "students_promote",
   "/students/academic-year-set-current": "students_promote",
   "/students/academic-year-update-status": "students_promote",
-  "/students/academic-year-archive": "students_promote",
   "/students/my-profile": ["students_view_own", "students_view"],
   "/students/my-children": [
     "students_view_own",
@@ -3605,6 +3604,23 @@ async function apiCallDirect(
         url.searchParams.append(key, value);
       }
     });
+    // Year-scoped pages (js/core/year_scope.js): a GET that names no year
+    // reads the year (and term) the user chose in the page's year bar. Year
+    // and term pickers always list every year; imports always use the
+    // current year's context.
+    if (upperMethod === "GET" && window.KingswayYearScope?.requestParams
+        && !/\/(?:years?|terms?|year-access|context|academic-years?|academic-year-terms)(?:[\/?]|-list|$)/i.test(normalizedEndpoint)
+        && !/import/i.test(normalizedEndpoint)) {
+      const scoped = window.KingswayYearScope.requestParams();
+      if (scoped.academic_year_id && !url.searchParams.has("academic_year_id") && !url.searchParams.has("year_id")) {
+        url.searchParams.set("academic_year_id", scoped.academic_year_id);
+        url.searchParams.set("year_id", scoped.academic_year_id);
+      }
+      if (scoped.academic_year_term_id && !url.searchParams.has("academic_year_term_id") && !url.searchParams.has("term_id")) {
+        url.searchParams.set("academic_year_term_id", scoped.academic_year_term_id);
+        url.searchParams.set("term_id", scoped.academic_year_term_id);
+      }
+    }
     const requestUrl = url.toString();
 
     // Check if token exists
@@ -4910,8 +4926,6 @@ window.API = {
         year_id: yearId,
         status,
       }),
-    archiveAcademicYear: async (yearId) =>
-      apiCall("/students/academic-year-archive", "POST", { year_id: yearId }),
     getAcademicYearTerms: async (yearId) =>
       apiCall(`/students/academic-year-terms?year_id=${yearId}`, "GET"),
     getCurrentTerm: async () =>
@@ -5372,6 +5386,9 @@ window.API = {
       apiCall("/academic/syllabus", "GET", null, params),
     getMySyllabus: async (params = {}) =>
       apiCall("/academic/my-syllabus", "GET", null, params),
+    // Whether the signed-in user may edit a year's records; omit yearId for the current year.
+    getYearAccess: async (yearId) => apiCall("/academic/year-access", "GET", null,
+      yearId ? { academic_year_id: yearId } : {}),
     // One academic year's calendar; omit yearId for the current year.
     getYearCalendar: async (yearId) => apiCall("/academic/year-calendar", "GET", null,
       yearId ? { academic_year_id: yearId } : {}),

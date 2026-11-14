@@ -71,14 +71,10 @@
                 </select>
             </div>
             <div class="col-md-4">
-                <select id="academicYearSelect" class="form-select">
-                    <option value="">Select Academic Year</option>
-                </select>
+                <select id="academicYearSelect" class="form-select" aria-label="Academic year"></select>
             </div>
             <div class="col-md-4">
-                <select id="termSelect" class="form-select">
-                    <option value="">Select Term</option>
-                </select>
+                <select id="termSelect" class="form-select" aria-label="Term"></select>
             </div>
         </div>
 
