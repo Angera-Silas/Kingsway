@@ -111,6 +111,32 @@ class Config
     }
 
     /**
+     * One .env value as the other runtimes read it. Python and Node strip
+     * surrounding whitespace, so `KEY = secret`, a trailing space or an
+     * inline `# note` must not leave PHP holding a different string: shared
+     * worker secrets are compared byte for byte, and a single stray space
+     * made every ticker job fail with 401/403 in production.
+     */
+    public static function normalizeEnvValue(string $raw): string
+    {
+        $value = trim($raw);
+        $first = $value[0] ?? '';
+        if ($first === '"' || $first === "'") {
+            $end = strpos($value, $first, 1);
+            if ($end !== false) {
+                return substr($value, 1, $end - 1);
+            }
+            return trim($value, '"\'');
+        }
+        // Unquoted: whitespace followed by # starts a comment (dotenv rule).
+        // A # with no whitespace before it stays part of the value.
+        if (preg_match('/^(.*?)\s+#/', $value, $match)) {
+            $value = $match[1];
+        }
+        return rtrim($value);
+    }
+
+    /**
      * Load .env file
      */
     private static function loadEnvFile()
@@ -141,7 +167,7 @@ class Config
             if (strpos($line, '=') !== false) {
                 list($key, $value) = explode('=', $line, 2);
                 $key = trim($key);
-                $value = trim($value, '"\'');
+                $value = self::normalizeEnvValue($value);
 
                 // Deployment-provided environment variables take precedence
                 // over repository/local .env values. This prevents a local
