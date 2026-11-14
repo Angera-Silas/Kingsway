@@ -121,11 +121,11 @@ class ParentPortalManager extends BaseAPI
      */
     public function postLogin(array $data): array
     {
-        $identifier = trim((string)($data['email'] ?? ''));
+        $identifier = trim((string)($data['identifier'] ?? $data['username'] ?? $data['email'] ?? ''));
         $password   = (string)($data['password'] ?? '');
 
         if ($identifier === '' || $password === '') {
-            return $this->errorResponse('Email or phone and password are required', 400);
+            return $this->errorResponse('Phone, email, or username and password are required', 400);
         }
 
         // Build a match clause: exact email, or phone equal to any plausible
@@ -133,14 +133,14 @@ class ParentPortalManager extends BaseAPI
         // the staff side uses the same person row, so phone login lands on the
         // exact same parent account.
         $phoneVariants = $this->phoneLookupVariants($identifier);
-        $phoneOrEmail  = 'p.email = :email';
-        $params        = [':email' => $identifier];
+        $phoneOrEmail  = 'u.username = :username OR LOWER(p.email) = LOWER(:email)';
+        $params        = [':username' => $identifier, ':email' => $identifier];
         if ($phoneVariants !== []) {
             $ands = [];
             foreach ($phoneVariants as $i => $variant) {
                 $key = ':phone_'.$i;
                 // Stored phones may carry a leading '+'/spacing; compare digits-only.
-                $ands[] = "REPLACE(REPLACE(p.phone, '+', ''), ' ', '') = {$key}";
+                $ands[] = "REGEXP_REPLACE(p.phone, '[^0-9]', '') = {$key}";
                 $params[$key] = $variant;
             }
             $phoneOrEmail .= ' OR '.implode(' OR ', $ands);
@@ -148,8 +148,8 @@ class ParentPortalManager extends BaseAPI
 
         try {
             $stmt = $this->db->prepare(
-                "SELECT u.id AS user_id, pr.id AS parent_id,
-                        p.first_name, p.last_name, p.email,
+                "SELECT u.id AS user_id, u.username, p.id AS person_id, pr.id AS parent_id,
+                        p.first_name, p.last_name, p.email, p.phone,
                        u.password_hash, u.status AS user_status,
                        u.data_scope AS user_data_scope, p.data_scope AS person_data_scope
                 FROM users u
@@ -167,10 +167,14 @@ class ParentPortalManager extends BaseAPI
                         AND r.id = 73
                         AND r.name = 'Parent'
                   )
-                 LIMIT 1"
+                 ORDER BY u.id ASC"
             );
             $stmt->execute($params);
-            $parent = $stmt->fetch(PDO::FETCH_ASSOC);
+            $matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (count($matches) > 1) {
+                return $this->errorResponse('This login identifier matches more than one parent account. Contact the school office to resolve your account details.', 409);
+            }
+            $parent = $matches[0] ?? null;
 
             if (!$parent) {
                 // Symmetric guard: a real staff-only account that tries the
@@ -197,14 +201,64 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Invalid email/phone or password', 401);
             }
 
-            $otpSessionId = $this->sendParentEmailOtp((int)$parent['user_id'], (string)$parent['email']);
-            if (!$otpSessionId) return $this->errorResponse('Verification email could not be delivered. Please try again later.', 503);
+            // Test accounts may use fictitious contact details. Apply the same
+            // explicit access gate and MFA bypass used by the staff login path.
+            $testAccess = new \App\API\Services\TestAccountAccessService($this->db);
+            try {
+                $testAccess->requireAccess((int)$parent['user_id']);
+            } catch (\DomainException $e) {
+                return $this->errorResponse($e->getMessage(), 403);
+            }
+            if ($testAccess->mfaBypassAllowed((int)$parent['user_id'])) {
+                \App\API\Services\Logger::audit(
+                    'test_mfa_bypass',
+                    'user',
+                    (int)$parent['user_id'],
+                    'MFA was bypassed for an explicitly flagged test account in the Parent Portal.',
+                    ['username' => $parent['username'] ?? null]
+                );
+                $session = $this->createSession(
+                    (int)$parent['user_id'],
+                    (int)$parent['person_id'],
+                    (int)$parent['parent_id']
+                );
+                return $this->successResponse([
+                    'token'      => $session['token'],
+                    'expires_at' => $session['expires_at'],
+                    'csrf_token' => $session['csrf_token'],
+                    'parent'     => [
+                        'id'         => (int)$parent['parent_id'],
+                        'first_name' => $parent['first_name'],
+                        'last_name'  => $parent['last_name'],
+                        'email'      => $parent['email'],
+                    ],
+                ], 'Login successful');
+            }
+
+            $email = trim((string) ($parent['email'] ?? ''));
+            $phone = trim((string) ($parent['phone'] ?? ''));
+            $method = $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) ? 'email' : 'sms';
+            $destination = $method === 'email' ? $email : $phone;
+            if ($method === 'sms' && \App\API\Services\PhoneNumberNormalizer::normalize($phone) === null) {
+                return $this->errorResponse('No usable email address or phone number is recorded for this account. Contact the school office to update your details.', 422);
+            }
+            // The send budget is scoped to THIS sign-in attempt, so a parent
+            // who signs in again after a mistyped code is not punished by the
+            // previous attempt's sends.
+            $otp = $this->sendParentLoginOtp(
+                (int)$parent['user_id'],
+                $method,
+                $destination,
+                date('Y-m-d H:i:s')
+            );
+            if (!$otp) return $this->errorResponse('The verification code could not be delivered. Please try again later.', 503);
             return $this->successResponse([
                 'requires_otp' => true,
-                'otp_session_id' => $otpSessionId,
-                'masked_destination' => $this->maskEmail((string)$parent['email']),
+                'otp_session_id' => $otp['id'],
+                'otp_method' => $method,
+                'masked_destination' => $method === 'email' ? $this->maskEmail($destination) : $this->maskPhone($destination),
                 'expires_in' => 600,
-            ], 'Enter the verification code sent to your email.');
+            ], 'Enter the verification code sent to your ' . ($method === 'email' ? 'email address.' : 'phone.'));
         } catch (\RuntimeException $e) {
             if ($e->getCode() === 429) return $this->errorResponse($e->getMessage(), 429);
             \App\API\Services\Logger::legacyError('[ParentPortalManager] '.$e->getMessage());
@@ -277,6 +331,11 @@ class ParentPortalManager extends BaseAPI
             $consume->execute([$sessionId]);
             if ($consume->rowCount() !== 1) return $this->errorResponse('OTP session was already used.', 409);
 
+            // The login is complete. Drop the one-time login codes so they
+            // cannot be replayed or count against the next sign-in.
+            (new \App\API\Services\TwoFactorService($this->db))
+                ->clearLoginOtpHistory((int)$session['user_id']);
+
             $parent = $this->getParentByUserId((int)$session['user_id']);
             if (!$parent) {
                 return $this->errorResponse('Parent account is not authorized', 403);
@@ -329,6 +388,9 @@ class ParentPortalManager extends BaseAPI
         } elseif (str_starts_with($digits, '7')) {
             $variants[] = '2547' . substr($digits, 1);
             $variants[] = '07' . substr($digits, 1);
+        } elseif (str_starts_with($digits, '1')) {
+            $variants[] = '2541' . substr($digits, 1);
+            $variants[] = '01' . substr($digits, 1);
         }
 
         // The canonical form is preferred; it is matched first.
@@ -355,9 +417,10 @@ class ParentPortalManager extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT u.id, u.password_hash, u.status, u.data_scope, pd.email
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-                 WHERE pd.email = :email
+                "SELECT u.id, u.password_hash, u.status, u.data_scope, p.email
+                 FROM users u
+                 JOIN persons p ON p.id = u.person_id
+                 WHERE p.email = :email
                    AND u.status = 'active'
                  LIMIT 1"
             );
@@ -385,24 +448,36 @@ class ParentPortalManager extends BaseAPI
         return rtrim($baseUrl, '/') . '/index.php?route=r6d394ab20b0b';
     }
 
-    private function sendParentEmailOtp(int $userId, string $email): ?int
+    private function sendParentLoginOtp(int $userId, string $method, string $destination, ?string $sessionStartedAt = null): ?array
     {
         try {
             $tfa = new \App\API\Services\TwoFactorService($this->db);
-            $code = $tfa->generateOTP($userId, 'email', 'login');
+            $code = $tfa->generateOTP($userId, $method, 'login', $sessionStartedAt);
             if (!$code) return null;
-            if (!(new OTPDeliveryService())->sendEmailOTP($email, $code, 'login')) {
-                $tfa->invalidateLatestOTP($userId, 'login', 'email');
+            $delivery = new OTPDeliveryService();
+            $sent = $method === 'email'
+                ? $delivery->sendEmailOTP($destination, $code, 'login')
+                : $delivery->sendSMSOTP($destination, $code, 'login');
+            if (!$sent) {
+                $tfa->invalidateLatestOTP($userId, 'login', $method);
                 return null;
             }
-            $stmt = $this->db->prepare("SELECT id FROM user_2fa_otp_sessions WHERE user_id=? AND otp_type='login' AND method='email' AND verified=0 ORDER BY id DESC LIMIT 1");
-            $stmt->execute([$userId]);
-            return (int)($stmt->fetchColumn() ?: 0) ?: null;
+            $stmt = $this->db->prepare("SELECT id FROM user_2fa_otp_sessions WHERE user_id=? AND otp_type='login' AND method=? AND verified=0 ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$userId, $method]);
+            $id = (int) ($stmt->fetchColumn() ?: 0);
+            return $id > 0 ? ['id' => $id, 'method' => $method] : null;
         } catch (\RuntimeException $error) {
             if ($error->getCode() === 429) throw $error;
-            \App\API\Services\Logger::legacyError('[ParentPortal] Email OTP failed: '.$error->getMessage());
+            \App\API\Services\Logger::legacyError('[ParentPortal] Login OTP failed: '.$error->getMessage());
             return null;
         }
+    }
+
+    private function maskPhone(string $phone): string
+    {
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+        if (strlen($digits) < 5) return 'the registered phone number';
+        return str_repeat('*', max(0, strlen($digits) - 4)) . substr($digits, -4);
     }
 
     private function maskEmail(string $email): string
@@ -500,8 +575,7 @@ class ParentPortalManager extends BaseAPI
         if ($this->parentId < 1) return $this->errorResponse('Not authenticated', 401);
         try {
             $scope = $this->db->prepare(
-                'SELECT s.id FROM ' . ReadReplicaService::qualifiedRef('student_directory') . ' 
-                 WHERE s.id = ? AND sp.parent_id = ? LIMIT 1'
+                'SELECT 1 FROM student_parents WHERE student_id = ? AND parent_id = ? LIMIT 1'
             );
             $scope->execute([$studentId, $this->parentId]);
             if (!$scope->fetchColumn()) return $this->errorResponse('Student is not linked to this parent account.', 403);
@@ -937,7 +1011,8 @@ class ParentPortalManager extends BaseAPI
             // Recent 30 entries
             $stmt = $this->db->prepare(
                 "SELECT sa.date, sa.status, sa.absence_reason
-                 FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                 FROM student_attendance sa
+                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
                  WHERE sae.student_id = :sid
                  ORDER BY sa.date DESC, sa.id DESC
                  LIMIT 30"
@@ -953,7 +1028,8 @@ class ParentPortalManager extends BaseAPI
                         SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS days_present,
                         SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS days_absent,
                         SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS days_late
-                 FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                 FROM student_attendance sa
+                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
                  WHERE sae.student_id = :sid AND sa.date BETWEEN :start AND :end
                  GROUP BY DATE_FORMAT(sa.date, '%Y-%m')
                  ORDER BY month ASC"
@@ -1804,7 +1880,7 @@ class ParentPortalManager extends BaseAPI
                     "SELECT cv.id, cv.code, cv.name AS value_name,
                             lva.evidence, lva.incident_date,
                             (lva.id IS NOT NULL) AS has_evidence
-                     FROM " . ReadReplicaService::qualifiedRef("core_values") . "
+                     FROM " . ReadReplicaService::qualifiedRef("core_values") . " cv
                      LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_values_acquisition") . " lva
                             ON lva.value_id = cv.id
                            AND lva.student_id = :sid
@@ -2045,9 +2121,9 @@ class ParentPortalManager extends BaseAPI
                     "SELECT im.id, im.conversation_id, im.sender_id, im.subject,
                             im.message_body AS message, im.status, im.created_at,
                             CASE WHEN im.sender_id = :pid THEN 'parent' ELSE 'staff' END AS sender_type,
-                            CASE WHEN im.sender_id = :pid THEN 'You'
+                            CASE WHEN im.sender_id = :pid_name THEN 'You'
                                  ELSE (SELECT CONCAT_WS(' ', sp.first_name, sp.last_name)
-                                       FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                                       FROM users su JOIN persons sp ON sp.id = su.person_id
                                        WHERE su.id = im.sender_id)
                             END AS sender_name
                      FROM internal_messages im
@@ -2056,7 +2132,7 @@ class ParentPortalManager extends BaseAPI
                      ORDER BY im.created_at DESC
                      LIMIT 100"
                 );
-                $stmt->execute([':pid' => $this->user_id, ':cid' => (int)$conversation['id']]);
+                $stmt->execute([':pid' => $this->user_id, ':pid_name' => $this->user_id, ':cid' => (int)$conversation['id']]);
                 $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 $this->markMessagesRead((int)$conversation['id']);
@@ -2385,11 +2461,10 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Amount exceeds outstanding balance', 400);
             }
 
-            // Provider is a system decision, not a parent choice. Rails are
-            // DB-driven (payment_collection_routes.priority) and attempted in
-            // order: Buni first, PayHero next, Daraja last — failing over only
-            // while no provider has accepted the request. An explicit override
-            // is still honoured for staff-surface callers.
+            // Provider is a system decision, not a parent choice. STK rails
+            // are attempted in business order: PayHero first, Daraja Express
+            // fallback — failing over only while no provider has accepted the
+            // request. KCB Buni is C2B/IPN only and never prompts an STK.
             $provider = strtolower(trim((string) ($data['provider'] ?? 'auto')));
             if (!in_array($provider, ['auto', 'buni', 'daraja', 'payhero'], true)) {
                 return $this->errorResponse('Unsupported payment provider', 400);
@@ -2401,19 +2476,17 @@ class ParentPortalManager extends BaseAPI
                 'reference' => $student['admission_no'],
                 'customer_name' => trim((string) ($parent['name'] ?? '')),
                 'description' => 'School fees',
-                'provider_code' => ['buni' => 'kcb_buni', 'daraja' => 'mpesa_daraja', 'payhero' => 'payhero'][$provider] ?? '',
+                'provider_code' => ['daraja' => 'safaricom_daraja', 'payhero' => 'payhero'][$provider] ?? '',
             ]);
 
             if (!empty($result['accepted'])) {
                 $providerLabels = [
-                    'kcb_buni' => 'buni',
                     'payhero' => 'payhero',
-                    'mpesa_daraja' => 'daraja',
+                    'safaricom_daraja' => 'daraja',
                 ];
                 $messages = [
-                    'kcb_buni' => 'KCB Buni M-Pesa prompt sent. Check your phone and enter your PIN.',
                     'payhero' => 'M-Pesa prompt sent. Check your phone and enter your PIN.',
-                    'mpesa_daraja' => 'M-Pesa STK Push sent. Check your phone and enter PIN.',
+                    'safaricom_daraja' => 'M-Pesa STK Push sent. Check your phone and enter PIN.',
                 ];
                 $providerResult = $result['result']['provider'] ?? [];
 
@@ -2493,7 +2566,7 @@ class ParentPortalManager extends BaseAPI
                 $entStmt = $this->db->prepare(
                     "SELECT te.id, te.amount_due, te.student_id,
                             te.entitlement_status, r.name AS route_name
-                     FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . "
+                     FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " te
                      LEFT JOIN transport_routes r ON r.id = te.route_id
                      WHERE te.student_id = ? AND te.entitlement_status = 'active'
                      ORDER BY te.id DESC LIMIT 1"
@@ -2638,7 +2711,7 @@ class ParentPortalManager extends BaseAPI
             $transport = $trStmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Uniform balance aggregate.
-            $uniformView = ReadReplicaService::qualifiedRef('student_uniform_balance');
+            $uniformView = ReadReplicaService::masterRef('vw_student_uniform_balance');
             $unStmt = $this->db->prepare(
                 "SELECT total_billed, total_paid, total_balance, last_purchase
                  FROM $uniformView
@@ -2948,6 +3021,7 @@ class ParentPortalManager extends BaseAPI
         $token = JWT::encode([
             'user_id'   => $userId,
             'id'        => $userId,
+            'sub'       => (string) $userId,
             'person_id' => $personId,
             'parent_id' => $parentId,
             'roles'     => [['id' => 73, 'name' => 'Parent']],
@@ -3004,7 +3078,9 @@ class ParentPortalManager extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT u.id AS user_id, pr.id AS parent_id, p.id AS person_id,
                     p.first_name, p.last_name, p.email
-             FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+             FROM users u
+             JOIN persons p ON p.id = u.person_id
+             JOIN parents pr ON pr.person_id = u.person_id
              WHERE u.id = :uid
                AND u.status = 'active'
                AND pr.status = 'active'
@@ -3178,6 +3254,25 @@ class ParentPortalManager extends BaseAPI
         $stmt->execute([':sid' => $studentId]);
         $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        $extraStmt = $this->db->prepare(
+            "SELECT eco.id,eco.student_academic_enrollment_id,sae.academic_year_id,
+                    eco.academic_year_term_id,eco.amount_due,eco.status AS obligation_status,
+                    eco.due_date,eco.amount_paid,eco.amount_waived,
+                    ay.year_code AS academic_year,t.id AS term_id,t.name AS term_name,
+                    t.code AS term_number,ec.name AS fee_type_name,'EXTRA_CHARGE' AS fee_type_code
+             FROM extra_charge_student_obligations eco
+             JOIN student_academic_enrollments sae ON sae.id=eco.student_academic_enrollment_id
+             JOIN academic_years ay ON ay.id=sae.academic_year_id
+             JOIN academic_year_terms ayt ON ayt.id=eco.academic_year_term_id
+             JOIN terms t ON t.id=ayt.term_id
+             JOIN extra_charge_schedules sch ON sch.id=eco.schedule_id
+             JOIN extra_charges ec ON ec.id=sch.extra_charge_id
+             WHERE sae.student_id=:sid AND eco.status<>'cancelled'
+             ORDER BY ay.year_code DESC,t.id,eco.due_date,eco.id"
+        );
+        $extraStmt->execute([':sid' => $studentId]);
+        $obligations = array_merge($obligations, $extraStmt->fetchAll(PDO::FETCH_ASSOC));
+
         // Term-level paid/balance/waived from the ledger view
         $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
         $stmt = $this->db->prepare(
@@ -3229,9 +3324,16 @@ class ParentPortalManager extends BaseAPI
             foreach ($yData['terms'] as &$term) {
                 $aytId = null;
                 $termDue = 0;
+                $schoolFeeDue = 0;
+                $extraPaid = 0;
                 foreach ($term['obligations'] as $o) {
                     $aytId = (int)$o['academic_year_term_id'];
                     $termDue += (float)$o['amount_due'];
+                    if (($o['fee_type_code'] ?? '') === 'EXTRA_CHARGE') {
+                        $extraPaid += (float)($o['amount_paid'] ?? 0);
+                    } else {
+                        $schoolFeeDue += (float)$o['amount_due'];
+                    }
                 }
 
                 $paid = 0;
@@ -3243,8 +3345,11 @@ class ParentPortalManager extends BaseAPI
 
                 foreach ($term['obligations'] as &$o) {
                     $amountDue = (float)$o['amount_due'];
-                    $rowPaid   = $termDue > 0 ? round($paid * ($amountDue / $termDue), 2) : 0;
-                    $waived    = (float)($o['sponsored_waiver_amount'] ?? 0);
+                    $isExtra = ($o['fee_type_code'] ?? '') === 'EXTRA_CHARGE';
+                    $rowPaid   = $isExtra
+                        ? (float)($o['amount_paid'] ?? 0)
+                        : ($schoolFeeDue > 0 ? round(max(0, $paid - $extraPaid) * ($amountDue / $schoolFeeDue), 2) : 0);
+                    $waived    = (float)($o['amount_waived'] ?? $o['sponsored_waiver_amount'] ?? 0);
                     $rowBal    = max($amountDue - $waived - $rowPaid, 0);
 
                     $o['amount_paid'] = $rowPaid;
@@ -3403,12 +3508,13 @@ class ParentPortalManager extends BaseAPI
             // Admission interview evidence remains part of the learner's
             // academic history after enrollment; do not discard it at intake.
             $interview = $this->db->prepare(
-                "SELECT application_no, scheduled_date, conducted_at, interview_status AS status,
-                        academic_readiness_score, behavior_score, communication_score,
-                        overall_score, interview_recommendation AS recommendation, interview_remarks AS remarks
-                   FROM " . ReadReplicaService::qualifiedRef("admission_applications_interviews") . "
-                  WHERE enrolled_student_id = ? AND interview_status = 'completed'
-                  ORDER BY interview_record_id DESC LIMIT 1"
+                "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                        ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                        ai.overall_score, ai.recommendation, ai.remarks
+                   FROM admission_applications aa
+                   JOIN admission_interviews ai ON ai.application_id = aa.id
+                  WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+                  ORDER BY ai.id DESC LIMIT 1"
             );
             $interview->execute([$studentId]);
             $payload['admission_interview'] = $interview->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -3602,7 +3708,7 @@ class ParentPortalManager extends BaseAPI
         }
 
         // Any active admin account
-        $userRoleGrant = ReadReplicaService::masterRef('user_role_grant');
+        $userRoleGrant = ReadReplicaService::masterRef('vw_user_role_grant');
         $stmt = $this->db->prepare(
             "SELECT urg.user_id AS id
              FROM {$userRoleGrant} urg

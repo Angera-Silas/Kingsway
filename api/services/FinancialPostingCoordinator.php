@@ -27,8 +27,61 @@ final class FinancialPostingCoordinator
             ['account_code' => $source['ledger_code'], 'debit' => $amount, 'description' => 'Money received into ' . $source['account_name']],
             ['account_code' => $receivable, 'credit' => $amount, 'description' => ucfirst($purpose) . ' receivable settlement'],
         ], $actorUserId);
+        if ($purpose === 'fees' && $sourceType === 'payment') {
+            $this->postAllocatedExtraCharges($sourceId, $actorUserId, $reference);
+        }
         $this->announceIncoming($result, $purpose);
         return $result;
+    }
+
+    /** Reclassify the charge portion of an incoming fee payment to each
+     * extra charge's configured income account. Cash is debited only by the
+     * original incoming-fee journal, so this entry moves the receivable credit
+     * without duplicating the bank/cash debit. */
+    private function postAllocatedExtraCharges(int $paymentId, int $actorUserId = 0, ?string $reference = null): void
+    {
+        $stmt = $this->db->prepare(
+            "SELECT coa.account_code, ec.name, SUM(alloc.amount) AS amount
+             FROM extra_charge_student_payment_allocations alloc
+             JOIN extra_charge_student_obligations eco ON eco.id=alloc.obligation_id
+             JOIN extra_charge_schedules sch ON sch.id=eco.schedule_id
+             JOIN extra_charges ec ON ec.id=sch.extra_charge_id
+             JOIN chart_of_accounts coa ON coa.id=ec.gl_account_id
+             WHERE alloc.payment_id=? AND alloc.status='allocated'
+               AND coa.status='active' AND coa.is_postable=1
+             GROUP BY coa.account_code,ec.id,ec.name
+             ORDER BY coa.account_code,ec.name"
+        );
+        $stmt->execute([$paymentId]);
+        $allocations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$allocations) return;
+
+        $lines = [];
+        $total = 0.0;
+        foreach ($allocations as $allocation) {
+            $amount = round((float) $allocation['amount'], 2);
+            if ($amount <= 0 || (string) $allocation['account_code'] === '120001') continue;
+            $total += $amount;
+            $lines[] = [
+                'account_code' => (string) $allocation['account_code'],
+                'credit' => number_format($amount, 2, '.', ''),
+                'description' => 'Extra charge income: ' . (string) $allocation['name'],
+            ];
+        }
+        if ($total <= 0) return;
+        array_unshift($lines, [
+            'account_code' => '120001',
+            'debit' => number_format($total, 2, '.', ''),
+            'description' => 'Reclassify extra-charge portion from fees receivable',
+        ]);
+        $this->journals->post(
+            'payment_extra_charge_allocation',
+            $paymentId,
+            'extra_charge_reclassification',
+            'Extra-charge allocation reclassification' . ($reference ? ' ' . $reference : ''),
+            $lines,
+            $actorUserId
+        );
     }
 
     /** Post a charge payment to the configured income accounts, preserving
@@ -97,7 +150,10 @@ final class FinancialPostingCoordinator
 
     private function sourceAccount(int $id): array
     {
-        $s = $this->db->prepare("SELECT a.id,a.account_name,c.account_code AS ledger_code FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " c ON c.id=a.ledger_account_id WHERE a.id=? AND a.status='active' LIMIT 1");
+        // Ledger posting is a strong-consistency decision on the money path: a
+        // stale read-replica projection here would mean confirmed money is
+        // never journalled. Both tables are small master lookups keyed by id.
+        $s = $this->db->prepare("SELECT a.id,a.account_name,c.account_code AS ledger_code FROM " . ReadReplicaService::masterRef("school_financial_accounts") . " a JOIN " . ReadReplicaService::masterRef("chart_of_accounts") . " c ON c.id=a.ledger_account_id WHERE a.id=? AND a.status='active' LIMIT 1");
         $s->execute([$id]);
         $account = $s->fetch(PDO::FETCH_ASSOC);
         if (!$account || !$account['ledger_code']) throw new RuntimeException('Financial account is not active or has no ledger mapping.');

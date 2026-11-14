@@ -21,7 +21,6 @@
         <option value="80" selected>Below 80% (Warning)</option>
         <option value="90">Below 90% (Monitor)</option>
       </select>
-      <button class="btn btn-outline-primary btn-sm" id="caApplyBtn">Apply</button>
     </div>
   </div>
 

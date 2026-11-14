@@ -278,68 +278,104 @@ document.addEventListener('DOMContentLoaded', () => {
     return /invalid or expired 2fa challenge/i.test(String(error?.message || ''));
   }
 
+  const TFA_METHOD_LABELS = {totp:'Authenticator app',email:'Email',sms:'SMS',whatsapp:'WhatsApp',passkey:'Passkey',backup:'Recovery code'};
+
+  /**
+   * Reflect the active verification channel in the modal: description, code
+   * label, resend row and the passkey button. Any enrolled factor may finish
+   * the same sign-in, so the user can move between channels freely.
+   */
+  function applyTFAMethod(method, options = {}) {
+    const methodDesc = document.getElementById('tfaMethodDesc');
+    const codeLabel  = document.getElementById('tfaCodeLabel');
+    const resendRow  = document.getElementById('tfaResend');
+    const tfaRecoveryBtn = document.getElementById('tfaRecoveryBtn');
+    const tfaCode = document.getElementById('tfaCode');
+    const passkeyBtn = document.getElementById('tfaPasskeyBtn');
+    const isPasskey = method === 'passkey';
+    const isCode = method === 'totp' || method === 'email' || method === 'sms' || method === 'whatsapp';
+    passkeyBtn?.classList.toggle('d-none', !isPasskey);
+    tfaCode?.classList.toggle('d-none', !isCode);
+    if (isCode) {
+      // A normal code is six digits; the recovery-code entry widens the same
+      // field when the user asks for it.
+      tfaCode.maxLength = 6;
+      tfaCode.inputMode = 'numeric';
+      tfaCode.placeholder = '';
+    }
+    // Recovery codes complete the same sign-in when the account still holds
+    // unused ones. The button is only offered in that case.
+    tfaRecoveryBtn?.classList.toggle('d-none', !options.canUseRecovery);
+    if (method === 'totp') {
+        methodDesc.textContent = 'Enter the 6-digit verification code from your authenticator app.';
+        codeLabel.textContent = 'Authentication Code (from app)';
+        resendRow?.classList.add('d-none');
+    } else if (method === 'email') {
+        methodDesc.textContent = 'A verification code has been sent to your email address.';
+        codeLabel.textContent = 'Email Verification Code';
+        resendRow?.classList.remove('d-none');
+    } else if (method === 'sms' || method === 'whatsapp') {
+        methodDesc.textContent = 'A verification code has been sent to your phone.';
+        codeLabel.textContent = method === 'whatsapp' ? 'WhatsApp Verification Code' : 'SMS Verification Code';
+        resendRow?.classList.remove('d-none');
+    } else if (isPasskey) {
+        methodDesc.textContent = 'Use your fingerprint, face unlock, device PIN or security key to verify.';
+        codeLabel.textContent = 'Passkey';
+        resendRow?.classList.add('d-none');
+    }
+  }
+
   window.showTFAVerification = async function (res, username, password, rememberMe) {
     tfaState = { userId: res.user_id, method: res.method, challengeToken: res.challenge_token, username, password, rememberMe, onComplete: res.onComplete };
 
     const modalEl = document.getElementById('tfaModal');
-    const methodDesc = document.getElementById('tfaMethodDesc');
-    const codeLabel  = document.getElementById('tfaCodeLabel');
-    const resendRow  = document.getElementById('tfaResend');
-    const resendBtn  = document.getElementById('tfaResendBtn');
-    const tfaRecoveryBtn = document.getElementById('tfaRecoveryBtn');
     const tfaCode = document.getElementById('tfaCode');
     const tfaError = document.getElementById('tfaError');
-    const tfaErrorText = document.getElementById('tfaErrorText');
-    const passkeyBtn = document.getElementById('tfaPasskeyBtn');
     const picker = document.getElementById('tfaMethodPicker');
     const select = document.getElementById('tfaMethodSelect');
+    // Recovery codes are a way to finish this sign-in when the account still
+    // holds unused ones.
+    const canUseRecovery = Number(res.backup_codes_remaining) > 0;
     const methods = Array.isArray(res.available_methods) ? res.available_methods : [res.method];
     if (methods.length > 1 && picker && select) {
-      const labels = {totp:'Authenticator app',email:'Email',sms:'SMS',whatsapp:'WhatsApp'};
+      const labels = TFA_METHOD_LABELS;
       select.innerHTML = methods.map(m => `<option value="${m}" ${m === res.method ? 'selected' : ''}>${labels[m] || m}</option>`).join('');
       picker.classList.remove('d-none');
       select.onchange = async () => {
-        tfaState.method = select.value;
-        passkeyBtn?.classList.toggle('d-none', tfaState.method !== 'passkey');
-        tfaCode?.classList.toggle('d-none', tfaState.method === 'passkey');
-        try { await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: tfaState.challengeToken, method: tfaState.method }); showTFASuccess('Verification method selected.'); } catch (e) { showTFAError(e.message || 'Unable to select method'); }
+        const chosen = select.value;
+        const previous = tfaState.method;
+        try {
+          // The challenge belongs to this sign-in session, so switching the
+          // channel keeps the session open: no password, no new challenge.
+          await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: tfaState.challengeToken, method: chosen });
+          tfaState.method = chosen;
+          applyTFAMethod(chosen, { canUseRecovery });
+          if (['email','sms','whatsapp'].includes(chosen)) startTFACountdown();
+          showTFASuccess('Verification method selected.');
+        } catch (e) {
+          select.value = previous;
+          applyTFAMethod(previous, { canUseRecovery });
+          showTFAError(e.message || 'Unable to select method');
+        }
       };
     } else if (picker) picker.classList.add('d-none');
-    passkeyBtn?.classList.toggle('d-none', res.method !== 'passkey');
-    tfaCode?.classList.toggle('d-none', res.method === 'passkey');
+    applyTFAMethod(res.method, { canUseRecovery });
 
     // Reset
     tfaCode.value = '';
     tfaError.classList.add('d-none');
     hideTFASpinner();
 
-    if (res.method === 'totp') {
-      methodDesc.textContent = 'Enter the 6-digit verification code from your authenticator app.';
-      codeLabel.textContent = 'Authentication Code (from app)';
-      resendRow.classList.add('d-none');
-      tfaRecoveryBtn.classList.remove('d-none');
-    } else if (res.method === 'email') {
-      methodDesc.textContent = 'A verification code has been sent to your email address.';
-      codeLabel.textContent = 'Email Verification Code';
-      resendRow.classList.remove('d-none');
-      tfaRecoveryBtn.classList.add('d-none');
+    // The default channel is the user's own preference. A code is delivered
+    // for it straight away; every other channel stays one click away.
+    if (res.method === 'email' || res.method === 'sms' || res.method === 'whatsapp') {
       startTFACountdown();
-      // Auto-send OTP
       try {
         await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: res.challenge_token });
       } catch (_) { /* ignore — code may already be sent */ }
-    } else if (res.method === 'sms' || res.method === 'whatsapp') {
-      methodDesc.textContent = 'A verification code has been sent to your phone.';
-      codeLabel.textContent = res.method === 'whatsapp' ? 'WhatsApp Verification Code' : 'SMS Verification Code';
-      resendRow.classList.remove('d-none');
-      tfaRecoveryBtn.classList.add('d-none');
-      startTFACountdown();
-      try {
-        await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: res.challenge_token });
-      } catch (_) { /* ignore */ }
     }
 
-    const tfaModal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+    const tfaModal = bootstrap.Modal.getOrCreateInstance(modalEl, { backdrop: 'static', keyboard: false });
     tfaModal.show();
 
     // Focus the input after modal opens
@@ -380,16 +416,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     showTFASpinner();
     try {
-      let currentMethod = document.getElementById('tfaRecoveryBtn')?.classList.contains('d-none')
-        ? tfaState.method : tfaState.method;
+      // The channel the user is on. The server accepts any enrolled factor,
+      // so a code that arrived on another channel still completes the sign-in.
+      const currentMethod = tfaState.method;
 
-      // If the input looks like a backup code (9 chars with dash), use backup method
-      const isBackup = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code);
+      // A recovery code is eight characters, printed as XXXX-XXXX. It is
+      // accepted with or without the dash and in any case, and it completes
+      // the same sign-in as every other factor.
+      const compact = code.replace(/\s+/g, '').toUpperCase();
+      const isBackup = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(compact) || /^[A-Z0-9]{8}$/.test(compact);
       const method = isBackup ? 'backup' : currentMethod;
+      const submitted = isBackup ? compact : code;
 
       // Verify the code
       const verifyRes = await window.callAPI?.('/twofactor/verify', 'POST', {
-        code,
+        code: submitted,
         challenge_token: tfaState.challengeToken,
         method,
       });
@@ -453,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tfaBackBtn')?.addEventListener('click', () => {
     bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
     tfaState = null;
-    const loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+    const loginModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('loginModal'));
     loginModal.show();
     resetLoginBtn();
   });
@@ -463,14 +504,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const codeInput = document.getElementById('tfaCode');
     const label  = document.getElementById('tfaCodeLabel');
     const desc   = document.getElementById('tfaMethodDesc');
-    const btn    = document.getElementById('tfaRecoveryBtn');
-    codeInput.placeholder = 'XXXX-XXXX';
-    codeInput.maxLength = 9;
-    codeInput.inputMode = 'text';
-    label.textContent = 'Recovery Code';
-    desc.textContent = 'Enter one of your backup recovery codes.';
-    btn.classList.add('d-none');
-    document.getElementById('tfaResend')?.classList.add('d-none');
+    if (!codeInput) return;
+    // The button toggles between the normal code entry and the recovery-code
+    // entry, so a user who picks the wrong one is never stuck.
+    const usingRecovery = codeInput.maxLength === 9;
+    if (!usingRecovery) {
+      codeInput.placeholder = 'XXXX-XXXX';
+      codeInput.maxLength = 9;
+      codeInput.inputMode = 'text';
+      label.textContent = 'Recovery Code';
+      desc.textContent = 'Enter one of your recovery codes. Each code works only once.';
+      document.getElementById('tfaResend')?.classList.add('d-none');
+    } else {
+      codeInput.placeholder = '';
+      codeInput.maxLength = 6;
+      codeInput.inputMode = 'numeric';
+      label.textContent = 'Verification Code';
+      desc.textContent = 'Enter the code we sent you.';
+      document.getElementById('tfaResend')?.classList.remove('d-none');
+    }
+    codeInput.value = '';
     codeInput.focus();
   });
 
@@ -478,8 +531,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tfaResendBtn')?.addEventListener('click', async () => {
     if (!tfaState) return;
     try {
+      // Resend to the channel the user is actually looking at.
       await window.callAPI?.('/twofactor/challenge', 'POST', {
         challenge_token: tfaState.challengeToken,
+        method: tfaState.method,
       });
       startTFACountdown();
       showTFASuccess('A new code has been sent.');

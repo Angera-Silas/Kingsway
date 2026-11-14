@@ -163,6 +163,9 @@ class NodeController extends BaseAPI
                 return $this->errorResponse('Authenticated session token required.', 401);
             }
             $viewHeaders['Authorization'] = $authorization;
+            // The proxy in front of the Node subdomain strips Authorization;
+            // Node restores it from this copy (utils/proxyAuthorization.js).
+            $viewHeaders['X-Kingsway-Authorization'] = $authorization;
             $workerSecret = (string) Config::get('KINGSWAY_WORKER_SECRET', '');
             if ($workerSecret === '') {
                 $workerSecret = (string) Config::get('NODE_REALTIME_PUBLISH_SECRET', '');

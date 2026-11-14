@@ -19,7 +19,7 @@
     },
 
     bind() {
-      this.on("whatsappRefresh", "click", () => this.load());
+      this.on("whatsappRefresh", "click", () => this.load({ userInitiated: true }));
       this.on("whatsappSaveBtn", "click", () => this.save());
       this.on("whatsappTestBtn", "click", () => this.test());
       this.on("whatsappExportCsv", "click", () => this.exportCsv());
@@ -28,34 +28,64 @@
 
     on(id, evt, fn) { const el = document.getElementById(id); if (el) el.addEventListener(evt, fn); },
 
-    async load() {
+    hasUnsavedEdits() {
+      const originalValues = new Map(this.fields.map((field) => [field.key, String(field.value ?? "")]));
+      return Array.from(document.querySelectorAll(".whatsapp-field-input")).some((input) => (
+        String(input.value) !== (originalValues.get(input.dataset.key) ?? "")
+      ));
+    },
+
+    async load(options = {}) {
+      if (this.hasUnsavedEdits()) {
+        if (options.userInitiated) {
+          this.showMsg("Save your WhatsApp settings before refreshing. Your unsaved edits are still on this page.", "warning");
+        }
+        return;
+      }
+
       const state = document.getElementById("whatsappState");
-      const body = document.getElementById("whatsappFieldsBody");
-      if (state) state.className = "alert alert-info";
-      if (state) state.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Loading WhatsApp settings...';
-      if (body) body.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Loading...</td></tr>';
+      this.setState(state, "Loading WhatsApp settings...", "info");
       try {
         const res = await window.API.system.getCommunicationConfigs();
         this.fields = res?.whatsapp || [];
-        this.renderTable();
-        if (state) { state.className = "alert alert-success py-2"; state.innerHTML = '<i class="bi bi-check-circle me-1"></i>WhatsApp configuration loaded.'; }
+        this.updateFields();
+        this.setState(state, "WhatsApp configuration loaded.", "success");
       } catch (e) {
         console.error("[WhatsappConfig] load failed", e);
-        if (state) { state.className = "alert alert-danger"; state.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Failed to load WhatsApp configuration.'; }
-        if (body) body.innerHTML = '<tr><td colspan="4" class="text-danger text-center py-3">Load failed.</td></tr>';
+        this.setState(state, "Failed to load WhatsApp configuration.", "danger");
       }
     },
 
-    renderTable() {
-      const body = document.getElementById("whatsappFieldsBody");
-      if (!body) return;
-      if (!this.fields.length) { body.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No WhatsApp fields found.</td></tr>'; return; }
-      body.innerHTML = this.fields.map(f => `<tr>
-        <td><strong>${this.esc(f.label || f.key)}</strong><br><small class="text-muted">${this.esc(f.key)}</small></td>
-        <td>${f.is_secret ? (f.configured ? '<span class="badge bg-success">Configured</span>' : '<span class="badge bg-secondary">Not set</span>') : `<code>${this.esc(f.value || '—')}</code>`}</td>
-        <td>${f.source === 'db' ? '<span class="badge bg-primary">Database</span>' : '<span class="badge bg-secondary">Environment</span>'}</td>
-        <td>${f.is_secret ? '' : `<input type="text" class="form-control form-control-sm whatsapp-field-input" data-key="${this.esc(f.key)}" value="${this.esc(f.value || '')}">`}</td>
-      </tr>`).join("");
+    updateFields() {
+      this.fields.forEach((field) => {
+        const row = Array.from(document.querySelectorAll("[data-whatsapp-field]"))
+          .find((element) => element.dataset.whatsappField === field.key);
+        if (!row) return;
+
+        const label = row.querySelector("[data-field-label]");
+        const key = row.querySelector("[data-field-key]");
+        const value = row.querySelector("[data-field-value]");
+        const source = row.querySelector("[data-field-source]");
+        const secretStatus = row.querySelector("[data-secret-status]");
+        const input = row.querySelector(".whatsapp-field-input");
+
+        if (label) label.textContent = field.label || field.key;
+        if (key) key.textContent = field.key;
+        if (value) value.textContent = field.value || "—";
+        if (input) input.value = field.value || "";
+        if (source) {
+          const fromDatabase = field.source === "db";
+          source.textContent = fromDatabase ? "Database" : "Environment";
+          source.classList.toggle("bg-primary", fromDatabase);
+          source.classList.toggle("bg-secondary", !fromDatabase);
+        }
+        if (secretStatus) {
+          const configured = Boolean(field.configured);
+          secretStatus.textContent = configured ? "Configured" : "Not set";
+          secretStatus.classList.toggle("bg-success", configured);
+          secretStatus.classList.toggle("bg-secondary", !configured);
+        }
+      });
     },
 
     async save() {
@@ -63,28 +93,26 @@
       const inputs = document.querySelectorAll(".whatsapp-field-input");
       const fields = Array.from(inputs).map(i => ({ key: i.dataset.key, value: i.value.trim() }));
       if (!fields.length) { this.showMsg("No editable fields to save.", "warning"); return; }
-      if (state) { state.className = "alert alert-info"; state.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Saving...'; }
+      this.setState(state, "Saving...", "info");
       try {
         const res = await window.API.system.saveCommunicationConfig("whatsapp", fields);
         this.fields = res?.whatsapp || [];
-        this.renderTable();
-        if (state) { state.className = "alert alert-success py-2"; state.innerHTML = '<i class="bi bi-check-circle me-1"></i>WhatsApp settings saved successfully.'; }
+        this.updateFields();
+        this.setState(state, "WhatsApp settings saved successfully.", "success");
       } catch (e) {
         console.error("[WhatsappConfig] save failed", e);
-        if (state) { state.className = "alert alert-danger"; state.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Failed to save WhatsApp settings.'; }
+        this.setState(state, "Failed to save WhatsApp settings.", "danger");
       }
     },
 
     async test() {
       const result = document.getElementById("whatsappTestResult");
-      if (result) result.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Testing...</span>';
+      this.setTestResult(result, "Testing...", "info");
       try {
         const res = await window.API.system.testCommunicationConfig("whatsapp");
-        if (result) result.innerHTML = res?.success
-          ? `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${this.esc(res.message || 'Test passed.')}</span>`
-          : `<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${this.esc(res.message || 'Test failed.')}</span>`;
+        this.setTestResult(result, res?.message || (res?.success ? "Test passed." : "Test failed."), res?.success ? "success" : "danger");
       } catch (e) {
-        if (result) result.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${this.esc(e.message || 'Test failed.')}</span>`;
+        this.setTestResult(result, e.message || "Test failed.", "danger");
       }
     },
 
@@ -92,7 +120,16 @@
     csvContent() { return "Key,Label,Value,Source\n" + this.fields.map(f => `${f.key},"${(f.label||'').replace(/"/g,'""')}","${(f.value||'').replace(/"/g,'""')}",${f.source}`).join("\n"); },
 
     showMsg(msg, type = "info") { window.showNotification?.(msg, type); },
-    esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; },
+    setState(element, message, type) {
+      if (!element) return;
+      element.textContent = message;
+      element.className = `alert alert-${type}${type === "success" ? " py-2" : ""}`;
+    },
+    setTestResult(element, message, type) {
+      if (!element) return;
+      element.textContent = message;
+      element.className = `small text-${type === "success" ? "success" : type === "danger" ? "danger" : "info"}`;
+    },
   };
   window.WhatsappConfigController = WhatsappConfigController;
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => WhatsappConfigController.init());

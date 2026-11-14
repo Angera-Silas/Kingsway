@@ -7,9 +7,12 @@ secret; the service is never browser-facing and carries no human sessions.
 from __future__ import annotations
 
 import hmac
+import re
 
 MAX_QUESTION_CHARS = 500
 MAX_PAYLOAD_BYTES = 200_000
+
+_SESSION_ID_RE = re.compile(r"^[a-f0-9]{8,64}$")
 
 
 def bearer_authorized(headers, secret: str) -> bool:
@@ -34,6 +37,58 @@ def ensure_staff_context(context: dict) -> dict:
     permissions = [
         str(p) for p in (context.get("permissions") or []) if isinstance(p, (str, int))
     ]
+    session_id = str(context.get("session_id") or "")
+    if session_id and not _SESSION_ID_RE.match(session_id):
+        session_id = ""
+    user_name = str(context.get("user_name") or "").strip()
+    roles = context.get("roles")
+    role_labels = []
+    if isinstance(roles, list):
+        for role in roles:
+            if isinstance(role, dict):
+                label = next(
+                    (role.get(key) for key in ("name", "role_name", "label", "slug", "code") if role.get(key)),
+                    "",
+                )
+            else:
+                label = role
+            if isinstance(label, (str, int)) and str(label).strip():
+                role_labels.append(str(label).strip()[:80])
+    if not role_labels:
+        role_labels = ["Staff"]
+    scope_labels = context.get("scope_labels")
+    if isinstance(scope_labels, list):
+        scope_labels = [str(s).strip() for s in scope_labels if str(s).strip()]
+    if not scope_labels:
+        _humanized = []
+        for p in context.get("permissions") or []:
+            s = str(p)
+            t = re.sub(r"[^a-zA-Z0-9]", " ", s).strip()
+            if t:
+                _humanized.append(" ".join(w.capitalize() for w in t.split()))
+        scope_labels = _humanized
+    normalized_roles = {
+        re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
+        for label in role_labels
+    }
+    is_system_admin = "system_admin" in permissions
+    # Role labels select advisory tone only. The system administrator
+    # capability includes operational diagnostics, so require the effective
+    # server-resolved permission; a label must never grant that surface.
+    if is_system_admin:
+        assistant_profile = "system_admin"
+    elif normalized_roles & {"director", "director owner"}:
+        assistant_profile = "director"
+    elif normalized_roles & {"school administrator", "school admin"}:
+        assistant_profile = "school_administrator"
+    else:
+        assistant_profile = "staff"
+    requested_domain = str(context.get("assistant_domain") or "staff").lower()
+    assistant_domain = (
+        "system_admin"
+        if requested_domain == "system_admin" and is_system_admin
+        else "staff"
+    )
     return {
         "user_id": user_id,
         "permissions": sorted(set(permissions)),
@@ -41,6 +96,13 @@ def ensure_staff_context(context: dict) -> dict:
         "route": str(context.get("route") or "")[:120],
         "module": str(context.get("module") or "dashboard")[:60],
         "request_id": str(context.get("request_id") or "ai-python")[:100],
+        "session_id": session_id,
+        "user_name": user_name[:120],
+        "roles": role_labels[:10],
+        "scope_labels": scope_labels[:40],
+        "system_admin": bool(context.get("system_admin")) and is_system_admin,
+        "assistant_domain": assistant_domain,
+        "assistant_profile": assistant_profile,
     }
 
 

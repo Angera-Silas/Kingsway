@@ -35,7 +35,7 @@
         return;
       }
 
-      this.announcementModal = new bootstrap.Modal(document.getElementById("announcementModal"));
+      this.announcementModal = bootstrap.Modal.getOrCreateInstance(document.getElementById("announcementModal"));
       this.bindEvents();
       this.applyPermissionGates();
       await Promise.all([this.loadData(), this.loadAudienceOptions()]);
@@ -422,7 +422,7 @@
         <span class="badge rounded-pill bg-light text-dark border"><i class="bi bi-calendar-event me-1"></i>${this.formatDate(item.publish_date || item.created_at)}</span>
       `;
       contentEl.innerHTML = this.escapeHtml(item.body).replace(/\n/g, "<br>");
-      new bootstrap.Modal(document.getElementById("viewAnnouncementModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("viewAnnouncementModal")).show();
     },
 
     remove: async function (index) {

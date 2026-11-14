@@ -607,7 +607,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         // 4. Last-resort current/upcoming open term.
         $resolved = $this->scalar(
             "SELECT ayt.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
              JOIN " . ReadReplicaService::qualifiedRef("admission_windows") . " aw ON aw.academic_year_term_id = ayt.id
                 AND aw.status = 'open' AND aw.accepts_new_applications = 1
                 AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
@@ -1183,7 +1183,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Verify this grade requires interview
             $sql = "SELECT aa.grade_applying_for, aa.applicant_name, aa.application_no,
                            aw.interview_results_deadline_at
-                      FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
+                      FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
                       LEFT JOIN admission_windows aw
                         ON aw.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.admission_window_id')) AS UNSIGNED)
                      WHERE aa.id = :id";
@@ -1558,7 +1558,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $appStmt = $this->db->prepare(
                 "SELECT aa.id, aa.application_no, aa.enrolled_student_id, aa.parent_id,
                         s.admission_no
-                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
+                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
                  LEFT JOIN students s ON s.id = aa.enrolled_student_id
                  WHERE aa.id = :id LIMIT 1"
             );
@@ -1681,7 +1681,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         if ($source === 'mpesa_reconciliation') {
             $stmt = $this->db->prepare(
                 "SELECT mt.*, a.status AS account_status, a.currency AS account_currency
-                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . "
+                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . " mt
                  LEFT JOIN school_financial_accounts a ON a.id = mt.financial_account_id
                  WHERE (mt.mpesa_code = :raw_reference OR mt.normalized_reference = :normalized_reference)
                  ORDER BY mt.id DESC LIMIT 10"
@@ -1705,7 +1705,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $stmt = $this->db->prepare(
             "SELECT bt.*, a.status AS account_status, a.currency AS account_currency
-             FROM " . ReadReplicaService::qualifiedRef("bank_transactions") . "
+             FROM " . ReadReplicaService::qualifiedRef("bank_transactions") . " bt
              LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a ON a.id = bt.financial_account_id
              WHERE (bt.transaction_ref = :raw_reference_one OR bt.normalized_reference = :normalized_reference
                     OR bt.bank_reference = :raw_reference_two)
@@ -2413,7 +2413,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
         if ($yearId <= 0) {
-            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
         }
         return $yearId;
     }
@@ -2563,7 +2563,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         $stmt = $this->db->prepare("
             SELECT c.level_id, aa.academic_year
-            FROM " . ReadReplicaService::qualifiedRef("classes") . "
+            FROM " . ReadReplicaService::qualifiedRef("classes") . " c
             JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = :application_id
             WHERE c.id = :class_id
             LIMIT 1
@@ -2591,7 +2591,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $sumStmt = $this->db->prepare("
             SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
             WHERE ayc.class_id IN (SELECT c2.id FROM " . ReadReplicaService::qualifiedRef("classes") . " c2 WHERE c2.level_id = :level_id)
               AND ayc.academic_year_id = :academic_year_id
@@ -2616,7 +2616,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $fallbackStmt = $this->db->prepare("
             SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
             WHERE ayc.class_id IN (SELECT c2.id FROM " . ReadReplicaService::qualifiedRef("classes") . " c2 WHERE c2.level_id = :level_id)
               AND ayc.academic_year_id = :academic_year_id
@@ -2790,7 +2790,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $existingRelationship;
         }
 
-        $parentStmt = $this->db->prepare("SELECT gender FROM parents WHERE id = :parent_id LIMIT 1");
+        $parentStmt = $this->db->prepare('SELECT id FROM parents WHERE id = :parent_id FOR UPDATE');
         $parentStmt->execute(['parent_id' => $parent_id]);
         $gender = strtolower((string) $parentStmt->fetchColumn());
 
@@ -2978,7 +2978,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $eventId = $business->getOrCreate('admission_status_notification', $key, date('Y-m-d H:i:s'), (int) ($this->user_id ?: 1));
             $queued = $platform->queueRenderedForContacts([['user_id' => null, 'phone' => $row['parent_phone'] ?? null, 'email' => $row['parent_email'] ?? null]], $channel, $subject, $channel === 'email' ? $emailBody : $body, ['purpose' => 'admissions', 'sender_id' => (int) ($this->user_id ?: 1), 'business_event_id' => $eventId]);
             if ($event === 'accepted' && $channel === 'email' && !empty($queued['communication_id'])) {
-                $this->attachAdmissionFeeStructure((int) $queued['communication_id'], (string) ($row['academic_year'] ?? date('Y')), (string) ($row['grade_applying_for'] ?? ''), (string) ($row['student_type_code'] ?? 'all'));
+                $this->attachAdmissionFeeStructure((int) $queued['communication_id'], (string) ($row['academic_year'] ?? ''), (string) ($row['grade_applying_for'] ?? ''), (string) ($row['student_type_code'] ?? 'all'));
             }
             $business->markProcessed($eventId);
             if (!empty($queued['communication_id'])) {
@@ -3180,22 +3180,16 @@ return formatResponse(false, null, 'An internal error occurred.');
             (string) $venue
         );
 
-        \App\API\Includes\FileLogger::write('communications', [
-            'type' => 'sms_queue',
-            'message_type' => 'admission_interview',
-            'parent_ids' => (string) $application['parent_id'],
-            'message' => $message,
-            'template_id' => null,
-            'sent_by' => (int) $this->user_id,
-        ]);
-
-        $this->logAction('sms_sent', $application_id, "Interview notification queued for $date at $time");
+        $queued = $this->queueAdmissionParentSms((int) $application['parent_id'], 'Admission interview scheduled', $message);
+        $this->logAction($queued ? 'sms_queued' : 'sms_failed', $application_id, $queued
+            ? "Interview notification queued for $date at $time"
+            : 'Interview notification could not be queued.');
     }
 
     private function sendPlacementOfferNotification($application_id, $fees) {
         $stmt = $this->db->prepare("
             SELECT parent_id, applicant_name
-            FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+            FROM admission_applications
             WHERE id = :application_id
             LIMIT 1
         ");
@@ -3203,7 +3197,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         $application = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$application || empty($application['parent_id'])) {
-            $this->logAction('placement_offer_sent', $application_id, "Placement offer logged without SMS. Total fees: $fees");
+            $this->logAction('placement_offer_sms_skipped', $application_id, 'No linked parent was available for the placement offer SMS.');
             return;
         }
 
@@ -3213,16 +3207,49 @@ return formatResponse(false, null, 'An internal error occurred.');
             number_format((float) $fees, 2)
         );
 
-        \App\API\Includes\FileLogger::write('communications', [
-            'type' => 'sms_queue',
-            'message_type' => 'admission_offer',
-            'parent_ids' => (string) $application['parent_id'],
-            'message' => $message,
-            'template_id' => null,
-            'sent_by' => (int) $this->user_id,
-        ]);
+        $queued = $this->queueAdmissionParentSms(
+            (int) $application['parent_id'],
+            'Admission placement offer',
+            $message
+        );
+        $this->logAction($queued ? 'placement_offer_sms_queued' : 'placement_offer_sms_failed', $application_id, $queued
+            ? 'Placement offer notification queued.'
+            : 'Placement offer notification could not be queued.');
+    }
 
-        $this->logAction('placement_offer_sent', $application_id, "Placement offer sent. Total fees: $fees");
+    /** Queue one admission SMS through the canonical per-recipient outbox. */
+    private function queueAdmissionParentSms(int $parentId, string $subject, string $message): bool
+    {
+        if ($parentId < 1) return false;
+        try {
+            $communication = (new \App\API\Modules\communications\CommunicationsManager($this->db))->createCommunication([
+                'sender_id' => (int) ($this->user_id ?? 1),
+                'subject' => $subject,
+                'body' => $message,
+                'type' => 'sms',
+                'status' => 'sent',
+                'priority' => 'high',
+                'recipient_type' => 'selected_parents',
+                'recipients' => [$parentId],
+                'target_ids' => [$parentId],
+            ]);
+            $queued = !empty($communication['id'])
+                && in_array((string) ($communication['status'] ?? ''), ['queued', 'scheduled'], true);
+            if ($queued) {
+                \App\API\Includes\FileLogger::write('communications', [
+                    'type' => 'admission_sms_queued',
+                    'communication_id' => (int) $communication['id'],
+                    'sender_id' => (int) ($this->user_id ?? 1),
+                ]);
+            }
+            return $queued;
+        } catch (\Throwable $error) {
+            \App\API\Includes\FileLogger::write('communications', [
+                'type' => 'admission_sms_queue_failed',
+                'error_class' => get_class($error),
+            ], 'error');
+            return false;
+        }
     }
 
     /**
@@ -3235,7 +3262,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone,
                    p.national_id_no, p.gender, p.dob,
                    par.id AS parent_id, par.occupation, par.address
-            FROM " . ReadReplicaService::qualifiedRef("persons") . "
+            FROM " . ReadReplicaService::qualifiedRef("persons") . " p
             JOIN " . ReadReplicaService::qualifiedRef("parents") . " par ON par.person_id = p.id
             WHERE p.national_id_no = :id_no
             LIMIT 1

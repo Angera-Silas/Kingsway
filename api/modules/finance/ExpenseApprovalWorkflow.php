@@ -396,7 +396,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 SELECT wi.*, 
                        e.description as expense_description,
                        e.status as expense_status
-                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . "
+                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
                 INNER JOIN " . ReadReplicaService::qualifiedRef("expenses") . " e ON JSON_EXTRACT(wi.data_json, '$.expense_id') = e.id
                 WHERE wi.workflow_id = ?
                 AND JSON_EXTRACT(wi.data_json, '$.expense_id') = ?

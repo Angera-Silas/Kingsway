@@ -306,7 +306,7 @@ class ClearanceManager extends BaseAPI
                     SUM(CASE WHEN sc.status = 'pending' THEN 1 ELSE 0 END) as pending,
                     0 AS waivers_granted,
                     COALESCE(SUM(sc.amount_outstanding), 0) as total_outstanding
-                FROM " . ReadReplicaService::qualifiedRef("student_clearances") . "
+                FROM " . ReadReplicaService::qualifiedRef("student_clearances") . " sc
                 JOIN " . ReadReplicaService::qualifiedRef("student_transitions") . " st ON sc.transfer_request_id = st.id
                 WHERE {$whereClause}
                 GROUP BY sc.clearance_type

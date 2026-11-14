@@ -7,7 +7,6 @@ const academicReportsCtrl = (() => {
     let perfChart = null;
     let trendsChart = null;
     let gradeChart = null;
-    let contextReady = false;
 
     const state = {
         years: [],
@@ -46,6 +45,12 @@ const academicReportsCtrl = (() => {
         return Number.isFinite(n) ? n : 0;
     }
 
+    function escapeHtml(value) {
+        const node = document.createElement('span');
+        node.textContent = String(value ?? '');
+        return node.innerHTML;
+    }
+
     function cbcBand(score) {
         const n = Number(score);
         if (!Number.isFinite(n)) return null;
@@ -76,37 +81,6 @@ const academicReportsCtrl = (() => {
         if (!canvas || !canvas.parentElement) return;
         const existing = canvas.parentElement.querySelector('.ar-chart-empty');
         if (existing) existing.remove();
-    }
-
-    async function loadYears() {
-        const years = state.referenceCache?.years ?? (await apiGet('academic/years-list'));
-        state.years = Array.isArray(years) ? years : [];
-        const sel = document.getElementById('selectYear');
-        if (!sel) return;
-        sel.innerHTML = '<option value="">All Years</option>';
-        state.years.forEach((y) => {
-            const opt = document.createElement('option');
-            opt.value = y.id;
-            opt.textContent = y.year_name;
-            if (y.is_current) opt.selected = true;
-            sel.appendChild(opt);
-        });
-    }
-
-    async function loadTerms() {
-        const yearId = document.getElementById('selectYear')?.value || '';
-        const terms = await apiGet('academic/terms-list', yearId ? { academic_year_id: yearId, year_id: yearId } : {});
-        state.terms = Array.isArray(terms) ? terms : [];
-        const sel = document.getElementById('selectTerm');
-        if (!sel) return;
-        sel.innerHTML = '<option value="">All Terms</option>';
-        state.terms.forEach((t) => {
-            const opt = document.createElement('option');
-            opt.value = t.id;
-            opt.textContent = `${t.name} (${t.year_code || ''})`;
-            if (t.status === 'current') opt.selected = true;
-            sel.appendChild(opt);
-        });
     }
 
     async function loadClasses() {
@@ -201,8 +175,9 @@ const academicReportsCtrl = (() => {
             ? state.classes.filter((c) => Number(c.id) === Number(selectedClassId))
             : state.classes;
 
-        const yearId = document.getElementById('selectYear')?.value || state.currentAcademicYear || '';
-        const termId = document.getElementById('selectTerm')?.value || state.currentTerm || '';
+        // An empty term means the whole year; it never falls back to a term.
+        const yearId = document.getElementById('selectYear')?.value || '';
+        const termId = document.getElementById('selectTerm')?.value || '';
         const filters = { view_mode: reportType === 'student' ? 'students' : 'class', limit: 500 };
         if (yearId) filters.year_id = yearId;
         if (termId) filters.term_id = termId;
@@ -317,25 +292,27 @@ const academicReportsCtrl = (() => {
             return;
         }
         tbody.innerHTML = metrics.map((m) => {
-            const avg = m.average_score != null ? `${m.average_score.toFixed(1)}%` : '—';
-            const pass = m.pass_rate != null ? `${m.pass_rate.toFixed(1)}%` : '—';
-            const top = m.top_score != null ? `${m.top_score.toFixed(1)}%` : '—';
-            const scoreHealth = m.scored_count > 0 ? `${m.scored_count}/${m.student_count}` : '0';
+            const gradeCounts = m.grade_counts || {};
+            const avg = m.average_score != null ? `${toNumber(m.average_score).toFixed(1)}%` : '—';
+            const pass = m.pass_rate != null ? `${toNumber(m.pass_rate).toFixed(1)}%` : '—';
+            const top = m.top_score != null ? `${toNumber(m.top_score).toFixed(1)}%` : '—';
+            const scoreHealth = m.scored_count > 0 ? `${toNumber(m.scored_count)}/${toNumber(m.student_count)}` : '0';
+            const grades = ['EE', 'ME', 'AE', 'BE'].map((grade) => toNumber(gradeCounts[grade]) || '—');
             if (reportType === 'student') return `
-                <tr><td><strong>${m.student_name || '—'}</strong></td><td>${m.admission_no || '—'}</td><td>${m.level_name || '—'}</td><td>${m.stream_name || m.stream_count || '—'}</td><td>${avg}</td><td>${m.grade_counts.EE || '—'}</td><td>${m.grade_counts.ME || '—'}</td><td>${m.grade_counts.AE || '—'}</td><td>${m.grade_counts.BE || '—'}</td><td>${pass}</td></tr>`;
+                <tr><td><strong>${escapeHtml(m.student_name || '—')}</strong></td><td>${escapeHtml(m.admission_no || '—')}</td><td>${escapeHtml(m.level_name || '—')}</td><td>${escapeHtml(m.stream_name || m.stream_count || '—')}</td><td>${avg}</td><td>${grades[0]}</td><td>${grades[1]}</td><td>${grades[2]}</td><td>${grades[3]}</td><td>${pass}</td></tr>`;
             if (reportType === 'subject') return `
-                <tr><td><strong>${m.class_name}</strong></td><td>${m.level_name}</td><td>${m.student_count}</td><td>${avg}</td><td>${m.grade_counts.EE || '—'}</td><td>${m.grade_counts.ME || '—'}</td><td>${m.grade_counts.AE || '—'}</td><td>${m.grade_counts.BE || '—'}</td><td>${pass}</td></tr>`;
+                <tr><td><strong>${escapeHtml(m.class_name || '—')}</strong></td><td>${escapeHtml(m.level_name || '—')}</td><td>${toNumber(m.student_count)}</td><td>${avg}</td><td>${grades[0]}</td><td>${grades[1]}</td><td>${grades[2]}</td><td>${grades[3]}</td><td>${pass}</td></tr>`;
             return `
                 <tr>
-                    <td><strong>${m.class_name}</strong></td>
-                    <td>${m.level_name}</td>
-                    <td>${m.student_count}</td>
-                    <td>${m.stream_count}</td>
+                    <td><strong>${escapeHtml(m.class_name || '—')}</strong></td>
+                    <td>${escapeHtml(m.level_name || '—')}</td>
+                    <td>${toNumber(m.student_count)}</td>
+                    <td>${escapeHtml(m.stream_count ?? '—')}</td>
                     <td>${avg}</td>
-                    <td>${m.grade_counts.EE || '—'}</td>
-                    <td>${m.grade_counts.ME || '—'}</td>
-                    <td>${m.grade_counts.AE || '—'}</td>
-                    <td>${m.grade_counts.BE || '—'}</td>
+                    <td>${grades[0]}</td>
+                    <td>${grades[1]}</td>
+                    <td>${grades[2]}</td>
+                    <td>${grades[3]}</td>
                     <td>${pass}</td>
                 </tr>
             `;
@@ -527,42 +504,24 @@ const academicReportsCtrl = (() => {
             return;
         }
         
-        // Initialize Academic Context if available
-        if (window.AcademicContext) {
-            // Subscribe to context changes
-            window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    // Reload years, terms, and report when academic year or term changes
-                    if (contextReady) {
-                        loadYears().then(loadTerms).then(generateReport);
-                    }
-                }
-            });
-            
-            // Ensure context is loaded
-            if (!window.AcademicContext.isLoaded()) {
-                await window.AcademicContext.init();
-            }
-            
-            // Get current academic context
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
-        }
-        
         try {
             await loadReferencesComposed();
-            await loadYears();
-            await Promise.all([loadTerms(), loadClasses(), loadLearningAreas()]);
-            document.getElementById('selectYear')?.addEventListener('change', async () => {
-                await loadTerms();
-                await generateReport();
-            });
-            document.getElementById('selectTerm')?.addEventListener('change', generateReport);
+            await Promise.all([loadClasses(), loadLearningAreas()]);
             document.getElementById('selectClass')?.addEventListener('change', generateReport);
             document.getElementById('reportType')?.addEventListener('change', generateReport);
-            await generateReport();
-            contextReady = true;
-            window.APIRealtime?.register?.('academic_reports', { refresh: async () => { await loadReferencesComposed(); await loadYears(); await Promise.all([loadTerms(), loadClasses(), loadLearningAreas()]); await generateReport(); } }, ['academic']);
+            // Year and term: the shared filter (current year, all terms by
+            // default, kept in the URL), which builds the report now and on
+            // every change.
+            const yearSelect = document.getElementById('selectYear');
+            const mounted = window.AcademicYearFilter && yearSelect
+                ? await window.AcademicYearFilter.mount(yearSelect, {
+                    termSelect: document.getElementById('selectTerm'),
+                    allTermsLabel: 'All terms',
+                    onChange: () => generateReport(),
+                })
+                : null;
+            if (!mounted) await generateReport();
+            window.APIRealtime?.register?.('academic_reports', { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadClasses(), loadLearningAreas()]); await generateReport(); } }, ['academic']);
         } catch (error) {
             toast(`Failed to initialise: ${error.message}`, 'danger');
         }

@@ -2,20 +2,33 @@ const YearCalendarController = (() => {
     let allData = [];
     let filtered = [];
     let currentDayDate = null;
+    // The academic year being shown (null = current year until the filter loads).
+    let yearId = null;
+    let yearInfo = null;
     async function init() {
         await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
-        await loadData(); setupEventListeners();
+        setupEventListeners();
+        const select = document.getElementById('academicYearFilter');
+        if (window.AcademicYearFilter && select) {
+            // Calls back once with the default (current) year, then on every change.
+            await window.AcademicYearFilter.mount(select, {
+                onChange: (id, year) => { yearId = id; yearInfo = year; loadData(); },
+            });
+        } else {
+            await loadData();
+        }
     }
     function setupEventListeners() {
         document.getElementById('searchInput')?.addEventListener('input', filterData);
         document.getElementById('filterSelect')?.addEventListener('change', filterData);
         document.getElementById('termFilter')?.addEventListener('change', filterData);
         document.getElementById('dateFilter')?.addEventListener('change', filterData);
+        document.getElementById('yearCalendarBody')?.addEventListener('click', (event) => { const button = event.target.closest('[data-action=edit]'); if (button) openEditDay(button.dataset.calendarDayId || null); });
     }
     async function loadData() {
         try {
-            const r = await window.API.academic.getYearCalendar().catch(() => null);
+            const r = await window.API.academic.getYearCalendar(yearId).catch(() => null);
             allData = r?.data || r || [];
             if (!Array.isArray(allData)) allData = [];
             populateTermFilter(allData);
@@ -48,15 +61,15 @@ const YearCalendarController = (() => {
         const sel = document.getElementById('termFilter');
         if (!sel) return;
         const current = sel.value;
+        // Terms and holiday breaks in calendar order (the rows arrive sorted).
         const terms = [];
         for (const d of data) {
             const t = termOf(d);
             if (t && !terms.includes(t)) terms.push(t);
         }
-        terms.sort();
-        sel.innerHTML = '<option value="">All Terms</option>' +
-            terms.map(t => `<option value="${t}">${t}</option>`).join('');
-        sel.value = current;
+        sel.innerHTML = '<option value="">All terms and holidays</option>' +
+            terms.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+        sel.value = terms.includes(current) ? current : '';
     }
     function populateTypeFilter(data) {
         const sel = document.getElementById('filterSelect');
@@ -75,66 +88,78 @@ const YearCalendarController = (() => {
     function termOf(d) {
         return d.term_name || d.term || '';
     }
+    // Week of the term or holiday break, numbered by the server (never by
+    // month): week 1 starts on the period's first day.
     function weekOf(d) {
         const w = Number(d.week_number);
-        if (Number.isFinite(w) && w > 0) return w;
-        const dt = new Date(d.date || d.event_date);
-        return Math.ceil(dt.getDate() / 7);
+        return Number.isFinite(w) && w > 0 ? w : 0;
     }
     function dateCell(d) {
-        const s = d.date || d.event_date || "--";
-        const e = d.end_date && d.end_date !== s ? d.end_date : '';
-        const sT = d.start_time || (d.start_at ? String(d.start_at).substring(11, 16) : '') || '';
-        const eT = d.end_time || (d.end_at ? String(d.end_at).substring(11, 16) : '') || '';
-        let out = escapeHtml(s);
-        if (e) out += ' <span class="text-muted">\u2192 ' + escapeHtml(e) + '</span>';
-        const times = [sT, eT].filter(Boolean).join(' \u2013 ');
-        if (times) out += ' <small class="text-muted">(' + escapeHtml(times) + ')</small>';
-        return out;
+        const start = d.date || d.event_date || "--";
+        const end = d.end_date && d.end_date !== start ? " → " + d.end_date : "";
+        const startTime = d.start_time || (d.start_at ? String(d.start_at).substring(11, 16) : "");
+        const endTime = d.end_time || (d.end_at ? String(d.end_at).substring(11, 16) : "");
+        const times = [startTime, endTime].filter(Boolean).join(" – ");
+        return start + end + (times ? " (" + times + ")" : "");
     }
+
     function renderStats(data) {
-        const items = Array.isArray(data) ? data : [];
+        // Count calendar days, once each. Free-standing events (rows with an
+        // event_id and no calendar day) are listed in the table but are not days.
+        const days = (Array.isArray(data) ? data : []).filter((d) => d.calendar_day_id || !d.event_id);
+        const uniqueDates = (rows) => new Set(rows.map((d) => d.date)).size;
         const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
-        el("statEvents", items.length);
-        el("statTermDays", items.filter((d) => typeCode(d) === "school_day" || typeCode(d) === "half_day" || typeCode(d) === "exam_day").length);
-        el("statHolidays", items.filter((d) => ["holiday", "public_holiday", "school_holiday"].includes(typeCode(d))).length);
-        el("statExamDays", items.filter((d) => typeCode(d) === "exam_day" || String(d.name || d.title || "").toLowerCase().includes("exam")).length);
+        el("statEvents", uniqueDates(days));
+        el("statTermDays", uniqueDates(days.filter((d) => ["school_day", "half_day", "exam_day"].includes(typeCode(d)))));
+        el("statHolidays", uniqueDates(days.filter((d) => ["holiday", "public_holiday", "school_holiday"].includes(typeCode(d)))));
+        const exams = (Array.isArray(data) ? data : []).filter((d) => typeCode(d) === "exam_day");
+        el("statExamDays", uniqueDates(exams));
     }
     function renderTable(items) {
         filtered = items;
-        const tbody = document.querySelector('#dataTable tbody');
-        if (!tbody) return;
+        const tbody = document.getElementById("yearCalendarBody");
+        const stateRow = document.getElementById("yearCalendarState");
+        const template = document.getElementById("yearCalendarRowTemplate");
+        if (!tbody || !stateRow || !template) return;
+        tbody.querySelectorAll("[data-year-calendar-row]").forEach((row) => row.remove());
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No calendar entries found</td></tr>';
+            stateRow.querySelector("td").textContent = "No calendar entries found";
+            stateRow.hidden = false;
             return;
         }
+        stateRow.hidden = true;
         const now = new Date();
-        tbody.innerHTML = items
-            .map((d, i) => {
-                const dt = new Date(d.date || d.event_date);
-                const isToday = dt.toDateString() === now.toDateString();
-                const week = weekOf(d);
-                const dayName = dt.toLocaleDateString("en-US", { weekday: "short" });
-                const manual = d.is_manual ? ' <span class="badge bg-danger-subtle text-danger" title="Manually marked">manual</span>' : '';
-                const evtBadges = (d.events || []).map((e) =>
-                    `<span class="badge bg-info-subtle text-info border border-info me-1" title="${escapeHtml((e.type || '') + (e.location ? ' \u2022 ' + e.location : '') + (e.status ? ' \u2022 ' + e.status : ''))}">${escapeHtml(e.title)}</span>`
-                ).join('');
-                const evtMarkup = evtBadges ? `<div class="mt-1">${evtBadges}</div>` : '';
-                return `<tr class="${isToday ? "table-warning" : ""}">
-                    <td>${i + 1}</td>
-                    <td>${escapeHtml(termOf(d)) || "--"}</td>
-                    <td>${week > 0 ? "Week " + week : "--"}</td>
-                    <td>${dateCell(d)}</td>
-                    <td>${dayName}</td>
-                    <td><strong>${escapeHtml(d.name || d.event || d.title || "--")}</strong>${manual}${evtMarkup}</td>
-                    <td><span class="badge bg-${typeColor(d)}">${escapeHtml(typeLabel(d))}</span></td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="YearCalendarController.openEditDay(${d.calendar_day_id ?? "null"})" title="Mark holiday / edit day"><i class="fas fa-calendar-day"></i></button>
-                    </td>
-                </tr>`;
-            })
-            .join("");
+        const fragment = document.createDocumentFragment();
+        items.forEach((day, index) => {
+            const date = new Date(day.date || day.event_date);
+            const row = template.content.cloneNode(true);
+            const tr = row.querySelector("tr");
+            tr.classList.toggle("table-warning", date.toDateString() === now.toDateString());
+            row.querySelector('[data-fill="number"]').textContent = String(index + 1);
+            row.querySelector('[data-fill="term"]').textContent = termOf(day) || "--";
+            const week = weekOf(day);
+            row.querySelector('[data-fill="week"]').textContent = week > 0 ? "Week " + week : "--";
+            row.querySelector('[data-fill="date"]').textContent = dateCell(day);
+            row.querySelector('[data-fill="day"]').textContent = Number.isNaN(date.getTime()) ? "--" : date.toLocaleDateString("en-US", { weekday: "short" });
+            row.querySelector('[data-fill="event-name"]').textContent = day.name || day.event || day.title || "--";
+            row.querySelector('[data-fill="manual"]').hidden = !day.is_manual;
+            const events = row.querySelector('[data-fill="events"]');
+            (day.events || []).forEach((event) => {
+                const badge = document.getElementById("yearCalendarEventBadgeTemplate").content.cloneNode(true);
+                const node = badge.querySelector("span");
+                node.textContent = event.title || "Event";
+                node.title = [event.type, event.location, event.status].filter(Boolean).join(" • ");
+                events.appendChild(badge);
+            });
+            const type = row.querySelector('[data-fill="type"]');
+            type.textContent = typeLabel(day);
+            type.classList.add("bg-" + typeColor(day));
+            row.querySelector('[data-action="edit"]').dataset.calendarDayId = day.calendar_day_id ?? "";
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow);
     }
+
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
         const f = document.getElementById("filterSelect")?.value;
@@ -159,7 +184,7 @@ const YearCalendarController = (() => {
         document.getElementById('dayTitle').value = day.title || day.name || '';
         document.getElementById('dayDescription').value = day.description || '';
         renderDayEvents(day);
-        new bootstrap.Modal(document.getElementById('dayModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('dayModal')).show();
     }
     function renderDayEvents(day) {
         const list = document.getElementById('dayEventsList');
@@ -246,20 +271,36 @@ const YearCalendarController = (() => {
     function exportCSV() {
         const rows = filtered.length ? filtered : allData;
         if (!rows.length) return;
-        const headers = ['#', 'Term', 'Week', 'Date', 'Day', 'Event', 'Type'];
+        const headers = ['#', 'Term / holiday', 'Week', 'Date', 'Day', 'Event', 'Type'];
         const csvRows = rows.map((d, i) => {
             return [
                 i + 1,
                 termOf(d),
-                weekOf(d),
+                weekOf(d) || '',
                 d.date || d.event_date,
                 d.day_name || new Date(d.date || d.event_date).toLocaleDateString("en-US", { weekday: "short" }),
                 d.name || d.event || d.title,
                 typeLabel(d),
             ];
         });
-        let csv = headers.join(",") + "\n" + csvRows.map((r) => r.map((v) => '"' + (v || "") + '"').join(",")).join("\n");
-        KingswayFileLifecycle.exportText(csv, "year_calendar.csv", "text/csv");
+        const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+        const csv = [headers, ...csvRows].map((r) => r.map(cell).join(",")).join("\r\n");
+        const yearLabel = String(yearInfo?.year_code || 'current').replace(/[^0-9A-Za-z]+/g, '-');
+        KingswayFileLifecycle.exportText('\ufeff' + csv, `year_calendar_${yearLabel}.csv`, "text/csv;charset=utf-8");
+    }
+    /** The official term-by-term calendar PDF for the selected year. */
+    async function downloadPdf() {
+        if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('academic')) {
+            window.showNotification?.('You do not have permission to print', 'warning');
+            return;
+        }
+        if (!yearId || !window.PrintManager?.printAcademicCalendar) return;
+        const label = String(yearInfo?.year_code || yearInfo?.year_name || yearId).replace(/[^0-9A-Za-z-]+/g, '-');
+        await window.PrintManager.printAcademicCalendar({ academicYear: yearId, filename: `academic_calendar_${label}` }).catch(() => {});
+    }
+
+    function print() {
+        window.print();
     }
     async function markExamWeek() {
         if (!currentDayDate) { showNotification('Select a day first', 'warning'); return; }
@@ -281,7 +322,7 @@ const YearCalendarController = (() => {
             .replace(/"/g, "&quot;");
     }
     function showNotification(message, type) { window.showNotification(message, type); }
-    return { init, refresh: loadData, exportCSV, openEditDay, saveDay, addEvent, deleteEvent, markExamWeek };
+    return { init, refresh: loadData, exportCSV, print, downloadPdf, openEditDay, saveDay, addEvent, deleteEvent, markExamWeek };
 })();
 document.addEventListener('DOMContentLoaded', () => YearCalendarController.init());
 

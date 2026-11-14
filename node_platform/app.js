@@ -6,15 +6,16 @@ import { loadConfig, getConfig } from './src/config/index.js';
 import { createLogger, getLogger } from './src/logger/index.js';
 import { createMetrics, getMetrics } from './src/metrics/index.js';
 import { registerHealthRoutes } from './src/health/index.js';
-import { createInternalClient, getInternalClient } from './src/clients/internal.js';
+import { createInternalClient, getInternalClient, configureGlobalFetchTls } from './src/clients/internal.js';
 import { createCache, getCache } from './src/clients/cache.js';
 import { createBus, getBus } from './src/realtime/bus.js';
 import { createSSE, getSSE } from './src/realtime/sse.js';
-import { registerWebSocket } from './src/realtime/websocket.js';
 import { getAggregationEngine } from './src/aggregation/engine.js';
 import { registerViewRoutes } from './src/routes/views.js';
 import { registerPublicRoutes } from './src/routes/public.js';
 import { registerInternalRoutes } from './src/routes/internal.js';
+import { registerAgentRoutes } from './src/routes/agents.js';
+import { restoreProxyStrippedAuthorization } from './src/utils/proxyAuthorization.js';
 
 function safeRequestPath(url) {
   return String(url || '').split('?', 1)[0].slice(0, 256);
@@ -27,6 +28,8 @@ function isTruthy(value) {
 async function createApp(env = {}) {
   const config = loadConfig(env);
   const startedAt = Date.now();
+
+  configureGlobalFetchTls();
 
   const logger = createLogger({});
   const metrics = createMetrics({});
@@ -74,8 +77,19 @@ async function createApp(env = {}) {
 
   await app.register(fastifyCors, {
     origin: config.security.webOrigins,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['content-type', 'x-kingsway-sse-token', 'last-event-id'],
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'content-type',
+      'authorization',
+      'x-csrf-token',
+      'x-request-id',
+      'x-browser-session-id',
+      'idempotency-key',
+      'x-kingsway-sse-token',
+      'x-kingsway-authorization',
+      'last-event-id',
+    ],
+    exposedHeaders: ['x-request-id'],
     credentials: true,
     maxAge: 600,
   });
@@ -87,6 +101,7 @@ async function createApp(env = {}) {
   // rather than relying on @fastify/cors, whose hook runs late enough that the
   // SSE plugin has already flushed the response headers.
   app.addHook('onRequest', async (req, reply) => {
+    restoreProxyStrippedAuthorization(req);
     reply.header('cache-control', 'no-store');
     reply.header('x-content-type-options', 'nosniff');
 
@@ -98,10 +113,12 @@ async function createApp(env = {}) {
     }
 
     if (req.method === 'OPTIONS') {
-      reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
+      reply.header('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
       reply.header(
         'access-control-allow-headers',
-        'content-type, x-kingsway-sse-token, last-event-id'
+        'content-type, authorization, x-csrf-token, x-request-id, '
+        + 'x-browser-session-id, idempotency-key, x-kingsway-sse-token, '
+        + 'x-kingsway-authorization, last-event-id'
       );
       reply.header('access-control-max-age', '600');
       if (requestOrigin && config.security.webOrigins.includes(requestOrigin)) {
@@ -110,12 +127,11 @@ async function createApp(env = {}) {
     }
   });
 
-  await registerWebSocket(app);
-
   registerHealthRoutes(app);
   registerPublicRoutes(app);
   registerViewRoutes(app);
   registerInternalRoutes(app);
+  registerAgentRoutes(app);
 
   app.setNotFoundHandler(async (req, reply) => {
     return reply.code(404).send({ error: 'not found' });
@@ -136,8 +152,6 @@ async function createApp(env = {}) {
       await bus.close();
       await internalClient.close();
       cache.close();
-      // Allow time for better-sqlite3 to finalize statements
-      await new Promise(r => setTimeout(r, 100));
     } catch (error) {
       logger.error({ err: error?.message }, 'drain failed');
     }
@@ -165,7 +179,13 @@ async function createApp(env = {}) {
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Passenger's node loader loads this file with CommonJS require(). Node
+// supports require(esm) only when the module graph has NO top-level await,
+// so the bootstrap must stay synchronous at the top level and the async
+// work lives inside runGateway(). Started either directly (node app.js)
+// or under Passenger, where argv[1] may point at the loader rather than
+// at this file.
+async function runGateway() {
   const underPassenger = typeof PhusionPassenger !== 'undefined';
   if (underPassenger && typeof PhusionPassenger.configure === 'function') {
     PhusionPassenger.configure({ autoInstall: false });
@@ -180,7 +200,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
 
   await gateway.start()
-    .then(() => {
+    .then(async () => {
       if (underPassenger) {
         gateway.server.listen('passenger', () => {
           process.stdout.write(
@@ -190,15 +210,24 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         });
         return;
       }
-      gateway.server.listen(gateway.config.port, gateway.config.host, () => {
-        process.stdout.write(
-          `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
-          + `(bus: jsonl-file, pool: ${gateway.config.sse.maxConnections})\n`,
-        );
+      await new Promise((resolve, reject) => {
+        const onError = (error) => reject(error);
+        gateway.server.once('error', onError);
+        gateway.server.listen(gateway.config.port, gateway.config.host, () => {
+          gateway.server.removeListener('error', onError);
+          process.stdout.write(
+            `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
+            + `(bus: jsonl-file, pool: ${gateway.config.sse.maxConnections})\n`,
+          );
+          resolve();
+        });
       });
     })
     .catch((error) => {
-      process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
+      const message = error.code === 'EADDRINUSE'
+        ? `port ${gateway.config.port} is already in use; check NODE_ENV / NODE_REALTIME_PORT and stop or reconfigure only the process that owns that port`
+        : error.message;
+      process.stderr.write(`Kingsway realtime failed to start: ${message}\n`);
       process.exit(1);
     });
 
@@ -223,6 +252,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
+if (import.meta.url === `file://${process.argv[1]}` || typeof PhusionPassenger !== 'undefined') {
+  runGateway().catch((error) => {
+    process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
+    process.exit(1);
+  });
 }
 
 export { createApp, isTruthy };

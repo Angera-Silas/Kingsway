@@ -41,29 +41,6 @@ class JobHandlerRegistry
         }
 
         self::$registry = [
-            'rebake_realtime_buffer' => static function (array $payload, PDO $pdo): void {
-                $scope = isset($payload['scope'])
-                    ? EventBroadcaster::normalizeScope((string) $payload['scope'])
-                    : EventBroadcaster::DEFAULT_SCOPE;
-                EventBroadcaster::rebakeBuffer($pdo, $scope);
-            },
-            // Housekeeping: drop outbox events older than keep_hours and reset
-            // the auto-increment, keeping the sync table small and fast.
-            'purge_old_realtime_events' => static function (array $payload, PDO $pdo): void {
-                $keepHours = isset($payload['keep_hours']) ? max(1, (int) $payload['keep_hours']) : 24;
-                $cutoff = date('Y-m-d H:i:s', time() - ($keepHours * 3600));
-                $stmt = $pdo->prepare("DELETE FROM system_realtime_events WHERE created_at < ?");
-                $stmt->execute([$cutoff]);
-                // ALTER TABLE takes a metadata lock. Only reset the identity
-                // when the outbox is actually empty; doing it after every purge
-                // would briefly block concurrent event writers at peak time.
-                $remaining = (int) $pdo->query(
-                    "SELECT COUNT(*) FROM system_realtime_events"
-                )->fetchColumn();
-                if ($remaining === 0) {
-                    $pdo->exec("ALTER TABLE system_realtime_events AUTO_INCREMENT = 1");
-                }
-            },
             // Read-model health canary (roadmap §4.5). Pass-through projections
             // are recorded as not_offloaded and are not treated as failures;
             // only an enabled materialized projection that is stale, missing,
@@ -142,26 +119,39 @@ class JobHandlerRegistry
             'ai.workflow.draft' => static function (array $payload, PDO $pdo): void {
                 $workflowId = (string) ($payload['workflow_id'] ?? '');
                 $input = isset($payload['input']) && is_array($payload['input']) ? $payload['input'] : [];
+                $operatorId = (int) ($payload['user_id'] ?? 0);
                 if ($workflowId === '') {
                     throw new RuntimeException('ai.workflow.draft: missing workflow_id');
                 }
-                (new AiDraftService())->create($pdo, $workflowId, [
-                    'user_id' => (int) ($payload['user_id'] ?? 0),
-                    'permissions' => isset($payload['permissions']) && is_array($payload['permissions'])
-                        ? $payload['permissions'] : [],
+                if ($operatorId < 1) {
+                    throw new RuntimeException('ai.workflow.draft: missing operator');
+                }
+                // The queued permission fingerprint is for audit correlation
+                // only. A user's role may have changed while the job waited, so
+                // resolve authoritative grants immediately before generation.
+                $permissions = (new AgentAssistant())->resolveEffectivePermissions($pdo, $operatorId);
+                if ($permissions === []) {
+                    throw new \DomainException('ai.workflow.draft: operator permissions could not be resolved', 403);
+                }
+                $metadata = isset($payload['metadata']) && is_array($payload['metadata'])
+                    ? $payload['metadata'] : [];
+                $metadata['queue_job_id'] = (int) ($payload['_job_id'] ?? 0);
+                (new DraftRepository())->create($pdo, $workflowId, [
+                    'user_id' => $operatorId,
+                    'permissions' => $permissions,
                     'request_id' => (string) ($payload['request_id'] ?? ''),
-                ], $input, isset($payload['metadata']) && is_array($payload['metadata'])
-                    ? $payload['metadata'] : []);
+                    'school' => DraftSchoolFacts::current($pdo),
+                ], $input, $metadata);
             },
             'ai.analytics.insight' => static function (array $payload, PDO $pdo): void {
-                (new AiAnalyticsInsightService())->execute($pdo, $payload);
+                (new AnalyticsInsightService())->execute($pdo, $payload);
             },
             // Proactive AI briefing (roadmap P3b): the worker re-authorizes with
             // the recorded operator context (no broadened scope), re-runs the
             // deterministic engine, and creates a reviewable draft or caches the
             // deterministic summary for page-load delivery. Never a second queue.
             'ai.insight.generate' => static function (array $payload, PDO $pdo): void {
-                (new AiInsightOrchestrator())->execute($pdo, $payload);
+                (new InsightScheduler())->execute($pdo, $payload);
             },
             // KICD policy-watch interpretation (roadmap P3b): the worker
             // re-authorizes the governed curriculum workflow with the recorded
@@ -173,16 +163,19 @@ class JobHandlerRegistry
             // Governed multi-agent runs (staff co-worker layer): queued agent
             // assists and deterministic personal digests. The Python AI
             // platform is the PRIMARY engine when configured (all provider
-            // calls and agent loops run there); the PHP-native AiAgentService
+            // calls and agent loops run there); the PHP-native AgentAssistant
             // is the resilience path and re-authorizes with the recorded
             // operator context in either case.
             'ai.agent.run' => static function (array $payload, PDO $pdo): void {
-                $bridge = new AiPythonBridge();
+                $bridge = new PythonAiBridge();
                 if ($bridge->available()) {
-                    $bridge->runJob($payload);
+                    $bridge->runJob($payload, $pdo);
                     return;
                 }
-                (new AiAgentService())->runBackground($pdo, $payload);
+                (new AgentAssistant())->runBackground($pdo, $payload);
+            },
+            'ai.agent.task' => static function (array $payload, PDO $pdo): void {
+                (new AgentTaskRepository())->execute($pdo, $payload);
             },
             // Governed, non-AI automations computed by the Python engine
             // (registry-authorised; payload already bounded at enqueue time).
@@ -1135,32 +1128,6 @@ class JobHandlerRegistry
                     $meta['extracted_rows'] = $result['extracted_rows'] ?? 0;
                     $meta['conflicts'] = $result['conflicts'] ?? [];
                     $meta['proposed_rows'] = $result['proposed_rows'] ?? 0;
-                    \App\API\Services\JobQueue::updateMeta($jobId, $meta);
-                }
-            },
-            'schedules.propose_rows' => static function (array $payload, PDO $pdo): void {
-                $jobId = (string) ($payload['job_id'] ?? '');
-                $academicYearId = (int) ($payload['academic_year_id'] ?? 0);
-                $termId = (int) ($payload['term_id'] ?? 0);
-                $constraints = isset($payload['constraints']) && is_array($payload['constraints']) ? $payload['constraints'] : [];
-
-                if ($jobId === '' || $academicYearId <= 0 || $termId <= 0) {
-                    throw new RuntimeException('schedules.propose_rows: job_id, academic_year_id, term_id required');
-                }
-
-                $bridge = new \App\API\Services\PythonDocumentBridge();
-                if (!$bridge->available()) {
-                    throw new RuntimeException('Python service not configured for schedules.propose_rows');
-                }
-
-                $result = $bridge->proposeScheduleRows($jobId, $academicYearId, $termId, $constraints);
-
-                $job = \App\API\Services\JobQueue::fetchJob($jobId);
-                if ($job) {
-                    $meta = $job['meta'] ?? [];
-                    $meta['proposed_rows'] = $result['proposed_rows'] ?? 0;
-                    $meta['conflicts'] = $result['conflicts'] ?? [];
-                    $meta['coverage'] = $result['coverage'] ?? 0;
                     \App\API\Services\JobQueue::updateMeta($jobId, $meta);
                 }
             },

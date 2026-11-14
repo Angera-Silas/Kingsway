@@ -73,6 +73,6 @@ final class LogMonitoringService
         $handle = @fopen($path, 'c+');
         if (!$handle) return;
         if (flock($handle, LOCK_EX)) { ftruncate($handle, 0); rewind($handle); fwrite($handle, json_encode($state, JSON_UNESCAPED_SLASHES)); fflush($handle); flock($handle, LOCK_UN); }
-        fclose($handle); @chmod($path, FileLogger::environment() === 'development' ? 0666 : 0660);
+        fclose($handle); @chmod($path, 0660);
     }
 }

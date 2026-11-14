@@ -209,7 +209,7 @@ const manageWebsiteController = {
         this.previewNewsImg(a.image_url);
       }
     }
-    new bootstrap.Modal(document.getElementById('wsNewsModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsNewsModal')).show();
   },
 
   previewNewsImg(url) {
@@ -300,7 +300,7 @@ const manageWebsiteController = {
         document.getElementById('eventCategory').value    = ev.category || 'Academic';
       }
     }
-    new bootstrap.Modal(document.getElementById('wsEventModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsEventModal')).show();
   },
 
   async wsSaveEvent() {
@@ -355,7 +355,7 @@ const manageWebsiteController = {
 
   wsViewImg(url) {
     document.getElementById('wsImgViewSrc').src = url;
-    new bootstrap.Modal(document.getElementById('wsImgViewModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsImgViewModal')).show();
   },
 
   wsOpenGalleryModal() {
@@ -363,7 +363,7 @@ const manageWebsiteController = {
     document.getElementById('galleryCaption').value = '';
     document.getElementById('galleryCategory').value= 'General';
     document.getElementById('galleryImgPreviewWrap').style.display = 'none';
-    new bootstrap.Modal(document.getElementById('wsGalleryModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsGalleryModal')).show();
   },
 
   previewGalleryImg(url) {
@@ -437,7 +437,7 @@ const manageWebsiteController = {
         document.getElementById('dlType').value     = item.file_type||'PDF';
       }
     }
-    new bootstrap.Modal(document.getElementById('wsDownloadModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsDownloadModal')).show();
   },
 
   async wsSaveDownload() {
@@ -520,7 +520,7 @@ const manageWebsiteController = {
         try { document.getElementById('jobResponsibilities').value= JSON.parse(j.responsibilities||'[]').join('\n'); } catch(_) {}
       }
     }
-    new bootstrap.Modal(document.getElementById('wsJobModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsJobModal')).show();
   },
 
   async wsSaveJob() {
@@ -1055,7 +1055,7 @@ const manageWebsiteController = {
       }
     }
 
-    new bootstrap.Modal(modal).show();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 
   findLeadershipMember(id) {

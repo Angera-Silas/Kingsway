@@ -18,7 +18,7 @@ $roleCategory = 'admin';
         <button class="btn btn-primary" id="addDormitoryBtn">
             <i class="bi bi-plus-lg me-1"></i> Add Dormitory
         </button>
-        <a href="home.php?route=boarding_roll_call" class="btn btn-success">
+        <a href="<?= htmlspecialchars($appBase) ?>/home.php?route=boarding_roll_call" class="btn btn-success">
             <i class="bi bi-clipboard-check me-1"></i> Roll Call
         </a>
         <button class="btn btn-warning" id="leaveRequestsBtn">

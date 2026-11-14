@@ -84,7 +84,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Check if student already has an active/pending registration
             $stmt = $this->db->prepare("
                 SELECT ap.id, ap.status
-                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
                 JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
                 WHERE ap.activity_id = ? AND sae.student_id = ?
                 AND ap.status IN ('active', 'pending')

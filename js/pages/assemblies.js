@@ -9,6 +9,13 @@ const AssembliesController = (() => {
         document.getElementById('searchInput')?.addEventListener('input', filterData);
         document.getElementById('filterSelect')?.addEventListener('change', filterData);
         document.getElementById('dateFilter')?.addEventListener('change', filterData);
+        document.getElementById('assemblyTableBody')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-action]');
+            if (!button) return;
+            const index = Number(button.dataset.index);
+            if (button.dataset.action === 'edit') editRecord(index);
+            if (button.dataset.action === 'delete') deleteRecord(button.dataset.id);
+        });
     }
     async function loadData() {
         try {
@@ -52,18 +59,23 @@ const AssembliesController = (() => {
         );
     }
     function renderTable(items) {
-        const tbody = document.querySelector('#dataTable tbody');
+        const tbody = document.getElementById('assemblyTableBody');
         if (!tbody) return;
+        const stateRow = document.getElementById('assemblyTableState');
+        const stateCell = stateRow?.querySelector('td');
+        tbody.querySelectorAll('[data-assembly-row]').forEach((row) => row.remove());
         if (!items.length) {
-          tbody.innerHTML =
-            '<tr><td colspan="9" class="text-center text-muted py-4">No assemblies found</td></tr>';
+          if (stateCell) stateCell.textContent = 'No assemblies found';
+          if (stateRow) stateRow.hidden = false;
           return;
         }
+        if (stateRow) stateRow.hidden = true;
+        const template = document.getElementById('assemblyRowTemplate');
+        if (!template) return;
         const now = new Date();
-        tbody.innerHTML = items
-          .map((d, i) => {
+        const fragment = document.createDocumentFragment();
+        items.forEach((d, i) => {
             const dt = new Date(d.date || d.assembly_date);
-            const isPast = dt < now;
             const dayName = dt.toLocaleDateString("en-US", { weekday: "long" });
             const typeColors = {
               general: "primary",
@@ -73,22 +85,32 @@ const AssembliesController = (() => {
               awards: "danger",
             };
             const type = (d.type || d.assembly_type || "general").toLowerCase();
-            return `<tr class="${!isPast && dt.toDateString() === now.toDateString() ? "table-warning" : ""}">
-                <td>${i + 1}</td>
-                <td>${d.date || d.assembly_date || "--"}</td>
-                <td>${dayName}</td>
-                <td>${d.time || d.start_time || "--"}</td>
-                <td><strong>${escapeHtml(d.theme || d.topic || d.name || "--")}</strong></td>
-                <td>${escapeHtml(d.speaker || d.guest_speaker || "--")}</td>
-                <td>${escapeHtml(d.class_responsible || d.responsible_class || "--")}</td>
-                <td><span class="badge bg-${typeColors[type] || "secondary"}">${type.charAt(0).toUpperCase() + type.slice(1)}</span></td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="AssembliesController.editRecord(${i})" title="Edit"><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="AssembliesController.deleteRecord('${d.id}')" title="Delete"><i class="fas fa-trash"></i></button>
-                </td>
-            </tr>`;
-          })
-          .join("");
+            const row = template.content.firstElementChild.cloneNode(true);
+            const set = (field, value) => {
+                const target = row.querySelector(`[data-field="${field}"]`);
+                if (target) target.textContent = value ?? "—";
+            };
+            row.classList.toggle("table-warning", dt.toDateString() === now.toDateString());
+            set("number", String(i + 1));
+            set("date", d.date || d.assembly_date || "--");
+            set("day", dayName);
+            set("time", d.time || d.start_time || "--");
+            set("theme", d.theme || d.topic || d.name || "--");
+            set("speaker", d.speaker || d.guest_speaker || "--");
+            set("class", d.class_responsible || d.responsible_class || "--");
+            const typeBadge = row.querySelector('[data-field="type"]');
+            if (typeBadge) {
+                typeBadge.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+                typeBadge.classList.add(`bg-${typeColors[type] || "secondary"}`);
+            }
+            const recordIndex = allData.indexOf(d);
+            row.querySelectorAll('[data-action]').forEach((button) => {
+                button.dataset.index = String(recordIndex);
+                if (button.dataset.action === 'delete') button.dataset.id = String(d.id ?? '');
+            });
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow || null);
     }
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
@@ -112,8 +134,7 @@ const AssembliesController = (() => {
         renderTable(filtered);
     }
     function showAddModal() {
-        document.getElementById("formModalTitle").innerHTML =
-          '<i class="fas fa-bullhorn me-2"></i>Schedule Assembly';
+        document.querySelector("#formModalTitle [data-modal-title]").textContent = "Schedule Assembly";
         document.getElementById('recordForm').reset(); document.getElementById('recordId').value = '';
         const nameEl = document.getElementById("recordName");
         const descEl = document.getElementById("recordDescription");
@@ -129,12 +150,11 @@ const AssembliesController = (() => {
           dateEl.previousElementSibling.textContent = "Date";
         if (statusEl?.previousElementSibling)
           statusEl.previousElementSibling.textContent = "Type";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     function editRecord(index) {
         const item = allData[index]; if (!item) return;
-        document.getElementById("formModalTitle").innerHTML =
-          '<i class="fas fa-edit me-2"></i>Edit Assembly';
+        document.querySelector("#formModalTitle [data-modal-title]").textContent = "Edit Assembly";
         document.getElementById('recordId').value = item.id || '';
         document.getElementById("recordName").value =
           item.theme || item.topic || item.name || "";
@@ -144,7 +164,7 @@ const AssembliesController = (() => {
           item.date || item.assembly_date || "";
         document.getElementById("recordStatus").value =
           item.type || item.assembly_type || "general";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     async function saveRecord() {
         const id = document.getElementById('recordId').value;

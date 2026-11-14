@@ -30,7 +30,8 @@ class AcademicYearManager
     {
         $stmt = $this->db->query("
             SELECT * FROM academic_years 
-            WHERE is_current = TRUE AND status = 'active'
+            WHERE is_current = TRUE
+            ORDER BY id DESC
             LIMIT 1
         ");
 
@@ -97,7 +98,9 @@ class AcademicYearManager
             $data['year_name'],
             $data['start_date'],
             $data['end_date'],
-            $data['status'] ?? 'planning'
+            // Every new year is active - upcoming (state defaults to 'upcoming').
+            // Archiving has its own path, so a caller-supplied status is ignored.
+            'active'
         ]);
         $yearId = (int) $this->db->lastInsertId();
 
@@ -209,19 +212,55 @@ class AcademicYearManager
     }
 
     /**
-     * Set a year as current (and unset others)
+     * Make a year the current year.
+     *
+     * Date-aware: a year only becomes current on or after its own start
+     * date, so the outgoing year stays current through the overlap period
+     * (November-December holiday and the January intake window) while the
+     * incoming year already runs as "active - upcoming".
+     *
+     * Exactly one year is current (uk_academic_years_single_current), and
+     * other years keep their own state: a completed year stays completed.
      */
-    public function setCurrentYear(int $yearId): bool
+    public function setCurrentYear(int $yearId, bool $force = false): bool
     {
+        $year = $this->getAcademicYear($yearId);
+        if (!$year) {
+            throw new Exception("Academic year not found");
+        }
+
+        $today = date('Y-m-d');
+        $started = ($year['start_date'] ?? '') <= $today;
+        if (!$started && !$force) {
+            throw new Exception(
+                sprintf('%s does not start until %s. The current academic year stays active until then.',
+                    $year['year_code'] ?? 'The target academic year',
+                    $year['start_date'] ?? 'its start date')
+            );
+        }
+
         $this->db->beginTransaction();
 
         try {
-            // Unset all other years
-            $this->db->exec("UPDATE academic_years SET is_current = FALSE");
+            // Only the single current row moves. Completed and upcoming
+            // years keep their state so their data stays readable and
+            // quotable during the overlap.
+            $clear = $this->db->prepare(
+                "UPDATE academic_years
+                    SET is_current = 0,
+                        state = CASE WHEN state = 'current' THEN 'upcoming' ELSE state END
+                  WHERE id <> ?"
+            );
+            $clear->execute([$yearId]);
 
-            // Set this year as current
-            $stmt = $this->db->prepare("UPDATE academic_years SET is_current = TRUE WHERE id = ?");
-            $stmt->execute([$yearId]);
+            $this->db->prepare(
+                "UPDATE academic_years
+                    SET is_current = 1,
+                        state = 'current',
+                        status = 'active',
+                        completed_at = NULL
+                  WHERE id = ?"
+            )->execute([$yearId]);
 
             $this->db->commit();
             return true;
@@ -232,34 +271,128 @@ class AcademicYearManager
     }
 
     /**
-     * Update academic year status
+     * Close a year: teaching is finished and its records are complete.
+     *
+     * This is NOT archiving. The year keeps status = 'active' so every
+     * read path and every ordinary user can still see its data; only
+     * writes are restricted to school admin / system admin / director.
      */
-    public function updateYearStatus(int $yearId, string $status): bool
+    public function completeYear(int $yearId, int $userId): bool
     {
-        $validStatuses = ['planning', 'registration', 'active', 'closing', 'archived'];
-        if (!in_array($status, $validStatuses)) {
-            throw new Exception("Invalid status: $status");
-        }
+        $this->db->beginTransaction();
 
-        $stmt = $this->db->prepare("UPDATE academic_years SET status = ? WHERE id = ?");
-        return $stmt->execute([$status, $yearId]);
+        try {
+            $this->db->prepare(
+                "UPDATE academic_year_terms SET status = 'completed' WHERE academic_year_id = ?"
+            )->execute([$yearId]);
+
+            $this->db->prepare(
+                "UPDATE academic_years
+                    SET state = 'completed',
+                        status = 'active',
+                        is_current = 0,
+                        completed_at = NOW(),
+                        completed_by = ?
+                  WHERE id = ?"
+            )->execute([$userId, $yearId]);
+
+            $this->db->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /**
-     * Archive an academic year
+     * Mark a year as the upcoming year (rollover preparation / intake).
      */
-    public function archiveYear(int $yearId, int $userId, string $notes = null): bool
+    public function markYearUpcoming(int $yearId): bool
+    {
+        return $this->db->prepare(
+            "UPDATE academic_years
+                SET state = 'upcoming', status = 'active', is_current = 0
+              WHERE id = ?"
+        )->execute([$yearId]);
+    }
+
+    /**
+     * Update the sub-state of a year.
+     *
+     * `status` is intentionally not accepted here: every non-archived year
+     * is `active`, and the lifecycle lives in `state`.
+     */
+    public function updateYearState(int $yearId, string $state): bool
+    {
+        if (!in_array($state, \App\API\Services\AcademicYearLifecycleService::allowedStates(), true)) {
+            throw new Exception("Invalid year state: $state");
+        }
+
+        if ($state === \App\API\Services\AcademicYearLifecycleService::STATE_ARCHIVED) {
+            throw new Exception(
+                'Archiving is not a rollover action. A system administrator may archive a year explicitly.'
+            );
+        }
+
+        // is_current must move with state: state = 'current' requires the flag,
+        // and any other state releases it, so exactly one year is current at
+        // all times (enforced in the database by uk_academic_years_single_current
+        // and by trg_enforce_year_state_is_current).
+        $isCurrent = $state === \App\API\Services\AcademicYearLifecycleService::STATE_CURRENT ? 1 : 0;
+
+        return $this->db->prepare(
+            "UPDATE academic_years
+                SET state = ?, status = 'active', is_current = ?,
+                    completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, NOW()) ELSE NULL END
+              WHERE id = ?"
+        )->execute([$state, $isCurrent, $state, $yearId]);
+    }
+
+    /**
+     * Archive an academic year: a permanent, system-administrator-only closure.
+     *
+     * Archiving is NOT the same as completing a year. Completing marks the year
+     * active - completed, leaving its data readable for every user and writable
+     * by school admin / director / system admin. Archiving goes further: the
+     * year's data is hidden completely from ordinary access. It is therefore
+     * never part of a rollover, and is guarded here as well as at the endpoint.
+     */
+    public function archiveYear(int $yearId, int $userId, ?string $notes = null): bool
     {
         $year = $this->getAcademicYear($yearId);
         if (!$year) {
             throw new Exception("Academic year not found");
         }
 
+        // The school is still operating inside this year; archiving it would
+        // hide the year everyone is working in.
+        if ((int) ($year['is_current'] ?? 0) === 1) {
+            throw new Exception(
+                'The current academic year is in use and cannot be archived. Close it first, then archive it later if required.'
+            );
+        }
+
+        if (\App\API\Services\AcademicYearLifecycleService::isArchived(
+            (string) $year['status'],
+            (string) ($year['state'] ?? '')
+        )) {
+            // Already archived: keep the action idempotent rather than an error.
+            return true;
+        }
+
         $this->db->beginTransaction();
 
         try {
-            // Update academic_years status
-            $this->updateYearStatus($yearId, 'archived');
+            // Archiving is a lifecycle status change, not a sub-state change.
+            // This is the ONLY path that sets status = 'archived', and it is an
+            // explicit system-administrator action -- never part of a rollover.
+            $this->db->prepare(
+                "UPDATE academic_years
+                    SET status = 'archived',
+                        state = 'archived',
+                        is_current = 0
+                  WHERE id = ?"
+            )->execute([$yearId]);
 
             // Update academic_year_archives table
             $archiveData = $this->getArchiveStats($yearId);
@@ -338,6 +471,31 @@ class AcademicYearManager
     }
 
     /**
+     * Dates for the year after one that runs $start..$end.
+     *
+     * The school year follows the calendar year (January to December), so the
+     * next one is the same span one calendar year later. It never starts on or
+     * before the current year's last day; when the shifted start would, it
+     * starts the day after the current year ends.
+     *
+     * @return array{0: \DateTimeImmutable, 1: \DateTimeImmutable}
+     */
+    public static function nextYearDates(string $start, string $end): array
+    {
+        $currentStart = new \DateTimeImmutable($start);
+        $currentEnd = new \DateTimeImmutable($end);
+        $nextStart = $currentStart->modify('+1 year');
+        $nextEnd = $currentEnd->modify('+1 year');
+        if ($nextStart <= $currentEnd) {
+            $nextStart = $currentEnd->modify('+1 day');
+        }
+        if ($nextEnd <= $nextStart) {
+            $nextEnd = $nextStart->modify('+1 year -1 day');
+        }
+        return [$nextStart, $nextEnd];
+    }
+
+    /**
      * Create next academic year based on current one
      */
     public function createNextYear(int $userId): array
@@ -349,17 +507,14 @@ class AcademicYearManager
 
         $nextYearCode = $this->getNextYearCode($currentYear['year_code']);
 
-        // Calculate dates (start from January of next year)
-        $currentEnd = new \DateTime($currentYear['end_date']);
-        $nextStart = (clone $currentEnd)->add(new \DateInterval('P45D')); // 45 days after current year ends
-        $nextEnd = (clone $nextStart)->add(new \DateInterval('P320D')); // ~320 days (11 months)
+        [$nextStart, $nextEnd] = self::nextYearDates($currentYear['start_date'], $currentYear['end_date']);
 
         return $this->createAcademicYear([
             'year_code' => $nextYearCode,
-            'year_name' => "Academic Year {$nextYearCode}",
+            'year_name' => $nextYearCode,
             'start_date' => $nextStart->format('Y-m-d'),
             'end_date' => $nextEnd->format('Y-m-d'),
-            'status' => 'planning',
+            'status' => 'active',
             'created_by' => $userId
         ]);
     }
@@ -369,15 +524,31 @@ class AcademicYearManager
      */
     public function getAllYears(array $filters = []): array
     {
-        $sql = "SELECT * FROM academic_years WHERE 1=1";
+        // Return the year and its configured term count together so callers
+        // do not have to infer the relationship from a second response shape.
+        // academic_year_terms is the canonical read projection for year terms.
+        $sql = "SELECT ay.*, (
+                    SELECT COUNT(*)
+                    FROM " . ReadReplicaService::qualifiedRef('academic_year_terms') . " ayt
+                    WHERE ayt.academic_year_id = ay.id
+                ) AS term_count
+                FROM academic_years ay WHERE 1=1";
         $params = [];
 
         if (!empty($filters['status'])) {
-            $sql .= " AND status = ?";
+            $sql .= " AND ay.status = ?";
             $params[] = $filters['status'];
         }
 
-        $sql .= " ORDER BY start_date DESC";
+        // An archived year is hidden completely: its data is not accessible to
+        // ordinary users any more. A caller may still ask for archived years
+        // explicitly (status filter above) — that is the system administrator's
+        // restore path — but they never appear in a default listing.
+        if (empty($filters['status']) || $filters['status'] !== 'archived') {
+            $sql .= " AND " . \App\API\Services\AcademicYearLifecycleService::visibleSql('ay');
+        }
+
+        $sql .= " ORDER BY ay.start_date DESC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);

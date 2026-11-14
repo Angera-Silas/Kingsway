@@ -29,7 +29,10 @@
  * @since 2025-01-06
  */
 
-const schoolAdminDashboardController = {
+// Assignment (not `const`): soft_navigation re-injects a fragment's scripts
+// when the cache-busting version changes, and redeclaring a const twice in
+// one document is a fatal SyntaxError. Idempotent assignment survives it.
+window.schoolAdminDashboardController = {
   // =========================================================================
   // STATE MANAGEMENT
   // =========================================================================
@@ -1074,7 +1077,7 @@ const schoolAdminDashboardController = {
             <tr>
                 <td>
                     <div class="d-flex align-items-center">
-                        <div class="avatar-circle bg-primary bg-opacity-10 text-primary me-2">
+                        <div class="avatar-circle bg-primary bg-opacity-10 text-primary me-2" aria-hidden="true">
                             ${this.getInitials(item.name)}
                         </div>
                         <strong>${this.escapeHtml(item.name)}</strong>
@@ -1216,10 +1219,11 @@ const schoolAdminDashboardController = {
   // UTILITY FUNCTIONS
   // =========================================================================
   updateLastRefreshTime: function () {
-    const el = document.getElementById("lastRefreshTime");
+    // #last_refresh lives in the shared dashboard header
+    // (components/dashboards/_dashboard_tabs.php).
+    const el = document.getElementById("last_refresh");
     if (el) {
-      const now = new Date();
-      el.textContent = now.toLocaleTimeString();
+      el.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
     this.state.lastRefresh = new Date();
   },
@@ -1315,4 +1319,4 @@ if (window.__APP_BOOTED__) {
 }
 
 // Also support legacy name for backward compatibility
-const adminOfficerDashboardController = schoolAdminDashboardController;
+window.adminOfficerDashboardController = window.schoolAdminDashboardController;

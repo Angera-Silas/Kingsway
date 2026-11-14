@@ -515,7 +515,7 @@
 
             var modal = document.getElementById("addEventModal");
             if (modal) {
-                var bsModal = new bootstrap.Modal(modal);
+                var bsModal = bootstrap.Modal.getOrCreateInstance(modal);
                 bsModal.show();
             }
         },
@@ -543,7 +543,7 @@
 
             var modal = document.getElementById("addEventModal");
             if (modal) {
-                var bsModal = new bootstrap.Modal(modal);
+                var bsModal = bootstrap.Modal.getOrCreateInstance(modal);
                 bsModal.show();
             }
         },

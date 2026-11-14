@@ -8,16 +8,27 @@ use App\API\Modules\parent\ParentPortalManager;
 use App\API\Includes\FileLogger;
 use DomainException;
 
-/** Read-only, linked-family assistant for the parent portal. */
+/**
+ * Read-only, linked-family assistant for the parent portal.
+ *
+ * PHP handles: authorization, child-scope aggregation, structured return.
+ * Python handles: prompt minimization, template, provider call, output scrub.
+ */
 final class ParentAiAssistantService
 {
     public const WORKFLOW = 'communications.parent_portal_assistant';
+    public const ENDPOINT = '/api/parents/ai-assistant';
 
-    public function __construct(private ?AiCompletionProvider $provider = null) {}
+    private AgentEngineClient $bridge;
+
+    public function __construct(?AgentEngineClient $bridge = null)
+    {
+        $this->bridge = $bridge ?? new PythonAiBridge();
+    }
 
     public function ask(ParentPortalManager $portal, int $parentId, string $question): array
     {
-        (new AiWorkflowService())->authorize(self::WORKFLOW, [
+        (new WorkflowAuthorization())->authorize(self::WORKFLOW, [
             'user_id' => $parentId,
             'permissions' => [],
             'audience' => 'parent',
@@ -53,15 +64,13 @@ final class ParentAiAssistantService
                 'attendance_percentage' => (string) ($attData['percentage'] ?? 0),
             ];
         }
-        $input = AiPromptPolicy::minimize('communications.parent_portal_assistant', [
+
+        // Python owns prompt minimization, the template, the provider call
+        // and the response-side confidentiality scrub for this workflow.
+        $result = $this->bridge->call(self::ENDPOINT, [
             'question' => $question,
             'audience' => 'authenticated_parent',
-            'context' => json_encode(['linked_children' => $summaries], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        ]);
-        $template = (new AiPromptTemplateService())->resolve('communications.parent_portal_assistant');
-        $result = ($this->provider ?: new AiProviderGateway())->complete([
-            ['role' => 'system', 'content' => $template['content']],
-            ['role' => 'user', 'content' => json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+            'context' => ['linked_children' => $summaries],
         ]);
         if (!isset($result['title'], $result['body']) || !is_string($result['title']) || !is_string($result['body'])) {
             throw new DomainException('The assistant returned an invalid answer.', 502);

@@ -20,6 +20,16 @@ const AppLogger = (() => {
   const MAX_EVENT_SIZE = 4000;
   const SENSITIVE_KEYS = /(?:password|pass|pwd|token|secret|authorization|credential|cookie|otp|pin|email|phone|mobile|address|national.?id|date.?of.?birth|dob|card|account.?number|medical|diagnosis)/i;
 
+  // Delivery backoff. When the server rejects a batch (most often a 429 from
+  // the telemetry rate bucket), retrying the SAME batch immediately re-creates
+  // the burst that got us limited, and each rejection is itself an error that
+  // console routing forwards back into this logger - so the client ends up
+  // re-POSTing its own telemetry forever and starves the bucket. Retries are
+  // therefore bounded, carry only the newest events, and pause for a cooldown.
+  const KEEP_EVENTS_PER_RETRY = 5;
+  const COOLDOWN_MS = 30000;
+  const COOLDOWN_RATE_LIMITED_MS = 120000;
+
   const state = {
     buffer: [],
     flushTimer: null,
@@ -27,6 +37,7 @@ const AppLogger = (() => {
     enabled: true,
     initialized: false,
     lastPageKey: "",
+    cooldownUntil: 0,
   };
 
   function log(name, ...args) {
@@ -117,6 +128,9 @@ const AppLogger = (() => {
 
   function scheduleFlush() {
     if (state.flushTimer) return;
+    // Never schedule a retry while delivery is backing off: a timer here would
+    // keep firing on the same rejected batch every interval.
+    if (state.cooldownUntil > Date.now()) return;
     state.flushTimer = window.setTimeout(() => {
       state.flushTimer = null;
       void flush();
@@ -145,6 +159,19 @@ const AppLogger = (() => {
     return false;
   }
 
+  function isRateLimitedError(error) {
+    const code = Number(error?.code ?? error?.response?.status ?? 0);
+    if (code === 429) return true;
+    return /too many requests|rate limit/i.test(String(error?.message || ""));
+  }
+
+  function trimBufferToLimit() {
+    if (state.buffer.length > MAX_BUFFER) {
+      // Keep the newest events: they carry the error the operator just hit.
+      state.buffer = state.buffer.slice(-MAX_BUFFER);
+    }
+  }
+
   function flush() {
     if (state.flushTimer) {
       window.clearTimeout(state.flushTimer);
@@ -158,21 +185,43 @@ const AppLogger = (() => {
       state.buffer = [];
       return Promise.resolve();
     }
+    // Deliveries are backing off (the server is rejecting them). Bound the
+    // buffer, then wait: a timer scheduled here would keep re-POSTing the
+    // rejected batch, and the failure of this very request is an error that
+    // would re-enter the logger and restart the storm.
+    if (state.cooldownUntil > Date.now()) {
+      if (state.buffer.length >= MAX_BUFFER) {
+        state.buffer = state.buffer.slice(-KEEP_EVENTS_PER_RETRY);
+      }
+      return Promise.resolve();
+    }
 
     const batch = state.buffer.splice(0);
     state.flushInProgress = true;
     return window.API.system
       .logFromClient({ events: batch })
-      .catch((error) => {
-        // Requeue a bounded number so transient network issues don't lose
-        // telemetry, but never let it grow unbounded.
-        if (state.buffer.length + batch.length <= MAX_BUFFER) {
-          state.buffer = state.buffer.concat(batch);
-        }
-        log("warn", "flush failed", error?.message || error);
-      })
+      .then(
+        () => {
+          state.cooldownUntil = 0;
+        },
+        (error) => {
+          // The server rejected the batch, so re-sending all of it only widens
+          // the burst. Retain a bounded, newest-first slice and pause.
+          const rateLimited = isRateLimitedError(error);
+          state.cooldownUntil =
+            Date.now() + (rateLimited ? COOLDOWN_RATE_LIMITED_MS : COOLDOWN_MS);
+          state.buffer = [
+            ...state.buffer,
+            ...batch.slice(-KEEP_EVENTS_PER_RETRY),
+          ].slice(-MAX_BUFFER);
+          // Intentionally silent: this logger's own delivery failure must
+          // never be re-routed back into the telemetry it just failed to
+          // deliver (console.error -> AppLogger.error -> flush -> 429 -> ...).
+        },
+      )
       .finally(() => {
         state.flushInProgress = false;
+        trimBufferToLimit();
       });
   }
 

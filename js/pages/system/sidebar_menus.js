@@ -75,6 +75,7 @@ const SidebarMenusController = {
       search: document.getElementById("sidebarMenusSearch"),
       count: document.getElementById("sidebarMenusCount"),
       body: document.getElementById("sidebarMenusTableBody"),
+      tableState: document.getElementById("sidebarMenusTableState"),
       rowTemplate: document.getElementById("sidebarMenusRowTemplate"),
       exportCsvBtn: document.getElementById("sidebarMenusExportCsvBtn"),
       printBtn: document.getElementById("sidebarMenusPrintBtn"),
@@ -110,12 +111,13 @@ const SidebarMenusController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="5" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-sidebar-menu-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -194,17 +196,23 @@ const SidebarMenusController = {
     if (!pageRows.length) {
       this.showTableMessage("No sidebar menu records found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="role_name"]').textContent = row.role_name ?? "—";
-          fragment.querySelector('[data-fill="section"]').textContent = row.section ?? "—";
-          fragment.querySelector('[data-fill="menu_label"]').textContent = row.menu_label ?? "—";
-          fragment.querySelector('[data-fill="route"]').textContent = row.route ?? "—";
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(row.status);
-          return fragment.querySelector("tr").outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-sidebar-menu-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="role_name"]').textContent = row.role_name ?? "—";
+        fragment.querySelector('[data-fill="section"]').textContent = row.section ?? "—";
+        fragment.querySelector('[data-fill="menu_label"]').textContent = row.menu_label ?? "—";
+        fragment.querySelector('[data-fill="route"]').textContent = row.route ?? "—";
+        const badge = fragment.querySelector('[data-fill="status"]');
+        const status = String(row.status ?? "—");
+        badge.textContent = status;
+        badge.classList.add(["effective", "active"].includes(status.toLowerCase()) ? "bg-success" : "bg-secondary");
+        fragment.querySelector("tr").dataset.sidebarMenuRow = "1";
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

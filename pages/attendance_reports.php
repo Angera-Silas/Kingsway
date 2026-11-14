@@ -11,6 +11,9 @@
     <button class="btn btn-outline-success btn-sm" onclick="attendanceReportsController.exportCSV()">
       <i class="bi bi-download me-1"></i>Export CSV
     </button>
+    <button class="btn btn-outline-primary btn-sm" id="printAttendanceReport" type="button">
+      <i class="bi bi-printer me-1"></i>Print
+    </button>
   </div>
 
   <!-- Filters -->
@@ -87,6 +90,7 @@
         <div class="d-flex flex-wrap gap-2">
           <button type="button" class="btn btn-outline-success btn-sm" id="queueAiAttendanceSummary"><i class="bi bi-stars me-1"></i>Review today’s exceptions</button>
           <button type="button" class="btn btn-outline-primary btn-sm" id="queueAiAttendanceLateness"><i class="bi bi-graph-up-arrow me-1"></i>Review lateness pattern</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="aiAttendanceRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh reviews</button>
         </div>
       </div>
       <div id="aiAttendanceSummaries" class="row g-2 mt-2"></div>

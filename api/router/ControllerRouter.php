@@ -10,6 +10,17 @@ class ControllerRouter
     /** @var float Request start time (microtime) for duration capture. */
     private $start;
 
+    /**
+     * Parsed route context, kept so failure traces (abort paths) still carry
+     * the real method/controller/resource instead of logging as /router.
+     */
+    private $context = [
+        'method' => null,
+        'controller' => null,
+        'resource' => null,
+        'id' => null,
+    ];
+
     public function __construct()
     {
         $this->start = microtime(true);
@@ -29,6 +40,12 @@ class ControllerRouter
 
             // Get controller name (first segment)
             $controllerName = array_shift($segments);
+
+            // Special case: Buni IPN endpoints (/ipn/1.0.0/validation, /ipn/1.0.0/till-notification, etc.)
+            // Map the 'ipn' controller to the PaymentsController
+            if ($controllerName === 'ipn') {
+                $controllerName = 'payments';
+            }
 
             // Remaining segments are: [resource, id/value, ...nested]
             // Strategy:
@@ -61,6 +78,25 @@ class ControllerRouter
                 }
             }
 
+            $this->context = [
+                'method' => $method,
+                'controller' => $controllerName,
+                'resource' => $resource,
+                'id' => $id,
+            ];
+
+            // Special case: Buni IPN endpoints (/ipn/1.0.0/...)
+            // Map IPN resource paths to correct KCB method names
+            if ($controllerName === 'payments' && $resource && strpos($resource, '1.0.0-') === 0) {
+                if (strpos($resource, '1.0.0-validation') === 0) {
+                    $resource = 'kcb-validation';
+                } elseif (strpos($resource, '1.0.0-till-notification') === 0) {
+                    $resource = 'kcb-notification';
+                } elseif (strpos($resource, '1.0.0-account-notification') === 0) {
+                    $resource = 'kcb-notification';
+                }
+            }
+
             // Load controller class
             $controller = $this->loadController($controllerName);
 
@@ -77,12 +113,6 @@ class ControllerRouter
             }
             $ctrlCamel = ucfirst($controllerName);
             $httpLower = strtolower($method);
-            $isPlural = (substr($ctrlCamel, -1) === 's');
-            $singular = $isPlural ? substr($ctrlCamel, 0, -1) : $ctrlCamel;
-            $candidates[] = $httpLower . $ctrlCamel;
-            if ($isPlural) {
-                $candidates[] = $httpLower . $singular;
-            }
             // Only fall back to the generic action/list handlers (get, index) for a
             // BARE resource (e.g. GET /api/academic or /api/academic/{id}). A NAMED
             // resource that has no handler must 404 — otherwise unknown slugs silently
@@ -90,6 +120,12 @@ class ControllerRouter
             // broken endpoints as a false "success"). This was the root cause of
             // academic pages appearing to work while fetching irrelevant subjects data.
             if (!$resource) {
+                $isPlural = (substr($ctrlCamel, -1) === 's');
+                $singular = $isPlural ? substr($ctrlCamel, 0, -1) : $ctrlCamel;
+                $candidates[] = $httpLower . $ctrlCamel;
+                if ($isPlural) {
+                    $candidates[] = $httpLower . $singular;
+                }
                 $candidates[] = $httpLower;
                 $candidates[] = 'index';
             }
@@ -104,14 +140,27 @@ class ControllerRouter
                 }
             }
 
-            // Fallback: if the full joined resource resolves to nothing but the
-            // resource-minus-last-segment maps to an existing method, treat the
-            // last segment as a string ID. This supports RESTful routes with
-            // non-numeric IDs (e.g. /parent-portal/mpesa-status/{checkoutRequestId}
-            // where Safaricom checkout IDs are alphanumeric). Only applies when the
-            // full resource would otherwise 404, so existing named resources such
-            // as /inventory/items-list are never affected.
-            if (!$found && $resource && count($segments) > 1) {
+            // When a numeric ID is followed by an action segment, route to the
+            // resource handler and pass only the action suffix. For example,
+            // /library/issues/12/return resolves to putIssues(12, ..., ['return']).
+            // Keep the numeric ID intact; treating "return" as the ID silently
+            // sends the wrong value to handlers that support nested actions.
+            if (!$found && $resource && $id !== null && count($segments) > 1) {
+                for ($prefixLength = count($segments) - 1; $prefixLength > 0; $prefixLength--) {
+                    $prefixResource = implode('-', array_slice($segments, 0, $prefixLength));
+                    $prefixMethod = $this->buildMethodName($method, $prefixResource);
+                    if (method_exists($controller, $prefixMethod)) {
+                        $found = $prefixMethod;
+                        $segments = array_slice($segments, $prefixLength);
+                        break;
+                    }
+                }
+            }
+
+            // Fallback for RESTful routes with non-numeric IDs (for example,
+            // /parent-portal/mpesa-status/{checkoutRequestId}). This is only
+            // available when no numeric ID was already extracted.
+            if (!$found && $resource && $id === null && count($segments) > 1) {
                 $stringId = array_pop($segments);
                 $prefixResource = implode('-', $segments);
                 $prefixMethod = $this->buildMethodName($method, $prefixResource);
@@ -189,8 +238,19 @@ class ControllerRouter
             return $this->abort(400, $e->getMessage());
         } catch (\RuntimeException $e) {
             \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            if ($e->getCode() === 404) {
+            $code = (int) $e->getCode();
+            if ($code === 404) {
                 return $this->abort(404, $e->getMessage());
+            }
+            // Service unavailable errors should return 503, not 400
+            // This includes: Python AI platform not responding, AI platform unavailable, etc.
+            if (
+                $code === 503 ||
+                stripos($e->getMessage(), 'did not respond') !== false ||
+                stripos($e->getMessage(), 'unavailable') !== false ||
+                stripos($e->getMessage(), 'not configured') !== false
+            ) {
+                return $this->abort(503, $e->getMessage());
             }
             return $this->abort(400, $e->getMessage());
         } catch (Exception $e) {
@@ -208,12 +268,12 @@ class ControllerRouter
         if ($controllerMap === null) {
             // Route map is disk-cached: the per-request glob() over the
             // controllers directory is a real cost at ~1000 concurrent users
-            // (every request globs once). A short TTL (120s) lets newly added
+            // (every request globs once). A short TTL lets newly added
             // controllers appear within two minutes while removing the scan
             // from the concurrent hot path almost entirely.
             $controllerMap = \App\API\Services\FileCache::remember(
                 'router.controller_map',
-                2,
+                2, // minutes (FileCache TTLs are in minutes): 120 s
                 function () {
                     $map = [];
                     $controllersDir = dirname(__DIR__) . '/controllers';
@@ -337,11 +397,11 @@ class ControllerRouter
     {
         http_response_code($code);
         $this->trace(
-            $_SERVER['REQUEST_METHOD'] ?? 'GET',
-            strtolower(str_replace('Controller', '', basename(str_replace('\\', '/', static::class)))),
-            null,
-            null,
-            ['code' => $code, 'message' => $message]
+            $this->context['method'] ?? ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+            $this->context['controller'],
+            $this->context['resource'],
+            $this->context['id'],
+            ['success' => false, 'code' => $code, 'message' => $message]
         );
         return [
             'success' => false,
@@ -365,7 +425,7 @@ class ControllerRouter
             $code = 200;
             $success = true;
             if (is_array($result)) {
-                $code = (int) ($result['code'] ?? (($result['success'] ?? true) ? 200 : 400));
+                $code = (int) ($result['code'] ?? 200);
                 $success = ((bool) ($result['success'] ?? false)) || $code < 400;
             }
             if (!is_array($result)) {
@@ -386,6 +446,9 @@ class ControllerRouter
                 'success' => $success,
                 'duration_ms' => $durationMs,
                 'route' => $route,
+                'message' => $success
+                    ? null
+                    : (is_array($result) ? ($result['message'] ?? null) : null),
             ]);
 
             // Universal audit coverage for state-changing API operations.

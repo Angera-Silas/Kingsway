@@ -2,21 +2,27 @@
 
 namespace App\API\Middleware;
 
-use App\Database\Database;
 use PDO;
 
 class RateLimitMiddleware
 {
-    // Anonymous traffic remains conservative, authenticated users get a larger
-    // per-user bucket so normal multi-tab work does not collide on one IP.
-    const ANONYMOUS_REQUESTS_LIMIT = 120;
-    const AUTHENTICATED_REQUESTS_LIMIT = 600;
-    const REFRESH_REQUESTS_LIMIT = 60;
+    // Anonymous traffic only. Authenticated staff are never throttled (see
+    // handle()): the buckets below exist to stop unauthenticated abuse, and the
+    // tight ones are keyed per browser session rather than per IP, because the
+    // whole school shares one address behind its NAT.
+    const ANONYMOUS_REQUESTS_LIMIT = 600;
     const LOGIN_REQUESTS_LIMIT = 60;
-    const TELEMETRY_REQUESTS_LIMIT = 60;
     // Public AI is provider-backed and anonymous; keep its cost/abuse bucket
     // separate from ordinary public website traffic.
-    const PUBLIC_AI_REQUESTS_LIMIT = 20;
+    const PUBLIC_AI_REQUESTS_LIMIT = 200;
+    // Handoff leads are low-volume but write to the DB and send email.
+    const PUBLIC_LEADS_REQUESTS_LIMIT = 5;
+    // Each call to these can send a PAID SMS/WhatsApp message, so they get
+    // their own bucket rather than the anonymous default. Keyed by the browser
+    // session so one person's retries do not spend a colleague's allowance on
+    // the same NAT'd network. The per-account OTP budget in TwoFactorService
+    // remains the real cost control.
+    const VERIFICATION_REQUESTS_LIMIT = 30;
     const TIME_WINDOW = 60; // seconds
 
     // Login endpoints that get a stricter rate limit.
@@ -25,114 +31,95 @@ class RateLimitMiddleware
         '/users/login',
     ];
 
+    const VERIFICATION_PATHS = [
+        '/twofactor/challenge',
+        '/twofactor/verify',
+    ];
+
     /**
      * Check rate limiting by authenticated user when a bearer token is present,
      * otherwise by IP address. This middleware intentionally does not authorize
      * the JWT; the decoded payload is only used to choose a fair rate bucket.
+     *
+     * Authenticated callers are deliberately NOT throttled. The buckets exist to
+     * stop unauthenticated abuse — credential stuffing against /auth/login,
+     * paid-SMS floods on the two-factor paths, and anonymous scraping. A signed-in
+     * staff member driving a real workflow exceeds 60 requests/min on a single
+     * page (table loads, filters, reference data, realtime streams) and a school
+     * network is NAT'd behind one IP, so throttling them cost legitimate work
+     * without stopping any attack the login/OTP limits do not already prevent.
+     * Cost control for signed-in callers belongs to the specific expensive
+     * operation (TwoFactorService's per-account OTP budget), not to a blanket
+     * request counter.
      */
     public static function handle()
     {
-        $ipAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $ipAddress = self::clientIp();
         $rateKey = self::resolveRateKey($ipAddress);
-        $limit = self::resolveLimit($rateKey);
+
+        if (strpos($rateKey, 'user:') === 0) {
+            return; // signed in — see above
+        }
+
+        $limit = self::resolveLimit();
         $now = time();
 
-        try {
-            $db = Database::getInstance();
-
-            // The runtime counter store is optional: if it has not been
-            // provisioned, fail open (the nginx edge layer still enforces
-            // per-route limits).
-            if (!self::rateLimitStoreAvailable($db)) {
-                return;
-            }
-
-            // Clean old entries (older than time window)
-            $db->query(
-                "DELETE FROM rate_limit_logs WHERE request_time < ?",
-                [$now - self::TIME_WINDOW]
-            );
-
-            // Count requests from this IP in current window
-            $stmt = $db->query(
-                "SELECT COUNT(*) as request_count FROM rate_limit_logs 
-                 WHERE ip_address = ? AND request_time > ?",
-                [$rateKey, $now - self::TIME_WINDOW]
-            );
-
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            $requestCount = $result['request_count'] ?? 0;
-
-            if ($requestCount >= $limit) {
-                self::deny(429, 'Too many requests. Rate limit exceeded.');
-            }
-
-            // Log this request
-            $db->query(
-                "INSERT INTO rate_limit_logs (ip_address, request_time) VALUES (?, ?)",
-                [$rateKey, $now]
-            );
-
-        } catch (\Exception $e) {
-            // Log but don't block on database error
-            \App\API\Services\Logger::legacyError("Rate limit check failed: " . $e->getMessage());
-        }
-    }
-
-    private static $rateLimitStoreChecked = false;
-    private static $rateLimitStoreAvailable = false;
-
-    private static function rateLimitStoreAvailable($db): bool
-    {
-        if (self::$rateLimitStoreChecked) {
-            return self::$rateLimitStoreAvailable;
-        }
-
-        $stmt = $db->query(
-            "SELECT COUNT(*)
-             FROM information_schema.tables
-             WHERE table_schema = DATABASE()
-               AND table_name = 'rate_limit_logs'"
+        // Counters are JSON-lines files under logs/<env>/ratelimit, matching
+        // Hard Rule 2 (no database log tables). The previous rate_limit_logs
+        // table never existed, so this middleware silently failed open for
+        // every request; the file limiter is always available and always
+        // counts, so rotating IPs does not bypass it.
+        $remaining = \App\API\Services\FileRateLimiter::consume(
+            $rateKey,
+            $limit,
+            self::TIME_WINDOW
         );
-        self::$rateLimitStoreAvailable = (int) $stmt->fetchColumn() === 1;
-        self::$rateLimitStoreChecked = true;
-
-        return self::$rateLimitStoreAvailable;
+        if ($remaining < 0) {
+            self::deny(429, 'Too many requests. Rate limit exceeded.');
+        }
     }
 
-    private static function resolveLimit($rateKey)
+    /**
+     * Budget for an unauthenticated request. Called only for callers that
+     * reached here, i.e. anonymous ones.
+     */
+    private static function resolveLimit()
     {
-        if (self::isTelemetryEndpoint()) {
-            return self::TELEMETRY_REQUESTS_LIMIT;
-        }
         if (self::isPublicAiEndpoint()) {
             return self::PUBLIC_AI_REQUESTS_LIMIT;
         }
-        if (self::isRefreshEndpoint()) {
-            return self::REFRESH_REQUESTS_LIMIT;
+        if (self::isPublicLeadsEndpoint()) {
+            return self::PUBLIC_LEADS_REQUESTS_LIMIT;
         }
-
         if (self::isLoginEndpoint()) {
             return self::LOGIN_REQUESTS_LIMIT;
         }
+        if (self::isVerificationEndpoint()) {
+            return self::VERIFICATION_REQUESTS_LIMIT;
+        }
 
-        return strpos($rateKey, 'user:') === 0
-            ? self::AUTHENTICATED_REQUESTS_LIMIT
-            : self::ANONYMOUS_REQUESTS_LIMIT;
+        return self::ANONYMOUS_REQUESTS_LIMIT;
     }
 
-    private static function isTelemetryEndpoint(): bool
+    private static function isVerificationEndpoint(): bool
     {
         $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
-        return strpos($path, '/system/client-log') !== false
-            || strpos($path, '/telemetry/data') !== false
-            || strpos($path, '/telemetry/errors') !== false;
+        foreach (self::VERIFICATION_PATHS as $verificationPath) {
+            if (strpos($path, $verificationPath) !== false) return true;
+        }
+        return false;
     }
 
     private static function isPublicAiEndpoint(): bool
     {
         $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
         return strpos($path, '/public/ai-faq') !== false;
+    }
+
+    private static function isPublicLeadsEndpoint(): bool
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        return strpos($path, '/public/leads') !== false;
     }
 
     private static function isLoginEndpoint()
@@ -153,7 +140,56 @@ class RateLimitMiddleware
             return 'user:' . $userId;
         }
 
+        // Auth endpoints are per browser tab/session, not per IP. The browser
+        // already sends X-Browser-Session-Id on every request; using it keeps
+        // one person's retries from spending a colleague's allowance on the
+        // same NAT'd school network. The header is only a fairness key — the
+        // per-account challenge/OTP limits remain the brute-force control.
+        if (self::isLoginEndpoint() || self::isVerificationEndpoint()) {
+            $browserSession = (string) ($_SERVER['browser_session_id']
+                ?? $_SERVER['HTTP_X_BROWSER_SESSION_ID']
+                ?? '');
+            if ($browserSession !== ''
+                && preg_match('/^[A-Za-z0-9._-]{1,128}$/', $browserSession)) {
+                return 'browser:' . $browserSession;
+            }
+        }
+
         return 'ip:' . $ipAddress;
+    }
+
+    /**
+     * Real client address behind the nginx -> Apache load balancer.
+     *
+     * Apache listens on loopback only and nginx sets X-Forwarded-For. Without
+     * this, every request reached PHP as 127.0.0.1 and the whole school shared
+     * a single anonymous bucket. Forwarded headers are trusted only when the
+     * direct peer is loopback, so a remote client cannot spoof the key.
+     */
+    private static function clientIp(): string
+    {
+        $remote = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        if ($remote !== '' && !in_array($remote, ['127.0.0.1', '::1'], true)) {
+            return $remote;
+        }
+
+        // nginx always overwrites X-Real-IP with $remote_addr, so prefer it.
+        $realIp = trim((string) ($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+        if (filter_var($realIp, FILTER_VALIDATE_IP)) {
+            return $realIp;
+        }
+
+        $forwarded = trim((string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+        if ($forwarded !== '') {
+            // With one trusted proxy the last entry is the address nginx saw.
+            $parts = array_values(array_filter(array_map('trim', explode(',', $forwarded)), 'strlen'));
+            $last = $parts !== [] ? end($parts) : '';
+            if (filter_var($last, FILTER_VALIDATE_IP)) {
+                return $last;
+            }
+        }
+
+        return $remote !== '' ? $remote : 'unknown';
     }
 
     private static function bearerUserId()
@@ -198,13 +234,6 @@ class RateLimitMiddleware
         }
 
         return base64_decode(strtr($value, '-_', '+/'));
-    }
-
-    private static function isRefreshEndpoint()
-    {
-        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
-        return strpos($path, '/auth/refresh-token') !== false
-            || strpos($path, '/auth/refresh-session') !== false;
     }
 
     /**

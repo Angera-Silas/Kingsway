@@ -1,4 +1,4 @@
-<?php if (!isset($appBase)) { $appBase = ''; } ?>
+<?php $appBase = app_base_path(); ?>
 <div class="container-fluid py-4" id="classAttendanceHistoryPage">
   <style>
     #classAttendanceHistoryPage .register-table { min-width: 640px; }

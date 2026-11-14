@@ -20,6 +20,10 @@
                     <h4 class="mb-1"><i class="bi bi-calendar-alt me-2"></i>Year Calendar</h4>
                     <p class="text-muted mb-0">Full-year academic calendar - mark holidays, closures and special days</p>
                 </div>
+                <div class="d-flex align-items-center gap-2">
+                    <label class="text-muted small mb-0 text-nowrap" for="academicYearFilter">Academic year</label>
+                    <select class="form-select" id="academicYearFilter" style="min-width: 15rem"><option>Loading…</option></select>
+                </div>
             </div>
         </div>
     </div>
@@ -56,7 +60,7 @@
             <div class="row g-3">
                 <div class="col-md-3"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div>
                 <div class="col-md-3"><select class="form-select" id="filterSelect"><option value="">All Types</option></select></div>
-                <div class="col-md-2"><select class="form-select" id="termFilter"><option value="">All Terms</option></select></div>
+                <div class="col-md-2"><select class="form-select" id="termFilter" aria-label="Term or holiday"><option value="">All terms and holidays</option></select></div>
                 <div class="col-md-2"><input type="date" class="form-control" id="dateFilter"></div>
                 <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="YearCalendarController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
@@ -66,14 +70,20 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Year Calendar</h6>
-            <button class="btn btn-sm btn-outline-success" onclick="YearCalendarController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
+            <div class="d-flex gap-2 no-print">
+                <button class="btn btn-sm btn-outline-success" onclick="YearCalendarController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export CSV</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="YearCalendarController.print()"><i class="bi bi-printer me-1"></i> Print</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="YearCalendarController.downloadPdf()" title="The official academic calendar for the selected year"><i class="bi bi-file-earmark-pdf me-1"></i> Calendar PDF</button>
+            </div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
-                    <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term</th><th scope="col">Week</th><th scope="col">Date</th><th scope="col">Day</th><th scope="col">Event</th><th scope="col">Type</th><th scope="col">Actions</th></tr></thead>
-                    <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term / holiday</th><th scope="col">Week</th><th scope="col">Date</th><th scope="col">Day</th><th scope="col">Event</th><th scope="col">Type</th><th scope="col">Actions</th></tr></thead>
+                    <tbody id="yearCalendarBody"><tr id="yearCalendarState"><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                 </table>
+                <template id="yearCalendarRowTemplate"><tr data-year-calendar-row><td data-fill="number"></td><td data-fill="term"></td><td data-fill="week"></td><td data-fill="date"></td><td data-fill="day"></td><td><strong data-fill="event-name"></strong><span class="badge bg-danger-subtle text-danger ms-1" data-fill="manual" hidden>Manual</span><div class="mt-1" data-fill="events"></div></td><td><span class="badge" data-fill="type"></span></td><td><button class="btn btn-sm btn-outline-primary" data-action="edit" type="button" title="Mark holiday / edit day"><i class="fas fa-calendar-day"></i></button></td></tr></template>
+                <template id="yearCalendarEventBadgeTemplate"><span class="badge bg-info-subtle text-info border border-info me-1"></span></template>
             </div>
         </div>
     </div>

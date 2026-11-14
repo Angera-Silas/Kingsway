@@ -1,11 +1,6 @@
 <?php
 // When loaded as AJAX sub-template, $appBase is not inherited from app_layout.php.
 // Compute it locally: go up 3 levels from pages/fee_structure/this_file.php → /Kingsway
-if (!isset($appBase)) {
-    $p = $_SERVER['SCRIPT_NAME'] ?? '';
-    $appBase = rtrim(dirname(dirname(dirname($p))), '/');
-    if ($appBase === '.' || $appBase === '/') $appBase = '';
-}
 ?>
 <div class="admin-layout fee-director-page" data-user-role="director_owner">
 <style>
@@ -477,6 +472,7 @@ if (!isset($appBase)) {
                 <option value="">Select year</option>
             </select>
             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearFilters()">Reset</button>
+            <button class="btn btn-sm btn-outline-primary" type="button" id="adminMatrixPrint" onclick="printActiveFeeStructure()" title="PDF of the active fee structure for the selected year"><i class="bi bi-printer me-1"></i>Print PDF</button>
             <span class="badge rounded-pill text-bg-success">Active</span>
         </div>
     </div>
@@ -491,13 +487,13 @@ if (!isset($appBase)) {
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Create New Fee Structure</h3>
-                <button class="btn-close" onclick="closeModal('feeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('feeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="modalBody">
                 <!-- Form will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('feeStructureModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('feeStructureModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveFeeStructure()" id="saveBtn">💾 Save</button>
             </div>
         </div>
@@ -510,13 +506,13 @@ if (!isset($appBase)) {
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
-                <button class="btn-close" onclick="closeModal('viewFeeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="viewModalBody">
                 <!-- Details will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('viewFeeStructureModal')">Close</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
                 <button class="btn btn-warning" onclick="editFromView()" id="editFromViewBtn">✏️ Edit</button>
                 <button class="btn btn-success" onclick="approveFromView()" id="approveFromViewBtn">✅
                     Approve</button>
@@ -531,7 +527,7 @@ if (!isset($appBase)) {
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Confirm Delete</h3>
-                <button class="btn-close" onclick="closeModal('deleteConfirmModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('deleteConfirmModal')">×</button>
             </div>
             <div class="modal-body">
                 <p>⚠️ Are you sure you want to delete this fee structure?</p>
@@ -539,7 +535,7 @@ if (!isset($appBase)) {
                 <p id="deleteWarning"></p>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('deleteConfirmModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('deleteConfirmModal')">Cancel</button>
                 <button class="btn btn-danger" onclick="confirmDelete()" id="confirmDeleteBtn">🗑️ Delete</button>
             </div>
         </div>
@@ -552,7 +548,7 @@ if (!isset($appBase)) {
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Duplicate Fee Structure</h3>
-                <button class="btn-close" onclick="closeModal('duplicateStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('duplicateStructureModal')">×</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -573,7 +569,7 @@ if (!isset($appBase)) {
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('duplicateStructureModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('duplicateStructureModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="confirmDuplicate()" id="confirmDuplicateBtn">📑
                     Duplicate</button>
             </div>

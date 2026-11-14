@@ -40,6 +40,24 @@ class ReportingManager extends FileLifecycleBase
     }
 
     /**
+     * Accounting source-trace rows (source link -> journal batch), newest first.
+     * Backed by the financial_source_trace read projection; called statically by
+     * FinanceController::getAccountingSourceTrace().
+     */
+    public static function sourceTrace(PDO $db, int $limit = 100): array
+    {
+        $limit = min(500, max(1, $limit));
+        $sql = "SELECT source_type, source_id, source_reference, journal_batch_id,
+                       batch_number, journal_status, correlation_id, created_at, posted_at
+                FROM " . ReadReplicaService::qualifiedRef('financial_source_trace') . "
+                ORDER BY created_at DESC, journal_batch_id DESC
+                LIMIT ?";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([$limit]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
      * Get comprehensive financial dashboard
      * @param array $filters Filter criteria (academic_year, date_from, date_to)
      * @return array Response with dashboard data
@@ -106,7 +124,7 @@ class ReportingManager extends FileLifecycleBase
             $stmt = $this->db->prepare(
                 "SELECT 
                     COALESCE(SUM(p.amount), 0) as total_cash_collected
-                FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
                 WHERE p.status = 'confirmed' 
                   AND ay.year_code = ?"
@@ -829,7 +847,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                         ROUND(AVG(p.amount), 2) as avg_amount,
                         MIN(p.amount) as min_amount,
                         MAX(p.amount) as max_amount
-                    FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                    FROM " . ReadReplicaService::qualifiedRef("payments") . " p
                     JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
                     WHERE p.status = 'confirmed'
                       AND ay.year_code = ?";
@@ -944,7 +962,7 @@ $sql = "SELECT
                         'School Fees' as fee_type,
                         COUNT(DISTINCT sfo.student_academic_enrollment_id) as student_count,
                         COALESCE(SUM(sfo.amount_due), 0) as total_due
-                    FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                    FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " fsd ON sfo.academic_year_fee_schedule_id = fsd.id
                     WHERE sfo.academic_year_id = ?";
 

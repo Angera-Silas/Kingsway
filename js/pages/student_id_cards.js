@@ -916,7 +916,7 @@ changePage: function(delta) {
         }
 
         if (typeof bootstrap !== "undefined") {
-            const bootstrapModal = new bootstrap.Modal(modal);
+            const bootstrapModal = bootstrap.Modal.getOrCreateInstance(modal);
             bootstrapModal.show();
         }
     },
@@ -990,7 +990,7 @@ changePage: function(delta) {
             if (typeof bootstrap !== "undefined" && this.dom.previewModal) {
                 let modal = bootstrap.Modal.getInstance(this.dom.previewModal);
                 if (!modal) {
-                    modal = new bootstrap.Modal(this.dom.previewModal);
+                    modal = bootstrap.Modal.getOrCreateInstance(this.dom.previewModal);
                 }
                 modal.show();
             }

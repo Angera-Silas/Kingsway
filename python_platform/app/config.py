@@ -120,6 +120,11 @@ class Config:
         self.provider_retries = _env_int("AI_PROVIDER_RETRIES", 2)
         self.retry_delay_ms = _env_int("AI_PROVIDER_RETRY_DELAY_MS", 250)
         self.enabled = _env_bool("AI_ENABLED", False)
+        # Source-code context is proprietary school material. Keep it disabled
+        # unless an operator explicitly enables it for a loopback-only model.
+        self.allow_system_code_context = _env_bool(
+            "AI_ALLOW_SYSTEM_CODE_CONTEXT", False
+        )
 
         # Additional fallback providers as a JSON list, mirroring the
         # PHP gateway contract: [{"name","base_url","model","api_key"?,"provider_kind"?}]
@@ -173,23 +178,50 @@ class Config:
             ),
         )
 
+        # External MCP servers the assistant may consume tools from. A JSON
+        # list of {name, base_url, token, tools:[...]}; absent or empty means
+        # the MCP client is dormant and no external capability exists. The tool
+        # list is the operator's, never the model's.
+        self.mcp_servers_raw = _env("AI_MCP_SERVERS")
+
         # TLS verification for calls back into the PHP edge. Default ON.
         # Set to false ONLY for local development with a self-signed cert.
         self.php_verify_tls = _env_bool("KINGSWAY_PHP_VERIFY_TLS", True)
 
-        # Deterministic read-model worker. Disabled until deployment installs
-        # PyMySQL and supplies a least-privilege account for the source and
-        # reads schemas. These credentials are never forwarded to an LLM.
+        # Deterministic read-model worker. Enabled by default - the Python refresh
+        # engine handles all projection updates via triggers or scheduled sweeps.
+        # Only disable this if you have a separate system managing projections.
         self.read_models_enabled = _env_bool(
-            "KINGSWAY_PYTHON_READ_MODELS_ENABLED", False
+            "KINGSWAY_PYTHON_READ_MODELS_ENABLED", True
         )
+        # Change-capture triggers make a projection rebuild follow a write
+        # within seconds. They are installed lazily by the Python refresh
+        # engine; when the database account lacks TRIGGER privilege the engine
+        # falls back to table update timestamps without touching application
+        # writes. Set to false to use only the scheduled sweep.
+        self.read_change_triggers = _env_bool("KINGSWAY_MV_CHANGE_TRIGGERS", True)
         self.db_host = _env("KINGSWAY_DB_HOST")
         self.db_port = _env_int("KINGSWAY_DB_PORT", 3306)
         self.db_user = _env("KINGSWAY_DB_USER")
         self.db_password = _env("KINGSWAY_DB_PASSWORD")
         self.db_ssl_ca = _env("KINGSWAY_DB_SSL_CA")
-        self.db_master_schema = _env("KINGSWAY_DB_MASTER_SCHEMA", "KingsWayAcademy")
-        self.db_reads_schema = _env("KINGSWAY_DB_READS_SCHEMA", "KingsWayReads")
+        # No built-in schema names: local and production databases are named
+        # differently, so a default would silently aim production at the wrong
+        # schema. Production sets these via SetEnv in the Python subdomain's
+        # .htaccess (locally, local_run.py maps them from config/.env DB_NAME /
+        # DB_READS_NAME). Missing -> read models are disabled and reported.
+        self.db_master_schema = _env("KINGSWAY_DB_MASTER_SCHEMA").strip()
+        self.db_reads_schema = _env("KINGSWAY_DB_READS_SCHEMA").strip()
+        self.missing_schema_env = [
+            name
+            for name, value in (
+                ("KINGSWAY_DB_MASTER_SCHEMA", self.db_master_schema),
+                ("KINGSWAY_DB_READS_SCHEMA", self.db_reads_schema),
+            )
+            if not value
+        ]
+        if self.missing_schema_env:
+            self.read_models_enabled = False
         self.db_connect_timeout = max(
             1, min(15, _env_int("KINGSWAY_DB_CONNECT_TIMEOUT", 5))
         )

@@ -93,6 +93,10 @@
 <section class="academic-card p-3 mb-4" id="examPeriodWorkflow">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
         <div><h3 class="h5 mb-1">Exam periods and results</h3><p class="text-muted mb-0">Select the academic term and classes. Every stream in a class takes each learning area paper at the same sitting time.</p></div>
+        <div class="d-flex gap-2 align-items-end">
+            <div><label class="form-label small text-muted mb-1" for="examPeriodYearFilter">Academic year</label><select class="form-select form-select-sm" id="examPeriodYearFilter"></select></div>
+            <div><label class="form-label small text-muted mb-1" for="examPeriodTermFilter">Term</label><select class="form-select form-select-sm" id="examPeriodTermFilter"></select></div>
+        </div>
         <div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsCsv"><i class="bi bi-download me-1"></i>Export CSV</button><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsPrint"><i class="bi bi-printer me-1"></i>Print / PDF</button></div>
     </div>
     <div class="table-responsive"><table class="table table-hover align-middle" id="examPeriodsTable">
@@ -102,6 +106,23 @@
 </section>
 
 <div class="modal fade" id="examPeriodWorkspace" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-fullscreen-xl-down modal-xl modal-dialog-scrollable"><div class="modal-content"></div></div></div>
+
+<div class="modal fade" id="publishResultsModal" tabindex="-1" aria-labelledby="publishResultsTitle" aria-hidden="true">
+ <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h2 class="modal-title fs-5" id="publishResultsTitle">Publish results</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+   <p class="text-muted">Publishing makes approved results official. Parent notifications are optional. Select the learner-parent pairs and channels to notify; unselected parents will not receive a message.</p>
+   <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" role="switch" id="notifyResultsParents"><label class="form-check-label fw-semibold" for="notifyResultsParents">Send results notifications to selected parents</label></div>
+   <div id="resultsNotificationOptions" class="d-none">
+    <div class="d-flex gap-3 mb-3"><label><input type="checkbox" value="sms" data-results-channel checked> SMS</label><label><input type="checkbox" value="email" data-results-channel checked> Email</label></div>
+    <div class="d-flex justify-content-between align-items-center mb-2"><strong>Parents of learners with submitted results</strong><button type="button" class="btn btn-sm btn-link" id="toggleResultsRecipients">Select all</button></div>
+    <div id="resultsRecipientsList" class="list-group"><div class="text-muted small">Turn on notifications to load eligible parents.</div></div>
+   </div>
+   <div class="small text-muted mt-2" id="publishResultsFeedback" aria-live="polite"></div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-success" id="confirmPublishResults">Publish results</button></div>
+ </div></div>
+</div>
 
 <div class="modal fade" id="examDocumentImportModal" tabindex="-1" aria-labelledby="examDocumentImportTitle" aria-hidden="true">
  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">

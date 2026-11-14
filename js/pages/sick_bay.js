@@ -138,7 +138,7 @@ const sickBayController = {
     document.getElementById('sbVisitTime').value = new Date().toTimeString().substring(0,5);
     document.getElementById('sbRefHospital').closest('.col-md-6').style.display = 'none';
     document.getElementById('sbError').classList.add('d-none');
-    new bootstrap.Modal(document.getElementById('admitModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('admitModal')).show();
   },
 
   editVisit: async function (id) {
@@ -168,7 +168,7 @@ const sickBayController = {
       document.getElementById('sbVisitTime').value     = (v.visit_time || '').substring(0,5);
       document.getElementById('sbRefHospital').closest('.col-md-6').style.display = v.referred_to_hospital ? 'block' : 'none';
       document.getElementById('sbError').classList.add('d-none');
-      new bootstrap.Modal(document.getElementById('admitModal')).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('admitModal')).show();
     } catch (e) { showNotification('Failed to load visit', 'danger'); }
   },
 

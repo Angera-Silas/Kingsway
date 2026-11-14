@@ -72,7 +72,8 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Date</th><th scope="col">Class</th><th scope="col">Present</th><th scope="col">Absent</th><th scope="col">Late</th><th scope="col">Attendance %</th></tr></thead>
-                    <tbody><tr><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="attendanceTrendsBody"><tr id="attendanceTrendsState"><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <template id="attendanceTrendRowTemplate"><tr><td data-fill="number"></td><td data-fill="date"></td><td data-fill="class"></td><td class="text-success" data-fill="present"></td><td class="text-danger" data-fill="absent"></td><td data-fill="late"></td><td><span class="badge" data-fill="rate"></span></td></tr></template>
                 </table>
             </div>
         </div>

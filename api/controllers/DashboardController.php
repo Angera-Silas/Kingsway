@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
+use App\API\Includes\FileLogger;
 use App\API\Modules\students\StudentsAPI;
 use App\API\Modules\system\SystemAPI;
 use DomainException;
@@ -15,12 +16,14 @@ use App\API\Services\ClassTeacherAnalyticsService;
 use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
-use App\API\Services\AiAgentService;
-use App\API\Services\AiBehaviorProfiler;
-use App\API\Services\AiPythonBridge;
-use App\API\Services\AiProviderException;
-use App\API\Services\AiWorkflowService;
-use App\API\Services\AiInsightOrchestrator;
+use App\API\Services\AgentAssistant;
+use App\API\Services\AgentCatalog;
+use App\API\Services\AgentTaskRepository;
+use App\API\Services\AgentBehaviorJournal;
+use App\API\Services\PythonAiBridge;
+use App\API\Services\WorkflowAuthorization;
+use Throwable;
+use App\API\Services\InsightScheduler;
 use App\API\Services\CurriculumPolicyWatchAgent;
 use App\API\Services\SidebarConfigReader;
 use App\Config\DashboardRouter;
@@ -69,7 +72,7 @@ class DashboardController extends BaseController
             }
             return $this->success(['authorities' => $summary, 'results' => $results], 'Assessment policy watch completed.');
         } catch (Throwable $error) {
-            error_log('[DashboardController] assessment policy watch failed: ' . $error->getMessage());
+            \App\API\Includes\FileLogger::error('dashboard', ['action' => 'assessment_policy_watch', 'error' => $error->getMessage()]);
             return $this->serverError('The assessment policy watch could not run.');
         }
     }
@@ -84,14 +87,13 @@ class DashboardController extends BaseController
     {
         if (!$this->user) return $this->unauthorized('Authentication required');
         try {
-            $permissions = array_values(array_unique(array_map('strval', array_merge(
-                (array) ($this->user['effective_permissions'] ?? []),
-                (array) ($this->user['permissions'] ?? [])
+            $permissions = array_values(array_unique(array_map('strval', (array) (
+                $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
             ))));
             $route = strtolower(trim((string) ($_GET['route'] ?? '')));
             $module = strtolower(trim((string) ($_GET['module'] ?? 'dashboard')));
             $roleNames = (array) ($this->user['roles'] ?? $this->user['role_names'] ?? []);
-            $service = $this->contract(AiWorkflowService::class);
+            $service = $this->contract(WorkflowAuthorization::class);
             $workflows = $service->describeForContext($permissions, $route, $module, 'staff', $roleNames);
 
             // Bounded behaviour observation (allowlisted facts only) so the
@@ -99,7 +101,7 @@ class DashboardController extends BaseController
             try {
                 $userId = (int) $this->getUserId();
                 if ($userId > 0) {
-                    ($this->contract(AiBehaviorProfiler::class))->observe($userId, 'workspace_visit', [
+                    ($this->contract(AgentBehaviorJournal::class))->observe($userId, 'workspace_visit', [
                         'route' => $route,
                         'module' => $module,
                     ]);
@@ -124,10 +126,10 @@ class DashboardController extends BaseController
     /**
      * POST /api/dashboard/agent-assist
      * Governed multi-agent staff assistant. The Python AI platform
-     * (AiPythonBridge) is the PRIMARY engine when configured - all agent
+     * (PythonAiBridge) is the PRIMARY engine when configured - all agent
      * routing, provider calls, tool loops and behaviour personalization
      * run there, freeing PHP workers after a single bounded relay. The
-     * PHP-native AiAgentService remains as the resilience path so a
+     * PHP-native AgentAssistant remains as the resilience path so a
      * Python redeployment never takes the assistant down. Frontend
      * contract is identical either way.
      */
@@ -138,42 +140,50 @@ class DashboardController extends BaseController
         if ($userId < 1) {
             return $this->unauthorized('A valid session is required');
         }
-        $question = (string) ($data['question'] ?? '');
+        $question = $this->castStr($data['question'] ?? '');
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
         }
-        $context = [
-            'user_id' => $userId,
-            'roles' => $this->user['roles'] ?? [],
-            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
-            'audience' => 'staff',
-            'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
-            'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
-        ];
+        $context = $this->buildAssistantContext((array) $data, $userId);
+
+        // Explicit workflow authorization at the HTTP boundary (Gate 3)
+        try {
+            $this->contract(WorkflowAuthorization::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
             $context['permissions'] = $permissions;
             $context['effective_permissions'] = $permissions;
+            // Persona selection is derived from the authenticated operator's
+            // server-resolved permission set, never from a browser claim.
+            $isSystemAdmin = in_array('system_admin', $permissions, true);
+            $context['system_admin'] = $isSystemAdmin;
+            $context['assistant_domain'] = $isSystemAdmin ? 'system_admin' : 'staff';
 
             // PRIMARY: the Python AI platform.
-            $bridge = $this->contract(AiPythonBridge::class);
+            $bridge = $this->contract(PythonAiBridge::class);
             if ($bridge->available()) {
-                $result = $bridge->assist($context, $question);
+                $result = self::withoutInternalScopeChecks(
+                    $bridge->assist($context, $question)
+                );
                 return $this->success($result, 'Agent answer prepared');
             }
 
             // Resilience: the PHP-native governed agent loop.
-            $result = $this->contract(AiAgentService::class)->assist(
+            $result = $this->contract(AgentAssistant::class)->assist(
                 $this->getDb()->getConnection(),
                 $context,
                 $question
             );
             return $this->success($result, 'Agent answer prepared');
-        } catch (AiProviderException $e) {
+        } catch (\RuntimeException $e) {
             // Python platform down mid-redeploy: degrade to the PHP engine
             // rather than failing the staff member's question.
             try {
-                $result = $this->contract(AiAgentService::class)->assist(
+                $result = $this->contract(AgentAssistant::class)->assist(
                     $this->getDb()->getConnection(),
                     $context,
                     $question
@@ -223,18 +233,680 @@ class DashboardController extends BaseController
         if ($userId < 1) {
             return $this->unauthorized('A valid session is required');
         }
-        $question = (string) ($data['question'] ?? '');
+        $question = $this->castStr($data['question'] ?? '');
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
         }
 
+        $context = $this->buildAssistantContext((array) $data, $userId);
+
+        // Explicit workflow authorization at the HTTP boundary (Gate 3)
+        try {
+            $this->contract(WorkflowAuthorization::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+            // Keep streamed and buffered persona selection identical and
+            // based on the authenticated operator's effective permissions.
+            $isSystemAdmin = in_array('system_admin', $permissions, true);
+            $context['system_admin'] = $isSystemAdmin;
+            $context['assistant_domain'] = $isSystemAdmin ? 'system_admin' : 'staff';
+
+            $this->beginEventStream();
+
+            $bridge = $this->contract(PythonAiBridge::class);
+            if ($bridge->available()) {
+                try {
+                    [$ok] = $bridge->streamAssist(
+                        $context,
+                        $question,
+                        function (string $chunk): void {
+                            $this->writeEventChunk($chunk);
+                        }
+                    );
+                    if ($ok) {
+                        $this->endEventStream();
+                        return null;
+                    }
+                } catch (\Throwable $e) {
+                    // Fall through to the deterministic/governed buffered answer:
+                    // a broken stream must degrade, not leave a blank bubble.
+                    \App\API\Services\Logger::legacyError('[DashboardController] agent stream relay failed: ' . $e->getMessage());
+                    $this->writeEventChunk($this->eventChunk('status', [
+                        'text' => 'I’m having trouble connecting. I’ll try another way…',
+                    ]));
+                }
+            }
+
+            try {
+                $result = $this->contract(AgentAssistant::class)->assist(
+                    $this->getDb()->getConnection(),
+                    $context,
+                    $question
+                );
+                $this->writeEventChunk($this->eventChunk('final', $result));
+                $this->writeEventChunk($this->eventChunk('done', ['fallback' => true]));
+            } catch (\Throwable $e) {
+                \App\API\Services\Logger::legacyError('[DashboardController] agent stream fallback failed: ' . $e->getMessage());
+                $this->writeEventChunk($this->eventChunk('error', [
+                    'message' => 'I couldn’t complete that answer. Please try again.',
+                    'terminal' => true,
+                ]));
+            }
+
+            $this->endEventStream();
+            return null;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent assist stream failed: ' . $e->getMessage());
+            $this->writeEventChunk($this->eventChunk('error', [
+                'message' => 'I couldn’t complete that answer. Please try again.',
+                'terminal' => true,
+            ]));
+            $this->endEventStream();
+            return null;
+        }
+    }
+
+    /**
+     * POST /api/dashboard/draft-state-stream
+     *
+     * Server-sent events handshake for draft state clients.
+     *
+     * Draft lifecycle notifications are delivered through the authenticated
+     * notification inbox. This endpoint intentionally does not read shared
+     * journals or broadcast draft records across workflow scopes.
+     *
+     * Authorization: same authenticated operator, same permission checks as
+     * the buffered draft approval path — the AI workflow must have been
+     * authorized via WorkflowAuthorization::authorize() at the HTTP boundary
+     * before draft state changes are relevant.
+     */
+    public function postDraftStateStream($id = null, $data = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $context = $this->buildAssistantContext((array) $data, $userId);
+
+        // Gate 3: Explicit workflow authorization at the HTTP boundary before
+        // any draft state changes are streamed. This mirrors the pattern in
+        // postAgentAssistStream and postAgentAssist — authorization must happen
+        // at the controller boundary, not just inside WorkflowAuthorization::prepare().
+        try {
+            $this->contract(WorkflowAuthorization::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+            $isSystemAdmin = in_array('system_admin', $permissions, true);
+            $context['system_admin'] = $isSystemAdmin;
+            $context['assistant_domain'] = $isSystemAdmin ? 'system_admin' : 'staff';
+
+            $this->beginEventStream();
+
+            // Do not read shared journals here. They contain events from
+            // unrelated users and workflows, and are not an authorization source.
+            $this->writeEventChunk($this->eventChunk('status', [
+                'text' => 'Draft state stream connected. Updates are available in notifications.',
+            ]));
+
+            $this->endEventStream();
+            return null;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] draft state stream failed: ' . $e->getMessage());
+            try {
+                $this->writeEventChunk($this->eventChunk('error', [
+                    'message' => 'I couldn’t stream draft state. Please try again.',
+                    'terminal' => true,
+                ]));
+            } catch (\Throwable $e2) {
+                // best-effort: ignore if stream already closed
+            }
+            $this->endEventStream();
+            return null;
+        }
+    }
+
+    /**
+     * POST /api/dashboard/agent-stream-context
+     * Issue the authenticated, server-derived envelope for Node's direct
+     * Python stream. Node transports events; PHP remains the identity and
+     * permission authority and Python still returns governed tool calls here.
+     */
+    public function postAgentStreamContext($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) return $this->unauthorized('A valid session is required');
+        $question = trim($this->castStr($data['question'] ?? ''));
+        if ($question === '' || mb_strlen($question) > 500) {
+            return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+        $permissions = array_values(array_unique(array_map('strval', (array) (
+            $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
+        ))));
+        $context = $this->buildAssistantContext((array) $data, $userId);
+        $context['permissions'] = $permissions;
+        $context['effective_permissions'] = $permissions;
+        $context['system_admin'] = in_array('system_admin', $permissions, true);
+        $context['assistant_domain'] = $context['system_admin'] ? 'system_admin' : 'staff';
+
+        // Explicit workflow authorization at the HTTP boundary (Gate 3)
+        try {
+            $this->contract(WorkflowAuthorization::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
+        return $this->success(['context' => $context], 'Assistant context authorized');
+    }
+
+    /**
+     * POST /api/dashboard/agent-suggest
+     *
+     * The page-aware nudge the assistant offers when a workspace sits idle.
+     * The engine answers deterministically from authored hints, so this costs
+     * no provider call and states no figure; each hint is filtered against the
+     * operator's permissions before it is offered. The browser shows at most
+     * one per page state.
+     */
+    public function postAgentSuggest($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) return $this->unauthorized('A valid session is required');
+
+        $context = $this->buildAssistantContext((array) $data, $userId);
+        $permissions = array_values(array_unique(array_map('strval', (array) (
+            $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
+        ))));
+        $context['permissions'] = $permissions;
+        $context['effective_permissions'] = $permissions;
+        $context['system_admin'] = in_array('system_admin', $permissions, true);
+        $context['assistant_domain'] = $context['system_admin'] ? 'system_admin' : 'staff';
+
+        try {
+            $this->contract(WorkflowAuthorization::class)->authorize('system.agent_chat', $context);
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 403), false);
+        }
+
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            // No engine, no nudge. An empty list is the correct answer: the
+            // browser simply never shows one.
+            return $this->success(['suggestions' => [], 'signature' => ''], 'No suggestions available');
+        }
+
+        try {
+            $result = $bridge->call(
+                '/api/agents/suggest',
+                [
+                    'context' => $context,
+                    'page_context' => [
+                        'page_entity' => $data['page_entity'] ?? null,
+                        'filters' => $data['filters'] ?? null,
+                    ],
+                ],
+                'POST',
+                [],
+                8
+            );
+        } catch (\RuntimeException $e) {
+            FileLogger::write('ai_generation', [
+                'event' => 'agent_suggest_failed',
+                'user_id' => $userId,
+                'error_class' => get_class($e),
+            ], 'error');
+            return $this->success(['suggestions' => [], 'signature' => ''], 'No suggestions available');
+        }
+
+        $payload = is_array($result['data'] ?? null) ? $result['data'] : $result;
+        $suggestions = is_array($payload['suggestions'] ?? null) ? $payload['suggestions'] : [];
+        return $this->success(
+            [
+                'suggestions' => array_slice(array_values(array_filter($suggestions, 'is_array')), 0, 3),
+                'signature' => (string) ($payload['signature'] ?? ''),
+            ],
+            'Suggestions prepared'
+        );
+    }
+
+    private function assistantDomainForCurrentUser(): string
+    {
+        $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+        return in_array('system_admin', $permissions, true) ? 'system_admin' : 'staff';
+    }
+
+    /**
+     * GET /api/dashboard/assistant-sessions
+     * List chat sessions for the current staff member.
+     */
+    public function getAssistantSessions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $limit = (int) ($data['limit'] ?? $_GET['limit'] ?? 30);
+        $limit = max(1, min($limit, 100));
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'assistant_domain' => $this->assistantDomainForCurrentUser(),
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+        ], 'GET', ['limit' => $limit]);
+        return $this->success($result, 'Sessions retrieved');
+    }
+
+    /**
+     * POST /api/dashboard/assistant-session
+     * Create a new chat session.
+     */
+    public function postAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $route = mb_substr($this->castStr($data['route'] ?? ''), 0, 120);
+        $title = mb_substr($this->castStr($data['title'] ?? ''), 0, 80);
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/create', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'assistant_domain' => $this->assistantDomainForCurrentUser(),
+                'route' => $route,
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'route' => $route,
+            'title' => $title,
+        ], 'POST', [], 5);
+        return $this->success($result, 'Session created');
+    }
+
+    /**
+     * GET /api/dashboard/assistant-session
+     * Get a chat session with its messages.
+     */
+    public function getAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $sessionId = $this->castStr($data['session_id'] ?? $_GET['session_id'] ?? '');
+        if ($sessionId === '') {
+            return $this->respond(null, 'session_id required', 422, false);
+        }
+        $limit = (int) ($data['limit'] ?? $_GET['limit'] ?? 200);
+        $limit = max(1, min($limit, 500));
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/get', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'assistant_domain' => $this->assistantDomainForCurrentUser(),
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'session_id' => $sessionId,
+            'limit' => $limit,
+        ]);
+        return $this->success($result, 'Session retrieved');
+    }
+
+    /**
+     * DELETE /api/dashboard/assistant-session
+     * Delete a chat session.
+     */
+    public function deleteAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $sessionId = $this->castStr($data['session_id'] ?? '');
+        if ($sessionId === '') {
+            return $this->respond(null, 'session_id required', 422, false);
+        }
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/delete', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'assistant_domain' => $this->assistantDomainForCurrentUser(),
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'session_id' => $sessionId,
+        ], 'POST', [], 5);
+        return $this->success($result, 'Session deleted');
+    }
+
+    /**
+     * PATCH /api/dashboard/assistant-session
+     * Rename a chat session.
+     */
+    public function patchAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $sessionId = $this->castStr($data['session_id'] ?? '');
+        $title = $this->castStr($data['title'] ?? '');
+        $topics = $data['topics'] ?? null;
+        if ($sessionId === '' || ($title === '' && !is_array($topics))) {
+            return $this->respond(null, 'session_id and title or topics required', 422, false);
+        }
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
         $context = [
             'user_id' => $userId,
+            'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+            'audience' => 'staff',
+                'assistant_domain' => $this->assistantDomainForCurrentUser(),
+            'route' => '',
+            'module' => 'dashboard',
+            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+        ];
+        $result = null;
+        if (is_array($topics)) {
+            $result = $bridge->call('/api/agents/sessions/topics', [
+                'context' => $context,
+                'session_id' => $sessionId,
+                'topics' => array_slice($topics, 0, 12),
+            ], 'POST', [], 5);
+        }
+        if ($title !== '') {
+            $result = $bridge->call('/api/agents/sessions/rename', [
+                'context' => $context,
+                'session_id' => $sessionId,
+                'title' => $title,
+            ], 'POST', [], 5);
+        }
+        return $this->success($result, 'Session updated');
+    }
+
+    /**
+     * POST /api/dashboard/assistant-session-clear
+     * Empty one chat session's messages while keeping the session.
+     */
+    public function postAssistantSessionClear($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $sessionId = $this->castStr($data['session_id'] ?? '');
+        if ($sessionId === '') {
+            return $this->respond(null, 'session_id required', 422, false);
+        }
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/clear-messages', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'assistant_domain' => $this->assistantDomainForCurrentUser(),
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'session_id' => $sessionId,
+        ], 'POST', [], 5);
+        return $this->success($result, 'Session cleared');
+    }
+
+    /**
+     * POST /api/dashboard/assistant-sessions/clear
+     * Clear all chat sessions for the current user (DPA erasure).
+     */
+    public function postAssistantSessionsClear($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/clear', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'assistant_domain' => $this->assistantDomainForCurrentUser(),
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+        ], 'POST', [], 5);
+        return $this->success($result, 'Sessions cleared');
+    }
+
+    /**
+     * GET /api/dashboard/assistant-preferences
+     * Get chat preferences for the current user.
+     */
+    public function getAssistantPreferences($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/preferences', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+        ], 'GET');
+        return $this->success($result, 'Preferences retrieved');
+    }
+
+    /**
+     * POST /api/dashboard/assistant-preferences
+     * Set chat preferences for the current user.
+     */
+    public function postAssistantPreferences($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $prefs = $data['preferences'] ?? [];
+        $bridge = $this->contract(PythonAiBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/preferences', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'preferences' => $prefs,
+        ]);
+        return $this->success($result, 'Preferences updated');
+    }
+
+    /**
+     * POST /api/dashboard/agent-task-create
+     * Create an async agent task (for pages that need polling fallback).
+     * Uses the same auth and resilience pattern as postAgentAssist.
+     */
+    public function postAgentTaskCreate($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $tool = $this->castStr($data['tool'] ?? '');
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $taskInput = array_merge((array) ($data['options'] ?? []), $data);
+            $taskInput['tool'] = $tool;
+            $taskInput['route'] = $this->castStr($data['route'] ?? $_GET['route'] ?? 'dashboard');
+            $taskInput['module'] = $this->castStr($data['module'] ?? $_GET['module'] ?? 'dashboard');
+            $result = $this->contract(AgentTaskRepository::class)->create(
+                $userId,
+                $permissions,
+                $taskInput,
+                (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId)
+            );
+            return $this->success($result, 'Task created');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent task create failed: ' . $e->getMessage());
+            return $this->serverError('The assistant could not create the task right now');
+        }
+    }
+
+    /**
+     * GET /api/dashboard/agent-task/:id
+     * Get task status/result for the current user.
+     */
+    public function getAgentTask($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $taskId = filter_var($id ?? $data['task_id'] ?? $_GET['task_id'] ?? '', FILTER_VALIDATE_INT);
+        if ($taskId === false || $taskId < 1) {
+            return $this->respond(null, 'task_id required', 422, false);
+        }
+        $task = $this->contract(AgentTaskRepository::class)->get($this->getDb()->getConnection(), (int) $taskId, $userId);
+        return $task === null ? $this->notFound('Task not found') : $this->success($task, 'Task retrieved');
+    }
+
+    /**
+     * GET /api/dashboard/agent-tasks
+     * List current user's tasks.
+     */
+    public function getAgentTasks($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $limit = (int) ($data['limit'] ?? $_GET['limit'] ?? 30);
+        $limit = max(1, min($limit, 100));
+        return $this->success($this->contract(AgentTaskRepository::class)->list($this->getDb()->getConnection(), $userId, $limit), 'Tasks retrieved');
+    }
+
+    /**
+     * DELETE /api/dashboard/agent-task-cancel/:id
+     * Cancel a queued task.
+     */
+    public function deleteAgentTaskCancel($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $taskId = filter_var($id ?? $data['task_id'] ?? '', FILTER_VALIDATE_INT);
+        if ($taskId === false || $taskId < 1) {
+            return $this->respond(null, 'task_id required', 422, false);
+        }
+        $cancelled = $this->contract(AgentTaskRepository::class)->cancel((int) $taskId, $userId);
+        return $cancelled
+            ? $this->success(['task_id' => (string) $taskId, 'status' => 'cancelled'], 'Task cancelled')
+            : $this->respond(null, 'Task not found or no longer cancellable', 409, false);
+    }
+
+    /**
+     * GET /api/dashboard/agent-task-stream/:id
+     * Stream task progress via SSE (same pattern as postAgentAssistStream).
+     */
+    public function getAgentTaskStream($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $taskId = (string) ($id ?? $data['task_id'] ?? $_GET['task_id'] ?? '');
+        if ($taskId === '') {
+            return $this->respond(null, 'task_id required', 422, false);
+        }
+
+        $context = [
+            'user_id' => $userId,
+            'user_name' => trim((string) ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? '')),
             'roles' => $this->user['roles'] ?? [],
             'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
             'audience' => 'staff',
-            'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
-            'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
+            'route' => '',
+            'module' => 'dashboard',
         ];
 
         try {
@@ -247,47 +919,33 @@ class DashboardController extends BaseController
 
         $this->beginEventStream();
 
-        $bridge = $this->contract(AiPythonBridge::class);
+        $bridge = $this->contract(PythonAiBridge::class);
         if ($bridge->available()) {
             try {
-                [$ok] = $bridge->streamAssist(
+                [$ok] = $bridge->streamTask(
                     $context,
-                    $question,
+                    $taskId,
                     function (string $chunk): void {
                         $this->writeEventChunk($chunk);
                     }
                 );
                 if ($ok) {
                     $this->endEventStream();
-                    return ['stream_flushed' => true];
+                    return null;
                 }
             } catch (\Throwable $e) {
-                // Fall through to the deterministic/governed buffered answer:
-                // a broken stream must degrade, not leave a blank bubble.
-                \App\API\Services\Logger::legacyError('[DashboardController] agent stream relay failed: ' . $e->getMessage());
+                \App\API\Services\Logger::legacyError('[DashboardController] agent task stream relay failed: ' . $e->getMessage());
                 $this->writeEventChunk($this->eventChunk('error', [
-                    'message' => 'live streaming unavailable — showing the full answer',
+                    'message' => 'live streaming unavailable',
                 ]));
             }
         }
 
-        try {
-            $result = $this->contract(AiAgentService::class)->assist(
-                $this->getDb()->getConnection(),
-                $context,
-                $question
-            );
-            $this->writeEventChunk($this->eventChunk('final', $result));
-            $this->writeEventChunk($this->eventChunk('done', ['fallback' => true]));
-        } catch (\Throwable $e) {
-            \App\API\Services\Logger::legacyError('[DashboardController] agent stream fallback failed: ' . $e->getMessage());
-            $this->writeEventChunk($this->eventChunk('error', [
-                'message' => 'The assistant could not answer right now',
-            ]));
-        }
-
+        $this->writeEventChunk($this->eventChunk('error', [
+            'message' => 'The assistant could not stream the task right now',
+        ]));
         $this->endEventStream();
-        return ['stream_flushed' => true];
+        return null;
     }
 
     /**
@@ -335,11 +993,34 @@ class DashboardController extends BaseController
             . 'data: ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
     }
 
+    /**
+     * Strip the engine's internal scope-check envelope from a browser payload.
+     *
+     * `scope_checks` records which governed report a result came from so the
+     * background task runner can re-verify the operator's scope when it posts
+     * the result. That is a server-to-server concern: it carries internal
+     * report codes, and a browser has no use for them.
+     *
+     * @param array<string,mixed> $result
+     * @return array<string,mixed>
+     */
+    private static function withoutInternalScopeChecks($result): array
+    {
+        if (!is_array($result)) {
+            return [];
+        }
+        unset($result['scope_checks']);
+        return $result;
+    }
+
     private function endEventStream(): void
     {
         if (function_exists('fastcgi_finish_request')) {
             @fastcgi_finish_request();
         }
+        // Exit to prevent ControllerRouter from sending a second response
+        // after the SSE stream has already been fully sent.
+        exit(0);
     }
 
     public function postAgentTool($id = null, $data = [], $segments = [])
@@ -349,7 +1030,7 @@ class DashboardController extends BaseController
         }
         $payload = is_array($data) ? $data : [];
         try {
-            $result = $this->contract(AiAgentService::class)->executeToolRequest(
+            $result = $this->contract(AgentAssistant::class)->executeToolRequest(
                 $this->getDb()->getConnection(),
                 $payload
             );
@@ -380,7 +1061,15 @@ class DashboardController extends BaseController
         }
         try {
             $route = strtolower(trim((string) ($_GET['route'] ?? $data['route'] ?? 'dashboard')));
-            $agent = $this->contract(AiAgentService::class);
+            $agent = $this->contract(AgentAssistant::class);
+            $pdo = $this->getDb()->getConnection();
+            $permissions = $agent->resolveEffectivePermissions($pdo, $userId);
+            $routeAgent = AgentCatalog::forRoute($route);
+            if (($routeAgent['domain'] ?? '') === 'system'
+                && !in_array('system_admin', $permissions, true)
+                && !in_array('system_view', $permissions, true)) {
+                return $this->forbidden('System workspace insights require system administrator access');
+            }
             $cached = $agent->cachedBriefing($userId, $route);
             if (is_array($cached) && (string) ($cached['status'] ?? '') === 'ready') {
                 return $this->success([
@@ -390,10 +1079,12 @@ class DashboardController extends BaseController
             }
             // No grant list in the queue payload: the worker re-resolves the
             // operator's permissions before briefing generation.
+            // Use deterministic request_id for idempotency: briefing jobs are
+            // per-user/per-route, not per-HTTP-request.
             $agent->enqueue($userId, [], [
                 'mode' => 'briefing',
                 'route' => $route,
-                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                'request_id' => 'briefing:' . $userId . ':' . $route . ':' . gmdate('Y-m-d\THi'),
                 'broadcast' => true,
             ]);
             return $this->success([
@@ -426,7 +1117,7 @@ class DashboardController extends BaseController
             $permissionsByUser = $permManager->effectivePermissionsByUser($userIds);
             $queued = 0;
             $skipped = 0;
-            $agent = $this->contract(AiAgentService::class);
+            $agent = $this->contract(AgentAssistant::class);
             foreach ($userIds as $targetUserId) {
                 $permissions = $permissionsByUser[$targetUserId] ?? [];
                 try {
@@ -471,8 +1162,8 @@ class DashboardController extends BaseController
         if (!$this->hasValidWorkerCredential()) {
             return $this->respond(null, 'Invalid worker credential', 403, false);
         }
-        $cadence = strtolower(trim((string) ($data['cadence'] ?? '')));
-        if (!in_array($cadence, [AiInsightOrchestrator::CADENCE_DAILY, AiInsightOrchestrator::CADENCE_WEEKLY, AiInsightOrchestrator::CADENCE_TERM], true)) {
+        $cadence = strtolower(trim($this->castStr($data['cadence'] ?? '')));
+        if (!in_array($cadence, [InsightScheduler::CADENCE_DAILY, InsightScheduler::CADENCE_WEEKLY, InsightScheduler::CADENCE_TERM], true)) {
             return $this->respond(null, 'Cadence must be daily, weekly, or term', 422, false);
         }
         try {
@@ -480,7 +1171,7 @@ class DashboardController extends BaseController
             $permManager = $this->contract(\App\API\Modules\users\UserPermissionManager::class, $pdo);
             $userIds = $permManager->userIdsWithPermissions(['analytics_catalogue_view', '*']);
             $permissionsByUser = $permManager->effectivePermissionsByUser($userIds);
-            $orchestrator = $this->contract(AiInsightOrchestrator::class);
+            $orchestrator = $this->contract(InsightScheduler::class);
             $queued = 0;
             $skipped = 0;
             foreach ($userIds as $targetUserId) {
@@ -585,14 +1276,11 @@ class DashboardController extends BaseController
             if ($userId < 1) {
                 return $this->unauthorized('A valid session is required');
             }
-            $permissions = array_values(array_unique(array_map('strval', array_merge(
-                (array) ($this->user['effective_permissions'] ?? []),
-                (array) ($this->user['permissions'] ?? [])
-            ))));
+            $permissions = array_values(array_unique(array_map('strval', (array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))));
             $cadence = preg_match('/^(daily|weekly|term)$/', (string) ($_GET['cadence'] ?? 'daily'))
                 ? (string) $_GET['cadence']
                 : 'daily';
-            $orchestrator = $this->contract(AiInsightOrchestrator::class);
+            $orchestrator = $this->contract(InsightScheduler::class);
             $result = $orchestrator->pageLoad(
                 $userId,
                 $permissions,
@@ -2218,6 +2906,99 @@ class DashboardController extends BaseController
     }
 
     // ============= HELPER METHODS =============
+
+    /**
+     * Build the shared staff-assistant envelope for streamed and buffered runs.
+     * Identity and persona authority come from the authenticated PHP session;
+     * client values are limited to bounded conversation and navigation hints.
+     *
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    private function buildAssistantContext(array $data, int $userId): array
+    {
+        $context = [
+            'user_id' => $userId,
+            'user_name' => trim((string) ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? '')),
+            'roles' => $this->user['roles'] ?? [],
+            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            'audience' => 'staff',
+            'route' => $this->castStr($data['route'] ?? $_GET['route'] ?? ''),
+            'module' => $this->castStr($data['module'] ?? $_GET['module'] ?? 'dashboard'),
+        ];
+        if (!empty($data['session_id'])) {
+            $context['session_id'] = mb_substr($this->castStr($data['session_id']), 0, 64);
+        }
+        if (!empty($data['history']) && is_array($data['history'])) {
+            $context['history'] = array_slice($data['history'], -20);
+        }
+        if (!empty($data['topics']) && is_array($data['topics'])) {
+            $context['topics'] = array_slice($data['topics'], 0, 12);
+        }
+        if (!empty($data['sidebar_state']) && is_array($data['sidebar_state'])) {
+            $context['sidebar_state'] = $data['sidebar_state'];
+        }
+        if (!empty($data['preferences']) && is_array($data['preferences'])) {
+            $context['preferences'] = $data['preferences'];
+        }
+        // Page awareness: the browser reports only what it already displays —
+        // the open record's label, the selected text, visible KPI names and
+        // filter labels. These are short labels, never row values, so the
+        // governed tool still has to authorize any real data.
+        if (!empty($data['page_entity']) && is_array($data['page_entity'])) {
+            $entity = [];
+            foreach (['kind', 'label', 'name', 'id', 'status'] as $key) {
+                if (!isset($data['page_entity'][$key])) {
+                    continue;
+                }
+                $value = $data['page_entity'][$key];
+                if (is_string($value) || is_int($value) || is_float($value)) {
+                    $entity[$key] = mb_substr((string) $value, 0, 80);
+                }
+            }
+            if ($entity) {
+                $context['page_entity'] = $entity;
+            }
+        }
+        if (!empty($data['selection']) && is_array($data['selection'])) {
+            $selection = [];
+            if (!empty($data['selection']['label'])) {
+                $selection['label'] = mb_substr($this->castStr($data['selection']['label']), 0, 100);
+            }
+            if (!empty($data['selection']['text'])) {
+                $selection['text'] = mb_substr($this->castStr($data['selection']['text']), 0, 200);
+            }
+            if ($selection) {
+                $context['selection'] = $selection;
+            }
+        }
+        if (!empty($data['modal'])) {
+            $context['modal'] = mb_substr($this->castStr($data['modal']), 0, 100);
+        }
+        if (!empty($data['visible_metrics']) && is_array($data['visible_metrics'])) {
+            $metrics = [];
+            foreach (array_slice($data['visible_metrics'], 0, 10) as $metric) {
+                if (is_string($metric) || is_int($metric) || is_float($metric)) {
+                    $metrics[] = mb_substr((string) $metric, 0, 60);
+                }
+            }
+            if ($metrics) {
+                $context['visible_metrics'] = $metrics;
+            }
+        }
+        if (!empty($data['filters']) && is_array($data['filters'])) {
+            $filters = [];
+            foreach (array_slice($data['filters'], 0, 10, true) as $key => $value) {
+                if (is_string($value) || is_int($value) || is_float($value)) {
+                    $filters[mb_substr((string) $key, 0, 40)] = mb_substr((string) $value, 0, 60);
+                }
+            }
+            if ($filters) {
+                $context['filters'] = $filters;
+            }
+        }
+        return $context;
+    }
 
     /**
      * GET /api/dashboard/config

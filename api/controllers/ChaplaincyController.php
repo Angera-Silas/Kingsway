@@ -12,6 +12,7 @@ use Exception;
  * Handles all Chaplaincy Department API endpoints (Phase A: team & volunteers).
  *
  * ROUTES:
+ * GET    /api/chaplaincy/services          → getServices()   (chapel services)
  * GET    /api/chaplaincy/team-roles        → getTeamRoles()
  * GET    /api/chaplaincy/team              → getTeam()
  * POST   /api/chaplaincy/team/member       → postTeamMember()   (add borrowed staff)
@@ -37,6 +38,26 @@ class ChaplaincyController extends BaseController
     public function getIndex()
     {
         return $this->success(['message' => 'Chaplaincy API is running']);
+    }
+
+    /**
+     * GET /api/chaplaincy/services?limit=N&upcoming=1
+     * Chapel services list (formerly ChapelController, GET /api/chapel/services).
+     */
+    public function getServices($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        try {
+            $limit = max(1, min((int) ($_GET['limit'] ?? 10), 50));
+            $upcoming = !empty($_GET['upcoming']);
+            $result = $this->contract('App\API\Modules\system\SystemAPI')->listChapelServices($limit, $upcoming);
+            return $this->success($result['data'] ?? []);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('chaplaincy', ['action' => 'list_chapel_services', 'error' => $e->getMessage()]);
+            return $this->serverError('Chapel services could not be loaded.');
+        }
     }
 
     /**
@@ -113,6 +134,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->deactivateVolunteer((int) $id));
     }
 
+    public function deleteVolunteers($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteVolunteer($id, $data, $segments);
+    }
+
     /* ===== Phase B — spiritual programs, sessions, attendance ===== */
 
     /**
@@ -160,6 +186,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->resolveNextDate($_GET ?? []));
     }
 
+    public function getProgramsNextDate($id = null, $data = [], $segments = [])
+    {
+        return $this->getNextDate($id, $data, $segments);
+    }
+
     /**
      * GET /api/chaplaincy/sessions
      */
@@ -188,6 +219,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->updateSession((int) $id, $data));
     }
 
+    public function putSessions($id = null, $data = [], $segments = [])
+    {
+        return $this->putSession($id, $data, $segments);
+    }
+
     /**
      * DELETE /api/chaplaincy/sessions/{id}
 
@@ -199,6 +235,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->deleteSession((int) $id));
     }
 
+    public function deleteSessions($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteSession($id, $data, $segments);
+    }
+
     /**
      * GET /api/chaplaincy/sessions/{id}/attendance
      */
@@ -206,6 +247,11 @@ class ChaplaincyController extends BaseController
     {
         if (!$id) return $this->badRequest('Session ID is required');
         return $this->handleResponse($this->api->getSessionAttendance((int) $id));
+    }
+
+    public function getSessionsAttendance($id = null, $data = [], $segments = [])
+    {
+        return $this->getSessionAttendance($id, $data, $segments);
     }
 
     /**
@@ -216,6 +262,11 @@ class ChaplaincyController extends BaseController
         if ($guard = $this->guardChaplaincy()) return $guard;
         if (!$id) return $this->badRequest('Session ID is required');
         return $this->handleResponse($this->api->saveAttendance((int) $id, $data));
+    }
+
+    public function putSessionsAttendance($id = null, $data = [], $segments = [])
+    {
+        return $this->putSessionAttendance($id, $data, $segments);
     }
 
     /* ===== Phase C — recurring groups, spiritual profiles & pastoral care ===== */

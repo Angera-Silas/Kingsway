@@ -195,6 +195,11 @@ class WorkflowHandler extends BaseAPI
      */
     public function advanceStage($instance_id, $to_stage, $action, $action_data = [])
     {
+        // sp_advance_workflow_stage(p_action VARCHAR(50)): a longer action text
+        // fails with SQLSTATE[22001] and aborts the whole stage transition, so
+        // the label is bounded here while the full text goes to p_remarks.
+        $action = mb_substr((string) $action, 0, 50);
+
         try {
             // Use stored procedure for atomic stage advancement
             $sql = "CALL sp_advance_workflow_stage(:instance_id, :to_stage, :action, :user_id, :remarks, :data_json)";
@@ -219,13 +224,100 @@ class WorkflowHandler extends BaseAPI
                 $this->sendStageNotifications($instance_id, $stage, 'stage_entry');
             }
 
-            $this->logAction('workflow_advanced', $instance_id, 
+            $this->logAction('workflow_advanced', $instance_id,
                 "Advanced to stage: {$to_stage} via action: {$action}");
 
             return true;
         } catch (Exception $e) {
             $this->logError('workflow_advance_failed', $e->getMessage());
             throw $e;
+        }
+    }
+
+    /**
+     * Regress workflow to make a previous stage editable
+     *
+     * This method allows going back to a previous stage's data for editing
+     * while keeping the current_stage unchanged. The data from the specified
+     * previous stage is loaded and made available for editing, and the
+     * regression is recorded in the workflow stage history.
+     *
+     * @param int $instance_id Workflow instance ID
+     * @string $to_stage Code of the previous stage to make editable
+     * @return array ['success' => bool, 'message' => string, 'data' => array]
+     */
+    public function regressToStageEditable($instance_id, $to_stage)
+    {
+        try {
+            // Get current workflow instance
+            $sql = "SELECT * FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " WHERE id = :instance_id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(['instance_id' => $instance_id]);
+            $instance = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$instance) {
+                return ['success' => false, 'message' => 'Workflow instance not found', 'data' => []];
+            }
+
+            // Get current stage details
+            $currentStage = $this->getStageDetails($instance['current_stage']);
+            if (!$currentStage) {
+                return ['success' => false, 'message' => 'Current stage not found', 'data' => []];
+            }
+
+            // Get the target previous stage details
+            $targetStage = $this->getStageDetails($to_stage);
+            if (!$targetStage) {
+                return ['success' => false, 'message' => "Previous stage '{$to_stage}' not found", 'data' => []];
+            }
+
+            // Load existing data
+            $data = $instance['data_json'] ? json_decode($instance['data_json'], true) : [];
+
+            // A regression may only move backwards: the target stage must sit
+            // earlier in the workflow sequence than the current stage.
+            if ((int) $targetStage['sequence'] >= (int) $currentStage['sequence']) {
+                return [
+                    'success' => false,
+                    'message' => "Stage '{$to_stage}' is not a previous stage of '{$instance['current_stage']}'",
+                    'data' => []
+                ];
+            }
+
+            // Record the regression in stage history. This is written directly
+            // (not via logStageEntry) so the action and direction are explicit.
+            $from_stage = $instance['current_stage'];
+            $historySql = "INSERT INTO workflow_stage_history
+                           (instance_id, from_stage, to_stage, action_taken, processed_by, remarks)
+                           VALUES
+                           (:instance_id, :from_stage, :to_stage, 'regressed', :processed_by, :remarks)";
+            $historyStmt = $this->db->prepare($historySql);
+            $historyStmt->execute([
+                'instance_id' => $instance_id,
+                'from_stage' => $from_stage,
+                'to_stage' => $to_stage,
+                'processed_by' => $this->user_id ?? 1,
+                'remarks' => 'Regressed from ' . $from_stage . ' to make stage ' . $to_stage . ' editable'
+            ]);
+
+            // Return the data associated with the target stage for editing
+            $resultData = [];
+            if (is_array($data) && isset($data[$to_stage])) {
+                $resultData = $data[$to_stage];
+            }
+
+            return [
+                'success' => true,
+                'message' => "Stage '{$to_stage}' is now editable. Current stage remains '{$instance['current_stage']}'.",
+                'data' => $resultData,
+                'current_stage' => $instance['current_stage'],
+                'from_stage' => $from_stage,
+                'to_stage' => $to_stage
+            ];
+
+        } catch (Exception $e) {
+            $this->logError('regress_to_stage_editable_failed', $e->getMessage());
+            return ['success' => false, 'message' => 'Failed to regress stage: ' . $e->getMessage(), 'data' => []];
         }
     }
 
@@ -327,7 +419,16 @@ class WorkflowHandler extends BaseAPI
 
     /**
      * Get workflow instance details
-     * 
+     *
+     * Read from the master, not the read replica. This is a keyed single-row
+     * read of a row that workflow stages write to moments earlier on the same
+     * connection: close-year stamps archive_summary, which validateReadiness()
+     * checks immediately afterwards. Resolving through the reads schema returned
+     * the previous materialization for up to the projection interval, so a
+     * readiness check run seconds after its own preceding stage saw stale data
+     * and reported a false failure. Hard Rule 1 assigns simple keyed reads to
+     * the primary.
+     *
      * @param int $instance_id Workflow instance ID
      * @return array|null Workflow instance data
      */
@@ -336,9 +437,9 @@ class WorkflowHandler extends BaseAPI
         $sql = "SELECT wi.*, wd.code as workflow_code, wd.name as workflow_name,
                        ws.name as current_stage_name, ws.description as stage_description,
                        u.username as started_by_username
-                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
-                JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_stages") . " ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
+                FROM " . ReadReplicaService::masterRef("workflow_instances") . " wi
+                JOIN " . ReadReplicaService::masterRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
+                LEFT JOIN " . ReadReplicaService::masterRef("workflow_stages") . " ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
                 LEFT JOIN users u ON wi.started_by = u.id
                 WHERE wi.id = :instance_id";
         
@@ -362,7 +463,7 @@ class WorkflowHandler extends BaseAPI
     public function getWorkflowHistory($instance_id)
     {
         $sql = "SELECT wsh.*, u.username as processed_by_username
-                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . "
+                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . " wsh
                 LEFT JOIN users u ON wsh.processed_by = u.id
                 WHERE wsh.instance_id = :instance_id
                 ORDER BY wsh.processed_at DESC";
@@ -520,8 +621,9 @@ class WorkflowHandler extends BaseAPI
                 $starterId = (int) ($instance['started_by'] ?? 0);
                 if ($starterId > 0) {
                     $stmt = $this->db->prepare(
-                        "SELECT u.id, u.username, pd.email
-                         FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                        "SELECT u.id, u.username, p.email
+                         FROM users u
+                         LEFT JOIN persons p ON p.id = u.person_id
                          WHERE u.id = :id AND u.status = 'active'
                          LIMIT 1"
                     );
@@ -563,8 +665,12 @@ class WorkflowHandler extends BaseAPI
             return [];
         }
 
+        // Restored pre-refactor shape: role names need users -> user_roles -> roles.
         $sql = "SELECT DISTINCT u.id, u.username, p.email, r.name as role_name
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                FROM users u
+                LEFT JOIN persons p ON p.id = u.person_id
+                LEFT JOIN user_roles ur ON ur.user_id = u.id
+                LEFT JOIN roles r ON r.id = ur.role_id
                 WHERE u.status = 'active'";
 
         $stmt = $this->db->prepare($sql);

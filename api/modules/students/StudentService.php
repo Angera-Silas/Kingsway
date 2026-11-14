@@ -546,7 +546,7 @@ class StudentService
             $db->beginTransaction();
 
             // Check if student exists
-            $stmt = $db->prepare("SELECT s.id, s.admission_no, sae.academic_year_id FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE s.id = ?");
+            $stmt = $db->prepare("SELECT id, student_id, card_number, academic_year_id, status FROM student_id_cards WHERE id = ?");
             $stmt->execute([$studentId]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -826,7 +826,7 @@ class StudentService
             }
 
             // Get student info
-            $stmt = $db->prepare("SELECT admission_no, academic_year_id FROM students WHERE id = ?");
+            $stmt = $db->prepare("SELECT id, student_id, card_number, academic_year_id, status FROM student_id_cards WHERE id = ?");
             $stmt->execute([$oldCard['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -914,7 +914,7 @@ class StudentService
             }
 
             // Get student info
-            $stmt = $db->prepare("SELECT admission_no, academic_year_id FROM students WHERE id = ?");
+            $stmt = $db->prepare("SELECT id, student_id, card_number, academic_year_id, status FROM student_id_cards WHERE id = ?");
             $stmt->execute([$oldCard['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 

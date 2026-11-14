@@ -4,20 +4,15 @@
 require_once __DIR__ . '/vendor/autoload.php';
 \App\Config\Config::init();
 
-$appBase = rtrim(
-    str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')),
-    '/'
-);
-
-if ($appBase === '.') {
-    $appBase = '';
-}
+// URL path prefix comes from the configured BASE_URL (config/.env), never from
+// the request path, so it is identical on every route and every surface.
+$appBase = app_base_path();
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
 // Browser-facing realtime origin: environment-agnostic resolver — public URL
 // first; the internal address is only usable when the client shares the host
 // with PHP (loopback development). Never handed to a remote browser.
-$nodeRealtimeOrigin = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
+$nodeRealtimeOrigin = \App\API\Services\RealtimeGatewayPublisher::liveBrowserStreamBase();
 
 // Define the filesystem root so page files under pages/ can resolve
 // Absolute paths used by page asset helpers for cache-busting version parameters.
@@ -32,11 +27,11 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
-    $connectSources = "'self' http://localhost:* ws://localhost:*";
+    $connectSources = "'self' http://localhost:*";
     if ($nodeRealtimeOrigin !== '') {
         $connectSources .= ' ' . $nodeRealtimeOrigin;
     }
-    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src {$connectSources}; frame-ancestors 'none'; form-action 'self'");
+    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; connect-src {$connectSources}; frame-ancestors 'none'; form-action 'self'");
 }
 ?>
 <!doctype html>
@@ -153,6 +148,9 @@ if (!headers_sent()) {
             ) ?>
         };
     </script>
+    <?php if (!isset($_GET['fragment']) || $_GET['fragment'] !== '1'): ?>
+        <?php asset_script($appBase, 'js/core/soft_navigation.js'); ?>
+    <?php endif; ?>
 </head>
 <body>
     <div
@@ -168,6 +166,11 @@ if (!headers_sent()) {
                         <i class="bi bi-info-circle"></i>
                     </span>
                     <span class="notification-message"></span>
+                    <!-- Required: without a dismiss control this modal can only be
+                         closed by showNotification()'s forced cleanup or the Escape
+                         key, so any other path that opens it leaves it - and its
+                         backdrop and body scroll-lock - stuck on the page. -->
+                    <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
             </div>
         </div>
@@ -175,20 +178,28 @@ if (!headers_sent()) {
 
     <?php include __DIR__ . '/layouts/app_layout.php'; ?>
 
-    <script
-        src="https://code.jquery.com/jquery-3.6.0.min.js"
-        referrerpolicy="no-referrer"
-    ></script>
-    <script
-        src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"
-    ></script>
-    <script
-        src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
-        referrerpolicy="no-referrer"
-    ></script>
+<?php
+$isFragment = isset($_GET['fragment']) && $_GET['fragment'] === '1';
+?>
+<script
+    src="https://code.jquery.com/jquery-3.6.0.min.js"
+    referrerpolicy="no-referrer"
+    <?= $isFragment ? 'data-skip="1"' : '' ?>>
+</script>
+<script
+    src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"
+    <?= $isFragment ? 'data-skip="1"' : '' ?>>
+</script>
+<script
+    src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
+    referrerpolicy="no-referrer"
+    <?= $isFragment ? 'data-skip="1"' : '' ?>>
+</script>
 
+<?php if (!$isFragment): ?>
 <?php
 echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = ' . ($nodeRealtimeOrigin !== '' ? 'true' : 'false') . ';</script>';
+echo '<script>window.KINGSWAY_REALTIME_ORIGIN = ' . json_encode($nodeRealtimeOrigin, JSON_UNESCAPED_SLASHES) . ';</script>';
 // Cache-bust the service worker registration URL: static proxy caches (nginx
 // proxy_cache in dev and production CDNs) can otherwise serve a stale SW
 // script at an unversioned URL for weeks, freezing every browser on an old
@@ -197,13 +208,13 @@ $__swMtime = @filemtime(__DIR__ . '/service-worker.js');
 echo '<script>window.APP_SW_VERSION = ' . ($__swMtime ? (int) $__swMtime : time()) . ';</script>';
 $files = [
     'js/api.js',
+    'js/config/ai-features.js',
+    'js/components/agent_task_panel.js',
     'js/core/frontend_logger.js',
-    'js/core/soft_navigation.js',
     'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
     'js/core/realtime_dispatch.js',
-    'js/core/realtime_manager.js',
     'js/core/realtime_sse.js',
     'js/core/realtime_presence.js',
     'js/core/realtime_jobs_widget.js',
@@ -227,11 +238,16 @@ $files = [
     'js/components/UIComponents.js',
     'js/components/PageNavigator.js',
     'js/components/PageShell.js',
+    'js/pages/role_shell_routes.js',
+    'js/core/ui_state_manager.js',
     'js/utils/file_lifecycle.js',
     'js/utils/print_manager.js',
+    'js/components/table_toolbar.js',
     'js/utils/academic_context.js',
+    'js/components/academic_year_filter.js',
     'js/utils/form-validation.js',
     'js/core/recipient_picker.js',
+    'js/core/markdown.js',
     'js/index.js',
     'js/sidebar.js',
     'js/app_shell_ui.js',
@@ -244,6 +260,13 @@ foreach ($files as $file) {
     asset_script($appBase, $file);
 }
 ?>
+<script
+    src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"
+    referrerpolicy="no-referrer"
+    crossorigin="anonymous"
+    ></script>
+<?php endif; ?>
+
 <script>
     // Frontend telemetry logger: safe to initialize once the API client exists.
     // It buffers + batches events to the same file logger as the backend.
@@ -251,6 +274,7 @@ foreach ($files as $file) {
         window.AppLogger.init();
     }
 </script>
+<?php if (!$isFragment): ?>
 <script>
     // Self-binding form validation kernel: wire every decoded form that carries
     // data-kw-validate fields (names, DOB, email, phone). Injected modals are
@@ -288,39 +312,10 @@ foreach ($files as $file) {
             return;
         }
 
-        try {
-            // Wait for auth to be fully initialized before checking route access.
-            // Without this, the check runs before AuthContext.initialize() completes
-            // so isAuthenticated() returns false and every route is denied.
-            if (window.AuthContext?.ready) {
-                await window.AuthContext.ready();
-            } else if (window.KingswayBootstrap?.initialize) {
-                await window.KingswayBootstrap.initialize();
-            }
-
-            const auth = await window.AppRouteAccess?.authorizeRouteAccess?.(route);
-            if (auth && !auth.authorized) {
-                const seg = document.getElementById('main-content-segment');
-                if (seg) {
-                    seg.innerHTML =
-                        '<div class="alert alert-danger border-0 shadow-sm mt-3">' +
-                        '<i class="bi bi-shield-lock me-2"></i>' +
-                        '<strong>Access denied.</strong> ' +
-                        'You do not have permission to view this page.' +
-                        '</div>';
-                }
-                window.showNotification?.(
-                    'You are not allowed to open that page.',
-                    'warning'
-                );
-                setTimeout(function () {
-                    window.AppRouteAccess.redirectToAllowedRoute?.(route);
-                }, 2000);
-            }
-        } catch (e) {
-            console.warn('Route authorization check failed:', e);
-        }
+        // Route access for a named route is checked once, in app_bootstrap.js
+        // (AppRouteAccess.authorizeRoute against the role's sidebar).
     })();
 </script>
+<?php endif; ?>
 </body>
 </html>

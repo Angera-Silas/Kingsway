@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\API\Modules\students;
 
 use App\API\Services\ReadReplicaService;
+use DomainException;
 use PDO;
 use RuntimeException;
 
@@ -44,7 +45,12 @@ class StudentInsightsService
                     st2.name AS stream_name,
                     hr.disability_notes, hr.chronic_conditions, hr.allergies,
                     hr.special_diet, hr.blood_group, hr.notes AS health_notes
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                FROM students s
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+                LEFT JOIN student_health_records hr ON hr.student_id = s.id
                 WHERE s.status = 'active' AND {$whereClause}
                 ORDER BY per.first_name, per.last_name
                 LIMIT ? OFFSET ?";
@@ -53,7 +59,9 @@ class StudentInsightsService
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $countSql = "SELECT COUNT(*)
-                     FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                     FROM students s
+                     JOIN persons per ON per.id = s.person_id
+                     LEFT JOIN student_health_records hr ON hr.student_id = s.id
                      WHERE s.status = 'active' AND {$whereClause}";
         $stmt = $this->db->prepare($countSql);
         $stmt->execute($params);
@@ -178,6 +186,162 @@ class StudentInsightsService
         return $this->aggregatePerformanceRows($studentRows, $viewMode);
     }
 
+    /** Build a minimized, aggregate-only support-planning input from authorized performance rows. */
+    public function buildSupportPlanningInput(array $user, string $context, array $filters = []): array
+    {
+        $scope = $this->studentService->scopeService->buildScope($context, $user);
+        [$scopeConditions, $scopeBindings] = $this->studentService->scopeService->whereClause($scope);
+
+        $yearValue = $filters['academic_year_id'] ?? $filters['academic_year'] ?? $filters['year_id'] ?? null;
+        [$yearId, $yearCode] = $this->resolveAcademicYear($yearValue);
+        if ($yearId === null) {
+            throw new DomainException('Choose a valid academic year before preparing this review.', 422);
+        }
+
+        $termId = !empty($filters['term_id']) ? (int) $filters['term_id'] : null;
+        $termDates = null;
+        if ($termId !== null) {
+            $termDates = $this->fetchOne(
+                'SELECT opening_date, closing_date FROM ' . ReadReplicaService::qualifiedRef('academic_year_terms') . ' WHERE id = ? AND academic_year_id = ? LIMIT 1',
+                [$termId, $yearId]
+            );
+            if (!$termDates) {
+                throw new DomainException('The selected term does not belong to this academic year.', 422);
+            }
+        }
+
+        $where = ["s.status = 'active'", "sae.academic_year_id = ?", "sae.enrollment_status = 'active'"];
+        $bindings = [$yearId];
+        $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
+        $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
+        $gender = trim((string) ($filters['gender'] ?? ''));
+        if ($classId !== null) { $where[] = 'lp.class_id = ?'; $bindings[] = $classId; }
+        if ($streamId !== null) { $where[] = 'lp.stream_id = ?'; $bindings[] = $streamId; }
+        if ($gender !== '') { $where[] = 'per.gender = ?'; $bindings[] = $gender; }
+        $search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $where[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ? OR CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) LIKE ?)";
+            $like = '%' . mb_substr($search, 0, 100) . '%';
+            array_push($bindings, $like, $like, $like, $like);
+        }
+        array_push($where, ...$scopeConditions);
+        array_push($bindings, ...$scopeBindings);
+
+        $attendanceDateFilter = '';
+        $attendanceBindings = [];
+        if ($termDates) {
+            $attendanceDateFilter = ' AND sa.date BETWEEN ? AND ?';
+            $attendanceBindings[] = $termDates['opening_date'];
+            $attendanceBindings[] = $termDates['closing_date'];
+        }
+        $assessmentTermFilter = $termId === null ? '' : ' AND a.academic_year_term_id = ?';
+        $assessmentBindings = [$yearId];
+        if ($termId !== null) $assessmentBindings[] = $termId;
+
+        // The inner query computes only per-learner signals; the outer query
+        // emits cohort counts and averages, never learner identifiers or records.
+        $transportJoin = !empty($scope['transport_route_ids']) ?
+            ' LEFT JOIN ' . ReadReplicaService::qualifiedRef('student_transport_assignments') . " transport_scope ON transport_scope.student_id = s.id AND transport_scope.status = 'active'" : '';
+        $sql = "SELECT COUNT(*) AS learner_count,
+                       SUM(CASE WHEN attendance_rate IS NOT NULL THEN 1 ELSE 0 END) AS attendance_known,
+                       SUM(CASE WHEN attendance_rate < 75 THEN 1 ELSE 0 END) AS attendance_below,
+                       AVG(average_score) AS average_score,
+                       SUM(CASE WHEN average_score IS NOT NULL THEN 1 ELSE 0 END) AS score_known
+                FROM (
+                    SELECT s.id,
+                           (SELECT ROUND(100.0 * SUM(CASE WHEN sa.status IN ('present','late') THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2)
+                            FROM " . ReadReplicaService::qualifiedRef('student_attendance') . " sa
+                            WHERE sa.student_academic_enrollment_id = sae.id
+                              AND sa.register_type = 'class'{$attendanceDateFilter}) AS attendance_rate,
+                           (SELECT ROUND(AVG(ar.marks_obtained / NULLIF(a.max_marks, 0) * 100), 2)
+                            FROM " . ReadReplicaService::qualifiedRef('assessment_results') . " ar
+                            JOIN " . ReadReplicaService::qualifiedRef('assessments') . " a ON a.id = ar.assessment_id
+                            WHERE ar.student_academic_enrollment_id = sae.id
+                              AND a.academic_year_id = ?
+                              AND a.max_marks > 0
+                              AND ar.marks_obtained IS NOT NULL
+                              AND ar.marks_obtained BETWEEN 0 AND a.max_marks
+                              AND ar.entry_status = 'present'
+                              AND ar.responder_type = 'teacher'
+                              AND ar.is_submitted = 1
+                              AND ar.is_approved = 1
+                              AND ar.deleted_at IS NULL{$assessmentTermFilter}) AS average_score
+                    FROM " . ReadReplicaService::qualifiedRef('students') . " s
+                    JOIN " . ReadReplicaService::qualifiedRef('persons') . " per ON per.id = s.person_id
+                    JOIN " . ReadReplicaService::qualifiedRef('student_academic_enrollments') . " sae ON sae.student_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef('student_types') . " st ON st.id = s.student_type_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id AND lp.academic_year_id = sae.academic_year_id
+                    {$transportJoin}
+                    WHERE " . implode(' AND ', $where) . "
+                    GROUP BY s.id, sae.id
+                ) cohort";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute(array_merge($attendanceBindings, $assessmentBindings, $bindings));
+        $aggregate = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $aggregate['academic_year'] = $yearCode;
+        $aggregate['term_selected'] = $termId !== null;
+        return self::normalizeSupportPlanningAggregate($aggregate);
+    }
+
+    /** @param list<array<string,mixed>> $rows */
+    public static function normalizeSupportPlanningRows(array $rows): array
+    {
+        $count = count($rows);
+        $attendanceKnown = 0;
+        $attendanceBelow = 0;
+        $scoreTotal = 0.0;
+        $scoreCount = 0;
+        foreach ($rows as $row) {
+            if (isset($row['attendance_rate']) && is_numeric($row['attendance_rate'])
+                && (float) $row['attendance_rate'] >= 0 && (float) $row['attendance_rate'] <= 100) {
+                $attendanceKnown++;
+                if ((float) $row['attendance_rate'] < 75) $attendanceBelow++;
+            }
+            if (isset($row['average_score']) && is_numeric($row['average_score'])
+                && (float) $row['average_score'] >= 0 && (float) $row['average_score'] <= 100) {
+                $scoreTotal += (float) $row['average_score'];
+                $scoreCount++;
+            }
+        }
+        return self::normalizeSupportPlanningAggregate([
+            'learner_count' => $count,
+            'attendance_known' => $attendanceKnown,
+            'attendance_below' => $attendanceBelow,
+            'average_score' => $scoreCount > 0 ? $scoreTotal / $scoreCount : null,
+            'score_known' => $scoreCount,
+        ]);
+    }
+
+    /** Convert database cohort aggregates to privacy-safe, data-quality-aware bands. */
+    public static function normalizeSupportPlanningAggregate(array $aggregate): array
+    {
+        $count = max(0, (int) ($aggregate['learner_count'] ?? 0));
+        if ($count < 5) {
+            throw new DomainException('At least five learners are required for an aggregate support review.', 422);
+        }
+        $attendanceKnown = max(0, min($count, (int) ($aggregate['attendance_known'] ?? 0)));
+        $attendanceBelow = max(0, min($attendanceKnown, (int) ($aggregate['attendance_below'] ?? 0)));
+        $scoreKnown = max(0, min($count, (int) ($aggregate['score_known'] ?? 0)));
+        $averageValue = $aggregate['average_score'] ?? null;
+        $average = $scoreKnown > 0 && is_numeric($averageValue)
+            && (float) $averageValue >= 0 && (float) $averageValue <= 100
+            ? (float) $averageValue
+            : null;
+
+        return [
+            'report_date' => date('Y-m-d'),
+            'scope' => 'authorized_aggregate_performance',
+            'academic_year' => mb_substr((string) ($aggregate['academic_year'] ?? ''), 0, 20),
+            'term_selected' => !empty($aggregate['term_selected']) ? 'yes' : 'no',
+            'learner_count_band' => $count < 10 ? '5_to_9' : ($count < 25 ? '10_to_24' : '25_plus'),
+            'attendance_data_coverage' => $attendanceKnown === 0 ? 'unavailable' : ($attendanceKnown === $count ? 'complete' : 'some_missing'),
+            'attendance_below_threshold_band' => $attendanceKnown === 0 ? 'unavailable' : ($attendanceBelow === 0 ? 'none' : ($attendanceBelow < 5 ? '1_to_4' : '5_plus')),
+            'average_score_band' => $average === null ? 'unavailable' : ($average >= 75 ? '75_plus' : ($average >= 50 ? '50_to_74' : 'below_50')),
+            'assessment_data_coverage' => $scoreKnown === 0 ? 'unavailable' : ($scoreKnown === $count ? 'complete' : 'some_missing'),
+            'support_follow_up_intent' => 'Verify relevant records with responsible staff before action.',
+        ];
+    }
+
     public function getPerformanceFull(int $studentId, array $user, string $context, array $filters = []): ?array
     {
         $scope = $this->studentService->scopeService->buildScope($context, $user);
@@ -189,7 +353,13 @@ class StudentInsightsService
             SELECT s.id, s.admission_no, per.first_name, per.middle_name, per.last_name,
                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                    per.gender, per.photo_url, c.name AS class_name, st2.name AS stream_name
-            FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+            FROM students s
+            JOIN persons per ON per.id = s.person_id
+            LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
+            LEFT JOIN streams st2 ON st2.id = aycs.stream_id
             WHERE s.id = ?
             LIMIT 1
         ", [$studentId]);
@@ -205,7 +375,7 @@ class StudentInsightsService
         $attendance = $this->fetchAttendanceSummary($studentId, $termId, $yearId);
         $disciplineRecords = $this->fetchAll(
             "SELECT di.id, di.incident_date AS date, di.description AS case_title, di.severity, di.status, di.action_taken
-             FROM " . ReadReplicaService::qualifiedRef("discipline_incidents") . "
+             FROM " . ReadReplicaService::masterRef("discipline_incidents") . " di
              JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = di.student_academic_enrollment_id
              WHERE ae.student_id = ? ORDER BY di.incident_date DESC",
             [$studentId]
@@ -230,12 +400,13 @@ class StudentInsightsService
         ) ?: ['total_due' => 0, 'total_paid' => 0, 'total_waived' => 0, 'balance' => 0];
 
         $interview = $this->fetchOne(
-            "SELECT application_no, scheduled_date, conducted_at, interview_status AS status,
-                    academic_readiness_score, behavior_score, communication_score,
-                    overall_score, interview_recommendation AS recommendation, interview_remarks AS remarks
-               FROM " . ReadReplicaService::qualifiedRef("admission_applications_interviews") . "
-              WHERE enrolled_student_id = ? AND interview_status = 'completed'
-              ORDER BY interview_record_id DESC LIMIT 1",
+            "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                    ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                    ai.overall_score, ai.recommendation, ai.remarks
+               FROM admission_applications aa
+               JOIN admission_interviews ai ON ai.application_id = aa.id
+              WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+              ORDER BY ai.id DESC LIMIT 1",
             [$studentId]
         );
         $finance['financial_relief'] = (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId);
@@ -510,7 +681,7 @@ class StudentInsightsService
         $yearCode = $academicYear !== '' ? $academicYear : null;
         if ($yearCode === null) {
             $row = $this->fetchOne(
-                "SELECT year_code FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1"
+                "SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
             );
             $yearCode = $row['year_code'] ?? null;
         }
@@ -572,7 +743,7 @@ class StudentInsightsService
             return [$yearId ? (int)$yearId : null, $yearCode];
         }
 
-        $row = $this->fetchOne("SELECT id, year_code FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1");
+        $row = $this->fetchOne("SELECT id, year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
         return $row ? [(int)$row['id'], $row['year_code']] : [null, null];
     }
 

@@ -398,7 +398,7 @@ const ExamScheduleController = (() => {
       }
     }
 
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
   }
 

@@ -1,8 +1,19 @@
 <?php
 require_once __DIR__ . '/vendor/autoload.php';
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
+
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+// SCHOOL_PHONE / SCHOOL_EMAIL back the "Contact the system administrator"
+// modal below. The constants are only defined by loadSchoolIdentity(), which
+// Config::init() calls. Without this the modal renders with no contact
+// details at all. Wrapped so a config fault degrades the page instead of
+// taking the sign-in screen down with it.
+try {
+    \App\Config\Config::init();
+} catch (\Throwable $configError) {
+    error_log('[login] Config::init() failed: ' . $configError->getMessage());
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -32,7 +43,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
                 <span class="auth-step-label">Secure school workspace</span><h2>Welcome back</h2><p class="auth-intro">Sign in with your Kingsway username or email.</p>
                 <div class="alert alert-danger d-none" id="authError" role="alert"></div>
                 <form id="authLoginForm">
-                    <label class="form-label" for="authIdentifier">Username or email</label><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-person"></i></span><input class="form-control" id="authIdentifier" placeholder="Enter username or email" required autocomplete="username"></div>
+                    <label class="form-label" for="authIdentifier">Username, email, or phone</label><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-person"></i></span><input class="form-control" id="authIdentifier" placeholder="Enter username, email, or phone" required autocomplete="username"></div>
                     <div class="d-flex justify-content-between"><label class="form-label" for="authPassword">Password</label><a href="<?= htmlspecialchars($appBase) ?>/index.php?route=r8f1bc67a3eb2">Forgot password?</a></div><div class="input-group mb-3"><span class="input-group-text"><i class="bi bi-key"></i></span><input type="password" class="form-control" id="authPassword" placeholder="Enter your password" required autocomplete="current-password"><button class="btn auth-password-toggle" type="button" id="authTogglePassword" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
                     <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="authRemember"><label class="form-check-label" for="authRemember">Keep me signed in on this device</label></div>
                     <button class="btn btn-warning w-100 auth-submit" id="authSubmit" type="submit"><span>Sign in</span><span class="spinner-border spinner-border-sm d-none"></span></button>
@@ -41,11 +52,29 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
                 <p class="text-center mt-3 mb-0"><a href="<?= htmlspecialchars($appBase) ?>/parent_portal.php"><i class="bi bi-people me-1"></i>Login as parent or guardian</a></p>
             </div>
             <div class="d-none" id="verificationStep">
-                <span class="auth-step-label">Identity verification</span><h2 id="verificationTitle">Two-factor authentication 🔑</h2><p class="auth-intro" id="verificationDescription">Use your device to get the code.</p>
+                <ol class="auth-rail" aria-label="Sign-in progress">
+                    <li class="auth-rail-step is-done"><span class="auth-rail-mark"><i class="bi bi-check-lg"></i></span><span class="auth-rail-text">Password</span></li>
+                    <li class="auth-rail-sep is-done" aria-hidden="true"></li>
+                    <li class="auth-rail-step is-active" aria-current="step"><span class="auth-rail-mark">2</span><span class="auth-rail-text">Verification</span></li>
+                </ol>
+                <span class="auth-step-label">Identity verification</span><h2 id="verificationTitle">Verify your identity</h2><p class="auth-intro" id="verificationDescription">Enter the code we sent you.</p>
+
+                <div class="auth-method-card" id="authMethodCard">
+                    <span class="auth-method-icon" id="authMethodIcon"><i class="bi bi-shield-check"></i></span>
+                    <span class="auth-method-text"><strong id="authMethodName">Verification code</strong><small id="authMethodDestination">Your code is on its way</small></span>
+                    <button class="btn btn-link auth-method-change" id="authTryAnother" type="button" aria-expanded="false" aria-controls="authMethodList">Change</button>
+                </div>
+                <div class="auth-method-list d-none" id="authMethodList" role="radiogroup" aria-label="Choose a verification method"></div>
+
                 <div class="alert alert-danger d-none" id="verifyError" role="alert"></div><div class="alert alert-success d-none" id="verifySuccess" role="status"></div>
-                <form id="verificationForm"><label class="form-label" id="verificationCodeLabel">Enter the six-digit code</label><div class="auth-otp-grid" id="authOtpGrid" role="group" aria-labelledby="verificationCodeLabel"><input class="auth-otp-cell" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 2"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 3"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 4"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 5"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 6"></div><input class="form-control form-control-lg auth-code d-none" id="verificationCode" autocomplete="one-time-code" maxlength="32"><p class="auth-auto-status" id="authAutoStatus"><i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.</p><button class="btn btn-warning w-100 mt-3 auth-submit d-none" id="verifySubmit" type="submit">Verify recovery code</button></form>
-                <button class="btn btn-success w-100 d-none" id="authVerifyPasskey" type="button"><i class="bi bi-fingerprint me-2"></i>Verify with this device</button>
-                <div class="d-flex justify-content-between mt-4"><button class="btn btn-link p-0" id="authBack" type="button"><i class="bi bi-arrow-left"></i> Back to login</button><button class="btn btn-link p-0" id="authResend" type="button">Send a new code</button><button class="btn btn-link p-0" id="authUseRecovery" type="button">I don't have my 2FA</button></div>
+                <form id="verificationForm" novalidate><label class="form-label" id="verificationCodeLabel">Enter the six-digit code</label><div class="auth-otp-grid" id="authOtpGrid" role="group" aria-labelledby="verificationCodeLabel"><input class="auth-otp-cell" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 2"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 3"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 4"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 5"><input class="auth-otp-cell" inputmode="numeric" maxlength="1" aria-label="Digit 6"></div><input class="form-control form-control-lg auth-code d-none" id="verificationCode" name="verificationCode" placeholder="XXXX-XXXX" autocomplete="one-time-code" maxlength="9" spellcheck="false" autocapitalize="characters" aria-labelledby="verificationCodeLabel"><p class="auth-auto-status" id="authAutoStatus" role="status" aria-live="polite"><i class="bi bi-lightning-charge-fill"></i> Verification starts automatically when all six digits are entered.</p><button class="btn btn-warning w-100 mt-3 auth-submit d-none" id="verifySubmit" type="submit">Verify recovery code</button></form>
+                <button class="btn btn-outline-light w-100 d-none" id="authVerifyPasskey" type="button"><i class="bi bi-fingerprint me-2"></i>Verify with this device</button>
+
+                <div class="auth-actions">
+                    <button class="btn btn-outline-light btn-sm" id="authBack" type="button"><i class="bi bi-arrow-left me-1"></i>Back</button>
+                    <button class="btn btn-outline-light btn-sm" id="authResend" type="button">Send a new code</button>
+                    <button class="btn btn-link btn-sm auth-help-link" id="authUseRecovery" type="button" data-bs-toggle="modal" data-bs-target="#noAccessModal">Lost access?</button>
+                </div>
             </div>
         </div>
         <p class="auth-help"><i class="bi bi-shield-lock"></i> Kingsway will never ask you to share a verification code.</p>
@@ -55,4 +84,28 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 <script src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"></script>
 <script src="<?= htmlspecialchars($appBase) ?>/js/api.js?v=<?= asset_version('js/api.js') ?>"></script>
 <script src="<?= htmlspecialchars($appBase) ?>/js/pages/sign_in.js?v=<?= asset_version('js/pages/sign_in.js') ?>"></script>
+
+<div class="modal fade" id="noAccessModal" tabindex="-1" aria-labelledby="noAccessModalLabel" aria-hidden="true">
+                  <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                      <div class="modal-header">
+                        <h6 class="modal-title" id="noAccessModalLabel">Lost access to your verification?</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <p class="mb-2">If you saved recovery codes when you turned on two-factor authentication, choose <strong>Change</strong> &rarr; <strong>Recovery code</strong> and enter one of them. Each recovery code works only once.</p>
+                        <p class="mb-2">If you have no recovery code left, contact the school office, who can re-enrol your second factor or unlock the account for you.</p>
+                        <hr>
+                        <ul class="list-unstyled small mb-0">
+                          <?php if (defined('SCHOOL_PHONE') && SCHOOL_PHONE !== ''): ?><li class="mb-1"><i class="bi bi-telephone me-2"></i><?= htmlspecialchars(SCHOOL_PHONE, ENT_QUOTES) ?></li><?php endif; ?>
+                          <?php if (defined('SCHOOL_EMAIL') && SCHOOL_EMAIL !== ''): ?><li class="mb-1"><i class="bi bi-envelope me-2"></i><a href="mailto:<?= htmlspecialchars(SCHOOL_EMAIL, ENT_QUOTES) ?>"><?= htmlspecialchars(SCHOOL_EMAIL, ENT_QUOTES) ?></a></li><?php endif; ?>
+                          <?php if (defined('SCHOOL_NAME') && SCHOOL_NAME !== '' && SCHOOL_NAME !== 'School'): ?><li class="mb-1"><i class="bi bi-building me-2"></i><?= htmlspecialchars(SCHOOL_NAME, ENT_QUOTES) ?> office</li><?php endif; ?>
+                        </ul>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 </body></html>

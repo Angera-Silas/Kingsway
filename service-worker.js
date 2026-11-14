@@ -1,9 +1,7 @@
 /** Kingsway service worker: safe static caching only. */
 // Bump on every SW behaviour change so existing installations flush the old
-// worker; a cached worker would keep polling unconditionally forever.
-const CACHE_VERSION = 'v10.7-grading-aggregation';
-// How often the suppressed loop re-checks. Cheap: a timeout, no network.
-const POLL_SUPPRESSED_TICK_MS = 15000;
+// worker and its caches.
+const CACHE_VERSION = 'v11.0-sse-only';
 const STATIC_CACHE = `kingsway-static-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
 const PRECACHE = [
@@ -31,19 +29,39 @@ self.addEventListener('activate', (event) => {
     await Promise.all(names.filter((name) => name.startsWith('kingsway-') && name !== STATIC_CACHE)
       .map((name) => caches.delete(name)));
     await self.clients.claim();
-    // The worker's in-memory buffer list died with the previous instance
-    // (browsers terminate idle SWs after ~30s). Ask whichever client is open
-    // to re-send its registered URLs; realtime_manager answers REGISTER_BUFFERS,
-    // which re-arms the poll loop. If no client answers, polling resumes on
-    // the next page load's registration — same as pre-g8 behavior.
-    if (!self.__kingswayBuffers?.length) {
-      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const client of clients) {
-        client.postMessage({ type: 'REQUEST_BUFFERS' });
-      }
-    }
   })());
 });
+
+// One failed connection is not "offline". Mobile signal drops, a reset
+// connection or a server restart usually clear within a second, and showing
+// the offline page for those sent users away from a page that would have
+// loaded on the next attempt. Retry briefly first; go offline at once only
+// when the device itself reports no network.
+const NAVIGATION_RETRY_DELAYS_MS = [700, 1600];
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function navigate(request) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= NAVIGATION_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      // Any HTTP response, including 4xx/5xx, is the server answering: hand it
+      // to the browser unchanged. Only a failed connection is retried.
+      return await fetch(request, { cache: 'no-store' });
+    } catch (error) {
+      lastError = error;
+      if (self.navigator && self.navigator.onLine === false) break;
+      if (attempt < NAVIGATION_RETRY_DELAYS_MS.length) {
+        await wait(NAVIGATION_RETRY_DELAYS_MS[attempt]);
+      }
+    }
+  }
+  const offline = await caches.match(OFFLINE_URL);
+  if (offline) return offline;
+  throw lastError || new TypeError('Network unavailable');
+}
 
 self.addEventListener('fetch', (event) => {
   const request = event.request;
@@ -57,11 +75,11 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.includes('/uploads/') || url.pathname.includes('/assets/')) return;
   if (url.origin !== self.location.origin) return;
 
-  // Never cache PHP/application navigations. Use network and offline fallback only.
+  // Never cache PHP/application navigations. Network only; the offline page is
+  // a last resort for a device that genuinely cannot connect. It is served at
+  // the requested URL and reloads that same URL once the server answers.
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request, { cache: 'no-store' }).catch(async () => {
-      return (await caches.match(OFFLINE_URL)) || new Response('Offline', { status: 503 });
-    }));
+    event.respondWith(navigate(request));
     return;
   }
 
@@ -75,16 +93,6 @@ self.addEventListener('fetch', (event) => {
         return (await caches.match(request)) || new Response('Offline', { status: 503 });
       }
     })());
-    return;
-  }
-
-  // Real-time event buffers are strictly network-first and never cached. The
-  // buffers are already governed by no-store headers; this guards the fetch
-  // path on the client too so a poll can never be answered from a stale cache.
-  if (/\/buffers\/.+\.json$/i.test(url.pathname)) {
-    event.respondWith(fetch(request, { cache: 'no-store' }).catch(
-      () => new Response('{}', { status: 503, headers: { 'Content-Type': 'application/json' } })
-    ));
     return;
   }
 
@@ -113,24 +121,8 @@ self.addEventListener('message', (event) => {
   if (type === 'CLEAR_CACHE') {
     event.waitUntil(event.data?.data?.cacheName
       ? caches.delete(event.data.data.cacheName)
-      : Promise.all(caches.keys().then((names) => names.map((name) => caches.delete(name)))));
+      : caches.keys().then((names) => Promise.all(names.map((name) => caches.delete(name)))));
   }
-  // The page reports whether the SSE stream is currently healthy. Suppressed
-  // polling is a performance decision, never a correctness one: if this flag
-  // is lost (worker restart, missed message) polling simply resumes.
-  if (type === 'SET_POLLING') {
-    const enabled = event.data?.enabled !== false;
-    const wasSuppressed = !!self.__kingswayPollSuppressed;
-    self.__kingswayPollSuppressed = !enabled;
-    // Poll immediately on resume so a gap that opened while suppressed is
-    // closed now, rather than after a full 12-18s tick.
-    if (wasSuppressed && enabled && self.__kingswayBuffers?.length) {
-      clearTimeout(self.__kingswayPollTimer);
-      self.__kingswayPollTimer = null;
-      self.__kingswayBuffers.forEach((u) => pollRealTimeBuffers().catch(() => {}));
-    }
-  }
-
   if (type === 'GET_CACHE_STATS' && event.ports?.[0]) {
     event.waitUntil((async () => {
       const stats = {};
@@ -140,115 +132,7 @@ self.addEventListener('message', (event) => {
       event.ports[0].postMessage({ type: 'CACHE_STATS', data: stats });
     })());
   }
-
-  // Role-scoped real-time buffers to start polling (from realtime_manager).
-  // Payloads never arrive here — only signed static-buffer URLs. The service
-  // worker re-polls them on a jittered 12–18s cycle WITHOUT touching PHP and forwards only
-  // actual changes to controlled clients.
-  if (type === 'REGISTER_BUFFERS' && Array.isArray(event.data?.urls)) {
-    self.__kingswayBuffers = event.data.urls
-      .filter((u) => typeof u === 'string' && u.startsWith('http'))
-      .map((u) => new URL(u, self.location.origin).href);
-    self.__kingswayBufferState = {};
-    self.__kingswayFailedTicks = 0; // new URLs: reset the backoff cycle
-    if (self.__kingswayBuffers.length && !self.__kingswayPollTimer) {
-      const schedulePoll = async () => {
-        // Buffer polling is the FALLBACK. While the Node SSE stream is healthy
-        // it is pure waste: every open tab would fetch the same static files
-        // every 12-18s and, on a change, run a second refresh on top of the one
-        // SSE already triggered. The loop keeps ticking so the fallback can
-        // resume instantly, but it does no network work while suppressed.
-        if (self.__kingswayPollSuppressed) {
-          self.__kingswayPollTimer = setTimeout(schedulePoll, POLL_SUPPRESSED_TICK_MS);
-          return;
-        }
-        const outcome = await pollRealTimeBuffers();
-        let delay = 12000 + Math.floor(Math.random() * 6001);
-        if (outcome === 'all_failed' || outcome === 'rotated') {
-          // Every buffer failed or 404'd: back off exponentially (30s→5min
-          // cap) so a dead origin or purged epoch is not hammered by every
-          // browser at once. Keep trying though — a 404 epoch rotation
-          // self-heals as soon as the client re-runs the authenticated
-          // handshake and re-registers current URLs.
-          self.__kingswayFailedTicks = (self.__kingswayFailedTicks || 0) + 1;
-          delay = Math.min(300000, 30000 * Math.pow(2, self.__kingswayFailedTicks - 1));
-        } else {
-          // Any (even partial) success resets the backoff: one dead buffer
-          // must not slow polling of the healthy ones.
-          self.__kingswayFailedTicks = 0;
-        }
-        self.__kingswayPollTimer = setTimeout(schedulePoll, delay);
-      };
-      schedulePoll();
-    }
-  }
 });
-
-// Poll role-scoped static buffers and forward only diffs to clients. Uses
-// fetch(no-store) plus the no-store server headers, so each poll returns the
-// freshest buffer the web server has written (zero PHP). Clients receive a
-// change-detected event with the current scope's payloads.
-//
-// Returns an outcome for the scheduler's backoff decision:
-//   'ok'        — at least one buffer answered (partial failures tolerated)
-//   'all_failed'— every fetch threw (network drop / origin down)
-//   'rotated'   — every buffer answered but with 404 (daily slug rotation
-//                 crossed midnight, or the 48h purge removed this epoch). The
-//                 worker cannot mint new URLs itself — only the client's
-//                 authenticated handshake can — so it asks clients to
-//                 re-register, then backs off until they do.
-async function pollRealTimeBuffers() {
-  const buffers = self.__kingswayBuffers || [];
-  if (!buffers.length) return 'ok';
-  const results = [];
-  let successes = 0;
-  let notFound = 0;
-  await Promise.all(buffers.map(async (href) => {
-    try {
-      const res = await fetch(href, { cache: 'no-store' });
-      if (res.status === 404) {
-        notFound += 1;
-        return;
-      }
-      if (!res.ok) return;
-      const body = await res.text();
-      let payload;
-      try { payload = JSON.parse(body); } catch { return; }
-      successes += 1;
-      const key = href;
-      const previous = self.__kingswayBufferState?.[key];
-      const signature = body; // raw text diff, not a security boundary
-      if (previous !== signature) {
-        self.__kingswayBufferState = self.__kingswayBufferState || {};
-        self.__kingswayBufferState[key] = signature;
-        results.push({ url: href, type: 'UPDATE', payload });
-      } else {
-        results.push({ url: href, type: 'NO_CHANGE' });
-      }
-    } catch (ignored) {
-      /* transient network error: counted as a failure for backoff */
-    }
-  }));
-
-  if (results.length) {
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const client of clients) {
-      client.postMessage({ type: 'BUFFER_POLL', data: results });
-    }
-  }
-
-  if (notFound > 0 && successes === 0) {
-    // Rotation/purge confirmed: tell controlled clients to re-handshake. The
-    // realtime manager answers with fresh REGISTER_BUFFERS, which resets
-    // __kingswayBufferState and this backoff cycle.
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const client of clients) {
-      client.postMessage({ type: 'BUFFER_ROTATED' });
-    }
-    return 'rotated';
-  }
-  return successes > 0 ? 'ok' : 'all_failed';
-}
 
 self.addEventListener('push', (event) => {
   const data = (() => { try { return event.data?.json() || {}; } catch { return { body: event.data?.text() }; } })();

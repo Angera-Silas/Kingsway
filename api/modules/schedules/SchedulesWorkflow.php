@@ -127,7 +127,7 @@ class SchedulesWorkflow extends WorkflowHandler
                 }
                 $streamLearningAreaId = (int)$this->db->query(
                     "SELECT sla.id
-                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
                      JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
                      WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
                     [$classStreamId, $learningAreaId]
@@ -281,7 +281,7 @@ class SchedulesWorkflow extends WorkflowHandler
     {
         $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
         if ($yearId <= 0) {
-            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
         }
         return $yearId;
     }

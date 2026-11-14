@@ -14,6 +14,8 @@
     messagePages: 1,
     messageTotal: 0,
     messageLimit: 25,
+    messageRequestId: 0,
+    messageRequestController: null,
     filters: { q: "", unread: false, flagged: false },
     outbox: [],
     outboxPage: 1,
@@ -31,6 +33,8 @@
     accessSearchCache: {},
     accessSearchTimer: null,
     realtimeMailTimer: null,
+    staffTagTimer: null,
+    staffTagCache: new Map(),
 
     async init() {
       if (!document.getElementById("mailboxes-root")) return;
@@ -43,9 +47,14 @@
       this.applyUserChip();
       this.bindEvents();
       this.bindComposeEvents();
+      this.on("emailStaffTagSearch", "input", (e) => {
+        clearTimeout(this.staffTagTimer);
+        this.staffTagTimer = setTimeout(() => this.loadEmailStaffTags(e.target.value), 250);
+      });
       this.bindAccessEvents();
       this.bindRealtime();
       this.setupVariableMenu();
+      window.APIRealtime?.register?.("manageEmail", this, ["communications"]);
       await this.loadMailboxes();
     },
 
@@ -219,6 +228,13 @@
       window.addEventListener("kingsway:data-mutated", (event) => {
         const targets = Array.isArray(event?.detail?.targets) ? event.detail.targets : [];
         if (!targets.includes("communications")) return;
+        const changes = Array.isArray(event?.detail?.events) ? event.detail.events : [];
+        const localEndpoint = String(event?.detail?.endpoint || "");
+        const mailboxChange = /communications\/mailboxes/i.test(localEndpoint) || changes.some((change) => {
+          const descriptor = `${change?.type || ""} ${change?.payload?.action || ""} ${change?.payload?.event || ""}`;
+          return /mailbox|email/i.test(descriptor);
+        });
+        if (!mailboxChange) return;
         if (this.realtimeMailTimer) window.clearTimeout(this.realtimeMailTimer);
         this.realtimeMailTimer = window.setTimeout(() => {
           this.realtimeMailTimer = null;
@@ -236,8 +252,10 @@
       if (this.selectedUid) return;
       const modal = document.getElementById("composeModal");
       if (modal && modal.classList.contains("show")) return;
+      // loadFolders() loads the current message page after refreshing folder
+      // counts. Calling loadMessages() here as well starts two slow IMAP reads
+      // and the second request aborts the first one.
       this.loadFolders();
-      this.loadMessages();
     },
 
     bindComposeEvents() {
@@ -252,6 +270,7 @@
       });
       this.on("composeAttachments", "change", () => self.renderAttachmentChips());
       this.on("composeDirectoryToggle", "click", () => self.toggleDirectoryPicker());
+      this.on("templateSelect", "change", () => self.applyEmailTemplate());
       document.getElementById("composeModal")?.addEventListener("hidden.bs.modal", () => {
         self.composeContext = null;
         document.getElementById("composeStatus").textContent = "";
@@ -298,6 +317,8 @@
       this.accessSearchCache = {};
       document.getElementById("accessMailboxName").textContent =
         `${mailbox.label || "Mailbox"} <${mailbox.email_address || ""}>`;
+      const helpName = document.getElementById("accessMailboxHelpName");
+      if (helpName) helpName.textContent = `${mailbox.label || "Mailbox"} (${mailbox.email_address || ""})`;
       document.getElementById("accessUserSearch").value = "";
       document.getElementById("accessUserResults").innerHTML = "";
       document.getElementById("accessMembersList").innerHTML =
@@ -321,6 +342,7 @@
           can_compose: !!m.can_compose,
           is_owner: !!m.is_owner,
         }));
+        this.renderAccessUsers(res?.staff || []);
       } catch (e) {
         document.getElementById("accessMembersList").innerHTML =
           `<div class="text-danger small py-3">${this.esc(e?.message || "Members could not be loaded.")}</div>`;
@@ -375,35 +397,40 @@
 
     async searchAccessUsers(q) {
       const box = document.getElementById("accessUserResults");
-      if (!q || q.length < 2) { box.innerHTML = ""; this.accessSearchCache = {}; return; }
+      if (!this.accessMailbox || (q && q.length < 2)) return;
       try {
-        const res = await window.API.communications.searchMessageRecipients(q);
-        const users = Array.isArray(res) ? res : (res?.results || res?.recipients || res?.users || []);
-        const existing = new Set(this.accessMembers.map((m) => m.user_id));
-        this.accessSearchCache = {};
-        const matches = users.filter((u) => {
-          const id = Number(u.id ?? u.user_id);
-          if (existing.has(id)) return false;
-          this.accessSearchCache[id] = {
-            user_id: id,
-            full_name: u.full_name || u.username || ("User #" + id),
-            username: u.username || "",
-            email: u.email || "",
-          };
-          return true;
-        });
-        box.innerHTML = matches.length
-          ? matches.map((u) => {
-              const id = Number(u.id ?? u.user_id);
-              return `<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-add-user="${id}">
-                <span class="kw-avatar" style="width:26px;height:26px;min-width:26px;font-size:.7rem;">${this.esc(this.initials(u.full_name || u.username || "?"))}</span>
-                <span>${this.esc(u.full_name || u.username || ("User #" + id))}<br><small class="text-muted">${this.esc(u.email || u.username || "")}</small></span>
-              </button>`;
-            }).join("")
-          : '<div class="text-muted small p-2">No matching staff found.</div>';
+        const res = await window.API.communications.getMailboxMembers(this.accessMailbox.id, { q });
+        this.renderAccessUsers(res?.staff || []);
       } catch (e) {
         box.innerHTML = `<div class="text-danger small p-2">${this.esc(e?.message || "Search failed")}</div>`;
       }
+    },
+
+    renderAccessUsers(users) {
+      const box = document.getElementById("accessUserResults");
+      const existing = new Set(this.accessMembers.map((m) => m.user_id));
+      this.accessSearchCache = {};
+      const matches = users.filter((u) => {
+        const id = Number(u.user_id ?? u.id);
+        if (!id || existing.has(id)) return false;
+        this.accessSearchCache[id] = {
+          user_id: id,
+          full_name: u.full_name || u.username || ("User #" + id),
+          username: u.username || "",
+          email: u.email || "",
+        };
+        return true;
+      });
+      box.innerHTML = matches.length
+        ? matches.map((u) => {
+            const id = Number(u.user_id ?? u.id);
+            return `<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-add-user="${id}">
+              <span class="kw-avatar" style="width:26px;height:26px;min-width:26px;font-size:.7rem;">${this.esc(this.initials(u.full_name || u.username || "?"))}</span>
+              <span>${this.esc(u.full_name || u.username || ("User #" + id))}<br><small class="text-muted">${this.esc(u.email || u.username || "")}</small></span>
+              <span class="ms-auto small text-primary">Add</span>
+            </button>`;
+          }).join("")
+        : '<div class="text-muted small p-2">No unassigned staff found.</div>';
     },
 
     addAccessMember(userId) {
@@ -462,6 +489,7 @@
       try {
         const res = await window.API.communications.getMailboxes();
         this.mailboxes = res?.mailboxes ?? [];
+        this.canManageAccess = res?.can_manage_access === true;
       } catch (e) {
         console.error("[manage_email] mailboxes failed:", e);
         this.mailboxes = [];
@@ -672,6 +700,11 @@
 
     async loadMessages() {
       if (!this.activeMailbox || this.view !== "messages") return;
+      this.messageRequestController?.abort();
+      const requestId = ++this.messageRequestId;
+      const requestController = new AbortController();
+      this.messageRequestController = requestController;
+      let requestTimedOut = false;
       const list = document.getElementById("messageList");
       const notice = document.getElementById("emptyFolderNotice");
       const pagination = document.getElementById("msgPagination");
@@ -694,13 +727,31 @@
       if (this.filters.flagged) params.flagged = 1;
 
       let data = {};
+      const timeoutId = window.setTimeout(() => {
+        requestTimedOut = true;
+        requestController.abort();
+      }, 45000);
       try {
-        const res = await window.API.communications.getMailboxMessages(this.activeMailbox.id, params);
+        const res = await window.API.communications.getMailboxMessages(
+          this.activeMailbox.id,
+          params,
+          { signal: requestController.signal, coalesce: false },
+        );
         data = res ?? {};
       } catch (e) {
+        if (requestId !== this.messageRequestId) return;
         console.error("[manage_email] messages failed:", e);
-        data = { success: false, message: e?.message || "Unable to read mailbox." };
+        data = {
+          success: false,
+          message: requestTimedOut
+            ? "The mail server took too long to respond. Check the mailbox connection and try again."
+            : e?.message || "Unable to read mailbox.",
+        };
+      } finally {
+        window.clearTimeout(timeoutId);
       }
+      if (requestId !== this.messageRequestId) return;
+      if (this.messageRequestController === requestController) this.messageRequestController = null;
       loader.style.display = "none";
 
       if (data.success === false) {
@@ -1199,6 +1250,10 @@
       document.getElementById("composeTo").value = config.to || "";
       document.getElementById("composeCc").value = config.cc || "";
       document.getElementById("composeBcc").value = "";
+      const staffTags = document.getElementById("emailStaffTags");
+      if (staffTags) staffTags.replaceChildren();
+      const staffSearch = document.getElementById("emailStaffTagSearch");
+      if (staffSearch) staffSearch.value = "";
       document.getElementById("composeSubject").value = config.subject || "";
       document.getElementById("composeBody").value = config.body || "";
       document.getElementById("composeAttachments").value = "";
@@ -1212,8 +1267,20 @@
       const dirBtn = document.getElementById("composeDirectoryToggle");
       if (dirWrap) dirWrap.style.display = "";
       if (dirBtn) dirBtn.textContent = "Hide directory";
-      this.ensureDirectoryPicker();
+      if (!this.directoryPicker && window.RecipientPicker) {
+        const self = this;
+        this.directoryPicker = window.RecipientPicker.create("composeRecipientPicker", {
+          mode: "multi",
+          types: ["student", "parent", "staff", "vendor"],
+          placeholder: "Browse or search learner, guardian, staff or vendor...",
+          onChange: function (selection) {
+            const emails = (selection || []).map((r) => r.email).filter(Boolean);
+            if (emails.length) self.appendToRecipients(emails);
+          },
+        });
+      }
       if (this.directoryPicker) this.directoryPicker.clear();
+      this.loadEmailTemplates();
       bootstrap.Modal.getOrCreateInstance(document.getElementById("composeModal")).show();
     },
 
@@ -1235,10 +1302,22 @@
     buildComposePayload() {
       const ctx = this.composeContext || {};
       const body = document.getElementById("composeBody").value;
+      const cc = this.parseAddresses(document.getElementById("composeCc").value);
+      const bcc = this.parseAddresses(document.getElementById("composeBcc").value);
+      const tagged = Array.from(document.getElementById("emailStaffTags")?.selectedOptions || []);
+      const tagMode = document.getElementById("emailStaffTagMode")?.value === "bcc" ? "bcc" : "cc";
+      tagged.forEach((option) => {
+        const staff = this.staffTagCache.get(String(option.value));
+        if (!staff?.email) return;
+        const recipients = tagMode === "bcc" ? bcc : cc;
+        if (!recipients.some((email) => email.toLowerCase() === staff.email.toLowerCase())) recipients.push(staff.email);
+      });
       const payload = {
         to: this.parseAddresses(document.getElementById("composeTo").value),
-        cc: this.parseAddresses(document.getElementById("composeCc").value),
-        bcc: this.parseAddresses(document.getElementById("composeBcc").value),
+        cc,
+        bcc,
+        tagged_staff_user_ids: tagged.map((option) => Number(option.value)).filter((id) => id > 0),
+        staff_tag_mode: tagMode,
         subject: document.getElementById("composeSubject").value.trim(),
         body_text: body,
         body_html: this.esc(body).replace(/\r?\n/g, "<br>"),
@@ -1248,6 +1327,29 @@
       if (ctx.references) payload.references = ctx.references;
       if (ctx.draftUid) payload.draft_uid = ctx.draftUid;
       return payload;
+    },
+
+    async loadEmailStaffTags(query) {
+      const select = document.getElementById("emailStaffTags");
+      if (!select || !window.API?.communications?.searchStaffTags) return;
+      const selected = new Set(Array.from(select.selectedOptions).map((option) => option.value));
+      try {
+        const response = await window.API.communications.searchStaffTags(String(query || "").trim());
+        const rows = Array.isArray(response) ? response : (response?.staff || response?.data?.staff || response?.data || []);
+        rows.forEach((staff) => {
+          const id = String(staff.user_id || staff.id || "");
+          if (!id || !staff.email) return;
+          this.staffTagCache.set(id, { ...staff, email: String(staff.email).trim() });
+        });
+        const visible = rows.map((staff) => String(staff.user_id || staff.id || "")).filter((id) => id && this.staffTagCache.has(id));
+        const ids = Array.from(new Set([...visible, ...selected]));
+        select.innerHTML = ids.map((id) => {
+          const staff = this.staffTagCache.get(id);
+          return `<option value="${this.esc(id)}"${selected.has(id) ? " selected" : ""}>${this.esc(staff.full_name || staff.name || staff.email)} — ${this.esc(staff.email)}</option>`;
+        }).join("");
+      } catch (error) {
+        console.warn("[manage_email] staff directory search failed", error);
+      }
     },
 
     validateCompose() {
@@ -1328,6 +1430,109 @@
       } finally {
         this.setComposeBusy(false, "");
       }
+    },
+
+    async loadEmailTemplates() {
+      const select = document.getElementById("templateSelect");
+      if (!select) return;
+      try {
+        const res = await window.API.communications.getTemplates();
+        const templates = Array.isArray(res) ? res : (res?.data || []);
+        select.innerHTML = '<option value="">No template</option>' +
+          templates
+            .filter((t) => String(t.template_type || "").toLowerCase() === "email")
+            .map((t) => `<option value="${this.esc(t.id)}">${this.esc(t.name)}</option>`)
+            .join("");
+      } catch (e) {
+        select.innerHTML = '<option value="">No template</option>';
+      }
+    },
+
+    applyEmailTemplate() {
+      const select = document.getElementById("templateSelect");
+      if (!select || !select.value) return;
+      const id = select.value;
+      window.API.communications.getTemplate(id).then((res) => {
+        const tmpl = res?.template || res?.data || res;
+        if (!tmpl || !tmpl.template_body) return;
+        const body = tmpl.template_body;
+        const placeholders = this.extractPlaceholders(body);
+        if (placeholders.length > 0) {
+          this.promptForVariables(placeholders, (variables) => {
+            const substituted = this.substituteVariables(body, variables);
+            document.getElementById("composeBody").value = substituted;
+            if (tmpl.subject && !document.getElementById("composeSubject").value) {
+              document.getElementById("composeSubject").value = tmpl.subject;
+            }
+          });
+        } else {
+          document.getElementById("composeBody").value = body;
+          if (tmpl.subject && !document.getElementById("composeSubject").value) {
+            document.getElementById("composeSubject").value = tmpl.subject;
+          }
+        }
+      }).catch(() => {});
+    },
+
+    extractPlaceholders(text) {
+      const regex = /@([A-Za-z_][A-Za-z0-9_]*)/g;
+      const matches = text.match(regex) || [];
+      return [...new Set(matches.map(m => m.slice(1)))];
+    },
+
+    substituteVariables(text, variables) {
+      return text.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (match, key) => {
+        return variables.hasOwnProperty(key) ? variables[key] : match;
+      });
+    },
+
+    promptForVariables(placeholders, callback) {
+      const modalHtml = `
+        <div class="modal fade" id="variablePromptModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit me-1"></i>Template Variables</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <p class="small text-muted">This template has placeholders. Provide values for each:</p>
+                <form id="variablePromptForm">
+                  ${placeholders.map(key => `
+                    <div class="mb-2">
+                      <label class="form-label small fw-semibold">@${key}</label>
+                      <input type="text" class="form-control form-control-sm" name="${key}" required>
+                    </div>
+                  `).join('')}
+                </form>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="variablePromptApply">Apply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      const existing = document.getElementById("variablePromptModal");
+      if (existing) existing.remove();
+      document.body.insertAdjacentHTML('beforeend', modalHtml);
+      const modalEl = document.getElementById("variablePromptModal");
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modalEl.querySelector('#variablePromptApply').addEventListener('click', () => {
+        const form = modalEl.querySelector('#variablePromptForm');
+        const variables = {};
+        let valid = true;
+        form.querySelectorAll('input').forEach(input => {
+          if (!input.value.trim()) valid = false;
+          variables[input.name] = input.value.trim();
+        });
+        if (!valid) { showNotification('Please fill all variables', 'warning'); return; }
+        modal.hide();
+        callback(variables);
+      });
+      modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+      modal.show();
     },
 
     downloadAttachment(index) {

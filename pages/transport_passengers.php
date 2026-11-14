@@ -5,13 +5,7 @@
  * Embedded in app_layout.php
  */
 
-// Ensure $appBase is available for script loading
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.' || $appBase === '/') {
-        $appBase = '';
-    }
-}
+$appBase = app_base_path();
 ?>
 
 <div class="container-fluid py-4" id="transportPassengersPage">
@@ -133,12 +127,6 @@ if (!isset($appBase)) {
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by name, admission number, pickup point, guardian phone">
                     </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-primary w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
@@ -372,9 +360,6 @@ if (!isset($appBase)) {
                 </button>
                 <button class="btn btn-danger" id="markAbsentBtn">
                     <i class="bi bi-x-circle me-1"></i> Mark Absent
-                </button>
-                <button class="btn btn-secondary" id="addTransportNoteBtn">
-                    <i class="bi bi-plus-circle me-1"></i> Add Note
                 </button>
             </div>
 

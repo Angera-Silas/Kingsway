@@ -342,32 +342,28 @@ class AuthAPI extends BaseAPI
             $testMfaBypassAllowed = $isTestUser
                 && (new TestAccountAccessService($this->db))->mfaBypassAllowed($userId);
 
-            if (!$testMfaBypassAllowed && ($stepActive || $policyForced)) {
-                // The step is required - either the account flag is set, or
-                // school policy forces it - but no usable method exists to
-                // deliver a code (for example the 'none' sentinel). Never let
-                // the account through on a password alone: send it to setup.
+            // A policy mandate outranks the user's own switch, but the switch
+            // must still be able to disable the step on its own. $stepActive
+            // used to be read for its log line only, so an account with
+            // two_factor_enabled = 0 was pushed through the challenge anyway.
+            $secondFactorRequired = $stepActive || $policyForced;
+
+            if ($secondFactorRequired && !$testMfaBypassAllowed) {
+                // Every non-test account completes a second factor. A verified
+                // account preference is honored; otherwise SMS is the default,
+                // with email and enrolled factors available in the chooser.
+                // Accounts without a deliverable contact or enrolled factor
+                // cannot continue until the school updates their account.
                 if (!$requiredMethod) {
                     return [
-                        'success' => true,
-                        'status' => 'success',
-                        'data' => array_merge(
-                            [
-                                'user_id' => $userId,
-                                'requires_2fa' => true,
-                                'requires_2fa_setup' => true,
-                                'setup_required' => true,
-                                'method' => null,
-                                'onboarding_token' => $this->generateOnboardingToken($userId, $userData),
-                                'onboarding_expires_in' => self::ONBOARDING_TTL_SECONDS,
-                                'csrf_token' => $this->generateCsrfToken($userId),
-                            ],
-                            $this->parentPortalLoginMarker($userData)
-                        ),
-                        'message' => 'Two-factor authentication must be enabled before you can sign in.',
+                        'success' => false,
+                        'status' => 'error',
+                        'data' => null,
+                        'message' => 'No usable verification method is enrolled for this account. Contact the school office to update your contact details or MFA setup before signing in.',
                     ];
                 }
 
+                $availableMethods = $tfa->getAvailableLoginMethods($userId);
                 $challengeToken = $tfa->createLoginChallenge($userId, $requiredMethod);
                 return [
                     'success' => true,
@@ -377,15 +373,23 @@ class AuthAPI extends BaseAPI
                             'user_id' => $userId,
                             'requires_2fa' => true,
                             'method' => $requiredMethod,
+                            'available_methods' => $availableMethods,
+                            // Where each code would be delivered, masked. The
+                            // verification screen shows it so the user can see
+                            // the code went to the address they expect.
+                            'method_hints' => $tfa->getMethodContactHints($userId),
+                            // Recovery codes are offered as a way to finish the
+                            // sign-in only when the account still holds unused
+                            // ones.
+                            'backup_codes_remaining' => $tfa->getBackupCodeCount($userId),
                             'challenge_token' => $challengeToken,
-                            'available_methods' => $tfa->getEnabledMethods($userId),
                         ],
                         $this->parentPortalLoginMarker($userData)
                     ),
                     'message' => 'Two-factor verification required.',
                 ];
             }
-            if ($testMfaBypassAllowed && ($stepActive || $policyForced)) {
+            if ($testMfaBypassAllowed) {
                 Logger::audit(
                     'test_mfa_bypass',
                     'user',
@@ -1196,6 +1200,14 @@ class AuthAPI extends BaseAPI
                 'aud' => JWT_AUDIENCE
             ]
         );
+
+        // RFC 7519 subject claim. The Node gateway resolves the authenticated
+        // user from `sub`, while the PHP middleware resolves it from
+        // `user_id`; both must describe the SAME numeric user so the gateway
+        // and PHP never disagree about who the bearer is.
+        if (!isset($payload['sub']) && isset($payload['user_id'])) {
+            $payload['sub'] = (string) (int) $payload['user_id'];
+        }
 
         return JWT::encode($payload, JWT_SECRET, 'HS256');
     }

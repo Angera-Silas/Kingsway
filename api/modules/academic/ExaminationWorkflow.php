@@ -92,7 +92,7 @@ class ExaminationWorkflow extends WorkflowHandler {
              FROM student_academic_enrollments
              WHERE student_id = ?
                AND academic_year_class_stream_id = ?
-               AND enrollment_status IN ('pending', 'active')
+               AND enrollment_status IN ('pending', 'active', 'completed')
              ORDER BY id DESC LIMIT 1"
         );
         $stmt->execute([(int) $studentId, $aycsId]);
@@ -952,7 +952,9 @@ class ExaminationWorkflow extends WorkflowHandler {
                 'average_grade' => '',
                 'results_summary' => implode('<br>', $lines),
             ];
-            foreach (['sms', 'whatsapp', 'email'] as $channel) {
+            $channels = ['sms', 'email'];
+            if (\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) $channels = ['sms', 'whatsapp', 'email'];
+            foreach ($channels as $channel) {
                 try {
                     $platform->queueForStudentParents((int) $student['id'], $channel, 'results', $variables, [
                         'business_event_id' => $eventId,

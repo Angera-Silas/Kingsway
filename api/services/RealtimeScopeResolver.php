@@ -5,12 +5,12 @@ namespace App\API\Services;
 use PDO;
 
 /**
- * RealtimeScopeResolver - maps an authenticated user's roles to the real-time
- * buffer scopes they may poll.
+ * RealtimeScopeResolver - maps an authenticated user's roles to the realtime
+ * scopes their stream capability may carry.
  *
- * This is the server-side source of truth for which role-scoped static buffers
- * a user may be handed. It must stay in sync with the school's role model and
- * with the target_scope values writers use when dispatching events.
+ * This is the server-side source of truth for which channels a user's Node SSE
+ * stream subscribes to (see RealtimeController::getStreamToken). It must stay
+ * in sync with the school's role model and with the scopes publishers target.
  *
  * Principle (AGENTS.md): least privilege. Staff are given only the scopes their
  * duty requires; 'all' covers non-sensitive operational ticks shared across
@@ -29,8 +29,18 @@ class RealtimeScopeResolver
 
     /** Hard ceiling on minted channels per capability (mirrors the controller gate). */
     private const MAX_FAMILY_CHANNELS = 100;
+
+    /** Non-sensitive scope shared by every authenticated staff member. */
+    public const DEFAULT_SCOPE = 'all';
+
+    /** Lower-case a scope key and strip anything outside [a-z0-9_-]. */
+    public static function normalizeScope(string $scope): string
+    {
+        $scope = strtolower(trim($scope));
+        return $scope === '' ? self::DEFAULT_SCOPE : preg_replace('/[^a-z0-9_-]/', '', $scope);
+    }
     /**
-     * Resolve the set of scopes a user may poll given their role ids.
+     * Resolve the set of scopes a user's stream may carry given their role ids.
      *
      * @param int[] $roleIds
      * @param bool  $includeAll Whether the non-sensitive 'all' scope is included
@@ -43,14 +53,14 @@ class RealtimeScopeResolver
 
         $scopes = [];
         if ($includeAll) {
-            $scopes[] = EventBroadcaster::DEFAULT_SCOPE;
+            $scopes[] = self::DEFAULT_SCOPE;
         }
 
         $map = self::roleScopeMap();
         foreach ($roleIds as $roleId) {
             $assigned = $map[$roleId] ?? [];
             foreach ($assigned as $scope) {
-                $scopes[] = EventBroadcaster::normalizeScope($scope);
+                $scopes[] = self::normalizeScope($scope);
             }
         }
 

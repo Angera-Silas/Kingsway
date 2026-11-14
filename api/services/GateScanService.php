@@ -271,8 +271,12 @@ final class GateScanService
         }
 
         if ($action === 'dropped_off' && !$result['eligible']) {
-            $prior = $this->pdo->prepare("SELECT id FROM student_transport_attendance WHERE student_id=? AND attendance_date=CURDATE() AND trip_session=? AND status='picked_up' LIMIT 1");
-            $prior->execute([(int)$student['student_id'], $tripSession]);
+            // Pickup and drop-off are distinct trip sessions. A learner who
+            // boarded on the morning run must still be allowed to leave the
+            // vehicle at the end of the day even if their payment entitlement
+            // changed during the trip.
+            $prior = $this->pdo->prepare("SELECT id FROM student_transport_attendance WHERE student_id=? AND route_id=? AND attendance_date=CURDATE() AND status='picked_up' LIMIT 1");
+            $prior->execute([(int)$student['student_id'], $routeId]);
             if ($prior->fetchColumn()) {
                 $result['eligible'] = true;
                 $result['boarding_decision'] = 'dropoff_allowed';
@@ -410,7 +414,7 @@ final class GateScanService
         $stmt = $this->pdo->prepare(
             "SELECT sa.status, sa.check_in_time, sa.check_out_time, sa.register_type,
                     asess.name AS session_name
-             FROM " . ReadReplicaService::qualifiedRef("student_attendance") . "
+             FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
              LEFT JOIN " . ReadReplicaService::qualifiedRef("attendance_sessions") . " asess ON asess.id = sa.session_id
              WHERE sa.student_academic_enrollment_id = ? AND sa.date = ?
              ORDER BY sa.check_in_time DESC"
@@ -421,44 +425,6 @@ final class GateScanService
         $checkedIn = false;
         foreach ($attendance as $a) {
             if ($a['status'] === 'present' && $a['check_in_time']) { $checkedIn = true; break; }
-        }
-
-        // Query 2: parents + transport balance (combined)
-        $stmt = $this->pdo->prepare(
-            "SELECT 'parent' AS row_type,
-                    CONCAT(p.first_name, ' ', p.last_name) AS name,
-                    p.phone_primary AS phone, p.phone_secondary AS phone_alt,
-                    par.relationship_to_student AS relationship,
-                    NULL AS balance
-             FROM parent_student ps
-             JOIN " . ReadReplicaService::qualifiedRef("parents") . " par ON par.id = ps.parent_id
-             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = par.person_id
-             WHERE ps.student_id = ? ORDER BY par.is_primary DESC LIMIT 3
-
-             UNION ALL
-
-             SELECT 'transport' AS row_type,
-                    NULL AS name, NULL AS phone, NULL AS phone_alt, NULL AS relationship,
-                    tmb.amount_due - COALESCE(SUM(tbp.amount), 0) AS balance
-             FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " tmb
-             LEFT JOIN transport_bill_payments tbp ON tbp.bill_id = tmb.id
-             WHERE tmb.student_id = ? AND tmb.billing_month = ?-01
-             GROUP BY tmb.id LIMIT 1"
-        );
-        $stmt->execute([$studentId, $studentId, date('Y-m')]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $parents = [];
-        $transportBalance = 0;
-        foreach ($rows as $r) {
-            if ($r['row_type'] === 'parent') {
-                $parents[] = [
-                    'name' => $r['name'] ?? '', 'phone' => $r['phone'] ?? '',
-                    'phone_alt' => $r['phone_alt'] ?? '', 'relationship' => $r['relationship'] ?? '',
-                ];
-            } else {
-                $transportBalance = (float)$r['balance'];
-            }
         }
 
         return [

@@ -23,16 +23,63 @@ final class AssessmentResultsService
     private ?bool $classReviewSchema = null;
     private CbcGradingService $grading;
 
-    public function __construct(PDO $db, int $userId)
-    {
+    /**
+     * Period guard, injected so results entry/test never has to construct the
+     * exam-period service (which constructs this one back). That made the two
+     * services mutually dependent; the caller that owns the publication flow
+     * now supplies the guard, and tests can supply a stub.
+     *
+     * @var callable(int, string, array):mixed|null
+     */
+    private $periodAccessChecker;
+
+    /** @var callable(int):mixed|null */
+    private $periodRefresh;
+
+    /** @var callable(int):mixed|null */
+    private $periodSubmit;
+
+    public function __construct(
+        PDO $db,
+        int $userId,
+        ?callable $periodAccessChecker = null,
+        ?callable $periodRefresh = null,
+        ?callable $periodSubmit = null
+    ) {
         $this->db = $db;
         $this->userId = $userId;
         $this->grading = new CbcGradingService($db);
+        $this->periodAccessChecker = $periodAccessChecker;
+        $this->periodRefresh = $periodRefresh;
+        $this->periodSubmit = $periodSubmit;
+    }
+
+    /**
+     * The exam-period guard, lazily built only when no checker was injected.
+     * Kept as a single accessor so every call site stops repeating the
+     * constructor call that closed the service cycle.
+     */
+    private function periodAccess(int $assessmentId): mixed
+    {
+        if ($this->periodAccessChecker !== null) {
+            return call_user_func($this->periodAccessChecker, $assessmentId, 'access', []);
+        }
+        return (new ExamPeriodService($this->db, $this->userId))->periodAccess($assessmentId);
+    }
+
+    private function refreshPeriodCompletion(int $assessmentId): void
+    {
+        if ($this->periodRefresh !== null) {
+            call_user_func($this->periodRefresh, $assessmentId);
+            return;
+        }
+        (new ExamPeriodService($this->db, $this->userId))->refreshCompletion($assessmentId);
     }
 
     public function examEntryContext(int $examScheduleId): array
     {
-        $exam = $this->exam($examScheduleId);
+        $assessmentId = $this->resolveAssessmentId($examScheduleId);
+        $exam = $this->exam($assessmentId);
         $this->assertCanAccessAssessment($exam);
         $this->assertPeriodAllowsEntry((int) $exam['assessment_id']);
 
@@ -43,6 +90,72 @@ final class AssessmentResultsService
             'editable' => $exam['assessment_status'] === 'pending_submission',
             'can_submit' => $exam['assessment_status'] === 'pending_submission' && count($roster) > 0,
         ];
+    }
+
+    /**
+     * Resolve the entry lookup key to an assessment id.
+     *
+     * The public contract is an exam_schedule id (the route is
+     * /exam-result-entry/{examScheduleId} and the entry page binds es.id), but
+     * every register read is keyed by assessment id. A schedule fans out to one
+     * assessment per stream, so a schedule with exactly one register resolves
+     * directly and an ambiguous one is refused rather than silently picking an
+     * arbitrary class stream.
+     */
+    private function resolveAssessmentId(int $key): int
+    {
+        if ($key <= 0) {
+            throw new RuntimeException('Published exam assessment was not found', 404);
+        }
+
+        $stmt = $this->db->prepare(
+            'SELECT id FROM assessments WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$key]);
+        if ($stmt->fetchColumn()) {
+            return $key;
+        }
+
+        $esa = ReadReplicaService::masterRef('exam_schedule_assessments');
+        $schedules = ReadReplicaService::qualifiedRef('exam_schedules');
+        $assessments = ReadReplicaService::qualifiedRef('assessments');
+        $resolved = $this->db->prepare(
+            "SELECT a.id, a.assigned_by, a.academic_year_class_stream_id, a.academic_year_term_id, a.learning_area_id
+             FROM {$esa} esa
+             JOIN {$schedules} es ON es.id = esa.exam_schedule_id
+             JOIN {$assessments} a ON a.id = esa.assessment_id
+             WHERE esa.exam_schedule_id = ? AND es.status <> 'cancelled'
+             ORDER BY esa.id"
+        );
+        $resolved->execute([$key]);
+        $candidates = $resolved->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$candidates) {
+            throw new RuntimeException('Published exam assessment was not found', 404);
+        }
+        if (count($candidates) === 1) {
+            return (int) $candidates[0]['id'];
+        }
+
+        // A schedule fans out to one register per class stream. Prefer a
+        // register this caller may actually write; if more than one is
+        // reachable the caller must choose the stream explicitly.
+        $reachable = array_values(array_filter(
+            $candidates,
+            fn(array $row): bool => $this->canAccessAssessment($row)
+        ));
+
+        if (count($reachable) === 1) {
+            return (int) $reachable[0]['id'];
+        }
+        if (count($reachable) > 1) {
+            throw new RuntimeException(
+                'This examination has registers for several class streams; open the stream whose marks you want to enter.',
+                409
+            );
+        }
+
+        throw new RuntimeException('This exam is outside your assigned teaching scope', 403);
     }
 
     public function save(int $assessmentId, array $rows, bool $submit, string $reason = ''): array
@@ -187,7 +300,7 @@ final class AssessmentResultsService
                 $stmt=$this->db->prepare('UPDATE assessments SET status=?,submitted_by=?,submitted_at=? WHERE id=?');
                 $stmt->execute([$status,$submit ? $this->staffId() : null,$submit ? date('Y-m-d H:i:s') : null,$assessmentId]);
             }
-            if ($submit) (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
+            if ($submit) $this->markPeriodSubmitted($assessmentId);
 
             $this->db->commit();
             return [
@@ -248,7 +361,16 @@ final class AssessmentResultsService
     public function adminUpdateResult(int $resultId, array $data): array
     {
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to edit a result.', 403);
-        $stmt=$this->db->prepare('SELECT *, max_marks, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NULL');
+        // Read from the base table: the read projection aliases
+        // academic_year_term_id to term_id and carries no exam_period_id, so the
+        // lifecycle columns this correction depends on would silently be null.
+        $stmt=$this->db->prepare(
+            'SELECT ar.*, a.max_marks, a.academic_year_class_stream_id,
+                    a.academic_year_term_id, a.learning_area_id
+             FROM assessment_results ar
+             JOIN assessments a ON a.id = ar.assessment_id
+             WHERE ar.id=? AND ar.deleted_at IS NULL LIMIT 1'
+        );
         $stmt->execute([$resultId]); $old=$stmt->fetch(PDO::FETCH_ASSOC);
         if (!$old) throw new RuntimeException('Result record not found.',404);
         $status=strtolower(trim((string)($data['entry_status']??$old['entry_status']??'present')));
@@ -260,13 +382,59 @@ final class AssessmentResultsService
             $graded=$this->grading->gradeForSystem((float)$raw,(float)$old['max_marks'],$this->gradingSystemFor((int)$old['assessment_id']));$score=(float)$raw;$grade=$graded['grade_code']??null;$points=$graded['points']??null;
         }
         $remarks=trim((string)($data['remarks']??$old['remarks']??''));
+        // An already-approved mark is a published mark: publishResults() sets
+        // is_approved on every row of a submitted register. Editing one here
+        // without reopening it would leave a changed mark still flagged as
+        // moderated and published, so the correction must be declared and the
+        // row must be pulled back into the moderation cycle.
+        $wasApproved=(int)$old['is_approved']===1;
+        $reason=trim((string)($data['reason']??''));
+        if($wasApproved && $reason===''){
+            throw new RuntimeException('A published result can only be corrected with a recorded reason; it is reopened for moderation.',422);
+        }
         $this->db->beginTransaction();
         try {
-            $this->db->prepare('UPDATE assessment_results SET marks_obtained=?,entry_status=?,grade=?,points=?,remarks=? WHERE id=?')->execute([$score,$status,$grade,$points,$remarks,$resultId]);
-            $this->recordEvent((int)$old['assessment_id'],$resultId,(int)$old['student_academic_enrollment_id'],'admin_updated',$old,['marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade,'remarks'=>$remarks],(string)($data['reason']??'Administrative correction'));
+            $note=$wasApproved?mb_substr($reason,0,255):null;
+            $this->db->prepare('UPDATE assessment_results SET marks_obtained=?,entry_status=?,grade=?,points=?,remarks=?'.($wasApproved?',is_submitted=0,is_approved=0':'').',moderation_note=? WHERE id=?')
+                ->execute([$score,$status,$grade,$points,$remarks,$note,$resultId]);
+            if($wasApproved){
+                $this->recordEvent((int)$old['assessment_id'],$resultId,(int)$old['student_academic_enrollment_id'],'reopened',$old,['marks_obtained'=>$score,'entry_status'=>$status,'reason'=>$reason],$reason);
+                $this->reopenRegisterAfterCorrection((int)$old['assessment_id'],$reason);
+            }
+            $this->recordEvent((int)$old['assessment_id'],$resultId,(int)$old['student_academic_enrollment_id'],'admin_updated',$old,['marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade,'remarks'=>$remarks],$reason!==''?$reason:'Administrative correction');
             (new TermResultsService($this->db))->compute((int)$old['academic_year_class_stream_id'],(int)$old['academic_year_term_id'],(int)$old['learning_area_id']);
-            $this->db->commit(); return ['id'=>$resultId,'marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade];
+            $this->db->commit(); return ['id'=>$resultId,'marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade,'reopened'=>$wasApproved];
         } catch(\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
+    }
+
+    /**
+     * Pull a corrected register, and the exam period that reports it as
+     * complete, back into the moderation cycle so the change is re-reviewed.
+     */
+    private function reopenRegisterAfterCorrection(int $assessmentId,string $reason):void
+    {
+        $reason=mb_substr($reason,0,255);
+        if($this->hasClassReviewSchema()){
+            $this->db->prepare("UPDATE assessments SET status='submitted',class_review_status='pending',reopened_by=?,reopened_at=NOW(),reopen_reason=? WHERE id=? AND status='approved'")->execute([$this->staffId(),$reason,$assessmentId]);
+        } else {
+            $this->db->prepare("UPDATE assessments SET status='submitted',reopened_by=?,reopened_at=NOW(),reopen_reason=? WHERE id=? AND status='approved'")->execute([$this->staffId(),$reason,$assessmentId]);
+        }
+        // Any exam period that reported itself complete no longer is: one of its
+        // registers is back under moderation.
+        $periodStmt=$this->db->prepare(
+            "SELECT DISTINCT ep.id
+             FROM exam_periods ep
+             JOIN exam_period_classes epc ON epc.exam_period_id=ep.id
+             JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id
+             JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id
+             JOIN exam_schedules es ON es.id=ept.exam_schedule_id
+             JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=es.id
+             WHERE esa.assessment_id=?"
+        );
+        $periodStmt->execute([$assessmentId]);
+        foreach($periodStmt->fetchAll(PDO::FETCH_COLUMN) as $periodId){
+            $this->db->prepare("UPDATE exam_periods SET status='moderation',completed_at=NULL WHERE id=? AND status='completed'")->execute([(int)$periodId]);
+        }
     }
 
     /**
@@ -727,7 +895,7 @@ final class AssessmentResultsService
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to delete a result.',403);
         $this->db->beginTransaction();
         try {
-            $stmt=$this->db->prepare('SELECT *, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NULL FOR UPDATE');
+            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NULL FOR UPDATE');
             $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!$old) throw new RuntimeException('Active result record not found.',404);
             $this->db->prepare('UPDATE assessment_results SET deleted_at=NOW(),deleted_by=? WHERE id=?')->execute([$this->userId,$resultId]);
@@ -743,7 +911,7 @@ final class AssessmentResultsService
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to restore a result.',403);
         $this->db->beginTransaction();
         try {
-            $stmt=$this->db->prepare('SELECT *, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NOT NULL FOR UPDATE');
+            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NOT NULL FOR UPDATE');
             $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!$old) throw new RuntimeException('Deleted result record not found.',404);
             $this->db->prepare('UPDATE assessment_results SET deleted_at=NULL,deleted_by=NULL WHERE id=?')->execute([$resultId]);
@@ -815,7 +983,7 @@ final class AssessmentResultsService
                 'UPDATE assessments SET status=?,submitted_by=?,submitted_at=?,class_review_status=?,class_reviewed_by=NULL,class_reviewed_at=NULL,class_review_note=NULL WHERE id=?'
             )->execute(['submitted', $this->staffId(), $submittedAt, $reviewStatus, $assessmentId]);
 
-            (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
+            $this->markPeriodSubmitted($assessmentId);
             (new TermResultsService($this->db))->compute($streamId, (int) $assessment['academic_year_term_id'], (int) $assessment['learning_area_id']);
 
             $this->db->commit();
@@ -885,7 +1053,7 @@ final class AssessmentResultsService
                 $params[] = $studentId;
             }
             $stmt = $this->db->prepare(
-                "SELECT ar.* FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+                "SELECT ar.* FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
                  JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
                  WHERE ar.assessment_id = ? AND ar.is_submitted = 1 AND ar.deleted_at IS NULL{$studentSql}
                  FOR UPDATE"
@@ -963,8 +1131,7 @@ final class AssessmentResultsService
                 $assessmentId,
             ]);
 
-            $periodService = new ExamPeriodService($this->db, $this->userId);
-            if ($approve) $periodService->refreshCompletion($assessmentId);
+            if ($approve) $this->refreshPeriodCompletion($assessmentId);
             else $this->db->prepare("UPDATE exam_periods ep JOIN exam_period_classes epc ON epc.exam_period_id=ep.id JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=ept.exam_schedule_id SET ep.status='results_open' WHERE esa.assessment_id=? AND ep.status='moderation'")->execute([$assessmentId]);
 
             if ($nextStatus === 'approved') {
@@ -991,18 +1158,31 @@ final class AssessmentResultsService
 
     private function exam(int $assessmentId): array
     {
-        $ec = ReadReplicaService::qualifiedRef('exam_context');
+        // exam_context lacks exam name/type/venue and assessment type, so
+        // read the schedule directly (keyed lookup on the primary).
         $stmt = $this->db->prepare(
-            "SELECT ec.exam_schedule_id, ec.assessment_id, ec.exam_name, ec.exam_type,
-                    ec.exam_date, ec.start_time, ec.end_time, ec.venue, ec.exam_status AS schedule_status,
-                    ec.aycs_id AS academic_year_class_stream_id, ec.academic_year_class_id, ec.academic_year_term_id, ec.learning_area_id,
-                    ec.exam_period_id, ec.period_status AS exam_period_status,
-                    ec.assessment_title, ec.assessment_max_marks AS max_marks, ec.assessment_type_id,
-                    ec.assigned_by, ec.assessment_status,
-                    ec.learning_area_name, ec.class_name, ec.stream_name,
-                    ec.assessment_type_name
-             FROM {$ec} ec
-             WHERE ec.assessment_id = ? AND ec.exam_status <> 'cancelled' LIMIT 1"
+            "SELECT es.id AS exam_schedule_id, esa.assessment_id, es.exam_name, es.exam_type,
+                    es.exam_date, es.start_time, es.end_time, es.venue, es.status AS schedule_status,
+                    esa.academic_year_class_stream_id, es.academic_year_class_id, es.academic_year_term_id, es.learning_area_id,
+                    ep.id AS exam_period_id, ep.status AS exam_period_status,
+                    a.title AS assessment_title, a.max_marks, a.assessment_type_classification_id AS assessment_type_id,
+                    a.assigned_by, a.status AS assessment_status,
+                    la.name AS learning_area_name, c.name AS class_name, sn.name AS stream_name,
+                    atc.name AS assessment_type_name
+             FROM exam_schedules es
+             JOIN exam_schedule_assessments esa ON esa.exam_schedule_id = es.id
+             JOIN assessments a ON a.id = esa.assessment_id
+             JOIN academic_year_class_streams aycs ON aycs.id = esa.academic_year_class_stream_id
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN streams sn ON sn.id = aycs.stream_id
+             JOIN learning_areas la ON la.id = es.learning_area_id
+             LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
+             LEFT JOIN exam_period_timetable_entries ept ON ept.exam_schedule_id = es.id
+             LEFT JOIN exam_period_class_learning_areas epcla ON epcla.id = ept.exam_period_class_learning_area_id
+             LEFT JOIN exam_period_classes epc ON epc.id = epcla.exam_period_class_id
+             LEFT JOIN exam_periods ep ON ep.id = epc.exam_period_id
+             WHERE esa.assessment_id = ? AND es.status <> 'cancelled' LIMIT 1"
         );
         $stmt->execute([$assessmentId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1053,7 +1233,7 @@ final class AssessmentResultsService
              LEFT JOIN " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
                ON ar.student_academic_enrollment_id = sae.id AND ar.assessment_id = ? AND ar.deleted_at IS NULL
              WHERE sae.academic_year_class_stream_id = ?
-               AND sae.enrollment_status IN ('pending','active')
+               AND sae.enrollment_status IN ('pending','active','completed')
              ORDER BY p.first_name, p.middle_name, p.last_name, s.admission_no"
         );
         $stmt->execute([$assessmentId, $classStreamId]);
@@ -1098,7 +1278,7 @@ final class AssessmentResultsService
     {
         $stmt = $this->db->prepare(
             "SELECT student_id, id FROM student_academic_enrollments
-             WHERE academic_year_class_stream_id = ? AND enrollment_status IN ('pending','active')"
+             WHERE academic_year_class_stream_id = ? AND enrollment_status IN ('pending','active','completed')"
         );
         $stmt->execute([$classStreamId]);
         $map = [];
@@ -1110,37 +1290,57 @@ final class AssessmentResultsService
 
     private function assertCanAccessAssessment(array $assessment): void
     {
+        if (!$this->canAccessAssessment($assessment)) {
+            throw new RuntimeException('This exam is outside your assigned teaching scope', 403);
+        }
+    }
+
+    /**
+     * Whether the authenticated user may write this register's marks.
+     *
+     * Kept as a predicate so schedule-to-assessment resolution can prefer a
+     * reachable register before the caller is told the exam is out of scope.
+     */
+    private function canAccessAssessment(array $assessment): bool
+    {
         if ($this->isAcademicLeader()) {
-            return;
+            return true;
         }
         $staffId = $this->staffId();
-        if ($staffId && (int) $assessment['assigned_by'] === $staffId) {
-            return;
+        if ($staffId && (int) ($assessment['assigned_by'] ?? 0) === $staffId) {
+            return true;
         }
 
         $scope = (new TeacherScopeService($this->db))->forUser(
             ['user_id' => $this->userId, 'staff_id' => $staffId],
             null,
-            (int) $assessment['academic_year_term_id']
+            (int) ($assessment['academic_year_term_id'] ?? 0)
         );
         foreach ($scope['subject_assignments'] ?? [] as $assignment) {
-            if ((int) $assignment['stream_id'] === (int) $assessment['academic_year_class_stream_id']
-                && (int) $assignment['learning_area_id'] === (int) $assessment['learning_area_id']) {
-                return;
+            if ((int) $assignment['stream_id'] === (int) ($assessment['academic_year_class_stream_id'] ?? 0)
+                && (int) $assignment['learning_area_id'] === (int) ($assessment['learning_area_id'] ?? 0)) {
+                return true;
             }
         }
-        if (in_array((int) $assessment['academic_year_class_stream_id'], $scope['class_teacher_stream_ids'] ?? [], true)) {
-            return;
-        }
-        throw new RuntimeException('This exam is outside your assigned teaching scope', 403);
+        return in_array((int) ($assessment['academic_year_class_stream_id'] ?? 0), $scope['class_teacher_stream_ids'] ?? [], true);
     }
 
     private function assertPeriodAllowsEntry(int $assessmentId): void
     {
-        $status = (new ExamPeriodService($this->db, $this->userId))->periodAccess($assessmentId);
+        $status = $this->periodAccess($assessmentId);
         if ($status !== null && !in_array($status, ['results_open', 'moderation'], true)) {
             throw new RuntimeException('The Headteacher or School Administrator has not opened result entry for this exam period', 409);
         }
+    }
+
+    /** Mark a register submitted, via the injected guard when one was supplied. */
+    private function markPeriodSubmitted(int $assessmentId): void
+    {
+        if ($this->periodSubmit !== null) {
+            call_user_func($this->periodSubmit, $assessmentId);
+            return;
+        }
+        (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
     }
 
     private function staffId(): ?int

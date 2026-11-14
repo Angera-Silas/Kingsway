@@ -29,42 +29,16 @@ class StudentPromotionService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to StudentPromotionService
-    public function postPromotionMultiple($id, $data, $segments, BaseController $controller) {
-        if ($auth = $controller->authorizeStudents(self::PROMOTE_PERMS, 'Insufficient permission to promote students')) { return $auth; }
-        $result = $this->api->promoteMultipleStudents($data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to StudentPromotionService
-    public function postPromotionEntireClass($id, $data, $segments, BaseController $controller) {
-        if ($auth = $controller->authorizeStudents(self::PROMOTE_PERMS, 'Insufficient permission to promote students')) { return $auth; }
-        $result = $this->api->promoteEntireClass($data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to StudentPromotionService
-    public function postPromotionMultipleClasses($id, $data, $segments, BaseController $controller) {
-        if ($auth = $controller->authorizeStudents(self::PROMOTE_PERMS, 'Insufficient permission to promote students')) { return $auth; }
-        $result = $this->api->promoteMultipleClasses($data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to StudentPromotionService
-    public function postPromotionGraduateGrade9($id, $data, $segments, BaseController $controller) {
-        if ($auth = $controller->authorizeStudents(self::PROMOTE_PERMS, 'Insufficient permission to graduate students')) { return $auth; }
-        $result = $this->api->graduateGrade9Students($data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to StudentPromotionService
+    
+    
+    
+    
     public function getPromotionBatches($id, $data, $segments, BaseController $controller) {
         if ($auth = $controller->authorizeStudents(self::VIEW_PERMS, 'Insufficient permission to view promotion batches')) { return $auth; }
         $result = $this->api->getPromotionBatches($data);
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to StudentPromotionService
     public function getPromotionHistory($id, $data, $segments, BaseController $controller) {
         if ($auth = $controller->authorizeStudents(self::VIEW_PERMS, 'Insufficient permission to view promotion history')) { return $auth; }
         $studentId = $id ?? $data['student_id'] ?? null;
@@ -73,13 +47,11 @@ class StudentPromotionService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to StudentPromotionService
     public function getPromotionMetaV2($id, $data, $segments, BaseController $controller) {
         if (!$controller->getUser()) { return $controller->unauthorized('Authentication required'); }
         return $controller->success($this->promotionManager->getPromotionMeta());
     }
 
-    // TODO: Delegate to StudentPromotionService
     public function getPromotionCandidatesV2($id, $data, $segments, BaseController $controller) {
         if (!$controller->getUser()) { return $controller->unauthorized('Authentication required'); }
         try {
@@ -90,7 +62,6 @@ class StudentPromotionService
         }
     }
 
-    // TODO: Delegate to StudentPromotionService
     public function postPromotionExecuteV2($id, $data, $segments, BaseController $controller) {
         if (!$controller->getUser()) { return $controller->unauthorized('Authentication required'); }
         try {

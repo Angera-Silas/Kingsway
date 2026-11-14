@@ -18,6 +18,10 @@ const AccountStatusController = {
 
   elements: {},
 
+  isMounted() {
+    return Boolean(this.elements.root?.isConnected);
+  },
+
   async init() {
     if (this.state.initializationPromise) {
       return this.state.initializationPromise;
@@ -77,6 +81,7 @@ const AccountStatusController = {
       refreshButton: document.getElementById("refreshAccountStatusBtn"),
       tableHead: document.getElementById("accountStatusTableHead"),
       tableBody: document.getElementById("accountStatusTableBody"),
+      tableState: document.getElementById("accountStatusTableState"),
       count: document.getElementById("accountStatusCount"),
       pageSizeSelect: document.getElementById("accountsPageSize"),
       prevPageBtn: document.getElementById("accountsPrevBtn"),
@@ -191,6 +196,7 @@ const AccountStatusController = {
   },
 
   async loadData() {
+    if (!this.isMounted()) return;
     if (this.state.loading) return;
 
     this.state.loading = true;
@@ -203,6 +209,7 @@ const AccountStatusController = {
 
     try {
       const response = await window.API.system.getAccountStatuses();
+      if (!this.isMounted()) return;
       this.state.accounts = this.extractRows(response);
       this.renderSummary();
       this.renderTable();
@@ -213,6 +220,7 @@ const AccountStatusController = {
         this.hideState();
       }
     } catch (error) {
+      if (!this.isMounted()) return;
       console.error("[AccountStatusController] Failed to load data:", error);
       this.state.accounts = [];
       this.renderSummary();
@@ -511,8 +519,17 @@ const AccountStatusController = {
     }
 
     const template = document.getElementById("accountStatusRowTemplate");
+    if (!this.isMounted()) return;
+    if (!template?.content || !this.elements.tableBody?.isConnected) {
+      return this.showTableMessage("Account Status markup is unavailable. Reopen this page to load accounts.", "text-danger");
+    }
+    this.elements.tableBody.querySelectorAll("[data-account-status-row]").forEach((row) => row.remove());
+    if (this.elements.tableState) this.elements.tableState.hidden = true;
     const rows = visibleAccounts.map((account) => this.buildAccountRow(template, account));
-    this.elements.tableBody.replaceChildren(...rows);
+    rows.forEach((row) => {
+      row.dataset.accountStatusRow = "1";
+      this.elements.tableBody.insertBefore(row, this.elements.tableState || null);
+    });
 
     const pageSize = Number(this.state.pageSize);
     const start = pageSize > 0
@@ -753,26 +770,16 @@ const AccountStatusController = {
 
   showTableLoading() {
     if (!this.elements.tableBody || !this.elements.count) return;
-
-    this.elements.tableBody.innerHTML = `
-      <tr>
-        <td colspan="8" class="text-center py-5 text-muted">
-          <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
-          Loading account status...
-        </td>
-      </tr>`;
+    this.showTableMessage("Loading account status...");
     this.elements.count.textContent = "";
   },
 
   showTableMessage(message, className = "text-muted") {
     if (!this.elements.tableBody) return;
-
-    this.elements.tableBody.innerHTML = `
-      <tr>
-        <td colspan="8" class="text-center py-5 ${className}">
-          ${this.escapeHtml(message)}
-        </td>
-      </tr>`;
+    this.elements.tableBody.querySelectorAll("[data-account-status-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + className; cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   showState(message, type = "info") {

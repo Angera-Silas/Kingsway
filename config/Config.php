@@ -45,7 +45,24 @@ class Config
         // Step 3: Load environment-specific config file
         self::loadEnvironmentConfig();
 
+        // Step 4: Define global $appBase from BASE_URL
+        self::defineAppBase();
+
         self::$loaded = true;
+    }
+
+    /**
+     * Define global $appBase from BASE_URL.
+     * This ensures all PHP templates have consistent access to the app base path.
+     */
+    private static function defineAppBase(): void
+    {
+        $baseUrl = self::$config['BASE_URL'] ?? $_ENV['BASE_URL'] ?? '';
+        if ($baseUrl) {
+            $path = parse_url($baseUrl, PHP_URL_PATH);
+            $appBase = $path ? rtrim($path, '/') : '';
+            $GLOBALS['appBase'] = $appBase;
+        }
     }
 
     private static function configureRuntimeLogging(): void
@@ -54,7 +71,8 @@ class Config
             ? self::$environment
             : 'development';
         $directory = dirname(__DIR__) . '/logs/' . $environment;
-        $dirMode = $environment === 'production' ? 0770 : 0777;
+        // Never world-writable (journals are tamper-evident); setgid keeps the shared group.
+        $dirMode = 02770;
         if (!is_dir($directory)) {
             @mkdir($directory, $dirMode, true);
         }
@@ -93,6 +111,32 @@ class Config
     }
 
     /**
+     * One .env value as the other runtimes read it. Python and Node strip
+     * surrounding whitespace, so `KEY = secret`, a trailing space or an
+     * inline `# note` must not leave PHP holding a different string: shared
+     * worker secrets are compared byte for byte, and a single stray space
+     * made every ticker job fail with 401/403 in production.
+     */
+    public static function normalizeEnvValue(string $raw): string
+    {
+        $value = trim($raw);
+        $first = $value[0] ?? '';
+        if ($first === '"' || $first === "'") {
+            $end = strpos($value, $first, 1);
+            if ($end !== false) {
+                return substr($value, 1, $end - 1);
+            }
+            return trim($value, '"\'');
+        }
+        // Unquoted: whitespace followed by # starts a comment (dotenv rule).
+        // A # with no whitespace before it stays part of the value.
+        if (preg_match('/^(.*?)\s+#/', $value, $match)) {
+            $value = $match[1];
+        }
+        return rtrim($value);
+    }
+
+    /**
      * Load .env file
      */
     private static function loadEnvFile()
@@ -123,7 +167,7 @@ class Config
             if (strpos($line, '=') !== false) {
                 list($key, $value) = explode('=', $line, 2);
                 $key = trim($key);
-                $value = trim($value, '"\'');
+                $value = self::normalizeEnvValue($value);
 
                 // Deployment-provided environment variables take precedence
                 // over repository/local .env values. This prevents a local

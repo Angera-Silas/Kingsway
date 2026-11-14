@@ -15,11 +15,26 @@ final class ExamPeriodService
     private int $userId;
     private ?AssessmentPolicyService $sbaPolicy = null;
 
-    public function __construct(PDO $db, int $userId, ?AssessmentPolicyService $sbaPolicy = null)
-    {
+    /**
+     * Results publisher, injected so publication never constructs the results
+     * service (which constructs this one back for its period guard). That
+     * mutual construction is the cycle; the publication flow is owned here, so
+     * the collaborator is supplied by the caller and is mockable in tests.
+     *
+     * @var AssessmentResultsService|null
+     */
+    private ?AssessmentResultsService $resultsPublisher = null;
+
+    public function __construct(
+        PDO $db,
+        int $userId,
+        ?AssessmentPolicyService $sbaPolicy = null,
+        ?AssessmentResultsService $resultsPublisher = null
+    ) {
         $this->db = $db;
         $this->userId = $userId;
         $this->sbaPolicy = $sbaPolicy;
+        $this->resultsPublisher = $resultsPublisher;
     }
 
     /**
@@ -87,7 +102,7 @@ final class ExamPeriodService
         $kindSelect=$extended?'ep.assessment_kind, ep.assessment_authority, ep.national_assessment_code, ep.assessment_type_classification_id,':'\'school_based\' AS assessment_kind, NULL AS assessment_authority, NULL AS national_assessment_code, NULL AS assessment_type_classification_id,';
         $publicationSelect=$this->hasColumn('exam_periods','results_published_at')?'ep.results_published_by, ep.results_published_at, ep.results_release_mode,':'NULL AS results_published_by, NULL AS results_published_at, NULL AS results_release_mode,';
         return $this->db->query(
-            "SELECT ep.id, ep.title, ep.academic_year_term_id, aterm.term_id, aterm.year_name AS academic_year_name,
+            "SELECT ep.id, ep.title, ep.academic_year_term_id, aterm.term_id, aterm.academic_year_id, aterm.year_name AS academic_year_name,
                     ep.starts_on, ep.ends_on, ep.status, ep.kind, ep.entry_mode,
                     {$kindSelect}
                     ep.created_at, ep.published_at, ep.results_opened_at, ep.completed_at,
@@ -174,7 +189,7 @@ final class ExamPeriodService
         $missingTeacherAssignments = [];
         $streamStmt = $this->db->prepare("SELECT class_stream_id AS id, class_teacher_id, COALESCE(stream_name, CONCAT('stream ', class_stream_id)) AS stream_name FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " WHERE academic_year_class_id=? AND class_stream_status='active' ORDER BY class_stream_id");
         $streamTeachers = $this->db->prepare(
-            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . "
+            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . " x
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla ON sla.id=x.academic_year_class_stream_learning_area_id
               AND sla.academic_year_class_stream_id=x.academic_year_class_stream_id
               AND sla.academic_year_class_learning_area_id=?
@@ -841,12 +856,59 @@ final class ExamPeriodService
     }
 
     /** School Administrator publication gate for reviewed summative registers. */
-    public function publishResults(int $periodId): array
+    public function publicationNotificationRecipients(int $periodId): array
+    {
+        $this->period($periodId, true);
+        $assessmentStmt = $this->db->prepare(
+            'SELECT DISTINCT a.id FROM exam_period_classes epc
+             JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id
+             JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id
+             JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=ept.exam_schedule_id
+             JOIN assessments a ON a.id=esa.assessment_id WHERE epc.exam_period_id=?'
+        );
+        $assessmentStmt->execute([$periodId]);
+        $assessmentIds = array_map('intval', $assessmentStmt->fetchAll(PDO::FETCH_COLUMN));
+        if (!$assessmentIds) return [];
+        $marks = implode(',', array_fill(0, count($assessmentIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT s.id AS student_id, CONCAT_WS(' ', student.first_name, student.middle_name, student.last_name) AS student_name,
+                    pr.id AS parent_id, CONCAT_WS(' ', guardian.first_name, guardian.middle_name, guardian.last_name) AS parent_name,
+                    guardian.phone, guardian.email, aterm.term_name
+             FROM assessment_results ar
+             JOIN " . ReadReplicaService::qualifiedRef('student_academic_enrollments') . " sae ON sae.id=ar.student_academic_enrollment_id
+             JOIN " . ReadReplicaService::qualifiedRef('students') . " s ON s.id=sae.student_id
+             JOIN " . ReadReplicaService::qualifiedRef('persons') . " student ON student.id=s.person_id
+             JOIN " . ReadReplicaService::qualifiedRef('student_parents') . " sp ON sp.student_id=s.id
+             JOIN " . ReadReplicaService::qualifiedRef('parents') . " pr ON pr.id=sp.parent_id AND pr.status='active'
+             JOIN " . ReadReplicaService::qualifiedRef('persons') . " guardian ON guardian.id=pr.person_id
+             JOIN assessments a ON a.id=ar.assessment_id
+             JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON aterm.academic_year_term_id=a.academic_year_term_id
+             WHERE ar.assessment_id IN ({$marks}) AND ar.is_submitted=1
+               AND (COALESCE(guardian.phone, '') <> '' OR COALESCE(guardian.email, '') <> '')"
+        );
+        $stmt->execute($assessmentIds);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function publishResults(int $periodId, array $notificationRecipients = [], array $notificationChannels = []): array
     {
         if(!$this->hasColumn('exam_periods','results_published_at')||!$this->hasColumn('exam_periods','assessment_kind')||!$this->hasColumn('assessments','class_review_status'))throw new RuntimeException('The summative-assessment workflow migration has not been applied.',409);
         $period=$this->period($periodId,true);
         if(!empty($period['deleted_at'])) throw new RuntimeException('Restore this exam period before publishing results.',409);
         if(!empty($period['results_published_at'])) throw new RuntimeException('Results have already been published for this exam period.',409);
+        $channels = array_values(array_unique(array_filter(array_map('strtolower', $notificationChannels), static fn(string $channel): bool => in_array($channel, ['sms', 'email'], true))));
+        if ($notificationRecipients && !$channels) throw new RuntimeException('Select SMS and/or email for parent notifications', 422);
+        $selectedNotifications = [];
+        if ($notificationRecipients) {
+            $eligibleMap = [];
+            foreach ($this->publicationNotificationRecipients($periodId) as $row) $eligibleMap[(int) $row['student_id'] . ':' . (int) $row['parent_id']] = $row;
+            foreach ($notificationRecipients as $pair) {
+                $key = (int) ($pair['student_id'] ?? 0) . ':' . (int) ($pair['parent_id'] ?? 0);
+                if (!isset($eligibleMap[$key])) throw new RuntimeException('A selected parent is not linked to a learner with results in this exam period', 422);
+                $selectedNotifications[$key] = $eligibleMap[$key];
+            }
+            if (!$selectedNotifications) throw new RuntimeException('Select at least one learner-parent recipient', 422);
+        }
         $stmt=$this->db->prepare("SELECT DISTINCT a.id,a.status,a.class_review_status,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id,csd.class_name AS class_name
             FROM exam_period_classes epc
             JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id
@@ -872,7 +934,8 @@ final class ExamPeriodService
         try{
             $assessmentIds=array_map(static fn(array $a):int=>(int)$a['id'],$assessments);
             $marks=implode(',',array_fill(0,count($assessmentIds),'?'));
-            $resultsService=new AssessmentResultsService($this->db,$this->userId);
+            $resultsService = $this->resultsPublisher
+                ?? new AssessmentResultsService($this->db, $this->userId);
             foreach($assessmentIds as $assessmentId)$resultsService->publishAssessment($assessmentId);
             $staffId=$this->staffId();
             $this->db->prepare("UPDATE assessments SET status='approved',approved_by=?,moderated_by=?,moderated_at=NOW() WHERE id IN ({$marks}) AND status='submitted'")->execute(array_merge([$staffId,$staffId],$assessmentIds));
@@ -880,7 +943,43 @@ final class ExamPeriodService
             $seen=[];
             foreach($assessments as $a){$key=(int)$a['academic_year_class_stream_id'].':'.(int)$a['academic_year_term_id'].':'.(int)$a['learning_area_id'];if(isset($seen[$key]))continue;$seen[$key]=true;(new \App\API\Services\TermResultsService($this->db))->compute((int)$a['academic_year_class_stream_id'],(int)$a['academic_year_term_id'],(int)$a['learning_area_id']);}
             $this->db->commit();
-            return ['id'=>$periodId,'status'=>'results_published','published_at'=>date('Y-m-d H:i:s'),'registers'=>count($assessments),'official_parent_view'=>'Results are now part of the official term results; generate/release report cards to deliver a corrected PDF by email and result messages through configured parent channels.'];
+            $notifications = ['queued' => 0, 'failed' => 0, 'channels' => []];
+            if ($selectedNotifications && $channels) {
+                $platform = new CommunicationPlatformService($this->db);
+                foreach ($selectedNotifications as $recipient) foreach ($channels as $channel) {
+                    try {
+                        $scoresStmt = $this->db->prepare(
+                            'SELECT la.name, tss.overall_percentage, tss.overall_grade
+                             FROM ' . ReadReplicaService::qualifiedRef('term_subject_scores') . ' tss
+                             JOIN ' . ReadReplicaService::qualifiedRef('learning_areas') . ' la ON la.id=tss.subject_id
+                             WHERE tss.student_id=? AND tss.term_id=? ORDER BY la.name'
+                        );
+                        $scoresStmt->execute([(int) $recipient['student_id'], $this->resolveTssTermId((int) $assessments[0]['academic_year_term_id'])]);
+                        $scores = $scoresStmt->fetchAll(PDO::FETCH_ASSOC);
+                        $scoreLines = array_map(static fn(array $score): string => $score['name'] . ': ' . $score['overall_percentage'] . '%' . (!empty($score['overall_grade']) ? ' (' . $score['overall_grade'] . ')' : ''), $scores);
+                        $average = $scores ? number_format(array_sum(array_map(static fn(array $score): float => (float) $score['overall_percentage'], $scores)) / count($scores), 1) : '';
+                        $studentName = (string) $recipient['student_name'];
+                        $termName = (string) ($recipient['term_name'] ?? 'current term');
+                        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
+                        $subject = $channel === 'email' ? "{$termName} results for {$studentName}" : '';
+                        $body = $channel === 'email'
+                            ? "Dear Parent/Guardian,\n\nResults for {$studentName} ({$termName}) have been published.\n\n" . implode("\n", $scoreLines) . "\n\nView detailed results in the parent portal: {$portalUrl}\n\nKingsway Preparatory School"
+                            : "Kingsway: {$studentName} {$termName} results are published" . ($average !== '' ? ". Overall average {$average}%" : '') . ". View details: {$portalUrl}";
+                        $outcome = $platform->queueRenderedForStudentParents((int) $recipient['student_id'], $channel, $subject, $body, [
+                            'sender_id' => $this->userId, 'purpose' => 'results', 'parent_ids' => [(int) $recipient['parent_id']],
+                            'academic_year_term_id' => (int) $assessments[0]['academic_year_term_id'],
+                        ]);
+                        $notifications['queued'] += (int) ($outcome['recipient_count'] ?? 0);
+                        $notifications['failed'] += (int) (($outcome['status'] ?? '') === 'failed');
+                        $notifications['channels'][$channel][] = $outcome;
+                    } catch (\Throwable $e) {
+                        $notifications['failed']++;
+                        $notifications['channels'][$channel][] = ['status' => 'failed', 'student_id' => (int) $recipient['student_id'], 'parent_id' => (int) $recipient['parent_id']];
+                        \App\API\Services\Logger::legacyError('[ExamPeriodService] Results notification queue failed: ' . $e->getMessage());
+                    }
+                }
+            }
+            return ['id'=>$periodId,'status'=>'results_published','published_at'=>date('Y-m-d H:i:s'),'registers'=>count($assessments),'notifications'=>$notifications,'official_parent_view'=>'Results are published. Selected parent notifications were queued; generate and release report cards for official PDFs.'];
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
 
@@ -1144,7 +1243,7 @@ private function resultRows(int $periodId,?int $staffId,bool $includeDeleted=fal
     {
         $streamStmt = $this->db->prepare("SELECT class_stream_id AS id,class_teacher_id,COALESCE(stream_name,CONCAT('stream ',class_stream_id)) AS stream_name FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " WHERE academic_year_class_id=? AND class_stream_status='active'");
         $streamTeachers = $this->db->prepare(
-            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . "
+            "SELECT DISTINCT x.staff_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_area_teachers") . " x
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla ON sla.id=x.academic_year_class_stream_learning_area_id
               AND sla.academic_year_class_stream_id=x.academic_year_class_stream_id
               AND sla.academic_year_class_learning_area_id=?

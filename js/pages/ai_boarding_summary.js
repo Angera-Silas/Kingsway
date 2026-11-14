@@ -1,64 +1,123 @@
-/**
- * AI Boarding Summary Controller
- * AI-generated boarding insights and summaries.
- */
-const aiBoardingSummaryController = {
-  state: { referenceCache: null, summary: null, insights: [] },
+/** AI exception summaries for the Boarding Reports page. */
+(function () {
+  'use strict';
 
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+  const esc = (value) => { const node = document.createElement('span'); node.textContent = String(value ?? ''); return node.innerHTML; };
+  const host = () => document.getElementById('aiBoardingSummaries');
+  let initialized = false;
+  let pollTimer = null;
+  let pollAttempts = 0;
+  let activeJobId = null;
+  let isPolling = false;
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  function setState(message, type = 'info') {
+    let state = document.getElementById('aiBoardingSummaryState');
+    if (!state) {
+      state = document.createElement('div');
+      state.id = 'aiBoardingSummaryState';
+      state.className = 'small mt-2';
+      state.setAttribute('role', 'status');
+      host()?.before(state);
+    }
+    state.className = `small mt-2 ${type === 'danger' ? 'text-danger' : type === 'success' ? 'text-success' : 'text-muted'}`;
+    state.textContent = message;
+  }
 
-  async loadReferencesComposed() {
-    // AI summaries typically don't need static references
-    this.state.referenceCache = {};
-  },
-
-  async load() {
+  async function load() {
+    const target = host();
+    if (!target || !window.API?.boarding) return [];
+    target.innerHTML = '<div class="col-12 small text-muted" role="status">Loading boarding reviews…</div>';
     try {
-      const [summary, insights] = await Promise.all([
-        this.API('GET', '/api/boarding/ai-summary'),
-        this.API('GET', '/api/boarding/ai-insights'),
-      ]);
-      this.state.summary = summary?.data || summary || {};
-      this.state.insights = Array.isArray(insights?.data) ? insights.data : (Array.isArray(insights) ? insights : []);
-      this.render();
-    } catch (e) { console.error(e); }
-  },
+      const own = await window.API.boarding.getAiExceptionSummaries('own');
+      let review = { drafts: [] };
+      try { review = await window.API.boarding.getAiExceptionSummaries('review'); } catch (_) { /* Review access is optional. */ }
+      const drafts = [
+        ...(own?.data?.drafts || own?.drafts || []).map((item) => ({ ...item, canReview: false })),
+        ...(review?.data?.drafts || review?.drafts || []).map((item) => ({ ...item, canReview: true })),
+      ].filter((item) => item.metadata?.subject_type === 'boarding_exception_summary');
+      if (pollAttempts > 0 && activeJobId && drafts.some((item) => item.metadata?.queue_job_id && Number(item.metadata.queue_job_id) === activeJobId && item.status === 'pending_approval')) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+        pollAttempts = 0;
+        activeJobId = null;
+        isPolling = false;
+        setState('Boarding review is ready for staff review.', 'success');
+      }
+      target.innerHTML = drafts.length ? drafts.map((item) => {
+        const content = item.draft || {};
+        const canApprove = item.canReview && item.status === 'pending_approval';
+        return `<div class="col-12"><article class="border rounded p-2">
+          <div class="d-flex justify-content-between"><strong>${esc(content.title || 'Boarding exception review')}</strong><span class="badge text-bg-secondary">${esc(item.status || 'queued')}</span></div>
+          <p class="small mt-2 mb-2">${esc(content.body || 'Summary is being prepared for review.')}</p>
+          ${Array.isArray(content.next_steps) && content.next_steps.length ? `<ul class="small mb-2">${content.next_steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ul>` : ''}
+          ${canApprove ? `<button class="btn btn-sm btn-success" data-boarding-summary-approve="${Number(item.id)}">Approve guidance</button>` : ''}
+          ${item.status === 'approved' ? '<div class="small text-info">Approved for staff guidance. Boarding records remain authoritative.</div>' : ''}
+        </article></div>`;
+      }).join('') : '<div class="col-12 small text-muted">No boarding exception summary has been requested today.</div>';
+      target.querySelectorAll('[data-boarding-summary-approve]').forEach((button) => button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await window.API.boarding.approveAiExceptionSummary(button.dataset.boardingSummaryApprove);
+          window.showNotification?.('Boarding guidance approved.', 'success');
+          await load();
+        } catch (error) {
+          window.showNotification?.(error.message || 'Unable to approve boarding guidance.', 'danger');
+          button.disabled = false;
+        }
+      }));
+      return drafts;
+    } catch (error) {
+      target.innerHTML = `<div class="col-12 small text-warning">${esc(error.message || 'Boarding assistance is temporarily unavailable.')}</div>`;
+      setState(error.message || 'Boarding assistance is temporarily unavailable.', 'danger');
+      return [];
+    }
+  }
 
-  render() {
-    const summary = this.state.summary;
-    const insights = this.state.insights;
-    document.getElementById('absSummaryText')?.textContent = summary?.overview || 'No summary available.';
-    document.getElementById('absRiskLevel')?.textContent = summary?.risk_level || '—';
-    document.getElementById('absRecommendations')?.textContent = summary?.recommendations || '—';
-    const insightsBody = document.getElementById('absInsightsBody');
-    if (!insights.length) { insightsBody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No AI insights.</td></tr>'; return; }
-    insightsBody.innerHTML = insights.map(i => `<tr>
-      <td class="small"><span class="badge bg-${i.type === 'alert' ? 'danger' : i.type === 'warning' ? 'warning' : 'info'}">${this.esc(i.type)}</span></td>
-      <td class="small">${this.esc(i.title || '—')}</td>
-      <td class="small">${this.esc(i.description || '—')}</td>
-    </tr>`).join('');
-  },
+  function watchForDraft(jobId) {
+    clearTimeout(pollTimer);
+    pollAttempts = 0;
+    activeJobId = Number(jobId) || null;
+    isPolling = true;
+    const poll = async () => {
+      pollAttempts += 1;
+      await load();
+      if (!isPolling) return;
+      if (pollAttempts < 12) pollTimer = setTimeout(poll, 5000);
+      else {
+        pollTimer = null;
+        pollAttempts = 0;
+        activeJobId = null;
+        isPolling = false;
+        setState('The job is still processing. Use Refresh reviews to check again.');
+      }
+    };
+    pollTimer = setTimeout(poll, 2000);
+  }
 
-  async refresh() {
-    try {
-      await this.API('POST', '/api/boarding/ai-summary/refresh');
-      this.notify('Summary refreshed', 'success');
-      await this.load();
-    } catch (e) { this.notify('Refresh failed', 'danger'); }
-  },
+  async function init() {
+    if (initialized) return;
+    initialized = true;
+    const button = document.getElementById('queueAiBoardingSummary');
+    button?.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const dateFrom = document.getElementById('aiBoardingDateFrom')?.value || '';
+        const dateTo = document.getElementById('aiBoardingDateTo')?.value || '';
+        if (!dateFrom || !dateTo || dateFrom > dateTo) throw new Error('Choose a valid roll-call date range.');
+        const result = await window.API.boarding.queueAiExceptionSummary(dateFrom, dateTo);
+        const jobId = result?.data?.job_id ?? result?.job_id;
+        setState(`Boarding review for ${dateFrom} to ${dateTo} was queued. This panel will update when it is ready.`);
+        watchForDraft(jobId);
+      } catch (error) {
+        setState(error.message || 'Unable to queue the boarding summary.', 'danger');
+        window.showNotification?.(error.message || 'Unable to queue the boarding summary.', 'danger');
+      } finally { button.disabled = false; }
+    });
+    document.getElementById('refreshAiBoardingSummary')?.addEventListener('click', load);
+    await load();
+    window.APIRealtime?.register?.('ai_boarding_summary', { refresh: load }, ['boarding', 'ai']);
+  }
 
-  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.load();
-    window.APIRealtime?.register?.("ai_boarding_summary", {
-      refresh: async () => await this.load()
-    }, ["boarding", "ai"]);
-  },
-};
-
-window.aiBoardingSummaryController = aiBoardingSummaryController;
-document.addEventListener('DOMContentLoaded', () => aiBoardingSummaryController.init().catch(() => {}));
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+})();

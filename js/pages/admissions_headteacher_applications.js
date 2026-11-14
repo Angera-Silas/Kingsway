@@ -165,6 +165,7 @@ const headteacherApplicationsController = {
     
     renderApplicationsTable: function() {
         const tbody = document.getElementById('applicationsTableBody');
+        if (!tbody) return;
         
         if (this.filteredApplications.length === 0) {
             tbody.innerHTML = `
@@ -294,7 +295,7 @@ const headteacherApplicationsController = {
                 const payload = response?.data || response || {};
                 if (payload.application) {
                     this.renderApplicationDetails(payload);
-                    const modal = new bootstrap.Modal(document.getElementById('viewApplicationModal'));
+                    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('viewApplicationModal'));
                     modal.show();
                     
                     // Setup conduct interview button

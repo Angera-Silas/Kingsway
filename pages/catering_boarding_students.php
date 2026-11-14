@@ -5,13 +5,7 @@
  * Embedded in app_layout.php
  */
 
-// Ensure $appBase is available for script loading
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.' || $appBase === '/') {
-        $appBase = '';
-    }
-}
+$appBase = app_base_path();
 ?>
 
 <div class="container-fluid py-4" id="cateringBoardingPage">
@@ -101,10 +95,6 @@ if (!isset($appBase)) {
                     <select class="form-select" id="boardingStatusFilter">
                         <option value="">All Status</option>
                         <option value="active">Active</option>
-                        <option value="on_leave">On Leave</option>
-                        <option value="sick">Sick</option>
-                        <option value="suspended">Suspended</option>
-                        <option value="checked_out">Checked Out</option>
                     </select>
                 </div>
 
@@ -131,12 +121,6 @@ if (!isset($appBase)) {
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by student name, admission number, or UPI">
                     </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-warning w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
@@ -268,8 +252,8 @@ if (!isset($appBase)) {
                                     <i class="bi bi-box-seam"></i>
                                 </div>
                                 <div>
-                                    <small class="text-muted">Store Items</small>
-                                    <h4 class="mb-0" id="storeItemsCount">0</h4>
+                                    <small class="text-muted">Requisition calculation</small>
+                                    <h4 class="mb-0" id="storeItemsCount">—</h4>
                                 </div>
                             </div>
                         </div>
@@ -348,10 +332,11 @@ if (!isset($appBase)) {
                             </tr>
                         </thead>
                         <tbody id="studentsTableBody">
-                            <tr>
-                                <td class="text-center text-muted">Loading...</td>
+                            <tr id="studentsTableState">
+                                <td colspan="14" class="text-center text-muted py-4">Loading...</td>
                             </tr>
                         </tbody>
+                        <template id="cateringBoarderRowTemplate"><tr data-catering-student-row><td data-fill="admission"></td><td data-fill="name"></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="gender"></td><td data-fill="dormitory"></td><td data-fill="boarding"></td><td><span class="badge" data-fill="breakfast"></span></td><td><span class="badge" data-fill="lunch"></span></td><td><span class="badge" data-fill="supper"></span></td><td data-fill="diet"></td><td data-fill="restriction"></td><td data-fill="today-status"></td><td><button class="btn btn-sm btn-outline-primary" type="button" data-student-profile>Meal profile</button></td></tr></template>
                     </table>
                 </div>
             </div>
@@ -390,12 +375,6 @@ if (!isset($appBase)) {
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-warning" id="markNotEatingBtn">
-                    <i class="bi bi-x-circle me-1"></i> Mark Not Eating
-                </button>
-                <button class="btn btn-info" id="addDietNoteBtn">
-                    <i class="bi bi-plus-circle me-1"></i> Add Diet Note
-                </button>
             </div>
 
         </div>
@@ -431,22 +410,8 @@ if (!isset($appBase)) {
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Menu Item</label>
-                        <input type="text" class="form-control" id="planMenuItem" placeholder="e.g., Ugali, Rice, Chapati">
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Expected Count</label>
-                            <input type="number" class="form-control" id="planExpectedCount" min="0">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Special Diet Count</label>
-                            <input type="number" class="form-control" id="planSpecialDietCount" min="0">
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Portion Estimate</label>
-                        <input type="text" class="form-control" id="planPortion" placeholder="e.g., 300g per student">
+                        <label class="form-label fw-semibold">Expected servings</label>
+                        <input type="number" class="form-control" id="planExpectedCount" min="0" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Notes</label>

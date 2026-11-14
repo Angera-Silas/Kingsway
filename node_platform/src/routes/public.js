@@ -14,7 +14,7 @@ export function registerPublicRoutes(app) {
     if (origin && allowedOrigins.includes(origin)) {
       reply.header('access-control-allow-origin', origin);
       reply.header('vary', 'Origin');
-      reply.header('access-control-allow-headers', 'content-type, x-kingsway-sse-token, last-event-id');
+      reply.header('access-control-allow-headers', 'content-type, authorization, x-kingsway-sse-token, last-event-id');
       reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
       reply.header('access-control-max-age', '600');
     }
@@ -26,15 +26,9 @@ export function registerPublicRoutes(app) {
     }
   });
 
-  app.get('/events', async (req, reply) => {
-    const token = req.query.token;
-    if (!token) return reply.code(401).send({ error: 'Missing token' });
-
-    const decoded = sse.verifyCapability(token);
-    if (!decoded) return reply.code(403).send({ error: 'Invalid token' });
-
-    return sse.handleConnection(req, reply);
-  });
+  // handleConnection reads the capability from the Authorization header and
+  // verifies it (401 missing, 403 invalid). It never accepts `?token=`.
+  app.get('/events', async (req, reply) => sse.handleConnection(req, reply));
 
   app.post('/presence', async (req, reply) => {
     const token = req.headers['x-kingsway-sse-token'];

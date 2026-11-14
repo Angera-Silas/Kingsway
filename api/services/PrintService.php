@@ -411,7 +411,7 @@ final class PrintService
                 'schoolWebsite' => $this->schoolConfig['website'],
                 'recipientName' => '',
                 'achievement' => '',
-                'academicYear' => date('Y'),
+                'academicYear' => self::academicYearLabel((string) ($this->resolvePrintableAcademicYear()['year_code'] ?? date('Y'))),
                 'sport' => '',
                 'course' => '',
                 'certificateNumber' => '',
@@ -767,10 +767,10 @@ final class PrintService
 
         try {
             fwrite($handle, "\xEF\xBB\xBF");
-            fputcsv($handle, array_keys($data[0]));
+            fputcsv($handle, array_keys($data[0]), ',', '"', '\\');
 
             foreach ($data as $row) {
-                fputcsv($handle, $row);
+                fputcsv($handle, $row, ',', '"', '\\');
             }
         } finally {
             fclose($handle);
@@ -1493,7 +1493,7 @@ final class PrintService
                 'schoolWebsite' => $this->schoolConfig['website'],
                 'recipientName' => '',
                 'achievement' => '',
-                'academicYear' => date('Y'),
+                'academicYear' => self::academicYearLabel((string) ($this->resolvePrintableAcademicYear()['year_code'] ?? date('Y'))),
                 'sport' => '',
                 'course' => '',
                 'certificateNumber' => '',
@@ -3272,7 +3272,6 @@ final class PrintService
         $target = imagecreatetruecolor($targetWidth, $targetHeight);
 
         if ($target === false) {
-            imagedestroy($source);
             return null;
         }
 
@@ -3306,9 +3305,6 @@ final class PrintService
             default => imagepng($target, null, 7),
         };
         $binary = ob_get_clean();
-
-        imagedestroy($target);
-        imagedestroy($source);
 
         if ($encoded === false || !is_string($binary) || $binary === '') {
             return null;
@@ -3454,6 +3450,49 @@ final class PrintService
     }
 
     /**
+     * The academic year a printable is for. Accepts the year's id, its code
+     * ("2026/2027"), its name, or just its starting year ("2026"). With no
+     * input it is the current academic year (an unknown one gives null), never the
+     * calendar year: from November the school is already preparing next year,
+     * and year codes are not plain calendar years.
+     *
+     * @return array{id:int, year_code:string, year_name:string}|null
+     */
+    public function resolvePrintableAcademicYear($input = null): ?array
+    {
+        $db = $this->getDb();
+        $input = trim((string) ($input ?? ''));
+        if ($input !== '') {
+            $stmt = $db->prepare(
+                "SELECT id, year_code, year_name FROM academic_years
+                  WHERE id = ? OR year_code = ? OR year_name = ? OR year_code LIKE ?
+                  ORDER BY (id = ?) DESC, (year_code = ?) DESC LIMIT 1"
+            );
+            $asId = ctype_digit($input) && strlen($input) < 4 ? (int) $input : 0;
+            $stmt->execute([$asId, $input, $input, $input . '/%', $asId, $input]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row && ctype_digit($input)) {
+                $stmt = $db->prepare("SELECT id, year_code, year_name FROM academic_years WHERE id = ? LIMIT 1");
+                $stmt->execute([(int) $input]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            }
+            // An explicit year that does not exist is not silently swapped for
+            // another year: the printable comes out empty instead.
+            return $row ? ['id' => (int) $row['id'], 'year_code' => (string) $row['year_code'], 'year_name' => (string) $row['year_name']] : null;
+        }
+        $row = $db->query(
+            "SELECT id, year_code, year_name FROM academic_years ORDER BY is_current DESC, start_date DESC LIMIT 1"
+        )->fetch(PDO::FETCH_ASSOC);
+        return $row ? ['id' => (int) $row['id'], 'year_code' => (string) $row['year_code'], 'year_name' => (string) $row['year_name']] : null;
+    }
+
+    /** "2026/2027" -> "2026": the school year runs January to December. */
+    private static function academicYearLabel(string $yearCode): string
+    {
+        return explode('/', $yearCode)[0] ?: $yearCode;
+    }
+
+    /**
      * Query DB and build the term-by-term variable set for the calendar PDF.
      */
     private function buildAcademicCalendarVars(array $data = []): array
@@ -3461,26 +3500,10 @@ final class PrintService
         $db = $this->getDb();
 
         /* ── Resolve academic year ─────────────────────────────────── */
-        $yearInput = $data['academicYear']
-            ?? $data['academic_year']
-            ?? null;
-
-        if ($yearInput !== null) {
-            $stmt = $db->prepare(
-                "SELECT id, year_code FROM academic_years
-                 WHERE year_code = ? OR id = ? LIMIT 1"
-            );
-            $stmt->execute([$yearInput, $yearInput]);
-        } else {
-            $stmt = $db->query(
-                "SELECT id, year_code FROM academic_years
-                 WHERE status = 'active' ORDER BY id DESC LIMIT 1"
-            );
-        }
-        $yearRow = $stmt->fetch(PDO::FETCH_ASSOC);
-        $yearId   = (int) ($yearRow['id'] ?? 0);
-        $yearCode = $yearRow['year_code'] ?? date('Y');
-        $yearLabel = explode('/', $yearCode)[0] ?? $yearCode;
+        $year = $this->resolvePrintableAcademicYear($data['academicYear'] ?? $data['academic_year'] ?? null);
+        $yearId   = (int) ($year['id'] ?? 0);
+        $yearCode = (string) ($year['year_code'] ?? '');
+        $yearLabel = self::academicYearLabel($yearCode);
 
         if ($yearId <= 0) {
             return $this->emptyCalendarVars($yearLabel);
@@ -3929,7 +3952,7 @@ final class PrintService
             }
         }
 
-        $academicYear = $data['academicYear'] ?? $data['academic_year'] ?? date('Y');
+        $academicYear = (string) ($data['academicYear'] ?? $data['academic_year'] ?? '');
         $variables = $this->buildFeeStructureVars($academicYear, $data);
         $variables['scope'] = $scope;
         $variables['studentType'] = $studentType;
@@ -3962,14 +3985,10 @@ final class PrintService
     {
         $db = $this->getDb();
 
-        $yearStmt = $db->prepare(
-            "SELECT id, year_code FROM academic_years WHERE year_code = ? OR id = ? LIMIT 1"
-        );
-        $yearStmt->execute([$academicYear, $academicYear]);
-        $yearRow = $yearStmt->fetch(PDO::FETCH_ASSOC);
+        $yearRow = $this->resolvePrintableAcademicYear($academicYear);
         $yearId   = (int) ($yearRow['id'] ?? 0);
-        $yearCode = $yearRow['year_code'] ?? $academicYear;
-        $yearLabel = explode('/', $yearCode)[0] ?? $yearCode;
+        $yearCode = (string) ($yearRow['year_code'] ?? $academicYear);
+        $yearLabel = self::academicYearLabel($yearCode);
 
         if ($yearId <= 0) {
             return $this->emptyFeeStructureVars($yearLabel);
@@ -4046,12 +4065,18 @@ final class PrintService
             $rows = [];
             foreach ($ids as $cid) {
                 $amounts = $pivot[$stCode][$cid] ?? [];
+                $term1 = (float) ($amounts[1] ?? 0);
+                $term2 = (float) ($amounts[2] ?? 0);
+                $term3 = (float) ($amounts[3] ?? 0);
+                if ($term1 <= 0 && $term2 <= 0 && $term3 <= 0) {
+                    continue;
+                }
                 $rows[] = [
                     'class_id' => $cid,
                     'label' => $classMeta[$cid]['name'] ?? '',
-                    'term1' => $amounts[1] ?? 0,
-                    'term2' => $amounts[2] ?? 0,
-                    'term3' => $amounts[3] ?? 0,
+                    'term1' => $term1,
+                    'term2' => $term2,
+                    'term3' => $term3,
                     'total' => array_sum($amounts),
                 ];
             }
@@ -4134,9 +4159,13 @@ final class PrintService
         $sConfig = $this->loadSchoolDbConfig();
 
         $grades = [];
+        $boarderRowsByClass = [];
+        foreach ($boarderRows as $row) {
+            $boarderRowsByClass[(int) $row['class_id']] = $row;
+        }
         foreach ($dayRows as $i => $dr) {
-            $br = $boarderRows[$i] ?? null;
             $cid = (int) ($dr['class_id'] ?? 0);
+            $br = $boarderRowsByClass[$cid] ?? null;
             $meta = $cid !== null ? ($classMeta[$cid] ?? []) : [];
             $grades[] = [
                 'id'         => $cid,
@@ -4220,33 +4249,31 @@ final class PrintService
                     SELECT 1 FROM extra_charge_student_types xst
                     JOIN student_types stc ON stc.id = xst.student_type_id
                     WHERE xst.extra_charge_id = ec.id AND stc.code IN ($typePlaceholders)
-                )
-            )";
+            ))";
             $stmt = $db->prepare(
-                "SELECT ec.name, ec.amount, ec.pricing_tiers
+                "SELECT ec.id, ec.name, ec.amount, tier.label AS tier_label, tier.amount AS tier_amount
                  FROM extra_charges ec
+                 LEFT JOIN extra_charge_pricing_tiers tier ON tier.extra_charge_id=ec.id
                  WHERE ec.academic_year_id = ? AND ec.status = 'active'
                    AND ec.visible_on_fee_structure = 1
+                   AND (NOT EXISTS (SELECT 1 FROM extra_charge_classes xc WHERE xc.extra_charge_id=ec.id)
+                        OR EXISTS (SELECT 1 FROM extra_charge_classes xc WHERE xc.extra_charge_id=ec.id AND xc.class_id=?))
+                   AND (NOT EXISTS (SELECT 1 FROM extra_charge_student_types xt WHERE xt.extra_charge_id=ec.id)
+                        OR EXISTS (SELECT 1 FROM extra_charge_student_types xt WHERE xt.extra_charge_id=ec.id AND EXISTS (
+                            SELECT 1 FROM student_types stf WHERE stf.id=xt.student_type_id AND stf.code IN ($typePlaceholders)
+                        )))
+                   AND NOT EXISTS (SELECT 1 FROM extra_charge_students xs WHERE xs.extra_charge_id=ec.id)
+                   AND NOT EXISTS (SELECT 1 FROM extra_charge_parents xp WHERE xp.extra_charge_id=ec.id)
                    $scopeSql
-                 ORDER BY ec.display_order, ec.name"
+                 ORDER BY ec.display_order, ec.name, tier.sort_order, tier.id"
             );
-            $stmt->execute(array_merge([$yearId, $classId, $classId], $typeCodes, $typeCodes, $typeCodes));
+            $stmt->execute(array_merge([$yearId, $classId], $typeCodes, [$classId, $classId], $typeCodes, $typeCodes, $typeCodes));
             $charges = [];
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-                $tiers = json_decode((string) ($row['pricing_tiers'] ?? ''), true);
-                if (is_array($tiers) && $tiers) {
-                    foreach ($tiers as $tier) {
-                        if (!is_array($tier) || !isset($tier['amount'])) {
-                            continue;
-                        }
-                        $charges[] = [
-                            'name' => $tier['label'] ?? $row['name'],
-                            'amount' => (float) $tier['amount'],
-                        ];
-                    }
-                    continue;
-                }
-                $charges[] = ['name' => $row['name'], 'amount' => (float) $row['amount']];
+                $charges[] = [
+                    'name' => !empty($row['tier_label']) ? $row['name'] . ' — ' . $row['tier_label'] : $row['name'],
+                    'amount' => (float) ($row['tier_amount'] ?? $row['amount']),
+                ];
             }
             return $charges;
         } catch (\Exception $e) {
@@ -4321,7 +4348,7 @@ final class PrintService
                             sfa.account_name AS settlement_account_name,
                             sfa.account_identifier AS settlement_account_identifier,
                             CASE
-                                WHEN p.code = 'mpesa_daraja' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
+                                WHEN p.code IN ('mpesa_daraja','safaricom_daraja') AND r.collection_product IN ('paybill','till') THEN 'mpesa'
                                 WHEN p.code = 'payhero' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
                                 WHEN p.code = 'kcb_buni' AND r.collection_product = 'buni' THEN 'kcb_mobile'
                                 WHEN r.collection_product = 'bank_collection' THEN 'bank'
@@ -4410,31 +4437,17 @@ final class PrintService
     }
 
     /**
-     * Get a PDO connection (reuses the app's DB config).
+     * Get the shared PDO connection.
+     *
+     * This used to parse config/.env and open its own PDO, which meant every
+     * print request held a second MySQL connection alongside the app's
+     * singleton — a direct doubling of the connection budget on exactly the
+     * heavy, long-running report endpoints. It now reuses the process
+     * singleton (which is persistent, so it is reused across requests too).
      */
     private function getDb(): \PDO
     {
-        static $pdo = null;
-        if ($pdo !== null) return $pdo;
-        $configPath = dirname(__DIR__, 2) . '/config/.env';
-        $env = [];
-        if (is_file($configPath)) {
-            foreach (file($configPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-                if ($line[0] === '#' || strpos($line, '=') === false) continue;
-                [$k, $v] = explode('=', $line, 2);
-                $env[trim($k)] = trim($v);
-            }
-        }
-        $host = $env['DB_HOST'] ?? '127.0.0.1';
-        $port = $env['DB_PORT'] ?? '3306';
-        $name = $env['DB_NAME'] ?? 'KingsWayAcademy';
-        $user = $env['DB_USER'] ?? 'root';
-        $pass = $env['DB_PASS'] ?? '';
-        $pdo = new \PDO("mysql:host={$host};port={$port};dbname={$name}", $user, $pass, [
-            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-            \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-        ]);
-        return $pdo;
+        return \App\Database\Database::getInstance()->getConnection();
     }
 
     /**
@@ -4512,31 +4525,47 @@ final class PrintService
     public function prepareStudentFeeStatement(int $studentId, $academicYear = null): array
     {
         $db = $this->getDb();
-        $yearStmt = $db->prepare(
-            "SELECT id, year_code FROM academic_years
-             WHERE id = ? OR year_code = ? OR YEAR(start_date) = ?
-             ORDER BY is_current DESC, id DESC LIMIT 1"
-        );
-        $yearStmt->execute([$academicYear, $academicYear, $academicYear]);
-        $year = $yearStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$year) {
-            $yearStmt = $db->query("SELECT id, year_code FROM academic_years ORDER BY is_current DESC, id DESC LIMIT 1");
-            $year = $yearStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        }
+        // An explicit year that does not exist gives an empty statement, never
+        // another year's figures; no year means the current academic year.
+        $year = $this->resolvePrintableAcademicYear($academicYear) ?? [];
         $yearId = (int) ($year['id'] ?? 0);
 
+        // The student directory holds one row per learner (their latest
+        // enrollment), so it gives identity only. Class and stream come from
+        // the enrollment in the statement's year: short keyed reads.
         $studentStmt = $db->prepare(
-            "SELECT s.id, s.admission_no,
-                    p.first_name, p.last_name,
-                    c.name AS class_name, st.name AS stream_name,
-                    sty.name AS student_type
-             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-             WHERE s.id = ? LIMIT 1"
+            "SELECT s.student_id AS id, s.admission_no, s.first_name, s.last_name,
+                    s.student_type_name AS student_type
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
+             WHERE s.student_id = ? LIMIT 1"
         );
-        $studentStmt->execute([$yearId, $studentId]);
+        $studentStmt->execute([$studentId]);
         $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
         if (!$student) {
             throw new RuntimeException('Student not found.');
+        }
+        $student['class_name'] = null;
+        $student['stream_name'] = null;
+        $enrollmentStmt = $db->prepare(
+            "SELECT academic_year_class_id, stream_name
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments_streams") . "
+             WHERE student_id = ? AND academic_year_id = ?
+             ORDER BY id DESC LIMIT 1"
+        );
+        $enrollmentStmt->execute([$studentId, $yearId]);
+        $enrollment = $enrollmentStmt->fetch(PDO::FETCH_ASSOC);
+        if ($enrollment) {
+            $student['stream_name'] = $enrollment['stream_name'];
+            $classStmt = $db->prepare(
+                "SELECT class_id FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " WHERE id = ? LIMIT 1"
+            );
+            $classStmt->execute([(int) $enrollment['academic_year_class_id']]);
+            $classId = (int) ($classStmt->fetchColumn() ?: 0);
+            if ($classId > 0) {
+                $nameStmt = $db->prepare("SELECT name FROM " . ReadReplicaService::qualifiedRef("classes") . " WHERE id = ? LIMIT 1");
+                $nameStmt->execute([$classId]);
+                $student['class_name'] = $nameStmt->fetchColumn() ?: null;
+            }
         }
 
         $obligationStmt = $db->prepare(

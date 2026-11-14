@@ -10,13 +10,7 @@
  * Embedded inside app_layout.php
  */
 
-// Ensure $appBase is available for script loading
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.' || $appBase === '/') {
-        $appBase = '';
-    }
-}
+$appBase = app_base_path();
 ?>
 
 <div class="container-fluid py-4" id="studentPerformancePage">
@@ -120,11 +114,6 @@ if (!isset($appBase)) {
                     </select>
                 </div>
 
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Month</label>
-                    <input type="month" class="form-control" id="monthFilter">
-                </div>
-
                 <div class="col-xl-4 col-md-8">
                     <label class="form-label fw-semibold">Search Student</label>
                     <div class="input-group">
@@ -134,12 +123,6 @@ if (!isset($appBase)) {
                         <input type="text" class="form-control" id="studentSearch"
                                placeholder="Search by name, admission number, student ID, or UPI">
                     </div>
-                </div>
-
-                <div class="col-xl-2 col-md-6 d-flex align-items-end">
-                    <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
                 </div>
 
                 <div class="col-xl-2 col-md-6 d-flex align-items-end">
@@ -239,12 +222,19 @@ if (!isset($appBase)) {
 
                 <div class="card-body table-responsive">
                     <table class="table table-hover align-middle">
-                        <thead class="table-light" id="overviewTableHead"></thead>
+                        <thead class="table-light">
+                            <tr data-performance-head="students"><th>#</th><th>Admission No.</th><th>Learner</th><th>Class</th><th>Stream</th><th>Average</th><th>Grade</th><th>Attendance</th><th>Position</th></tr>
+                            <tr data-performance-head="class" hidden><th>Class</th><th>Learners</th><th>Average</th><th>Attendance</th><th>Top learner</th><th>Lowest learner</th></tr>
+                            <tr data-performance-head="stream" hidden><th>Class</th><th>Stream</th><th>Learners</th><th>Average</th><th>Attendance</th><th>Top learner</th></tr>
+                            <tr data-performance-head="school" hidden><th>Scope</th><th>Learners</th><th>Average</th><th>Attendance</th><th>Top class</th><th>Top learner</th></tr>
+                        </thead>
                         <tbody id="performanceOverviewBody">
-                            <tr>
-                                <td class="text-center text-muted">Loading...</td>
-                            </tr>
+                            <tr id="performanceOverviewState"><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
                         </tbody>
+                        <template id="performanceStudentsRowTemplate"><tr data-performance-row><td data-fill="number"></td><td data-fill="admission"></td><td><button type="button" class="btn btn-link p-0 text-start" data-fill="student"></button></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="average"></td><td data-fill="grade"></td><td data-fill="attendance"></td><td data-fill="position"></td></tr></template>
+                        <template id="performanceClassRowTemplate"><tr data-performance-row><td data-fill="class"></td><td data-fill="students"></td><td data-fill="average"></td><td data-fill="attendance"></td><td data-fill="top"></td><td data-fill="lowest"></td></tr></template>
+                        <template id="performanceStreamRowTemplate"><tr data-performance-row><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="students"></td><td data-fill="average"></td><td data-fill="attendance"></td><td data-fill="top"></td></tr></template>
+                        <template id="performanceSchoolRowTemplate"><tr data-performance-row><td data-fill="scope"></td><td data-fill="students"></td><td data-fill="average"></td><td data-fill="attendance"></td><td data-fill="top-class"></td><td data-fill="top-student"></td></tr></template>
                     </table>
                 </div>
             </div>
@@ -275,21 +265,9 @@ if (!isset($appBase)) {
                 <div class="card border-0 bg-light mb-4">
                     <div class="card-body">
                         <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label fw-semibold">Academic Year</label>
-                                <select class="form-select" id="modalAcademicYear"></select>
-                            </div>
-
-                            <div class="col-md-4">
+                            <div class="col-md-8">
                                 <label class="form-label fw-semibold">Term</label>
                                 <select class="form-select" id="modalTerm"></select>
-                            </div>
-
-                            <div class="col-md-4">
-                                <label class="form-label fw-semibold">Assessment</label>
-                                <select class="form-select" id="modalAssessment">
-                                    <option value="">All Assessments</option>
-                                </select>
                             </div>
 
                             <div class="col-md-12 text-end">
@@ -469,8 +447,9 @@ if (!isset($appBase)) {
                                         <th scope="col">Remarks</th>
                                     </tr>
                                     </thead>
-                                    <tbody id="subjectsTableBody"></tbody>
+                                    <tbody id="subjectsTableBody"><tr id="subjectsTableState"><td colspan="7" class="text-center text-muted">Select a learner to view subject results.</td></tr></tbody>
                                 </table>
+                                <template id="studentSubjectRowTemplate"><tr data-student-subject-row><td data-fill="subject"></td><td data-fill="score"></td><td data-fill="grade"></td><td data-fill="average"></td><td data-fill="position"></td><td data-fill="teacher"></td><td data-fill="remarks"></td></tr></template>
                             </div>
                         </div>
                     </div>

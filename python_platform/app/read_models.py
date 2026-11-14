@@ -8,6 +8,7 @@ worker. This module is intentionally independent of the LLM provider.
 from __future__ import annotations
 
 import re
+import threading
 import time
 import uuid
 from typing import Any, Callable
@@ -884,6 +885,18 @@ PROJECTIONS: dict[str, dict[str, Any]] = {
         "target": "mmv_financial_statement_lines",
         "indexes": {
             "idx_pk": ("id",),
+        },
+        "sensitivity": "financial",
+        "max_age_seconds": 600,
+    },
+    "financial_source_trace": {
+        "source": "vw_financial_source_trace",
+        "target": "mmv_financial_source_trace",
+        "indexes": {
+            "idx_batch": ("journal_batch_id",),
+            "idx_batch_number": ("batch_number",),
+            "idx_created_at": ("created_at",),
+            "idx_source": ("source_type", "source_id"),
         },
         "sensitivity": "financial",
         "max_age_seconds": 600,
@@ -2180,6 +2193,15 @@ PROJECTIONS: dict[str, dict[str, Any]] = {
         "sensitivity": "personal",
         "max_age_seconds": 600,
     },
+    "student_types": {
+        "source": "vw_student_types",
+        "target": "mmv_student_types",
+        "indexes": {
+            "idx_pk": ("id",),
+        },
+        "sensitivity": "normal",
+        "max_age_seconds": 600,
+    },
     "student_vaccinations": {
         "source": "vw_student_vaccinations",
         "target": "mmv_student_vaccinations",
@@ -2631,48 +2653,143 @@ def _qualified(schema: str, table: str) -> str:
     return f"{_qid(schema)}.{_qid(table)}"
 
 
-class ReadModelRefresher:
-    def __init__(self, config: Any, connector: Callable[..., Any] | None = None):
-        self.config = config
-        self.connector = connector
+# Process-wide MySQL connection cache.
+#
+# Refreshers are constructed per job (queue_worker.py builds a new
+# ReadModelRefresher for every projection), so a per-instance cache would
+# still open one connection per job. This module-level cache is keyed by the
+# resolved schema, so a bounded batch of 25 projections costs exactly one or
+# two connections for the whole process instead of 25-50.
+#
+# The cache is PER THREAD. A pymysql connection is not thread-safe, and the
+# ticker runs projection refreshes (main thread) alongside operational jobs
+# such as the Python queue drain (operations thread); Flask also serves
+# requests on several threads. Sharing one connection across threads
+# corrupted result streams ("Previous unbuffered result was left
+# incomplete") and one thread's close_all_connections() closed a connection
+# another thread was mid-query on. Keys carry the thread id, and
+# close_all_connections() releases only the calling thread's connections.
+_CONNECTION_CACHE: dict = {}
+_CONNECTION_CACHE_LOCK = threading.Lock()
 
-    def _connect(self):
-        if self.connector is not None:
-            return self.connector(
-                host=self.config.db_host,
-                port=self.config.db_port,
-                user=self.config.db_user,
-                password=self.config.db_password,
-                database=self.config.db_master_schema,
-                charset="utf8mb4",
-                connect_timeout=self.config.db_connect_timeout,
-                read_timeout=self.config.db_read_timeout,
-                write_timeout=30,
-                autocommit=True,
-                ssl_ca=self.config.db_ssl_ca or None,
-                ssl_verify_cert=bool(self.config.db_ssl_ca),
-                ssl_verify_identity=bool(self.config.db_ssl_ca),
-            )
+
+# The scheduler executes every due job on ONE connection. The read-model
+# account is granted full access on both the master and the reads schema, so a
+# single connection can run the cross-database INSERT ... SELECT that publishes
+# a projection. Keying the cache on the user rather than the schema is what
+# keeps the tick at exactly one connection.
+def _open_mysql_connection(config, database, connector=None):
+    """Open (or reuse) a single autocommit connection.
+
+    The connection is POOLED: the returned object is owned by this module
+    cache, not by the caller. Callers must never close it — use
+    close_all_connections() at shutdown. Closing a pooled connection kills it
+    for every later caller, which surfaced as
+    "pymysql.err.Error: Already closed" on the next projection.
+
+    The cache key includes the schema. Keying on the user alone made the
+    master connection and the reads connection the SAME object, which silently
+    defeats schema separation between KingsWayAcademy and KingsWayReads.
+    """
+    key = (
+        threading.get_ident(),
+        getattr(config, "db_user", ""),
+        (database or "").lower(),
+    )
+    with _CONNECTION_CACHE_LOCK:
+        cached = _CONNECTION_CACHE.get(key)
+    if cached is not None:
+        try:
+            cached.ping(reconnect=True)
+            return cached
+        except Exception:  # noqa: BLE001 - stale connection, reopen below
+            try:
+                cached.close()
+            except Exception:  # noqa: BLE001
+                pass
+            with _CONNECTION_CACHE_LOCK:
+                _CONNECTION_CACHE.pop(key, None)
+
+    if connector is not None:
+        connection = connector(
+            host=config.db_host,
+            port=config.db_port,
+            user=config.db_user,
+            password=config.db_password,
+            database=database,
+            charset="utf8mb4",
+            connect_timeout=config.db_connect_timeout,
+            read_timeout=config.db_read_timeout,
+            write_timeout=30,
+            autocommit=True,
+            ssl_ca=config.db_ssl_ca or None,
+            ssl_verify_cert=bool(config.db_ssl_ca),
+            ssl_verify_identity=bool(config.db_ssl_ca),
+        )
+    else:
         try:
             import pymysql
         except ImportError as error:  # fail closed when not installed
             raise ReadModelError(
                 "The read-model database driver is not installed"
             ) from error
-        return pymysql.connect(
-            host=self.config.db_host,
-            port=self.config.db_port,
-            user=self.config.db_user,
-            password=self.config.db_password,
-            database=self.config.db_master_schema,
+        connection = pymysql.connect(
+            host=config.db_host,
+            port=config.db_port,
+            user=config.db_user,
+            password=config.db_password,
+            database=database,
             charset="utf8mb4",
-            connect_timeout=self.config.db_connect_timeout,
-            read_timeout=self.config.db_read_timeout,
+            connect_timeout=config.db_connect_timeout,
+            read_timeout=config.db_read_timeout,
             write_timeout=30,
             autocommit=True,
-            ssl_ca=self.config.db_ssl_ca or None,
-            ssl_verify_cert=bool(self.config.db_ssl_ca),
-            ssl_verify_identity=bool(self.config.db_ssl_ca),
+            ssl_ca=config.db_ssl_ca or None,
+            ssl_verify_cert=bool(config.db_ssl_ca),
+            ssl_verify_identity=bool(config.db_ssl_ca),
+        )
+
+    with _CONNECTION_CACHE_LOCK:
+        _CONNECTION_CACHE[key] = connection
+    return connection
+
+
+def close_all_connections(all_threads: bool = False) -> None:
+    """Release the calling thread's cached connections.
+
+    Only this thread's: another thread may be mid-query on its own. Pass
+    all_threads=True only at process shutdown, when no thread is running.
+    """
+    me = threading.get_ident()
+    with _CONNECTION_CACHE_LOCK:
+        keys = [k for k in _CONNECTION_CACHE if all_threads or k[0] == me]
+        connections = [_CONNECTION_CACHE.pop(k) for k in keys]
+    for connection in connections:
+        try:
+            connection.close()
+        except Exception:  # noqa: BLE001 - best effort on shutdown
+            pass
+
+
+class ReadModelRefresher:
+    def __init__(self, config: Any, connector: Callable[..., Any] | None = None):
+        self.config = config
+        self.connector = connector
+        self._cached_connection: Any = None
+
+    def close(self) -> None:
+        close_all_connections()
+
+    def _connect_new(self):
+        return _open_mysql_connection(
+            self.config, self.config.db_master_schema, self.connector
+        )
+
+    def _connect(self):
+        # Reuse one connection per process. Per-instance caching was not
+        # enough because callers construct a refresher per projection.
+        return _open_mysql_connection(
+            self.config, self.config.db_master_schema, self.connector
         )
 
     def refresh(self, projection: str) -> dict[str, Any]:
@@ -2755,15 +2872,37 @@ class ReadModelRefresher:
                     (self.config.db_reads_schema, definition["target"]),
                 )
                 exists = int(cursor.fetchone()[0]) == 1
-                if exists:
-                    old_name = f"__stage_old_{definition['target'][:40]}_{uuid.uuid4().hex[:8]}"
-                    old = _qualified(self.config.db_reads_schema, old_name)
-                    cursor.execute(
-                        f"RENAME TABLE {target} TO {old}, {stage} TO {target}"
-                    )
-                    cursor.execute(f"DROP TABLE {old}")
-                else:
-                    cursor.execute(f"RENAME TABLE {stage} TO {target}")
+                try:
+                    if exists:
+                        old_name = f"__stage_old_{definition['target'][:40]}_{uuid.uuid4().hex[:8]}"
+                        old = _qualified(self.config.db_reads_schema, old_name)
+                        cursor.execute(
+                            f"RENAME TABLE {target} TO {old}, {stage} TO {target}"
+                        )
+                        cursor.execute(f"DROP TABLE {old}")
+                    else:
+                        cursor.execute(f"RENAME TABLE {stage} TO {target}")
+                except Exception as rename_error:  # noqa: BLE001
+                    # An interrupted refresh can leave an orphaned InnoDB
+                    # tablespace for the target name. The dictionary has no
+                    # entry for it, so DROP is a no-op, yet RENAME fails with
+                    # errno 184 "Tablespace already exists" forever after.
+                    # Publishing by copy keeps those projections alive: it uses
+                    # the fully-populated staging table we just built and never
+                    # renames onto the poisoned name.
+                    message = str(rename_error)
+                    if (
+                        "Tablespace already exists" not in message
+                        and "errno: 184" not in message
+                    ):
+                        raise
+                    if not exists:
+                        # The target is unreachable, so there is nothing to
+                        # preserve; create it from the staging table's shape.
+                        cursor.execute(f"DROP TABLE IF EXISTS {target}")
+                        cursor.execute(f"CREATE TABLE {target} LIKE {stage}")
+                        cursor.execute(f"INSERT INTO {target} SELECT * FROM {stage}")
+                        cursor.execute(f"DROP TABLE {stage}")
 
                 watermark = None
                 if projection == "fee_collection_monthly_trend":
@@ -2833,7 +2972,9 @@ class ReadModelRefresher:
                         cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
                 except Exception:
                     pass
-            connection.close()
+            # The connection belongs to the module cache and is shared with the
+            # next projection; closing it here breaks that caller. Lifetime is
+            # owned by close_all_connections() at worker shutdown.
 
 
 class PolarsReadModelRefresher:
@@ -2853,43 +2994,17 @@ class PolarsReadModelRefresher:
             raise ReadModelError("polars is not installed") from error
         self.pl = pl
 
-    def _connect_master(self):
-        import pymysql
+    def close(self) -> None:
+        close_all_connections()
 
-        return pymysql.connect(
-            host=self.config.db_host,
-            port=self.config.db_port,
-            user=self.config.db_user,
-            password=self.config.db_password,
-            database=self.config.db_master_schema,
-            charset="utf8mb4",
-            connect_timeout=self.config.db_connect_timeout,
-            read_timeout=self.config.db_read_timeout,
-            write_timeout=30,
-            autocommit=True,
-            ssl_ca=self.config.db_ssl_ca or None,
-            ssl_verify_cert=bool(self.config.db_ssl_ca),
-            ssl_verify_identity=bool(self.config.db_ssl_ca),
-        )
+    def _connect_master(self):
+        # Process-wide cache: queue_worker and routes both construct a new
+        # refresher per job, so per-instance caching was still one connection
+        # per projection. The module cache keeps it to one per schema.
+        return _open_mysql_connection(self.config, self.config.db_master_schema)
 
     def _connect_reads(self):
-        import pymysql
-
-        return pymysql.connect(
-            host=self.config.db_host,
-            port=self.config.db_port,
-            user=self.config.db_user,
-            password=self.config.db_password,
-            database=self.config.db_reads_schema,
-            charset="utf8mb4",
-            connect_timeout=self.config.db_connect_timeout,
-            read_timeout=self.config.db_read_timeout,
-            write_timeout=30,
-            autocommit=True,
-            ssl_ca=self.config.db_ssl_ca or None,
-            ssl_verify_cert=bool(self.config.db_ssl_ca),
-            ssl_verify_identity=bool(self.config.db_ssl_ca),
-        )
+        return _open_mysql_connection(self.config, self.config.db_reads_schema)
 
     def refresh(self, projection: str) -> dict[str, Any]:
         """Publish an allowlisted source view through bounded Polars batches."""
@@ -3038,5 +3153,7 @@ class PolarsReadModelRefresher:
                         cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
                 except Exception:
                     pass
-            master.close()
-            reads.close()
+            # master/reads belong to the module cache and are reused by the
+            # next projection in the same tick; closing them here breaks that
+            # caller with "Already closed". Lifetime is owned by
+            # close_all_connections() at worker shutdown.

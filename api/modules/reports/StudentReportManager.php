@@ -284,7 +284,7 @@ class StudentReportManager extends BaseAPI
                         ay.end_date,
                         ay.status,
                         COUNT(DISTINCT e.student_id) AS enrolled_students
-                    FROM " . ReadReplicaService::qualifiedRef("academic_years") . "
+                    FROM " . ReadReplicaService::qualifiedRef("academic_years") . " ay
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " e ON e.academic_year_id = ay.id
                     GROUP BY ay.id, ay.year_code, ay.year_name, ay.start_date, ay.end_date, ay.status
                     ORDER BY ay.start_date DESC";

@@ -20,7 +20,6 @@ class WhatsAppGateway
             'api_key'   => defined('SMS_API_KEY') ? constant('SMS_API_KEY') : '',
             'username'  => defined('SMS_USERNAME') ? constant('SMS_USERNAME') : '',
             'sender_id' => defined('SMS_SENDER_ID') ? constant('SMS_SENDER_ID') : '',
-            'wa_number' => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
             'api_url'   => defined('SMS_API_URL') ? constant('SMS_API_URL') : 'https://bulksms.talksasa.com/api/v3/',
         ];
         $this->config = array_merge($defaults, $config);
@@ -29,17 +28,32 @@ class WhatsAppGateway
 
     public function sendMessage($to, $message)
     {
+        self::assertEnabled();
         return $this->provider->sendMessage($to, (string) $message);
     }
 
     public function sendMedia($to, $message, $mediaType, $url, $caption = null)
     {
+        self::assertEnabled();
         return $this->provider->sendMedia($to, (string) $message, $mediaType, $url, $caption);
     }
 
     public function sendTemplate($to, $templateId, $variables = [])
     {
+        self::assertEnabled();
         return $this->provider->sendTemplate($to, $templateId, $variables);
+    }
+
+    public static function isEnabled(): bool
+    {
+        return filter_var(\App\Config\Config::get('WHATSAPP_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    public static function assertEnabled(): void
+    {
+        if (!self::isEnabled()) {
+            throw new \RuntimeException('WhatsApp sending is disabled. Use SMS or email until WhatsApp is configured.');
+        }
     }
 
     public function createTemplate($templateConfig)
@@ -78,17 +92,12 @@ class HttpWhatsAppProvider implements WhatsAppProvider
         $this->baseUrl = rtrim((string) ($config['api_url'] ?? 'https://bulksms.talksasa.com/api/v3/'), '/');
         $this->apiKey = (string) ($config['api_key'] ?? '');
         $sender = trim((string) ($config['sender_id'] ?? ''));
-        if ($sender === '') {
-            $sender = trim((string) ($config['wa_number'] ?? ''));
-        }
-        if ($sender === '') {
-            $sender = trim((string) ($config['username'] ?? ''));
-        }
         $this->senderId = $sender;
     }
 
     public function sendMessage($to, $message)
     {
+        $this->assertConfigured();
         return $this->wrapSend($this->request('POST', '/sms/send', [
             'recipient' => $to,
             'sender_id' => $this->senderId,
@@ -99,6 +108,7 @@ class HttpWhatsAppProvider implements WhatsAppProvider
 
     public function sendMedia($to, $message, $mediaType, $url, $caption = null)
     {
+        $this->assertConfigured();
         $url = trim((string) $url);
         if (!filter_var($url, FILTER_VALIDATE_URL) || stripos($url, 'https://') !== 0) {
             throw new \InvalidArgumentException('WhatsApp media URL must be a public HTTPS URL');
@@ -122,6 +132,7 @@ class HttpWhatsAppProvider implements WhatsAppProvider
      */
     public function sendTemplate($to, $templateId, $variables = [])
     {
+        $this->assertConfigured();
         foreach (['body', 'message', 'text'] as $key) {
             $rendered = trim((string) (is_array($variables) ? ($variables[$key] ?? '') : ''));
             if ($rendered !== '') {
@@ -171,5 +182,15 @@ class HttpWhatsAppProvider implements WhatsAppProvider
     private function request(string $method, string $path, ?array $body = null): array
     {
         return $this->providerTransport($this->config, strtoupper($method), $path, $body);
+    }
+
+    private function assertConfigured(): void
+    {
+        if ($this->apiKey === '') {
+            throw new \RuntimeException('WhatsApp API credentials are not configured.');
+        }
+        if ($this->senderId === '') {
+            throw new \RuntimeException('TalkSasa sender ID is not configured. Set the shared SMS Sender ID for WhatsApp messages.');
+        }
     }
 }

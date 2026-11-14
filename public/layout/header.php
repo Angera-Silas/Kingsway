@@ -15,6 +15,7 @@ $pageDescriptions = [
   'events' => 'See upcoming public events at Kingsway Preparatory School in Londiani, Kenya.',
   'careers' => 'View current staff vacancies and career opportunities at Kingsway Preparatory School in Kenya.',
   'contact' => 'Contact Kingsway Preparatory School in Simotwet, Londiani, Kericho County, Kenya.',
+  'gallery' => 'Explore the Kingsway Preparatory School gallery — photos and videos of school life, facilities, events, and student activities.',
   'downloads' => 'Access public school documents and downloads from Kingsway Preparatory School.',
   'uniform-catalog' => 'Browse the Kingsway Preparatory School uniform catalogue.',
 ];
@@ -56,6 +57,9 @@ $organizationData = [
   <?php /* Load first: silences every console.* call site (incl. inline <script>)
         across public pages and routes warnings/errors to the file logger. */ ?>
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
+  <?php if (!empty($showCookieConsent)): ?>
+  <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
+  <?php endif; ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= htmlspecialchars($pageTitle) ?> | Kingsway Preparatory School</title>
@@ -163,6 +167,12 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
         </li>
 
         <li class="nav-item">
+          <a class="nav-link <?= $activePage==='gallery'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=gallery">
+            <i class="bi bi-collection me-1"></i>Gallery
+          </a>
+        </li>
+
+        <li class="nav-item">
           <a class="nav-link <?= $activePage==='careers'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=ra5d49bd64f1c">Careers</a>
         </li>
 
@@ -212,6 +222,31 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
     <div id="public-ai-history" class="public-ai-history" aria-label="Conversation history"></div>
     <div id="public-ai-answer" class="public-ai-answer" aria-live="polite">
       <p class="small mb-0">Answers use published school information. For anything uncertain, we will refer you to a human assistant.</p>
+    </div>
+    <div id="public-ai-handoff" class="public-ai-handoff mt-2" hidden>
+      <button type="button" id="public-ai-handoff-open" class="btn btn-outline-success btn-sm">
+        <i class="bi bi-person-lines-fill me-1" aria-hidden="true"></i>Talk to admissions
+      </button>
+      <form id="public-ai-handoff-form" class="mt-2" hidden novalidate>
+        <div class="row g-2">
+          <div class="col-sm-6">
+            <input id="public-ai-lead-name" class="form-control form-control-sm" maxlength="120" placeholder="Your name" autocomplete="name" required>
+          </div>
+          <div class="col-sm-6">
+            <input id="public-ai-lead-phone" class="form-control form-control-sm" maxlength="40" placeholder="Phone" autocomplete="tel" required>
+          </div>
+          <div class="col-12">
+            <input id="public-ai-lead-email" type="email" class="form-control form-control-sm" maxlength="190" placeholder="Email (optional)" autocomplete="email">
+          </div>
+          <div class="col-12">
+            <textarea id="public-ai-lead-details" class="form-control form-control-sm" rows="2" maxlength="1000" placeholder="What should we help with?" required></textarea>
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center gap-2 mt-2">
+          <span id="public-ai-lead-status" class="small text-muted" role="status"></span>
+          <button type="submit" id="public-ai-lead-submit" class="btn btn-success btn-sm">Send request</button>
+        </div>
+      </form>
     </div>
     <div id="public-ai-suggestions" class="public-ai-suggestions" aria-label="Suggested follow-up questions" hidden></div>
     <form id="public-ai-form" class="public-ai-form" novalidate>

@@ -26,8 +26,8 @@ const expensesController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._modal         = new bootstrap.Modal(document.getElementById('expenseModal'));
-    this._approvalModal = new bootstrap.Modal(document.getElementById('approvalModal'));
+    this._modal         = bootstrap.Modal.getOrCreateInstance(document.getElementById('expenseModal'));
+    this._approvalModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('approvalModal'));
     this._setupPermissions();
     this._bindEvents();
     await Promise.all([this._loadCategories(), this._loadBudgetLines(), this._load()]);
@@ -351,9 +351,11 @@ const expensesController = {
 
     const statusMap = {approve: 'approved', reject: 'rejected', pay: 'paid'};
     try {
+      // The reject handler reads `reason`; sending only `rejection_reason`
+      // made every rejection fail validation. Approval notes use `notes`.
       await callAPI('/finance/expenses/' + id, 'PUT', {
-        status:           statusMap[action],
-        rejection_reason: action === 'reject' ? notes : undefined,
+        status: statusMap[action],
+        ...(action === 'reject' ? { reason: notes, rejection_reason: notes } : { notes: notes }),
       });
       showNotification('Expense ' + (statusMap[action]) + ' successfully.', 'success');
       this._approvalModal.hide();

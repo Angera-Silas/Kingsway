@@ -83,7 +83,7 @@ class MealReportManager extends BaseAPI
                     mi.name AS menu_item, mi.description,
                     mp.planned_servings, mp.prepared_quantity,
                     mp.actual_servings, mp.status, mp.prepared_at, mp.notes
-             FROM " . ReadReplicaService::qualifiedRef("meal_plans") . "
+             FROM " . ReadReplicaService::qualifiedRef("meal_plans") . " mp
              LEFT JOIN menu_items mi ON mi.id = mp.menu_item_id
              WHERE mp.plan_date BETWEEN ? AND ?
              ORDER BY FIELD(mp.meal_type, 'breakfast', 'snack', 'lunch', 'dinner'),
@@ -154,7 +154,7 @@ class MealReportManager extends BaseAPI
                     COALESCE(SUM(fcr.quantity_used), 0) AS quantity_consumed,
                     COALESCE(SUM(fcr.waste_quantity), 0) AS total_waste,
                     COALESCE(SUM(fcr.quantity_used * fcr.cost_per_unit), 0) AS cost
-             FROM " . ReadReplicaService::qualifiedRef("food_consumption_records") . "
+             FROM " . ReadReplicaService::qualifiedRef("food_consumption_records") . " fcr
              INNER JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON i.id = fcr.inventory_item_id
              WHERE fcr.consumption_date BETWEEN ? AND ?" . (!empty($filters['item_id']) ? " AND fcr.inventory_item_id = ?" : "") . "
              GROUP BY fcr.consumption_date, fcr.inventory_item_id,

@@ -6,8 +6,12 @@
 // page keys or paths. The resolver below accepts BOTH opaque tokens and legacy
 // keys for backward compatibility with old links/emails and the .htaccess
 // internal rewrites.
-$appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
-if ($appBase === '.') $appBase = '';
+// Autoloader + Config first: the URL path prefix comes from the configured
+// BASE_URL (config/.env), never from the request path, so it is identical on
+// every route and every surface.
+require_once __DIR__ . '/public/layout/public_data.php';
+\App\Config\Config::init();
+$appBase = app_base_path();
 
 $route = trim((string)($_GET['route'] ?? ''));
 // Tolerate hand-typed URLs that chain extra params with a '?' instead of a '&'
@@ -54,6 +58,7 @@ $pageScript = 'home';
 // Public pages keep the CSP header + Composer autoloader; the dynamic sections
 // below are rendered by js/pages/public/home.js via /api/website/* (PublicSite).
 require_once __DIR__ . '/public/layout/public_data.php';
+$showCookieConsent = true;
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -313,6 +318,11 @@ require_once __DIR__ . '/public/layout/public_data.php';
       </div>
       <div class="col-lg-7 reveal reveal-right">
         <div class="gallery-grid" id="home-gallery">
+        </div>
+        <div class="text-end mt-3 reveal">
+          <a href="<?= $appBase ?>/index.php?route=gallery" class="btn btn-outline-success btn-sm rounded-pill px-4">
+            View all <span class="fw-semibold">gallery</span> <i class="bi bi-arrow-right ms-1"></i>
+          </a>
         </div>
       </div>
     </div>

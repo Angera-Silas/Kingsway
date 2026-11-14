@@ -37,12 +37,24 @@ class Provider:
         self._transport = transport
         self._chain = self._build_chain()
         # Pre-built so request handling never pays chain construction cost.
-        self._fast_chain = self._build_chain(fast=True) if getattr(config, "fast_model", "") else []
+        self._fast_chain = (
+            self._build_chain(fast=True) if getattr(config, "fast_model", "") else []
+        )
+        # With no configured fallbacks a slow or failing primary used to fail
+        # the request outright. The fast model is already provisioned, so it is
+        # the last resort for every task (a shorter answer beats no answer).
+        if self._fast_chain:
+            fast = self._fast_chain[0]
+            if not any(
+                entry["model"] == fast["model"] and entry["base_url"] == fast["base_url"]
+                for entry in self._chain
+            ):
+                self._chain.append(dict(fast, name=f"{fast['name']}-fallback"))
 
     # Task classes that only need cheap, fast classification work (agent
     # routing, short extraction). They may use AI_FAST_MODEL when configured
     # and transparently fall back to the primary chain on any failure.
-    FAST_TASKS = ("triage", "classify", "extract", "route")
+    FAST_TASKS = ("triage", "classify", "extract", "route", "tool_plan")
 
     # Latency budgets per task class. Latency is roughly linear in generated
     # output tokens, so an uncapped ceiling is the single biggest source of
@@ -62,7 +74,10 @@ class Provider:
         "briefing": (520, 14),
         "chat": (500, 14),
         "answer": (500, 14),
-        "draft": (1200, 32),
+        # Governed drafts (schemes, lesson plans, messages) run in the queue
+        # worker, so they can wait longer than an interactive answer; the
+        # primary attempt plus the fast fallback still fit the worker call.
+        "draft": (3000, 45),
     }
     DEFAULT_MAX_TOKENS = 600
     DEFAULT_TIMEOUT = 20
@@ -83,7 +98,8 @@ class Provider:
         if fast and getattr(self.config, "fast_model", ""):
             primary = {
                 "name": f"{self.config.provider_name}-fast",
-                "base_url": self.config.fast_model_base_url or self.config.provider_base_url,
+                "base_url": self.config.fast_model_base_url
+                or self.config.provider_base_url,
                 "model": self.config.fast_model,
                 "api_key": self.config.fast_model_api_key or self.config.api_key,
                 "provider_kind": self.config.provider_kind,
@@ -107,7 +123,17 @@ class Provider:
                         "name": str(fallback.get("name") or f"fallback_{len(chain)}"),
                         "base_url": base_url.rstrip("/"),
                         "model": model,
-                        "api_key": str(fallback.get("api_key") or ""),
+                        # A fallback model on the primary's own host may
+                        # omit its key: it reuses the primary's, so the
+                        # secret is not duplicated into AI_PROVIDER_FALLBACKS.
+                        "api_key": str(
+                            fallback.get("api_key")
+                            or (
+                                self.config.api_key
+                                if base_url.rstrip("/") == (self.config.provider_base_url or "").rstrip("/")
+                                else ""
+                            )
+                        ),
                         "provider_kind": str(
                             fallback.get("provider_kind") or "generic"
                         ),
@@ -155,7 +181,10 @@ class Provider:
         task = str(options.get("task") or "default")
         task_max, task_timeout = self.budget_for(task)
         max_tokens = min(
-            4096, max(64, int(options.get("max_tokens", task_max or self.DEFAULT_MAX_TOKENS)))
+            4096,
+            max(
+                64, int(options.get("max_tokens", task_max or self.DEFAULT_MAX_TOKENS))
+            ),
         )
         temperature = float(options.get("temperature", 0.2))
         headers = ["Content-Type: application/json", "Accept: application/json"]
@@ -236,8 +265,10 @@ class Provider:
         # observed consumed by reasoning with the answer arriving only after
         # 6-12s. The NIM chat-template switch turns thinking off for these
         # models; non-reasoning models never receive the parameter.
+        # Also send reasoning_effort: none for providers that support it.
         if self._is_reasoning_model(model) and not options.get("allow_thinking"):
             payload["chat_template_kwargs"] = {"thinking": False}
+            payload["reasoning_effort"] = "none"
         if api_key:
             headers.append(f"Authorization: Bearer {api_key}")
         return (
@@ -375,7 +406,8 @@ class Provider:
             result = self.complete(messages, options)
         except ProviderError as error:
             raise ProviderError(
-                "All configured AI providers were unavailable. " + " | ".join(errors[-2:])
+                "All configured AI providers were unavailable. "
+                + " | ".join(errors[-2:])
             ) from error
         text = self._response_content(self._kind(chain[0]), result)
         if text:
@@ -401,8 +433,15 @@ class Provider:
 
         try:
             response = urllib.request.urlopen(request, timeout=timeout)
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as error:
-            raise ProviderError(f"{entry['name']} stream unavailable: {error}") from error
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise ProviderError(
+                f"{entry['name']} stream unavailable: {error}"
+            ) from error
 
         started = time.monotonic()
         delivered = False
@@ -414,7 +453,9 @@ class Provider:
                     yield piece
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             if not delivered:
-                raise ProviderError(f"{entry['name']} stream failed: {error}") from error
+                raise ProviderError(
+                    f"{entry['name']} stream failed: {error}"
+                ) from error
         finally:
             try:
                 response.close()
@@ -463,11 +504,10 @@ class Provider:
         self, entry: dict[str, str], messages: list[dict], options: dict, index: int
     ) -> dict:
         method, url, headers, body = self._build_request(entry, messages, options)
-        task_max, task_timeout = self.budget_for(
-            str(options.get("task") or "default")
-        )
+        task_max, task_timeout = self.budget_for(str(options.get("task") or "default"))
         timeout = min(
-            60, max(3, int(options.get("timeout", task_timeout or self.DEFAULT_TIMEOUT)))
+            60,
+            max(3, int(options.get("timeout", task_timeout or self.DEFAULT_TIMEOUT))),
         )
         retries = min(
             3, max(0, int(options.get("_retries", self.config.provider_retries)))

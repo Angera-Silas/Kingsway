@@ -200,7 +200,7 @@ const LessonPlanApprovalController = (() => {
             `;
       document.getElementById("reviewModalLabel").textContent =
         `Review: ${lp.title || "Lesson Plan"}`;
-      new bootstrap.Modal(document.getElementById("reviewModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("reviewModal")).show();
     } catch (e) {
       showNotification("Failed to load lesson plan", "error");
     }

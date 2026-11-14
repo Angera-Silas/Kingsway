@@ -73,13 +73,14 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Class Streams</h6>
-            <button class="btn btn-sm btn-outline-success" onclick="ClassStreamsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
+            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" onclick="ClassStreamsController.print()"><i class="bi bi-printer me-1"></i> Print</button><button class="btn btn-sm btn-outline-success" onclick="ClassStreamsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Class (Grade)</th><th scope="col">Stream Name</th><th scope="col">Class Teacher</th><th scope="col">Students</th><th scope="col">Capacity</th><th scope="col">Utilization %</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-                    <tbody><tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="csStreamsBody"><tr id="csStreamsState"><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <template id="csStreamRowTemplate"><tr data-stream-row><td data-fill="number"></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="teacher"></td><td data-fill="students"></td><td data-fill="capacity"></td><td data-fill="utilization"></td><td><span class="badge" data-fill="status"></span></td><td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit stream" data-action="edit"><i class="bi bi-pencil"></i></button></td></tr></template>
                 </table>
             </div>
         </div>
@@ -108,7 +109,7 @@
                 <option value="">Not assigned</option>
             </select>
         </div>
-        <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+        <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="planning">Planning</option><option value="active">Active</option><option value="completed">Completed</option></select></div>
     </form></div>
     <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="ClassStreamsController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>

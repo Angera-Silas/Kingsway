@@ -4,7 +4,11 @@
             <h2 class="h4 mb-1"><i class="bi bi-calendar2-week me-2"></i>Exam Timetable Workflow</h2>
             <p class="text-muted mb-0">Draft, review, approve and publish the school-wide summative examination timetable.</p>
         </div>
-        <button class="btn btn-success" id="newExamDraft" type="button"><i class="bi bi-plus-lg me-1"></i>New draft</button>
+        <div class="d-flex flex-wrap gap-2 align-items-end">
+            <div><label class="form-label small text-muted mb-1" for="examDraftYear">Academic year</label><select class="form-select form-select-sm" id="examDraftYear"></select></div>
+            <div><label class="form-label small text-muted mb-1" for="examDraftTerm">Term</label><select class="form-select form-select-sm" id="examDraftTerm"></select></div>
+            <button class="btn btn-success" id="newExamDraft" type="button"><i class="bi bi-plus-lg me-1"></i>New draft</button>
+        </div>
     </div>
 
     <div class="card">

@@ -20,6 +20,8 @@
 
   let initialized = false;
   let resizeTimer = null;
+  let aiChartSequence = 0;
+  const aiChartInstances = new Map();
 
   const $ = (selector, root = document) =>
     root.querySelector(selector);
@@ -724,6 +726,10 @@
     });
   }
 
+  /** Governed answers render through the shared, XSS-safe Markdown module. */
+  const mdRender = (value) =>
+    (window.KingswayMarkdown?.render ? window.KingswayMarkdown.render(value) : escapeHtml(value));
+
   function escapeHtml(value) {
     const node = document.createElement("div");
     node.textContent = String(value ?? "");
@@ -792,26 +798,6 @@
       : '<p class="text-muted mb-0">No matching pages found.</p>';
   }
 
-  const aiWorkspaceRoutes = {
-    admissions: "manage_students_admissions",
-    academics: "schemes_of_work",
-    attendance: "daily_attendance",
-    finance: "finance/admin_finance",
-    communications: "manage_communications",
-    reports: "dashboard",
-    boarding: "boarding_reports",
-    counseling: "student_counseling",
-    health: "health_reports",
-    activities: "activity_reports",
-    curriculum: "curriculum_cbc",
-    inventory: "manage_inventory",
-    catering: "catering_boarding_students",
-    maintenance: "maintenance_mode",
-    transport: "transport",
-    staff: "staff",
-    system: "system_diagnostics",
-  };
-
 // Proactive workspace briefing (page-load trigger). Three tiers, no blocking:
 // 1) the persisted snapshot (memory LRU -> IndexedDB) renders instantly, even
 //    offline, so opening the panel never waits on the network;
@@ -821,6 +807,10 @@
 //    poll a bounded number of times instead of showing a spinner.
   let aiBriefingTimer = null;
   let aiBriefingSnapshot = null;
+  let aiBriefingRequestId = 0;
+  let aiBriefingRoute = "";
+  let delegatedTaskTimer = null;
+  let delegatedTaskRequestId = 0;
 
   const AI_BRIEFING_TTL = 15 * 60 * 1000;
 
@@ -833,16 +823,25 @@
     const host = $("#global-ai-assistant-briefing");
     if (!host) return;
     const route = currentRoute() || "dashboard";
+    if (route !== aiBriefingRoute) {
+      aiBriefingRoute = route;
+      aiBriefingSnapshot = null;
+      if (aiBriefingTimer) clearTimeout(aiBriefingTimer);
+      aiBriefingTimer = null;
+      host.innerHTML = '<div class="text-muted small">Checking this workspace for useful insights…</div>';
+    }
+    const requestId = ++aiBriefingRequestId;
     const storeKey = "ai_workspace_briefing";
 
     if (attempt === 0 && !host.querySelector("[data-ai-briefing-body]")) {
       // Instant first paint from the persisted snapshot, before any network.
-      window.DataStore?.peek?.(storeKey, {
+      const snapshotRequest = window.DataStore?.peek?.(storeKey, {
         storeName: "ai_workspace_cache",
         ttl: AI_BRIEFING_TTL,
         params: { route },
-      }).then((snapshot) => {
-        if (snapshot?.status === "ready" && snapshot?.briefing && !host.querySelector("[data-ai-briefing-body]")) {
+      });
+      snapshotRequest?.then?.((snapshot) => {
+        if (requestId === aiBriefingRequestId && route === (currentRoute() || "dashboard") && snapshot?.status === "ready" && snapshot?.briefing && !host.querySelector("[data-ai-briefing-body]")) {
           host.innerHTML = renderWorkspaceBriefing(snapshot.briefing, true);
         }
       });
@@ -860,6 +859,7 @@
             fetcher: () => fetchWorkspaceBriefing(route),
           })
         : await fetchWorkspaceBriefing(route);
+      if (requestId !== aiBriefingRequestId || route !== (currentRoute() || "dashboard")) return;
       if (result?.status === "ready" && result?.briefing) {
         host.innerHTML = renderWorkspaceBriefing(result.briefing, false);
         return;
@@ -877,8 +877,126 @@
       host.innerHTML =
         '<div class="alert alert-secondary small mb-0">Your workspace briefing is still being prepared. It will be ready shortly.</div>';
     } catch (briefingError) {
+      if (requestId !== aiBriefingRequestId || route !== (currentRoute() || "dashboard")) return;
       host.innerHTML =
         '<div class="alert alert-secondary small mb-0">Workspace briefing is unavailable right now. You can still ask the assistant a question below.</div>';
+    }
+  }
+
+  function delegatedTaskStorageKey() {
+    const user = window.AuthContext?.getUser?.() || {};
+    return `kw.ai.delegated-task.${String(user.id || user.user_id || "current")}`;
+  }
+
+  function unwrapApiData(response) {
+    return response?.data?.data ?? response?.data ?? response;
+  }
+
+  function renderDelegatedTask(task, question = "") {
+    const host = $("#global-ai-assistant-task-status");
+    if (!host || !task) return;
+    const status = String(task.status || "queued");
+    const result = task.result;
+    if (status === "completed" && task.result_available === false) {
+      host.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(task.message || "Your access changed while this task was processing. Start a new task to get a current answer.")}</div>`;
+      return;
+    }
+    if (status === "completed" && result) {
+      const answer = result.answer?.body || result.answer?.title || "The assistant completed this request.";
+      host.innerHTML = `<div class="card border-primary-subtle shadow-sm">
+        <div class="card-header bg-primary-subtle py-2 d-flex justify-content-between align-items-center">
+          <strong class="small"><i class="bi bi-check-circle me-1"></i>Background result ready</strong>
+          <button type="button" class="btn-close" data-dismiss-delegated-task aria-label="Dismiss result"></button>
+        </div>
+        <div class="card-body p-3">
+          ${question ? `<p class="small text-muted mb-2">${escapeHtml(question)}</p>` : ""}
+          <div class="small assistant-answer-body">${mdRender(answer)}</div>
+          ${Array.isArray(result.answer?.next_steps) && result.answer.next_steps.length ? `<ul class="small mt-2 mb-0">${result.answer.next_steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ul>` : ""}
+        </div>
+      </div>`;
+      host.querySelector("[data-dismiss-delegated-task]")?.addEventListener("click", () => {
+        host.innerHTML = "";
+        try { localStorage.removeItem(delegatedTaskStorageKey()); } catch {}
+      });
+      return;
+    }
+    if (["failed", "cancelled"].includes(status)) {
+      host.innerHTML = `<div class="alert alert-warning small mb-0"><strong>Background task ${escapeHtml(status)}.</strong> ${escapeHtml(task.error || "You can try again from this page.")}</div>`;
+      return;
+    }
+    host.innerHTML = `<div class="alert alert-info small mb-0"><span class="spinner-border spinner-border-sm me-2" role="status"></span>${escapeHtml(task.message || "Your request is queued for the assistant.")}</div>`;
+  }
+
+  async function pollDelegatedTask(taskId, question = "", attempt = 0) {
+    const requestId = ++delegatedTaskRequestId;
+    const maxAttempts = 80;
+    if (delegatedTaskTimer) clearTimeout(delegatedTaskTimer);
+    try {
+      const task = unwrapApiData(await window.API.dashboard.agentTaskGet(taskId));
+      if (requestId !== delegatedTaskRequestId) return;
+      if (!task) throw new Error("Task status is unavailable.");
+      renderDelegatedTask(task, question);
+      if (["completed", "failed", "cancelled"].includes(String(task.status))) {
+        if (delegatedTaskTimer) clearTimeout(delegatedTaskTimer);
+        return;
+      }
+      try { localStorage.setItem(delegatedTaskStorageKey(), JSON.stringify({ task_id: taskId, question })); } catch {}
+      if (attempt < maxAttempts) {
+        delegatedTaskTimer = setTimeout(() => void pollDelegatedTask(taskId, question, attempt + 1), 4000);
+      } else {
+        const host = $("#global-ai-assistant-task-status");
+        if (host) host.innerHTML = '<div class="alert alert-info small mb-0">The task is still running. Its result will appear here when you reopen the assistant.</div>';
+      }
+    } catch (error) {
+      if (requestId !== delegatedTaskRequestId) return;
+      const host = $("#global-ai-assistant-task-status");
+      if (host) host.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(error?.message || "Could not retrieve the background task.")}</div>`;
+    }
+  }
+
+  async function restoreDelegatedTask() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(delegatedTaskStorageKey()) || "null");
+      if (saved?.task_id) await pollDelegatedTask(String(saved.task_id), String(saved.question || ""));
+    } catch { /* storage may be unavailable or contain an old value */ }
+  }
+
+  async function delegateAssistantQuestion() {
+    const input = $("#global-ai-assistant-question");
+    const button = $("#global-ai-assistant-delegate");
+    const question = String(input?.value || "").trim();
+    if (!question) {
+      window.showNotification?.("Enter a task for the assistant first.", "warning");
+      input?.focus();
+      return;
+    }
+    if (!window.API?.dashboard?.agentTaskCreate) {
+      window.showNotification?.("Background assistant work is unavailable right now.", "error");
+      return;
+    }
+    if (button) button.disabled = true;
+    const host = $("#global-ai-assistant-task-status");
+    if (host) host.innerHTML = '<div class="alert alert-info small mb-0"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Sending this task to the assistant…</div>';
+    try {
+      const route = currentRoute() || "dashboard";
+      const response = await window.API.dashboard.agentTaskCreate({
+        tool: "assistant",
+        question,
+        route,
+        module: route,
+        session_id: String(currentSessionId || ""),
+      });
+      const task = unwrapApiData(response);
+      if (!task?.task_id) throw new Error(task?.message || "The assistant did not accept this task.");
+      try { localStorage.setItem(delegatedTaskStorageKey(), JSON.stringify({ task_id: String(task.task_id), question })); } catch {}
+      input.value = "";
+      growAssistantInput();
+      renderDelegatedTask(task, question);
+      void pollDelegatedTask(String(task.task_id), question);
+    } catch (error) {
+      if (host) host.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(error?.message || "The task could not be queued.")}</div>`;
+    } finally {
+      if (button) button.disabled = false;
     }
   }
 
@@ -966,87 +1084,1303 @@
     return parts.join("");
   }
 
-  async function loadAiAssistantCatalog() {
-    const content = $("#global-ai-assistant-content");
-    const context = $("#global-ai-assistant-context");
-    if (!content) return;
+  const ASSISTANT_HISTORY_KEY = "kw_staff_assistant_history";
+  const ASSISTANT_ACTIVE_SESSION_KEY = "kw_staff_assistant_active_session";
 
-    const route = String(window.REQUESTED_ROUTE || "");
-    if (context) {
-      context.textContent = route
-        ? `Current workspace: ${route.replace(/[_/-]+/g, " ")}`
-        : "Current workspace: dashboard";
-    }
+  // Session state
+  let currentSessionId = null;
+  let currentSessionMessages = [];
+  let sessionsCache = [];
+  let assistantGenerating = false;
+  let activeAssistantStream = null;
+  let activeAssistantPlaceholder = null;
+  let assistantGenerationSeq = 0;
+  let assistantLastQuestion = "";
+  let assistantQueue = [];
+  let assistantQueueProcessing = false;
+  let assistantSessionFilter = "";
 
+  function getStoredActiveSession() {
     try {
-      // Persisted catalogue (IndexedDB + memory LRU) so opening the panel
-      // paints from the snapshot; DataStore revalidates in the background
-      // instead of blocking the click on a PHP round trip.
-      const catalogUrl = `/dashboard/ai-assistant-catalog?route=${encodeURIComponent(route)}`;
-      const payload = window.DataStore?.get
-        ? await window.DataStore.get("ai_assistant_catalog", {
-            strategy: "stale-while-revalidate",
-            storeName: "ai_workspace_cache",
-            ttl: 10 * 60 * 1000,
-            params: { route },
-            fetcher: () => window.API?.apiCall?.(catalogUrl, "GET"),
-          })
-        : await window.API?.apiCall?.(catalogUrl, "GET");
-      const workflows = Array.isArray(payload?.workflows)
-        ? payload.workflows
-        : [];
-      const queryForm = $("#global-ai-assistant-query");
-      const canAskReports = workflows.some((workflow) => workflow.id === "system.nlq_query");
-      // The governed agent assistant answers process/guidance questions for
-      // every authenticated staff member, so the form stays available even
-      // when this role has no report permissions.
-      if (queryForm) queryForm.hidden = false;
-      const suggestions = $("#global-ai-assistant-suggestions");
-      if (suggestions && workflows.length) {
-        const questions = workflows.flatMap((workflow) => Array.isArray(workflow.suggested_questions) ? workflow.suggested_questions : []).slice(0, 5);
-        suggestions.innerHTML = questions.map((question) => `<button type="button" class="btn btn-sm btn-outline-secondary ai-question-suggestion">${escapeHtml(question)}</button>`).join("");
-        suggestions.querySelectorAll(".ai-question-suggestion").forEach((button) => button.addEventListener("click", () => {
-          const input = $("#global-ai-assistant-question");
-          if (input) { input.value = button.textContent; input.focus(); }
-        }));
-      }
-
-      if (!workflows.length) {
-        content.innerHTML = canAskReports
-          ? '<p class="text-muted">No assistance is currently available for your permissions.</p>'
-          : '<p class="text-muted">No module assistance matches this workspace yet, but you can still ask a question above — the assistant answers school-process and guidance questions for every staff member.</p>';
-        return;
-      }
-
-      content.innerHTML = workflows.map((workflow) => {
-        const domain = String(workflow.domain || "system");
-        const target = aiWorkspaceRoutes[domain] || route || "dashboard";
-        const implemented = workflow.status === "implemented";
-        const contextual = workflow.contextual !== false;
-        const status = implemented ? "Available" : "Not yet available";
-        const contextualBadge = contextual
-          ? '<span class="badge text-bg-success-subtle text-success-emphasis border border-success-subtle me-1">For this workspace</span>'
-          : "";
-        const action = implemented
-          ? `<a class="btn btn-sm btn-outline-success" href="${escapeHtml((window.APP_BASE || "") + "/home.php?route=" + target)}">Open workspace</a>`
-          : '<span class="small text-muted">This capability is registered in the roadmap but is not yet enabled.</span>';
-        return `<div class="card border-0 shadow-sm mb-3">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-start gap-2">
-              <h6 class="mb-1">${contextualBadge}${escapeHtml(workflow.summary || workflow.id)}</h6>
-              <span class="badge text-bg-light">${escapeHtml(status)}</span>
-            </div>
-            <p class="small text-muted mb-2">${escapeHtml(domain)} · ${escapeHtml(workflow.action_level || "assist")}</p>
-            ${action}
-          </div>
-        </div>`;
-      }).join("");
-    } catch (error) {
-      content.innerHTML = '<p class="text-danger small">Contextual assistance is temporarily unavailable. Continue using the existing workflow.</p>';
+      return localStorage.getItem(ASSISTANT_ACTIVE_SESSION_KEY) || null;
+    } catch {
+      return null;
     }
   }
 
+  function rememberActiveSession(sessionId) {
+    try {
+      if (sessionId) localStorage.setItem(ASSISTANT_ACTIVE_SESSION_KEY, String(sessionId));
+      else localStorage.removeItem(ASSISTANT_ACTIVE_SESSION_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+
+  function setAssistantGenerating(on) {
+    assistantGenerating = !!on;
+    const send = $("#global-ai-assistant-send");
+    const input = $("#global-ai-assistant-question");
+    if (send) {
+      const icon = send.querySelector("i");
+      if (icon) {
+        icon.className = on ? "bi bi-stop-fill" : "bi bi-send-fill";
+      }
+      send.classList.toggle("btn-danger", on);
+      send.classList.toggle("btn-success", !on);
+      send.title = on ? "Stop generating" : "Send question";
+      send.setAttribute("aria-label", on ? "Stop generating" : "Send question");
+    }
+    // NOTE: Input is intentionally NOT disabled during generation to allow queueing
+    // if (input) input.disabled = on;
+
+    // The generation counter belongs to the caller, which already bumps it
+    // before opening a stream. Incrementing here too made isCurrent() compare
+    // against a later id, so every delta and final answer was discarded.
+  }
+
+  function stopAssistantGeneration() {
+    if (!assistantGenerating) return;
+    assistantGenerating = false;
+    const seq = assistantGenerationSeq;
+    try {
+      activeAssistantStream?.cancel?.();
+    } catch {
+      /* already settled */
+    }
+    setAssistantGenerating(false);
+    // Restore send button if this generation is still current
+    const send = $("#global-ai-assistant-send");
+    if (send) {
+      const icon = send.querySelector("i");
+      if (icon) icon.className = "bi bi-send-fill";
+      send.classList.remove("btn-danger");
+      send.classList.add("btn-success");
+      send.title = "Send question";
+      send.setAttribute("aria-label", "Send question");
+    }
+    return seq;
+  }
+
+  // Simple queue for assistant questions
+  async function processAssistantQueue() {
+    if (assistantQueueProcessing || assistantQueue.length === 0) return;
+    assistantQueueProcessing = true;
+    while (assistantQueue.length > 0) {
+      const { question, sessionId, resolve, reject } = assistantQueue.shift();
+      if (sessionId && sessionId !== currentSessionId) {
+        currentSessionId = sessionId;
+        rememberActiveSession(currentSessionId);
+        await loadAssistantSession(currentSessionId);
+      }
+      try {
+        // Use the existing submit logic inline
+        const form = $("#global-ai-assistant-form");
+        const input = $("#global-ai-assistant-question");
+        if (form && input) {
+          input.value = question;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          // Trigger the form's submit handler
+          const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+          form.dispatchEvent(submitEvent);
+        }
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    }
+    assistantQueueProcessing = false;
+  }
+
+  function queueAssistantQuestion(question, sessionId = currentSessionId) {
+    return new Promise((resolve, reject) => {
+      assistantQueue.push({ question, sessionId, resolve, reject });
+      if (!assistantQueueProcessing) {
+        processAssistantQueue();
+      }
+    });
+  }
+
+  async function loadAssistantSessions() {
+    try {
+      // apiCall() already unwraps the envelope, so the result is the array
+      // itself; a legacy `.data` access returned undefined and hid history.
+      const res = await window.API.dashboard.getAssistantSessions({limit: 30});
+      sessionsCache = Array.isArray(res) ? res : (res?.data || []);
+      return sessionsCache;
+    } catch (error) {
+      console.warn("Failed to load assistant sessions:", error);
+      // Fallback to localStorage history for backward compatibility
+      try {
+        const raw = JSON.parse(localStorage.getItem(ASSISTANT_HISTORY_KEY) || "[]");
+        const fallback = Array.isArray(raw)
+          ? raw.filter((item) => typeof item === "string" && item.trim() !== "").slice(0, 8).map((q, i) => ({
+              id: `local-${i}`,
+              title: q,
+              created_at: Date.now() / 1000 - i * 60,
+              message_count: 1,
+            }))
+          : [];
+        sessionsCache = fallback;
+        return fallback;
+      } catch {
+        sessionsCache = [];
+        return [];
+      }
+    }
+  }
+
+  function renderAssistantSessions() {
+    const host = $("#global-ai-assistant-history");
+    if (!host) return;
+
+    // Search input for session filtering
+    const searchHtml = `
+      <div class="px-2 pb-2">
+        <input type="search" class="form-control form-control-sm assistant-session-search"
+               placeholder="Search chats…" aria-label="Search chat history"
+               value="${escapeHtml(assistantSessionFilter)}">
+      </div>`;
+
+    // Filter sessions by search query
+    let filteredSessions = sessionsCache;
+    if (assistantSessionFilter.trim()) {
+      const query = assistantSessionFilter.trim().toLowerCase();
+      filteredSessions = sessionsCache.filter((s) =>
+        (s.title || "").toLowerCase().includes(query)
+      );
+    }
+
+    if (!filteredSessions.length) {
+      host.innerHTML = searchHtml + (sessionsCache.length
+        ? '<p class="small text-muted px-2 mb-0">No matching conversations.</p>'
+        : '<p class="small text-muted px-2 mb-0">Your conversations will appear here.</p>');
+      // Bind search input
+      host.querySelector(".assistant-session-search")?.addEventListener("input", (e) => {
+        assistantSessionFilter = e.target.value;
+        renderAssistantSessions();
+      });
+      return;
+    }
+
+    host.innerHTML = searchHtml + filteredSessions
+      .map(
+        (session) => {
+          const title = session.title || "New chat";
+          const date = session.updated_at
+            ? new Date(session.updated_at * 1000).toLocaleDateString([], {month: "numeric", day: "numeric"})
+            : "";
+          const isActive = String(session.id) === String(currentSessionId);
+          const id = escapeHtml(session.id);
+          return `<div class="chat-history-row${isActive ? " active" : ""}">
+            <button type="button" class="chat-history-item" data-session-id="${id}" title="${escapeHtml(title)}">
+              <span class="chat-history-title">${escapeHtml(title)}</span>
+              ${date ? `<span class="chat-history-date">${escapeHtml(date)}</span>` : ""}
+            </button>
+            <button type="button" class="session-delete-btn" data-session-id="${id}" title="Delete chat" aria-label="Delete ${escapeHtml(title)}"><i class="bi bi-trash"></i></button>
+          </div>`;
+        }
+      )
+      .join("");
+    // Click to load session
+    host.querySelectorAll(".chat-history-item").forEach((button) => {
+      button.addEventListener("click", () => {
+        const sessionId = button.getAttribute("data-session-id");
+        if (sessionId) loadAssistantSession(sessionId);
+      });
+    });
+    // Delete session
+    host.querySelectorAll(".session-delete-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const sessionId = btn.getAttribute("data-session-id");
+        if (sessionId) deleteAssistantSession(sessionId);
+      });
+    });
+  }
+
+  function renderAssistantHistory() {
+    // Keep the session list in sync and, when the cached active session carries
+    // messages, restore its transcript. Otherwise leave the current greeting.
+    renderAssistantSessions();
+    if (!currentSessionId) return;
+    const active = sessionsCache.find(
+      (session) => String(session.id) === String(currentSessionId)
+    );
+    if (active && Array.isArray(active.messages) && active.messages.length) {
+      renderConversationThread(active);
+    }
+  }
+
+  function growAssistantInput() {
+    const input = $("#global-ai-assistant-question");
+    if (!input) return;
+    const maxHeight = 160;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, maxHeight)}px`;
+    input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
+  }
+
+  function scrollAssistantToBottom() {
+    const thread = $("#global-ai-assistant-thread");
+    const target = thread || $("#global-ai-assistant-conversation");
+    if (!target) return;
+    target.scrollTop = target.scrollHeight;
+  }
+
+  async function createAssistantSession() {
+    try {
+      const route = window.REQUESTED_ROUTE || "";
+      const res = await window.API.dashboard.postAssistantSession({route, title: ""});
+      const session = res && typeof res === "object" ? res : res?.data;
+      if (session?.id) {
+        sessionsCache.unshift(session);
+        renderAssistantSessions();
+        currentSessionId = session.id;
+        rememberActiveSession(currentSessionId);
+        return session.id;
+      }
+    } catch (error) {
+      console.warn("Failed to create session:", error);
+    }
+    return null;
+  }
+
+  async function loadAssistantSession(sessionId) {
+    try {
+      const res = await window.API.dashboard.getAssistantSession({session_id: sessionId, limit: 200});
+      const session = res && typeof res === "object" ? res : res?.data;
+      if (!session) return;
+      currentSessionId = sessionId;
+      rememberActiveSession(currentSessionId);
+      // Populate local message history from the loaded session
+      currentSessionMessages = (session.messages || []).map((m) => ({
+        role: m.role,
+        content: m.content || "",
+        created_at: m.created_at || Math.floor(Date.now() / 1000),
+      }));
+      // Populate session topics
+      sessionTopics.set(sessionId, new Set(session.topics || []));
+      // Update sidebar active state
+      document.querySelectorAll(".chat-history-item").forEach((item) => {
+        item.classList.toggle("active", item.getAttribute("data-session-id") === sessionId);
+      });
+      // Render conversation thread
+      renderConversationThread(session);
+      // Scroll to bottom
+      scrollAssistantToBottom();
+    } catch (error) {
+      console.warn("Failed to load session:", error);
+    }
+  }
+
+  async function deleteAssistantSession(sessionId) {
+    if (!confirm("Delete this chat session?")) return;
+    try {
+      await window.API.dashboard.deleteAssistantSession({session_id: sessionId});
+      sessionsCache = sessionsCache.filter((s) => s.id !== sessionId);
+      if (currentSessionId === sessionId) {
+        currentSessionId = null;
+        clearConversation();
+      }
+      renderAssistantSessions();
+    } catch (error) {
+      window.showNotification?.("Failed to delete session", "error");
+    }
+  }
+
+  function renderConversationThread(session) {
+    const thread = $("#global-ai-assistant-thread");
+    if (!thread) return;
+    const messages = (session && session.messages) || [];
+    if (!messages.length) {
+      thread.innerHTML = getGreetingHtml();
+      bindAssistantPromptChips(thread);
+      return;
+    }
+    thread.innerHTML = messages
+      .map((msg) => {
+        if (msg.role === "user") {
+          return `<div class="d-flex justify-content-end mb-3"><div class="user-bubble chat-bubble max-w-75">${escapeHtml(msg.content)}</div></div>`;
+        } else {
+          return `<div class="d-flex mb-3"><span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${renderAiAgentAnswerFromMsg(msg)}</div></div>`;
+        }
+      })
+      .join("");
+    thread.querySelectorAll(".ai-followup-question").forEach((button) =>
+      button.addEventListener("click", () => {
+        const input = $("#global-ai-assistant-question");
+        if (input) {
+          input.value = button.textContent;
+          input.focus();
+        }
+      })
+    );
+  }
+
+  function getGreetingHtml() {
+    const user = window.AuthContext?.getUser?.();
+    const displayName = user?.first_name || "there";
+    const profileCopy = getAssistantProfileCopy();
+    return `
+      <div class="assistant-empty-state" id="global-ai-assistant-empty-state">
+        <div class="d-flex gap-3 mb-3">
+          <span class="assistant-avatar assistant-avatar-sm" aria-hidden="true"><i class="bi bi-robot"></i></span>
+          <div>
+            <p class="small mb-1">Hi <strong>${escapeHtml(displayName)}</strong>, ${escapeHtml(profileCopy.greeting)}</p>
+          </div>
+        </div>
+        <div class="assistant-prompt-chips d-flex flex-wrap gap-2" id="global-ai-assistant-prompt-chips">
+          ${profileCopy.prompts.map(([label, prompt]) => `<button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="${escapeHtml(prompt)}">${escapeHtml(label)}</button>`).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function bindAssistantPromptChips(root) {
+    root.querySelectorAll("[data-assistant-prompt]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = $("#global-ai-assistant-question");
+        if (!input) return;
+        input.value = button.getAttribute("data-assistant-prompt") || "";
+        input.focus();
+        growAssistantInput();
+      });
+    });
+  }
+
+  function clearConversation() {
+    const thread = $("#global-ai-assistant-thread");
+    if (!thread) return;
+    thread.innerHTML = getGreetingHtml();
+    bindAssistantPromptChips(thread);
+  }
+
+  function renderAiAgentAnswerFromMsg(msg) {
+    // msg.content is the assistant body text; msg.meta may have agent info
+    const meta = msg.meta || {};
+    const agentName = meta.agent_id ? meta.agent_id.split(".").pop() : "Assistant";
+    return `<div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+        <h6 class="mb-0">${escapeHtml("Assistant")}</h6>
+        <span class="badge text-bg-light">${escapeHtml(agentName)}</span>
+      </div>
+      <div class="small assistant-answer-body mb-2">${mdRender(msg.content || "")}</div>
+    </div>`;
+  }
+
+  let assistantChromeBound = false;
+  let assistantRecognition = null;
+
+  async function initAssistantChrome() {
+    if (assistantChromeBound) return;
+    assistantChromeBound = true;
+
+    const user = window.AuthContext?.getUser?.();
+    const displayName = resolveDisplayName(user);
+    const profileCopy = getAssistantProfileCopy();
+    setText("#globalAiAssistantPanelLabel", profileCopy.title);
+    setText(".assistant-sidebar-brand-copy small", profileCopy.title);
+    setText(
+      "#assistant-greeting-name",
+      (user?.first_name || displayName.split(" ")[0] || "there").trim()
+    );
+
+    const input = $("#global-ai-assistant-question");
+    input?.addEventListener("input", growAssistantInput);
+    input?.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && assistantGenerating) {
+        event.preventDefault();
+        stopAssistantGeneration();
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        const form = $("#global-ai-assistant-query");
+        if (input.value.trim() && typeof form?.requestSubmit === "function") {
+          form.requestSubmit();
+        }
+      }
+    });
+    growAssistantInput();
+
+    // Load sessions on first open
+    await loadAssistantSessions();
+    renderAssistantSessions();
+    // Restore the session the user had open before reload (if any)
+    const storedSessionId = getStoredActiveSession();
+    if (storedSessionId && sessionsCache.some((s) => String(s.id) === storedSessionId)) {
+      await loadAssistantSession(storedSessionId);
+    }
+
+    $("#global-ai-assistant-new-chat")?.addEventListener("click", async () => {
+      const newSessionId = await createAssistantSession();
+      if (newSessionId) {
+        currentSessionId = newSessionId;
+        clearConversation();
+        document.querySelectorAll(".chat-history-item").forEach((item) => {
+          item.classList.toggle("active", item.getAttribute("data-session-id") === newSessionId);
+        });
+        scrollAssistantToBottom();
+      }
+    });
+
+    $("#global-ai-assistant-help")?.addEventListener("click", () => {
+      // Open info modal instead of toast
+      const modal = $("#assistant-info-modal");
+      if (modal && window.bootstrap?.Modal) {
+        new window.bootstrap.Modal(modal).show();
+      } else {
+        window.showNotification?.(
+          "Ask about school processes, registers or reports. The assistant explains and drafts answers, but never posts, approves or sends anything.",
+          "info"
+        );
+      }
+    });
+
+    $("#global-ai-assistant-settings")?.addEventListener("click", () => {
+      // Open settings modal
+      const modal = $("#assistant-settings-modal");
+      if (modal && window.bootstrap?.Modal) {
+        new window.bootstrap.Modal(modal).show();
+        loadAssistantPreferences();
+      }
+    });
+
+    // Settings modal: save preferences
+    $("#assistant-save-settings")?.addEventListener("click", async () => {
+      const saveHistory = $("#pref-save-history");
+      const responseStyle = $("#pref-response-style");
+      const autoCharts = $("#pref-auto-charts");
+      const language = $("#pref-language");
+      const prefs = {
+        save_history: saveHistory?.checked !== false,
+        response_style: responseStyle?.value || "balanced",
+        auto_charts: autoCharts?.checked === true,
+        language: language?.value || "en",
+      };
+      try {
+        localStorage.setItem("kw_assistant_prefs", JSON.stringify(prefs));
+      } catch {}
+      // Persist to server
+      try {
+        await window.API.dashboard.postAssistantPreferences(prefs);
+      } catch {
+        window.showNotification?.("Failed to save assistant settings", "error");
+        return;
+      }
+      const modal = $("#assistant-settings-modal");
+      if (modal && window.bootstrap?.Modal) {
+        const bsModal = window.bootstrap.Modal.getInstance(modal);
+        if (bsModal) bsModal.hide();
+      }
+      window.showNotification?.("Assistant settings saved", "success");
+    });
+
+    // Settings modal: clear all history
+    $("#assistant-clear-history")?.addEventListener("click", async () => {
+      if (!confirm("Clear all chat sessions? This cannot be undone.")) return;
+      try {
+        await window.API.dashboard.postAssistantSessionsClear();
+      } catch {
+        window.showNotification?.("Failed to clear chat history", "error");
+        return;
+      }
+      sessionsCache = [];
+      currentSessionId = null;
+      currentSessionMessages = [];
+      sessionTopics.clear();
+      renderAssistantSessions();
+      clearConversation();
+      const modal = $("#assistant-settings-modal");
+      if (modal && window.bootstrap?.Modal) {
+        const bsModal = window.bootstrap.Modal.getInstance(modal);
+        if (bsModal) bsModal.hide();
+      }
+      window.showNotification?.("All chat history cleared", "info");
+    });
+
+    const attachment = $("#global-ai-assistant-attachment");
+    $("#global-ai-assistant-attach")?.addEventListener("click", () =>
+      attachment?.click()
+    );
+    attachment?.addEventListener("change", () => {
+      if (attachment.files?.length) {
+        window.showNotification?.(
+          "File attachments are not enabled for this assistant yet. Describe the information in your question instead.",
+          "info"
+        );
+        attachment.value = "";
+      }
+    });
+
+    const voiceButton = $("#global-ai-assistant-voice");
+    voiceButton?.addEventListener("click", () => {
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) {
+        window.showNotification?.(
+          "Voice input is not supported in this browser. Please type your question.",
+          "info"
+        );
+        return;
+      }
+      if (assistantRecognition) {
+        assistantRecognition.stop();
+        return;
+      }
+      const recognition = new Recognition();
+      assistantRecognition = recognition;
+      recognition.lang = document.documentElement.lang || "en-KE";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      const setIdle = () => {
+        assistantRecognition = null;
+        voiceButton.classList.add("btn-light", "text-muted");
+        voiceButton.classList.remove("btn-success", "text-white");
+      };
+
+      voiceButton.classList.remove("btn-light", "text-muted");
+      voiceButton.classList.add("btn-success", "text-white");
+      recognition.onresult = (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || "";
+        if (transcript && input) {
+          input.value = transcript;
+          growAssistantInput();
+          input.focus();
+        }
+      };
+      recognition.onerror = (event) => {
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          window.showNotification?.(
+            "Microphone access was blocked. Allow it in your browser to dictate questions.",
+            "warning"
+          );
+        } else if (event.error !== "aborted" && event.error !== "no-speech") {
+          window.showNotification?.(
+            "Voice input stopped. Please try again or type your question.",
+            "info"
+          );
+        }
+      };
+      recognition.onend = setIdle;
+      try {
+        recognition.start();
+      } catch (error) {
+        setIdle();
+      }
+    });
+
+    $("#global-ai-assistant-delegate")?.addEventListener("click", () => {
+      void delegateAssistantQuestion();
+    });
+
+    const thread = $("#global-ai-assistant-thread");
+    if (thread && typeof MutationObserver !== "undefined") {
+      new MutationObserver(() => scrollAssistantToBottom()).observe(thread, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
+
+    // Show the greeting in the thread when no session is active
+    if (!currentSessionId) clearConversation();
+  }
+
   let aiAssistantQueryBound = false;
+
+  // Session topics (client-side, persisted to server on each turn)
+  let sessionTopics = new Map();
+
+  function getSessionTopics(sessionId) {
+    return sessionId ? Array.from(sessionTopics.get(sessionId) || []) : [];
+  }
+
+  function updateSessionTopics(sessionId, newTopics) {
+    if (!sessionId) return;
+    const existing = sessionTopics.get(sessionId) || new Set();
+    for (const topic of newTopics) existing.add(topic);
+    sessionTopics.set(sessionId, existing);
+  }
+
+  async function persistSessionTopics(sessionId, topics) {
+    if (!sessionId || !topics.length) return;
+    try {
+      await window.API.dashboard.patchAssistantSession?.({
+        session_id: sessionId,
+        topics,
+      });
+    } catch {
+      /* silent fail - topics are best-effort */
+    }
+  }
+
+  // Resolve which assistant persona the current user should speak to.
+  // One shared UI — the backend decides the persona based on domain + role +
+  // permissions. No duplication across staff, system admin, parents, public.
+  // Returns one of: "system_admin" | "parent" | "public" | "staff"
+  function getAssistantDomain() {
+    const user = window.AuthContext?.getUser?.() || {};
+    const isAuthenticated = window.AuthContext?.isAuthenticated?.() ?? false;
+
+    // Public / unauthenticated → public assistant (customer care, no internal info)
+    if (!isAuthenticated) {
+      return "public";
+    }
+
+    const permissions = window.AuthContext?.getPermissions?.() || [];
+    if (permissions.includes("system_admin")) {
+      return "system_admin";
+    }
+
+    // Parent account → parent assistant (parent/guardian focused)
+    const role = String(user.role_name || user.role || "").toLowerCase();
+    if (String(user.account_type || "").toLowerCase() === "parent") {
+      return "parent";
+    }
+    if (role === "parent") {
+      return "parent";
+    }
+
+    // SCHOOL domain staff → staff assistant (educational/operational)
+    return "staff";
+  }
+
+  function getAssistantRoleProfile() {
+    if (getAssistantDomain() === "system_admin") return "system_admin";
+    const user = window.AuthContext?.getUser?.() || {};
+    const roleValues = [
+      ...(window.AuthContext?.getRoles?.() || []),
+      ...(Array.isArray(user.roles) ? user.roles : []),
+      ...(Array.isArray(user.role_names) ? user.role_names : []),
+      user.role_name,
+      user.role,
+    ];
+    const roles = roleValues.map((role) => {
+      const label = typeof role === "object" && role
+        ? role.name || role.role_name || role.label || role.slug || ""
+        : role;
+      return String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    });
+    if (roles.some((role) => ["director", "director owner"].includes(role))) return "director";
+    if (roles.some((role) => ["school administrator", "school admin"].includes(role))) {
+      return "school_administrator";
+    }
+    return "staff";
+  }
+
+  function getAssistantProfileCopy() {
+    const profiles = {
+      system_admin: {
+        title: "System Operations Assistant",
+        greeting: "I can help review operational health, error signals, and safe fixes.",
+        prompts: [
+          ["System health", "Summarize the current authorized system health signals."],
+          ["Recent errors", "Group the recent authorized error signals and suggest safe next steps."],
+          ["Queue health", "Summarize queue health and any jobs needing administrator review."],
+        ],
+      },
+      school_administrator: {
+        title: "School Operations Assistant",
+        greeting: "I can help coordinate school operations, review reports, and prepare work for your approval.",
+        prompts: [
+          ["Operations brief", "Summarize the key school operations items needing follow-up."],
+          ["Admissions review", "Summarize the authorized admissions items that need review."],
+          ["Plan a timetable", "Help me prepare a timetable plan and ask for any missing constraints."],
+        ],
+      },
+      director: {
+        title: "Director’s Briefing Assistant",
+        greeting: "I can prepare concise, evidence-based school briefings and highlight changes that may need your attention.",
+        prompts: [
+          ["Executive brief", "Prepare an executive briefing from my authorized school reports."],
+          ["Changes and risks", "Highlight the material changes and risks in my authorized reports."],
+          ["Compare periods", "Compare available authorized school indicators across reporting periods."],
+        ],
+      },
+      staff: {
+        title: "Staff Assistant",
+        greeting: "How can I help with your school work today?",
+        prompts: [
+          ["Key trends in reports", "What are the key trends in my authorized school reports?"],
+          ["Admissions status", "Show me admissions status"],
+          ["Workspace summary", "Summarize my workspace"],
+        ],
+      },
+    };
+    return profiles[getAssistantRoleProfile()] || profiles.staff;
+  }
+
+  // Backward-compatible shim: system admin assistant check
+  function canSystemAssistant() {
+    return getAssistantDomain() === "system_admin";
+  }
+
+  // ---------------------------------------------------------------- page context
+  // Co-worker awareness: the assistant should know what the operator is looking
+  // at without a second data path. We report only labels the page already
+  // shows — the record last opened, the open dialog, selected text, visible KPI
+  // names and filter labels. Values still come from governed tools.
+  const assistantPageState = { entity: null };
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target?.closest?.("[data-ai-entity]");
+      if (!target) return;
+      const label = String(
+        target.getAttribute("data-ai-entity") || target.textContent || ""
+      )
+        .trim()
+        .slice(0, 80);
+      if (!label) return;
+      assistantPageState.entity = {
+        kind: target.getAttribute("data-ai-entity-kind") || "record",
+        label,
+        id: target.getAttribute("data-ai-id") || "",
+        status: target.getAttribute("data-ai-status") || "",
+      };
+    },
+    true,
+  );
+
+  function getAssistantPageContext() {
+    const context = {};
+    const entity = assistantPageState.entity;
+    if (entity && entity.label) {
+      context.page_entity = {
+        kind: entity.kind,
+        label: entity.label,
+        ...(entity.id ? { id: entity.id } : {}),
+        ...(entity.status ? { status: entity.status } : {}),
+      };
+    }
+    const modal = document.querySelector(".modal.show");
+    if (modal) {
+      const title = String(
+        modal.querySelector(".modal-title")?.textContent || ""
+      )
+        .trim()
+        .slice(0, 100);
+      if (title) {
+        context.modal = title;
+        if (!context.page_entity) {
+          context.page_entity = { kind: "modal", label: title };
+        }
+      }
+    }
+    const selection = window.getSelection?.()?.toString?.().trim() || "";
+    if (selection) {
+      context.selection = { text: selection.slice(0, 200) };
+    }
+    const metrics = Array.from(document.querySelectorAll("[data-ai-metric]"))
+      .map((node) => String(node.textContent || "").trim().slice(0, 60))
+      .filter(Boolean)
+      .slice(0, 10);
+    if (metrics.length) {
+      context.visible_metrics = metrics;
+    }
+    const filters = {};
+    document.querySelectorAll("[data-ai-filter]").forEach((node) => {
+      const key = node.getAttribute("data-ai-filter");
+      const value = String(node.value ?? node.textContent ?? "").trim();
+      if (key && value) filters[key] = value.slice(0, 60);
+    });
+    if (Object.keys(filters).length) {
+      context.filters = filters;
+    }
+    return context;
+  }
+
+  function getAssistantPreferences() {
+    try {
+      const raw = localStorage.getItem("kw_assistant_prefs");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function extractTopics(text) {
+    const t = String(text ?? "").toLowerCase();
+    const topicMap = {
+      admissions: ["admission", "applicant", "application", "enroll", "enrol", "placement", "interview"],
+      fees: ["fee", "payment", "invoice", "finance", "budget", "expense", "bursar", "pay"],
+      attendance: ["attendance", "absent", "present", "late", "roll call", "register"],
+      reports: ["report", "performance", "result", "mark", "grade", "score", "transcript"],
+      communications: ["message", "sms", "email", "announcement", "newsletter", "communicat"],
+      discipline: ["discipline", "behavior", "behaviour", "conduct", "punish", "detention"],
+      boarding: ["boarding", "dormitory", "hostel", "boarder", "residence"],
+      health: ["health", "sick", "sick bay", "medical", "clinic", "nurse"],
+      transport: ["transport", "bus", "route", "pickup", "drop"],
+      academics: ["academic", "curriculum", "syllabus", "lesson", "timetable", "class"],
+      staff: ["staff", "teacher", "payroll", "payslip", "leave", "employment"],
+    };
+    const found = new Set();
+    for (const [topic, keywords] of Object.entries(topicMap)) {
+      if (keywords.some((kw) => t.includes(kw))) found.add(topic);
+    }
+    return Array.from(found);
+  }
+
+  // Slash command handler: /new, /clear, /help, /topic, /export, /tour
+  async function handleAssistantCommand(cmd, args, input, conversation, answer) {
+    switch (cmd) {
+      case "new": {
+        const newSessionId = await createAssistantSession();
+        if (newSessionId) {
+          currentSessionId = newSessionId;
+          clearConversation();
+          document.querySelectorAll(".chat-history-item").forEach((item) => {
+            item.classList.toggle("active", item.getAttribute("data-session-id") === newSessionId);
+          });
+        }
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        scrollAssistantToBottom();
+        return true;
+      }
+      case "clear": {
+        if (currentSessionId) {
+          try {
+            await window.API.dashboard.clearAssistantSessionMessages?.({session_id: currentSessionId});
+          } catch {}
+          currentSessionMessages = [];
+          sessionTopics.delete(currentSessionId);
+        }
+        clearConversation();
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        scrollAssistantToBottom();
+        return true;
+      }
+      case "help": {
+        const helpHtml = `
+          <div class="card border-0 bg-light-subtle mb-3"><div class="card-body p-3">
+            <h6 class="mb-2">Assistant Commands</h6>
+            <ul class="small mb-2 list-unstyled">
+              <li><code>/new</code> — Start a new chat session</li>
+              <li><code>/clear</code> — Clear the current conversation</li>
+              <li><code>/topic &lt;name&gt;</code> — Tag the current session (e.g. /topic admissions)</li>
+              <li><code>/export</code> — Download the current transcript as CSV</li>
+              <li><code>/tour</code> — Start the guided system tour</li>
+              <li><code>/help</code> — Show this help</li>
+            </ul>
+            <p class="small text-muted mb-0">Or just ask a question naturally. While an answer is being generated the send button becomes a stop button.</p>
+          </div></div>`;
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = helpHtml;
+        if (conversation) conversation.appendChild(tempDiv);
+        scrollAssistantToBottom();
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      case "topic": {
+        if (!currentSessionId) {
+          window.showNotification?.("No active session to tag.", "warning");
+          return true;
+        }
+        if (!args) {
+          const topics = getSessionTopics(currentSessionId);
+          window.showNotification?.(
+            topics.length ? "Topics: " + topics.join(", ") : "No topics set for this session.",
+            "info"
+          );
+          return true;
+        }
+        updateSessionTopics(currentSessionId, [args]);
+        persistSessionTopics(currentSessionId, getSessionTopics(currentSessionId));
+        window.showNotification?.("Session tagged: " + args, "success");
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      case "export": {
+        if (!currentSessionId) {
+          window.showNotification?.("Nothing to export.", "warning");
+          return true;
+        }
+        const lines = ["role,content,timestamp"];
+        for (const m of currentSessionMessages) {
+          lines.push(`"${m.role}","${String(m.content || "").replace(/"/g, '""')}",${m.created_at || ""}`);
+        }
+        const csv = lines.join("\n");
+        const blob = new Blob([csv], {type: "text/csv"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `kingsway-assistant-${currentSessionId}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      case "tour": {
+        SystemTour.start(true);
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  // System Tour — guided walkthrough. Restartable via /tour.
+  class SystemTour {
+    static STEPS = [
+      {
+        id: "sidebar",
+        target: ".sidebar-link[data-route='school_administrative_officer_dashboard'], .sidebar-link[data-route='manage_students_admissions']",
+        title: "Sidebar Navigation",
+        text: "Use the sidebar to switch between dashboard areas. Click any item to open that page.",
+        action: null,
+      },
+      {
+        id: "assistant",
+        target: "#global-ai-assistant-query",
+        title: "Staff Assistant",
+        text: "Ask questions about your dashboard data here. Try /help for commands.",
+        action: null,
+      },
+      {
+        id: "notifications",
+        target: ".header-notifications, [data-notifications]",
+        title: "Notifications",
+        text: "Important alerts and updates appear in the notifications panel.",
+        action: null,
+      },
+      {
+        id: "user_menu",
+        target: "#header-user-menu, .dropdown-toggle",
+        title: "User Menu",
+        text: "Access your profile, settings, and sign out from the user menu.",
+        action: null,
+      },
+    ];
+
+    static completedKey = "kw_tour_completed";
+    static currentStepIndex = 0;
+    static overlay = null;
+    static tooltip = null;
+
+    static isCompleted() {
+      try {
+        return localStorage.getItem(this.completedKey) === "1";
+      } catch {
+        return false;
+      }
+    }
+
+    static markCompleted() {
+      try {
+        localStorage.setItem(this.completedKey, "1");
+      } catch {}
+    }
+
+    static start(force = false) {
+      if (!force && this.isCompleted()) return;
+      this.hideOverlay();
+      this.hideTooltip();
+      this.currentStepIndex = 0;
+      this.showStep(0);
+    }
+
+    static showStep(index) {
+      if (index >= this.STEPS.length) {
+        this.markCompleted();
+        this.hideOverlay();
+        this.hideTooltip();
+        window.showNotification?.("Tour completed. Restart anytime with /tour.", "info");
+        return;
+      }
+      const step = this.STEPS[index];
+      const target = document.querySelector(step.target);
+      if (!target) {
+        this.showStep(index + 1);
+        return;
+      }
+      this.hideTooltip();
+      const rect = target.getBoundingClientRect();
+      const tooltip = document.createElement("div");
+      tooltip.id = "system-tour-tooltip";
+      tooltip.className = "position-fixed bg-dark text-white p-3 rounded shadow-lg";
+      tooltip.style.zIndex = "9999";
+      tooltip.style.left = Math.max(10, rect.left) + "px";
+      tooltip.style.top = Math.max(10, rect.bottom + 8) + "px";
+      tooltip.style.maxWidth = "300px";
+      tooltip.innerHTML = `
+        <div class="d-flex justify-content-between mb-2">
+          <strong>${step.title}</strong>
+          <span class="badge bg-info text-dark">${index + 1} / ${this.STEPS.length}</span>
+        </div>
+        <div class="small">${step.text}</div>
+        <div class="mt-2 d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-light" id="tour-next">${
+            index < this.STEPS.length - 1 ? "Next" : "Done"
+          }</button>
+          <button type="button" class="btn btn-sm btn-danger" id="tour-skip">Skip</button>
+        </div>
+      `;
+      document.body.appendChild(tooltip);
+      this.tooltip = tooltip;
+      tooltip.querySelector("#tour-next")?.addEventListener("click", () => {
+        this.showStep(index + 1);
+      });
+      tooltip.querySelector("#tour-skip")?.addEventListener("click", () => {
+        this.markCompleted();
+        this.hideOverlay();
+        this.hideTooltip();
+      });
+    }
+
+    static hideOverlay() {
+      const ov = document.getElementById("system-tour-overlay");
+      if (ov) ov.remove();
+    }
+
+    static hideTooltip() {
+      const tp = document.getElementById("system-tour-tooltip");
+      if (tp) tp.remove();
+      this.tooltip = null;
+    }
+  }
+
+  // ---------------------------------------------------------------- proactive
+  //
+  // A workspace that sits idle, or a long page that stops scrolling, is a
+  // moment where the staff member is thinking rather than clicking. That is
+  // when one concrete next question is useful and when a chat launcher is
+  // least intrusive. The nudge is deliberately quiet:
+  //
+  //   * one hint at a time, at most once per page state per browser session;
+  //   * never while the panel is open, a modal is up, text is selected, the
+  //     tab is hidden, or an answer is streaming;
+  //   * never a claim - the server sends a question offer, not a figure.
+  const PROACTIVE_IDLE_MS = 30000;
+  const PROACTIVE_SCROLL_SETTLE_MS = 2500;
+  const PROACTIVE_MIN_SCROLL = 500;
+  const PROACTIVE_SEEN_KEY = "kw_assistant_nudge_seen";
+  const PROACTIVE_OFF_KEY = "kw_assistant_nudge_off";
+
+  let proactiveIdleTimer = null;
+  let proactiveScrollTimer = null;
+  let proactiveInFlight = false;
+  let proactiveBound = false;
+  let proactiveCurrent = null;
+
+  function proactiveSeen() {
+    try {
+      return new Set(JSON.parse(sessionStorage.getItem(PROACTIVE_SEEN_KEY) || "[]"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function markProactiveSeen(signature) {
+    if (!signature) return;
+    try {
+      const seen = proactiveSeen();
+      seen.add(signature);
+      // A session can wander many pages; keep the ring small.
+      sessionStorage.setItem(
+        PROACTIVE_SEEN_KEY,
+        JSON.stringify(Array.from(seen).slice(-40))
+      );
+    } catch {
+      /* private mode: the nudge simply repeats, which is harmless */
+    }
+  }
+
+  function proactiveDisabled() {
+    try {
+      return localStorage.getItem(PROACTIVE_OFF_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function assistantPanelOpen() {
+    return Boolean(document.querySelector("#globalAiAssistantPanel.show"));
+  }
+
+  function proactiveBlocked() {
+    if (proactiveDisabled() || proactiveInFlight) return true;
+    if (document.hidden || assistantPanelOpen()) return true;
+    if (document.querySelector(".modal.show")) return true;
+    if (assistantGenerating) return true;
+    if (window.getSelection?.()?.toString?.().trim()) return true;
+    const active = document.activeElement;
+    if (
+      active &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT" ||
+        active.isContentEditable)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function hideProactiveNudge() {
+    proactiveCurrent = null;
+    document.getElementById("assistant-proactive-nudge")?.remove();
+  }
+
+  function openAssistantWith(question) {
+    const panel = document.getElementById("globalAiAssistantPanel");
+    if (!panel) return;
+    try {
+      window.bootstrap?.Offcanvas?.getOrCreateInstance(panel)?.show();
+    } catch {
+      /* the header button remains the fallback */
+    }
+    window.setTimeout(() => {
+      const input = document.getElementById("global-ai-assistant-question");
+      const form = document.getElementById("global-ai-assistant-query");
+      if (!input || !form) return;
+      input.value = question;
+      if (typeof input.dispatchEvent === "function") {
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      }
+    }, 420);
+  }
+
+  function renderProactiveNudge(suggestion, signature) {
+    hideProactiveNudge();
+    const title = String(suggestion?.title || "").trim().slice(0, 120);
+    const prompt = String(suggestion?.prompt || "").trim().slice(0, 300);
+    const reason = String(suggestion?.reason || "").trim().slice(0, 160);
+    if (!title || !prompt) return;
+
+    const nudge = document.createElement("div");
+    nudge.id = "assistant-proactive-nudge";
+    nudge.className = "ai-nudge";
+    nudge.setAttribute("role", "status");
+    nudge.innerHTML = `
+      <div class="ai-nudge-head">
+        <span class="ai-nudge-label"><i class="bi bi-stars me-1" aria-hidden="true"></i>Suggested next step</span>
+        <button type="button" class="btn-close btn-close-sm" data-ai-nudge-dismiss aria-label="Dismiss suggestion"></button>
+      </div>
+      <p class="ai-nudge-title">${escapeHtml(title)}</p>
+      ${reason ? `<p class="ai-nudge-reason">${escapeHtml(reason)}</p>` : ""}
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-primary" data-ai-nudge-ask>Ask this</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-ai-nudge-dismiss>Not now</button>
+      </div>`;
+
+    nudge.querySelector("[data-ai-nudge-ask]")?.addEventListener("click", () => {
+      markProactiveSeen(signature);
+      hideProactiveNudge();
+      openAssistantWith(prompt);
+    });
+    nudge.querySelectorAll("[data-ai-nudge-dismiss]").forEach((button) => {
+      button.addEventListener("click", () => {
+        markProactiveSeen(signature);
+        hideProactiveNudge();
+      });
+    });
+
+    document.body.appendChild(nudge);
+    proactiveCurrent = { suggestion, signature };
+  }
+
+  async function requestProactiveNudge() {
+    if (proactiveBlocked()) return;
+    const suggest = window.API?.dashboard?.agentSuggest;
+    if (typeof suggest !== "function") return;
+    proactiveInFlight = true;
+    try {
+      const response = await suggest(
+        String(window.REQUESTED_ROUTE || ""),
+        "dashboard",
+        getAssistantPageContext()
+      );
+      const payload = response?.data ?? response ?? {};
+      const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+      const signature = String(payload.signature || "");
+      if (!suggestions.length) return;
+      if (signature && proactiveSeen().has(signature)) return;
+      if (proactiveBlocked()) return;
+      const first = suggestions.find((item) => item && item.title && item.prompt);
+      if (!first) return;
+      renderProactiveNudge(first, signature);
+    } catch {
+      /* a nudge is never worth surfacing an error */
+    } finally {
+      proactiveInFlight = false;
+    }
+  }
+
+  function scheduleProactiveNudge(delay = PROACTIVE_IDLE_MS) {
+    window.clearTimeout(proactiveIdleTimer);
+    if (proactiveDisabled()) return;
+    proactiveIdleTimer = window.setTimeout(() => {
+      void requestProactiveNudge();
+      // If the moment was not right (a modal, a selection), try once more
+      // after a full idle window rather than on a tight loop.
+      scheduleProactiveNudge();
+    }, Math.max(5000, delay));
+  }
+
+  function initProactiveAssistant() {
+    if (proactiveBound) return;
+    proactiveBound = true;
+
+    // A hint belongs to the page it was offered on. Navigation clears it and
+    // restarts the idle clock on the new workspace.
+    const resetForPage = () => {
+      hideProactiveNudge();
+      scheduleProactiveNudge();
+    };
+    window.addEventListener("kingsway:page-loaded", resetForPage);
+    window.addEventListener("hashchange", resetForPage);
+    window.addEventListener("popstate", resetForPage);
+
+    const noteActivity = () => {
+      if (proactiveCurrent) return;
+      scheduleProactiveNudge();
+    };
+    document.addEventListener("pointerdown", noteActivity, { passive: true, capture: true });
+    document.addEventListener("keydown", noteActivity, { capture: true });
+
+    let lastScrollY = window.scrollY || 0;
+    window.addEventListener(
+      "scroll",
+      () => {
+        const now = window.scrollY || 0;
+        const travelled = Math.abs(now - lastScrollY);
+        if (travelled > 24) {
+          lastScrollY = now;
+          hideProactiveNudge();
+        }
+        window.clearTimeout(proactiveScrollTimer);
+        proactiveScrollTimer = window.setTimeout(() => {
+          if (now < PROACTIVE_MIN_SCROLL) return;
+          void requestProactiveNudge();
+        }, PROACTIVE_SCROLL_SETTLE_MS);
+        scheduleProactiveNudge();
+      },
+      { passive: true }
+    );
+
+    document
+      .getElementById("globalAiAssistantPanel")
+      ?.addEventListener("show.bs.offcanvas", () => {
+        hideProactiveNudge();
+      });
+
+    scheduleProactiveNudge();
+  }
 
   function initAiAssistantQuery() {
     const form = $("#global-ai-assistant-query");
@@ -1054,80 +2388,292 @@
     aiAssistantQueryBound = true;
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const input = $("#global-ai-assistant-question");
-      const answer = $("#global-ai-assistant-answer");
-      const question = String(input?.value || "").trim();
-      if (!question || !answer) return;
-      answer.innerHTML =
-        '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Routing your question to the right agent…</div>';
+      try {
+        const input = $("#global-ai-assistant-question");
+        const thread = $("#global-ai-assistant-thread");
+        const question = String(input?.value || "").trim();
+        if (!question || !thread) return;
 
-      const stream = window.API?.dashboard?.agentAssistStream;
-      if (typeof stream === "function") {
-        // Streamed path: words appear as they are produced instead of after
-        // the whole answer has been generated.
-        const bubble = document.createElement("div");
-        bubble.className = "ai-stream-bubble";
-        answer.innerHTML = "";
-        answer.appendChild(bubble);
-        let text = "";
-        try {
-          const handle = stream(
-            question,
-            String(window.REQUESTED_ROUTE || ""),
-            "dashboard",
-            {
-              onStatus: () => {
-                bubble.innerHTML =
-                  '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Checking governed school data…</div>';
-              },
-              onDelta: (chunk) => {
-                text += chunk;
-                // Rendered as text nodes, never HTML: streamed content is
-                // model output and must not be able to inject markup.
-                bubble.textContent = text;
-              },
-              onError: (message) => {
-                if (!text) {
-                  bubble.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(
-                    message || "The assistant could not answer right now."
-                  )}</div>`;
-                }
-              },
-            },
-          );
-          const result = await handle.promise;
-          if (result) {
-            answer.innerHTML = renderAiAgentAnswer(result);
-            handle.cancel();
+        // Store last question for regenerate/edit actions
+        assistantLastQuestion = question;
+
+        // Block duplicate sends while generating
+        if (assistantGenerating) return;
+
+        // Command system: /new, /clear, /help, /topic, /export, /tour
+        if (question.startsWith("/")) {
+          const cmdParts = question.slice(1).split(/\s+/);
+          const cmd = cmdParts[0]?.toLowerCase();
+          const args = cmdParts.slice(1).join(" ");
+          const cmdHandled = await handleAssistantCommand(cmd, args, input, thread, null);
+          if (cmdHandled) {
+            input.value = "";
+            growAssistantInput();
+            scrollAssistantToBottom();
+            return;
           }
-          if (answer.innerHTML === "") return;
-        } catch (streamError) {
-          answer.innerHTML = "";
+          // Unknown command falls through to normal AI processing
         }
-        if (answer.innerHTML !== "") return;
+
+        // Ensure we have a session. If the session service is temporarily
+        // unavailable, proceed without one: the backend creates a session for
+        // the turn, and we re-list sessions once it settles. Never abort the
+        // send — a ChatGPT-style composer always accepts the message.
+        if (!currentSessionId) {
+          try {
+            const newSessionId = await createAssistantSession();
+            if (newSessionId) {
+              currentSessionId = newSessionId;
+              document.querySelectorAll(".chat-history-item").forEach((item) => {
+                item.classList.toggle("active", item.getAttribute("data-session-id") === newSessionId);
+              });
+            }
+          } catch {
+            /* fall through: backend creates the session for this turn */
+          }
+        }
+
+        // Clear the composer immediately, exactly like ChatGPT
+        input.value = "";
+        growAssistantInput();
+
+        // Add user bubble to conversation thread
+        thread.querySelector("#global-ai-assistant-empty-state")?.remove();
+        const userBubble = document.createElement("div");
+        userBubble.className = "d-flex justify-content-end mb-3";
+        userBubble.innerHTML = `<div class="user-bubble chat-bubble max-w-75">${escapeHtml(question)}</div>`;
+        thread.appendChild(userBubble);
+
+        // Track history locally (native role-based)
+        currentSessionMessages.push({
+          role: "user",
+          content: question,
+          created_at: Math.floor(Date.now() / 1000),
+        });
+
+        // Streaming placeholder
+        const streamPlaceholder = document.createElement("div");
+        streamPlaceholder.className = "d-flex mb-3";
+        streamPlaceholder.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="ai-stream-bubble flex-grow-1"><div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Routing your question to the right agent…</div></div>`;
+        thread.appendChild(streamPlaceholder);
+        scrollAssistantToBottom();
+
+        const generation = ++assistantGenerationSeq;
+        const isCurrent = () => generation === assistantGenerationSeq;
+        setAssistantGenerating(true);
+        activeAssistantStream = null;
+
+        const requestOptions = {
+          session_id: currentSessionId,
+          history: currentSessionMessages,
+          topics: getSessionTopics(currentSessionId),
+          sidebar_state: window.SoftNavigation?.getSidebarState?.(),
+          preferences: getAssistantPreferences(),
+          system_admin: canSystemAssistant(),
+          assistant_domain: getAssistantDomain(),
+          ...getAssistantPageContext(),
+        };
+
+        const stream = window.API?.dashboard?.agentAssistStream;
+        let handled = false;
+        // Raw text accumulated from the stream, rendered as markdown as it lands.
+        let streamedAnswerText = "";
+        if (typeof stream === "function") {
+          try {
+            const handle = stream(
+              question,
+              String(window.REQUESTED_ROUTE || ""),
+              "dashboard",
+              {
+                ...requestOptions,
+                onStatus: () => {
+                  const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
+                  if (bubble) bubble.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Checking governed school data…</div>';
+                },
+                onDelta: (chunk) => {
+                  if (!isCurrent()) return;
+                  const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
+                  if (!bubble) return;
+                  // Accumulate raw text and re-render markdown so bold/lists
+                  // appear progressively instead of literal asterisks.
+                  streamedAnswerText += chunk;
+                  bubble.classList.add("assistant-answer-body");
+                  bubble.innerHTML = mdRender(streamedAnswerText);
+                },
+                onError: (message) => {
+                  if (!isCurrent()) return;
+                  const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
+                  if (bubble && !streamedAnswerText.trim()) {
+                    bubble.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(message || "The assistant could not answer right now.")}</div>`;
+                  }
+                },
+              },
+            );
+            activeAssistantStream = handle;
+            const result = await handle.promise;
+            activeAssistantStream = null;
+            // A Stop press increments the generation id; do not render abandoned answer
+            if (!isCurrent()) return;
+            if (result) {
+              handled = true;
+              streamPlaceholder.remove();
+              // Add assistant message to thread
+              const assistantMsg = document.createElement("div");
+              assistantMsg.className = "d-flex mb-3";
+              const answerHtml = renderAiAgentAnswer(result);
+              assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
+              thread.appendChild(assistantMsg);
+              hydrateAiCharts(assistantMsg, result?.charts);
+              // Track assistant message in history
+              const assistantBody = result?.answer?.body || result?.message || "";
+            if (assistantBody) {
+              currentSessionMessages.push({
+                role: "assistant",
+                content: assistantBody,
+                created_at: Math.floor(Date.now() / 1000),
+              });
+            }
+            // Persist topics
+            const topics = extractTopics(currentSessionMessages.map((m) => m.content).join(" "));
+            if (topics.length && currentSessionId) {
+              updateSessionTopics(currentSessionId, topics);
+              persistSessionTopics(currentSessionId, getSessionTopics(currentSessionId));
+            }
+            await loadAssistantSessions();
+            renderAssistantSessions();
+            // Re-bind follow-up buttons
+            thread.querySelectorAll(".ai-followup-question").forEach((button) => {
+              button.addEventListener("click", () => {
+                const inp = $("#global-ai-assistant-question");
+                if (inp) { inp.value = button.textContent; inp.focus(); }
+              });
+            });
+            scrollAssistantToBottom();
+          }
+          setAssistantGenerating(false);
+        } catch (streamError) {
+          // fall through to buffered
+          setAssistantGenerating(false);
+        }
       }
 
+      if (handled) {
+        scrollAssistantToBottom();
+        return;
+      }
+
+      // Buffered fallback
       try {
         const payload = await window.API?.dashboard?.agentAssist?.(
           question,
           String(window.REQUESTED_ROUTE || ""),
-          "dashboard"
+          "dashboard",
+          requestOptions
         );
+        if (!isCurrent()) return;
         const result = payload?.data !== undefined ? payload.data : payload;
-        answer.innerHTML = renderAiAgentAnswer(result);
-      } catch (agentError) {
-        // Fall back to the governed reports NLQ assistant when the agent
-        // layer is unavailable (older deployments, provider outage).
-        try {
-          const payload = await window.API?.reports?.askNlq?.(question);
-          const result = payload?.data !== undefined ? payload.data : payload;
-          answer.innerHTML = renderAiAnswer(result);
-        } catch (error) {
-          answer.innerHTML =
-            '<div class="alert alert-warning small mb-0">The assistant could not answer right now. Open the governed reports directly.</div>';
+        streamPlaceholder.remove();
+        const assistantMsg = document.createElement("div");
+        assistantMsg.className = "d-flex mb-3";
+        const answerHtml = renderAiAgentAnswer(result);
+        assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
+        thread.appendChild(assistantMsg);
+        hydrateAiCharts(assistantMsg, result?.charts);
+        const assistantBody = result?.answer?.body || result?.message || "";
+        if (assistantBody) {
+          currentSessionMessages.push({
+            role: "assistant",
+            content: assistantBody,
+            created_at: Math.floor(Date.now() / 1000),
+          });
         }
+        await loadAssistantSessions();
+        renderAssistantSessions();
+        scrollAssistantToBottom();
+      } catch (agentError) {
+        if (!isCurrent()) return;
+        streamPlaceholder.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="alert alert-warning small mb-0">The assistant could not answer right now. Open the governed reports directly.</div>`;
+      } finally {
+        if (isCurrent()) setAssistantGenerating(false);
       }
+    } catch (error) {
+      console.error("Assistant submit error:", error);
+      const thread = $("#global-ai-assistant-thread");
+      const input = $("#global-ai-assistant-question");
+      if (thread) {
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "d-flex mb-3";
+        errorDiv.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="alert alert-warning small mb-0">Unable to send your question right now. Please try again.</div>`;
+        thread.appendChild(errorDiv);
+        scrollAssistantToBottom();
+      }
+      if (input) {
+        input.value = String(input?.value || "").trim() !== "" ? input.value : "";
+        setAssistantGenerating(false);
+      }
+    }
     });
+
+    // Stop button: clicking while generating aborts the stream
+    $("#global-ai-assistant-send")?.addEventListener("click", (event) => {
+      if (!assistantGenerating) return;
+      event.preventDefault();
+      event.stopPropagation();
+      stopAssistantGeneration();
+    });
+  }
+
+  function addAssistantMessageToThread(result, userQuestion) {
+    const thread = $("#global-ai-assistant-thread");
+    if (!thread) return;
+
+    // Create assistant message bubble
+    const assistantMsg = document.createElement("div");
+    assistantMsg.className = "d-flex mb-3";
+    const answerHtml = renderAiAgentAnswer(result);
+    const meta = result?.agent || {};
+    assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
+    thread.appendChild(assistantMsg);
+
+    // Re-bind follow-up buttons
+    thread.querySelectorAll(".ai-followup-question").forEach((button) =>
+      button.addEventListener("click", () => {
+        const input = $("#global-ai-assistant-question");
+        if (input) {
+          input.value = button.textContent;
+          input.focus();
+        }
+      })
+    );
+
+    // If this is the first turn in a new session, update session title
+    if (currentSessionId && thread.querySelectorAll(".user-bubble").length === 1) {
+      updateSessionTitle(currentSessionId, userQuestion);
+    }
+  }
+
+  async function updateSessionTitle(sessionId, firstQuestion) {
+    const title = firstQuestion.slice(0, 60);
+    try {
+      await window.API.dashboard.patchAssistantSession({session_id: sessionId, title});
+      await loadAssistantSessions();
+      renderAssistantSessions();
+    } catch (error) {
+      // Silent fail - title update is optional
+    }
+  }
+
+  function loadAssistantPreferences() {
+    // Load preferences into settings modal
+    window.API.dashboard.getAssistantPreferences?.().then((res) => {
+      const prefs = res?.data || {};
+      const saveHistory = $("#pref-save-history");
+      const responseStyle = $("#pref-response-style");
+      const autoCharts = $("#pref-auto-charts");
+      if (saveHistory) saveHistory.checked = prefs.save_history !== false;
+      if (responseStyle) responseStyle.value = prefs.response_style || "balanced";
+      if (autoCharts) autoCharts.checked = prefs.auto_charts === true;
+    }).catch(() => {});
   }
 
   function renderAiAgentAnswer(result) {
@@ -1135,28 +2681,51 @@
       return '<div class="alert alert-warning small mb-0">No answer was returned.</div>';
     }
     if (result.status === "unavailable") {
-      return `<div class="alert alert-warning small mb-0">${escapeHtml(
+      return `<div class="alert alert-warning small mb-0">${mdRender(
         result.answer?.body || "The assistant is not available right now."
       )}</div>`;
     }
-    if (result.status !== "answered" || !result.answer) {
+    if (!result.answer || !(result.answer.body || result.answer.title)) {
       return '<div class="alert alert-info small mb-0">The assistant could not answer that question.</div>';
     }
+
     const agent = result.agent || {};
     const toolsUsed = Array.isArray(result.tools_used) ? result.tools_used : [];
+    const citations = Array.isArray(result.citations) ? result.citations : [];
+    const isInsufficient = result.answer?.insufficient_data === true;
+
     const nextSteps = Array.isArray(result.answer.next_steps) && result.answer.next_steps.length
       ? `<ul class="small mb-2">${result.answer.next_steps
           .map((step) => `<li>${escapeHtml(String(step))}</li>`)
           .join("")}</ul>`
       : "";
+
     const tools = toolsUsed.length
-      ? `<span class="small text-muted">Grounded via: ${toolsUsed
-          .map((tool) => escapeHtml(String(tool)))
-          .join(", ")}</span>`
+      ? '<span class="small text-muted">Grounded in authorized school information</span>'
       : "";
+
+    const citationsHtml = citations.length
+      ? `<div class="citations mt-2 mb-2">
+          <h6 class="small mb-1">Sources</h6>
+          <ul class="small mb-0">
+            ${citations.map(c => `<li><strong>${escapeHtml(c.title || c.report_code || "Report")}</strong>: ${escapeHtml(c.excerpt || c.description || "")}</li>`).join("")}
+          </ul>
+        </div>`
+      : "";
+    const chartsHtml = renderAiCharts(result);
+    const artifactsHtml = renderAiArtifacts(result);
+
+    const insufficientHtml = isInsufficient
+      ? `<div class="alert alert-info small mb-2">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>Insufficient data</strong>: The report returned no rows for the current filters. Try adjusting the time range, class, or other filters.
+        </div>`
+      : "";
+
     const escalation = result.answer.escalation_required
       ? '<div class="alert alert-warning small mt-2 mb-0">This needs a human decision — the assistant cannot act on it.</div>'
       : "";
+
     const followUps = Array.isArray(result.answer.suggested_questions) && result.answer.suggested_questions.length
       ? `<div class="d-flex flex-wrap gap-1 mt-2">${result.answer.suggested_questions
           .map(
@@ -1167,20 +2736,73 @@
           )
           .join("")}</div>`
       : "";
+
+    // Action buttons for assistant message
+    const actionButtons = `
+      <div class="d-flex gap-1 mt-2 ai-message-actions">
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-regenerate-btn" title="Regenerate answer" data-question="${escapeHtml(assistantLastQuestion || "")}">
+          <i class="bi bi-arrow-clockwise"></i> Regenerate
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-edit-btn" title="Edit question">
+          <i class="bi bi-pencil"></i> Edit
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-copy-btn" title="Copy answer">
+          <i class="bi bi-clipboard"></i> Copy
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-download-btn" title="Download answer">
+          <i class="bi bi-download"></i> Download
+        </button>
+      </div>`;
+
+    // The governed answers repeat the opening line of the body in `title`
+    // (title = body[:100]). Rendering both produced a heading that parroted the
+    // first sentence, so the title is only shown when it adds information.
+    const bodyText = String(result.answer.body || "");
+    const titleText = String(result.answer.title || "").trim();
+    const titleRedundant =
+      !titleText ||
+      titleText === "Assistant" ||
+      bodyText.trim().startsWith(titleText) ||
+      titleText.startsWith(bodyText.trim().slice(0, titleText.length));
+    const heading = titleRedundant
+      ? ""
+      : `<h6 class="mb-0">${escapeHtml(titleText)}</h6>`;
+
+    // A governed refusal (confidentiality probe, prompt injection, or a role
+    // that lacks the scope) still carries a complete answer. Only the label
+    // changes so the reader knows it was a deliberate policy answer rather
+    // than a report result.
+    const isRefusal = result.status !== "answered";
+    const notice = isRefusal
+      ? `<div class="alert alert-warning small mb-2 py-2">
+           <i class="bi bi-shield-lock me-1"></i>${escapeHtml(
+             result.routing === "confidentiality_guard"
+               ? "Not shareable — that asks about the system itself."
+               : "Outside your authorized access."
+           )}
+         </div>`
+      : "";
+
     const rendered = `<div class="card border-0 shadow-sm mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-        <h6 class="mb-0">${escapeHtml(result.answer.title || "Assistant")}</h6>
+        ${heading || `<span class="small text-muted">${escapeHtml(isRefusal ? "Governed response" : "Governed answer")}</span>`}
         <span class="badge text-bg-light">${escapeHtml(agent.name || "Agent")}</span>
       </div>
-      <p class="small mb-2" style="white-space: pre-line;">${escapeHtml(result.answer.body || "")}</p>
+      ${notice}
+      ${insufficientHtml}
+      <div class="small assistant-answer-body mb-2">${mdRender(bodyText)}</div>
       ${nextSteps}
       ${tools}
+      ${citationsHtml}
+      ${chartsHtml}
+      ${artifactsHtml}
       ${escalation}
       ${followUps}
+      ${actionButtons}
     </div></div>`;
     requestAnimationFrame(() => {
       document
-        .querySelectorAll("#global-ai-assistant-answer .ai-followup-question")
+        .querySelectorAll("#global-ai-assistant-thread .ai-followup-question")
         .forEach((button) =>
           button.addEventListener("click", () => {
             const input = $("#global-ai-assistant-question");
@@ -1190,8 +2812,241 @@
             }
           })
         );
+      // Action button handlers
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-regenerate-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const question = button.getAttribute("data-question");
+            if (question) {
+              queueAssistantQuestion(question);
+            }
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-edit-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const input = $("#global-ai-assistant-question");
+            if (input) {
+              input.value = button.getAttribute("data-question") || "";
+              input.focus();
+            }
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-copy-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const card = button.closest(".card");
+            const body = card?.querySelector(".assistant-answer-body")?.textContent || "";
+            navigator.clipboard.writeText(body).then(() => {
+              button.innerHTML = '<i class="bi bi-check"></i> Copied!';
+              setTimeout(() => { button.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
+            });
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-download-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const card = button.closest(".card");
+            const body = card?.querySelector(".assistant-answer-body")?.textContent || "";
+            const heading = card?.querySelector("h6")?.textContent?.trim() || "Assistant answer";
+            const slug = heading.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "answer";
+            downloadBlob(
+              `${slug}.md`,
+              new Blob([`# ${heading}\n\n${body}\n`], { type: "text/markdown;charset=utf-8" })
+            );
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-artifact-download")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const artifact = aiArtifactStore.get(button.getAttribute("data-artifact-key"));
+            if (!artifact) return;
+            downloadBlob(
+              String(artifact.download_name || "artifact.txt"),
+              new Blob([String(artifact.content || "")], {
+                type: String(artifact.mime_type || "text/plain") + ";charset=utf-8",
+              })
+            );
+          })
+        );
     });
     return rendered;
+  }
+
+  const aiArtifactStore = new Map();
+  let aiArtifactSequence = 0;
+
+  function downloadBlob(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename || "download";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  // The render window. An answer may carry a real figure (PNG data URI from
+  // analytics.chart), a PDF/DOCX/audio/video URL, or plain text, and each is
+  // rendered with the right element plus a download control — the coworker
+  // produces deliverables, not only prose.
+  function renderAiArtifacts(result) {
+    const artifacts = Array.isArray(result?.artifacts) ? result.artifacts.slice(0, 4) : [];
+    if (!artifacts.length) return "";
+    const blocks = artifacts.map((artifact) => {
+      if (!artifact || typeof artifact !== "object") return "";
+      const mime = String(artifact.mime_type || "").toLowerCase();
+      const url = String(artifact.url || artifact.image || "");
+      const name = String(artifact.download_name || "artifact");
+      const title = String(artifact.title || "Attachment").slice(0, 120);
+      const summary = artifact.summary
+        ? `<p class="small text-muted mb-1">${escapeHtml(String(artifact.summary))}</p>`
+        : "";
+
+      if (url && (artifact.image || mime.startsWith("image/"))) {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <img src="${escapeHtml(url)}" alt="${escapeHtml(title)}" class="img-fluid rounded border" loading="lazy" />
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">
+            <i class="bi bi-download me-1"></i>Download image
+          </a>
+        </figure>`;
+      }
+      if (url && mime.startsWith("audio/")) {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <audio controls preload="none" class="w-100" src="${escapeHtml(url)}"></audio>
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download audio</a>
+        </figure>`;
+      }
+      if (url && mime.startsWith("video/")) {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <video controls preload="metadata" class="w-100 rounded border" src="${escapeHtml(url)}"></video>
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download video</a>
+        </figure>`;
+      }
+      if (url && mime === "application/pdf") {
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <iframe src="${escapeHtml(url)}" title="${escapeHtml(title)}" class="w-100 rounded border" style="height:420px"></iframe>
+          <a class="btn btn-sm btn-outline-secondary mt-2" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download PDF</a>
+        </figure>`;
+      }
+      // A Word document is previewed as a page of text, not rendered: a browser
+      // cannot render DOCX, and forcing it to download hid the file entirely
+      // until the staff member went looking for it.
+      if (url && (mime.includes("wordprocessingml") || name.toLowerCase().endsWith(".docx"))) {
+        const size = artifact.size_bytes
+          ? `<span class="badge text-bg-light border me-2">${(artifact.size_bytes / 1024).toFixed(0)} KB</span>`
+          : "";
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge text-bg-light border">Word document</span>
+            ${size}
+            <a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(url)}" download="${escapeHtml(name)}">
+              <i class="bi bi-file-earmark-word me-1"></i>Download DOCX
+            </a>
+          </div>
+        </figure>`;
+      }
+      // Anything else that carries a URL (DOCX, XLSX, a ZIP of exports) is a
+      // download rather than something a browser can render inline. Without
+      // this branch a non-previewable attachment silently vanished from the
+      // render window.
+      if (url) {
+        const key = `ai-artifact-${++aiArtifactSequence}`;
+        aiArtifactStore.set(key, artifact);
+        while (aiArtifactStore.size > 20) {
+          aiArtifactStore.delete(aiArtifactStore.keys().next().value);
+        }
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge text-bg-light border">${escapeHtml(name)}</span>
+            <a class="btn btn-sm btn-outline-secondary" href="${escapeHtml(url)}" download="${escapeHtml(name)}">
+              <i class="bi bi-download me-1"></i>Download
+            </a>
+          </div>
+        </figure>`;
+      }
+      if (artifact.content) {
+        const key = `ai-artifact-${++aiArtifactSequence}`;
+        aiArtifactStore.set(key, artifact);
+        while (aiArtifactStore.size > 20) {
+          aiArtifactStore.delete(aiArtifactStore.keys().next().value);
+        }
+        return `<figure class="ai-artifact mb-3">
+          <figcaption class="small fw-semibold mb-1">${escapeHtml(title)}</figcaption>
+          ${summary}
+          <pre class="small bg-light border rounded p-2" style="max-height:260px;overflow:auto;white-space:pre-wrap">${escapeHtml(String(artifact.content))}</pre>
+          <button type="button" class="btn btn-sm btn-outline-secondary ai-artifact-download" data-artifact-key="${key}">
+            <i class="bi bi-download me-1"></i>Download ${escapeHtml(name)}
+          </button>
+        </figure>`;
+      }
+      return "";
+    });
+    const rendered = blocks.filter(Boolean).join("");
+    return rendered ? `<div class="ai-artifacts mt-2">${rendered}</div>` : "";
+  }
+
+  function renderAiCharts(result) {
+    const charts = Array.isArray(result?.charts) ? result.charts.slice(0, 3) : [];
+    if (!charts.length) return "";
+    return charts.map((item) => {
+      const spec = item?.chart;
+      if (!spec || !["bar", "line", "pie", "doughnut", "area"].includes(spec.type)) return "";
+      const id = `ai-chart-${++aiChartSequence}`;
+      const label = String(spec.title || "Governed report chart").slice(0, 120);
+      const shown = Array.isArray(spec.labels) ? Math.min(spec.labels.length, 25) : 0;
+      const note = item.preview_limited
+        ? `<p class="small text-muted mb-1">Showing ${shown} of ${escapeHtml(String(item.row_count ?? shown))} rows. Open the report for the full result.</p>`
+        : "";
+      return `<figure class="ai-chart-panel mb-3"><figcaption class="small fw-semibold mb-1">${escapeHtml(label)}</figcaption>${note}<div style="height:240px;position:relative"><canvas id="${id}" role="img" aria-label="${escapeHtml(label)}"></canvas></div></figure>`;
+    }).join("");
+  }
+
+  function hydrateAiCharts(root, chartSpecs) {
+    const canvases = $$('canvas[id^="ai-chart-"]', root);
+    if (!canvases.length || typeof window.Chart !== "function") return;
+    const charts = Array.isArray(chartSpecs) ? chartSpecs.slice(0, 3) : [];
+    canvases.forEach((canvas, index) => {
+      const item = charts[index];
+      const spec = item?.chart;
+      if (!spec || !Array.isArray(spec.labels) || !Array.isArray(spec.datasets)) return;
+      const datasets = spec.datasets.slice(0, 4).map((dataset) => ({
+        label: String(dataset?.label || "Values").slice(0, 80),
+        data: (Array.isArray(dataset?.data) ? dataset.data : []).slice(0, 25).map((value) => value !== null && Number.isFinite(Number(value)) ? Number(value) : null),
+        backgroundColor: dataset?.backgroundColor || undefined,
+        borderColor: dataset?.borderColor || undefined,
+      }));
+      const type = spec.type === "area" ? "line" : spec.type;
+      const chart = new window.Chart(canvas, {
+        type,
+        data: { labels: spec.labels.slice(0, 25).map((value) => String(value).slice(0, 120)), datasets },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: String(spec.title || "Report chart").slice(0, 120) } } },
+      });
+      aiChartInstances.set(canvas.id, chart);
+      while (aiChartInstances.size > 10) {
+        const oldest = aiChartInstances.keys().next().value;
+        aiChartInstances.get(oldest)?.destroy?.();
+        aiChartInstances.delete(oldest);
+      }
+    });
   }
 
   function renderAiAnswer(result) {
@@ -1436,9 +3291,23 @@
     $("#globalAiAssistantPanel")?.addEventListener(
       "show.bs.offcanvas",
       () => {
-        void loadAiAssistantCatalog();
-        void loadWorkspaceBriefing();
+        initAssistantChrome();
+        renderAssistantHistory();
         initAiAssistantQuery();
+        initProactiveAssistant();
+        void loadWorkspaceBriefing(0);
+        void restoreDelegatedTask();
+      }
+    );
+
+    $("#globalAiAssistantPanel")?.addEventListener(
+      "shown.bs.offcanvas",
+      () => {
+        growAssistantInput();
+        scrollAssistantToBottom();
+        if (!isMobile()) {
+          $("#global-ai-assistant-question")?.focus();
+        }
       }
     );
 
@@ -1559,6 +3428,11 @@
     );
 
     bindEvents();
+    window.addEventListener("kingsway:page-loaded", () => {
+      if ($("#globalAiAssistantPanel")?.classList.contains("show")) {
+        void loadWorkspaceBriefing(0);
+      }
+    });
     refresh();
     void waitForAuthenticatedContext();
   }
@@ -1585,10 +3459,20 @@
   if (document.readyState === "loading") {
     document.addEventListener(
       "DOMContentLoaded",
-      initialize,
+      () => {
+        initialize();
+        // Fallback: ensure the AI assistant submit listener is attached even
+        // if the offcanvas show event never fires (e.g. Bootstrap not ready).
+        initAssistantChrome();
+        initAiAssistantQuery();
+        initProactiveAssistant();
+      },
       { once: true }
     );
   } else {
     initialize();
+    initAssistantChrome();
+    initAiAssistantQuery();
+    initProactiveAssistant();
   }
 })();

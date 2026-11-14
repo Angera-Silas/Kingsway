@@ -3,9 +3,7 @@
  * Student ID Cards Page
  * Generate, renew, replace, preview, print, and issue official student school ID cards
  */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.')
-    $appBase = '';
+
 ?>
 <style>
     .id-cards-page {

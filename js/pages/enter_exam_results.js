@@ -1,6 +1,6 @@
 const ExamResultsController = {
   initialized: false,
-  state: { exams: [], filteredExams: [], context: null, selectedExamId: null },
+  state: { exams: [], filteredExams: [], context: null, selectedAssessmentId: null },
   autosaveTimer: null,
 
   draftKey() {
@@ -55,8 +55,24 @@ const ExamResultsController = {
     await window.AuthContext?.ready?.();
     if (!window.AuthContext?.isAuthenticated?.()) return;
     await window.GradingScale?.preload?.();
-    if (window.AcademicContext && !AcademicContext.isLoaded()) await AcademicContext.init();
     this.initialized = true;
+    this.scope = { yearId: 0, termId: 0 };
+    const yearEl = document.getElementById("eerYear");
+    if (window.AcademicYearFilter && yearEl) {
+      let ready = false;
+      await window.AcademicYearFilter.mount(yearEl, {
+        termSelect: document.getElementById("eerTerm"),
+        allTermsLabel: "All terms",
+        onChange: (yearId, _year, termId) => {
+          this.scope = { yearId: Number(yearId || 0), termId: Number(termId || 0) };
+          if (ready) this.loadExams();
+        },
+      });
+      ready = true;
+    } else if (window.AcademicContext) {
+      if (!AcademicContext.isLoaded()) await AcademicContext.init();
+      this.scope = { yearId: Number(AcademicContext.getAcademicYearId() || 0), termId: Number(AcademicContext.getTermId() || 0) };
+    }
     if (window.AuthContext?.canExport && !window.AuthContext.canExport('academic')) document.getElementById('examRegisterCsv')?.classList.add('d-none');
     if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('academic')) document.getElementById('examRegisterPrint')?.classList.add('d-none');
     this.setupEventListeners();
@@ -89,16 +105,13 @@ const ExamResultsController = {
       this.updateProgress();
       this.persistLocalDraft();
     });
-    window.AcademicContext?.subscribe?.((_context, event) => {
-      if (["yearChanged", "termChanged", "initialized", "refreshed"].includes(event)) this.loadExams();
-    });
   },
 
   async loadExams() {
     try {
       const params = { limit: 1000 };
-      const yearId = window.AcademicContext?.getAcademicYearId?.();
-      const termId = window.AcademicContext?.getTermId?.();
+      const yearId = this.scope?.yearId;
+      const termId = this.scope?.termId;
       if (yearId) params.academic_year_id = yearId;
       if (termId) params.term_id = termId;
       const payload = this.unwrap(await window.API.academic.listExamSchedules(params)) || {};
@@ -108,13 +121,17 @@ const ExamResultsController = {
       );
       this.populateFilters();
       this.applyFilters();
-      const requestedScheduleId = Number(new URLSearchParams(window.location.search).get("exam_schedule_id") || 0);
-      if (requestedScheduleId) {
-        const requested = this.state.filteredExams.find((exam) => Number(exam.exam_schedule_id) === requestedScheduleId || Number(exam.id) === requestedScheduleId);
+      // A deep link may name either the examination schedule or the register
+      // itself; the workspace always loads by register (assessment_id).
+      const deepLink = new URLSearchParams(window.location.search);
+      const requestedKey = Number(deepLink.get("exam_schedule_id") || deepLink.get("assessment_id") || 0);
+      if (requestedKey) {
+        const requested = this.state.filteredExams.find((exam) =>
+          Number(exam.exam_schedule_id) === requestedKey || Number(exam.assessment_id) === requestedKey);
         if (requested) {
           const examSelect = document.getElementById("examFilter");
-          examSelect.value = String(requested.id);
-          await this.loadEntry(Number(requested.id));
+          examSelect.value = String(requested.assessment_id);
+          await this.loadEntry(Number(requested.assessment_id));
         }
       }
       document.getElementById("examAcademicContext").textContent =
@@ -158,17 +175,17 @@ const ExamResultsController = {
       .map((exam) => {
         const className = [exam.class_name, exam.stream_name].filter(Boolean).join(" — ");
         const label = `${exam.exam_name || exam.assessment_title} · ${className} · ${exam.subject_name}`;
-        return `<option value="${Number(exam.id)}">${this.escape(label)}</option>`;
+        return `<option value="${Number(exam.assessment_id)}">${this.escape(label)}</option>`;
       }).join("");
     this.clearWorkspace();
   },
 
-  async loadEntry(examScheduleId) {
-    if (!examScheduleId) return this.clearWorkspace();
+  async loadEntry(assessmentId) {
+    if (!assessmentId) return this.clearWorkspace();
     try {
-      const context = this.unwrap(await window.API.academic.getExamResultEntry(examScheduleId));
+      const context = this.unwrap(await window.API.academic.getExamResultEntry(assessmentId));
       this.state.context = context;
-      this.state.selectedExamId = examScheduleId;
+      this.state.selectedAssessmentId = assessmentId;
       this.render();
     } catch (error) {
       this.clearWorkspace();
@@ -178,7 +195,7 @@ const ExamResultsController = {
 
   clearWorkspace() {
     this.state.context = null;
-    this.state.selectedExamId = null;
+    this.state.selectedAssessmentId = null;
     document.getElementById("examEntryWorkspace")?.classList.add("d-none");
     document.getElementById("examEmptyState")?.classList.remove("d-none");
   },
@@ -275,7 +292,7 @@ const ExamResultsController = {
       if (submit) localStorage.removeItem(this.draftKey());
       else this.persistLocalDraft();
       window.showNotification?.(submit ? "Scores submitted for moderation" : "Score draft saved", "success");
-      await this.loadEntry(this.state.selectedExamId);
+      await this.loadEntry(this.state.selectedAssessmentId);
     } catch (error) {
       window.showNotification?.(error.message || "Unable to save examination scores", "error");
     }
@@ -299,7 +316,7 @@ const ExamResultsController = {
     });
     const csv = ['"#","Admission no.","Learner","Status","Marks","Grade","Comment"', ...rows].join("\r\n");
     if (window.AuthContext?.canExport && !window.AuthContext.canExport("academic")) return;
-    window.KingswayFileLifecycle?.exportText(csv, `exam-register-${this.state.selectedExamId || 'draft'}.csv`, "text/csv");
+    window.KingswayFileLifecycle?.exportText(csv, `exam-register-${this.state.selectedAssessmentId || 'draft'}.csv`, "text/csv");
   },
 };
 

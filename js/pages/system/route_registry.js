@@ -77,6 +77,7 @@ const RouteRegistryController = {
       search: document.getElementById("routeRegistrySearch"),
       count: document.getElementById("routeRegistryCount"),
       body: document.getElementById("routeRegistryTableBody"),
+      tableState: document.getElementById("routeRegistryTableState"),
       rowTemplate: document.getElementById("routeRegistryRowTemplate"),
       exportCsvBtn: document.getElementById("routeRegistryExportCsvBtn"),
       printBtn: document.getElementById("routeRegistryPrintBtn"),
@@ -123,12 +124,10 @@ const RouteRegistryController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="7" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-route-registry-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + (className || "text-muted"); cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -209,14 +208,9 @@ const RouteRegistryController = {
     this.render();
   },
 
-  methodBadge(method) {
+  methodTone(method) {
     const map = { GET: "bg-info", POST: "bg-success", PUT: "bg-warning text-dark", DELETE: "bg-danger" };
-    return `<span class="badge ${map[method] || "bg-secondary"}">${this.escapeHtml(method || "—")}</span>`;
-  },
-
-  activeBadge(value) {
-    const active = value === true || value === 1 || value === "1" || value === "true";
-    return `<span class="badge ${active ? "bg-success" : "bg-secondary"}">${active ? "Yes" : "No"}</span>`;
+    return map[String(method || "").toUpperCase()] || "bg-secondary";
   },
 
   render() {
@@ -226,20 +220,28 @@ const RouteRegistryController = {
     if (!pageRows.length) {
       this.showTableMessage("No routes found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
-          fragment.querySelector('[data-fill="method"]').outerHTML = this.methodBadge(row.method);
-          fragment.querySelector('[data-fill="path"]').textContent = row.path ?? "—";
-          fragment.querySelector('[data-fill="controller"]').textContent = row.controller ?? "—";
-          fragment.querySelector('[data-fill="isActive"]').outerHTML = this.activeBadge(row.is_active);
-          fragment.querySelector('[data-fill="description"]').textContent = row.description ?? "—";
-          const tr = fragment.querySelector("tr");
-          tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-route-registry-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
+        const method = fragment.querySelector('[data-fill="method"]');
+        method.textContent = row.method || "—";
+        this.methodTone(row.method).split(" ").forEach((name) => method.classList.add(name));
+        fragment.querySelector('[data-fill="path"]').textContent = row.path ?? "—";
+        fragment.querySelector('[data-fill="controller"]').textContent = row.controller ?? "—";
+        const active = fragment.querySelector('[data-fill="isActive"]');
+        const isActive = row.is_active === true || row.is_active === 1 || row.is_active === "1" || row.is_active === "true";
+        active.textContent = isActive ? "Yes" : "No";
+        active.classList.add(isActive ? "bg-success" : "bg-secondary");
+        fragment.querySelector('[data-fill="description"]').textContent = row.description ?? "—";
+        const tr = fragment.querySelector("tr");
+        tr.dataset.routeRegistryRow = "1";
+        tr.dataset.id = row.id;
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

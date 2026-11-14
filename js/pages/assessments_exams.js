@@ -711,7 +711,7 @@ const assessExamsCtrl = (() => {
     info.innerHTML = `<strong>${esc(assessmentTitle || state.currentAssessment?.title || "Grade Entry")}</strong> <span class="text-muted">(Max marks: ${maxMarks})</span>`;
     tbody.innerHTML = '<tr><td colspan="7" class="ex-loading"><div class="spinner-border"></div></td></tr>';
 
-    const modal = new bootstrap.Modal(document.getElementById("enterResultsModal"));
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("enterResultsModal"));
     modal.show();
 
     try {

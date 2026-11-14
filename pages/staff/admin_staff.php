@@ -153,13 +153,13 @@ if ($navBase === '.') $navBase = '';
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Staff Details</h3>
-                <button class="btn-close" onclick="closeModal('staffModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('staffModal')">×</button>
             </div>
             <div class="modal-body" id="staffModalBody">
                 <!-- Dynamic content -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeModal('staffModal')">Close</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('staffModal')">Close</button>
                 <button class="btn btn-primary" id="editStaffBtn" onclick="editStaff()">Edit</button>
             </div>
         </div>
@@ -182,8 +182,18 @@ if ($navBase === '.') $navBase = '';
         }
     })();
 
+    // Delegate to Bootstrap: removing only the `show` class left the
+    // .modal-backdrop in the DOM and body.modal-open behind, so the page stayed
+    // dark and unscrollable after closing. hide() also fires hidden.bs.modal,
+    // which the shared sweep in js/api.js uses to reconcile state.
     function closeModal(modalId) {
-        document.getElementById(modalId).classList.remove('show');
+        const el = document.getElementById(modalId);
+        if (!el) return;
+        const inst = window.bootstrap && window.bootstrap.Modal
+            ? window.bootstrap.Modal.getInstance(el)
+            : null;
+        if (inst) { inst.hide(); return; }
+        el.classList.remove('show');
     }
 
     function toggleSelectAll() {

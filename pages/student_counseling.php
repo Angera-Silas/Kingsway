@@ -5,13 +5,7 @@
  * Embedded in app_layout.php
  */
 
-// Ensure $appBase is available for script loading
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.' || $appBase === '/') {
-        $appBase = '';
-    }
-}
+$appBase = app_base_path();
 ?>
 
 <div class="container-fluid py-4" id="studentCounselingPage">
@@ -32,6 +26,9 @@ if (!isset($appBase)) {
                     </button>
                     <button class="btn btn-outline-light btn-sm" id="exportBtn">
                         <i class="bi bi-download"></i> Export
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="printBtn" type="button">
+                        <i class="bi bi-printer"></i> Print
                     </button>
                     <button class="btn btn-light btn-sm" id="addCaseBtn">
                         <i class="bi bi-plus-circle"></i> Add Case
@@ -279,10 +276,11 @@ if (!isset($appBase)) {
                             </tr>
                         </thead>
                         <tbody id="casesTableBody">
-                            <tr>
-                                <td class="text-center text-muted">Loading...</td>
+                            <tr id="casesTableState">
+                                <td colspan="12" class="text-center text-muted py-4">Loading...</td>
                             </tr>
                         </tbody>
+                        <template id="counselingCaseRowTemplate"><tr data-counseling-case-row><td data-fill="code"></td><td class="fw-semibold" data-fill="student"></td><td data-fill="admission"></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="type"></td><td data-fill="priority"></td><td data-fill="status"></td><td data-fill="counselor"></td><td data-fill="last-session"></td><td data-fill="next-follow-up"></td><td><button type="button" class="btn btn-sm btn-outline-primary" data-action="view">View</button></td></tr></template>
                     </table>
                 </div>
             </div>

@@ -6,7 +6,6 @@ namespace App\API\Services\sms;
 
 use App\API\Includes\FileLogger;
 use App\API\Services\JobQueue;
-use App\API\Services\ReadReplicaService;
 use App\API\Services\StorageRoot;
 use App\API\Services\SystemCommsConfigService;
 use App\API\Services\whatsapp\WhatsAppGateway;
@@ -103,6 +102,9 @@ final class SmsBatchService
         $communicationId = $this->payloadCommunicationId($payload);
         $communication = $this->fetchCommunication($pdo, $communicationId);
         $mode = (string) ($payload['mode'] ?? 'sms');
+        if ($mode === 'whatsapp') {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
+        }
         $channelMeta = json_decode((string) ($communication['channel_meta'] ?? ''), true);
         $channelMeta = is_array($channelMeta) ? $channelMeta : [];
 
@@ -131,7 +133,7 @@ final class SmsBatchService
             'provider' => [
                 'api_key' => (string) ($providerConfig['api_key'] ?? ''),
                 'api_url' => (string) ($providerConfig['api_url'] ?? ''),
-                'sender_id' => (string) ($providerConfig['sender_id'] ?? ($providerConfig['wa_number'] ?? '')),
+                'sender_id' => (string) ($providerConfig['sender_id'] ?? ''),
             ],
             'recipients' => array_map(static function (array $endpoint): array {
                 return ['endpoint_id' => (int) $endpoint['id'], 'address' => (string) $endpoint['address']];
@@ -295,7 +297,7 @@ final class SmsBatchService
     {
         $stmt = $pdo->prepare(
             "SELECT e.id, e.address, e.channel, e.attempt_count, r.id AS recipient_row_id
-               FROM " . ReadReplicaService::qualifiedRef('communication_recipient_endpoints') . "
+               FROM communication_recipient_endpoints e
                JOIN communication_recipients r ON r.id = e.communication_recipient_id
               WHERE r.communication_id = ?
               ORDER BY e.id"
@@ -374,10 +376,10 @@ final class SmsBatchService
         if ($ok) {
             $pdo->prepare(
                 "UPDATE communication_recipient_endpoints
-                    SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NOW(), last_error = NULL
+                    SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NULL, last_error = NULL
                   WHERE id = ?"
             )->execute([$providerId !== '' ? $providerId : null, substr((string) ($row['status'] ?? 'sent'), 0, 100), $endpointId]);
-            $pdo->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NOW(), error_message = NULL WHERE id = ?")
+            $pdo->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NULL, error_message = NULL WHERE id = ?")
                 ->execute([(int) $endpoint['communication_recipient_id']]);
         } else {
             $pdo->prepare(

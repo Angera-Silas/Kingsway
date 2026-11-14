@@ -181,7 +181,8 @@ class StudentProfileManager extends BaseAPI
     {
         $stmt = $this->db->query(
             "SELECT u.id, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name
-             FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+             FROM users u
+             INNER JOIN persons p ON p.id = u.person_id
              WHERE u.status = 'active'
              ORDER BY full_name ASC"
         );
@@ -192,7 +193,8 @@ class StudentProfileManager extends BaseAPI
     {
         $stmt = $this->db->query(
             "SELECT s.id, s.admission_no, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name
-             FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+             FROM students s
+             INNER JOIN persons p ON p.id = s.person_id
              WHERE s.status = 'active'
              ORDER BY full_name ASC"
         );
@@ -258,6 +260,7 @@ class StudentProfileManager extends BaseAPI
     public function getCounselingCases(array $filters, array $user)
     {
         try {
+            $academicYearId = !empty($filters['academic_year_id']) ? (int) $filters['academic_year_id'] : null;
             $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
             $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
             $caseType = !empty($filters['case_type']) ? trim($filters['case_type']) : null;
@@ -293,6 +296,11 @@ class StudentProfileManager extends BaseAPI
                     WHERE c.status != 'cancelled'";
 
             $bindings = [];
+
+            if ($academicYearId) {
+                $sql .= " AND ayc_c.academic_year_id = ?";
+                $bindings[] = $academicYearId;
+            }
 
             if (($user['role'] ?? '') === 'chaplain' && !empty($user['id'])) {
                 $sql .= " AND c.assigned_to = ?";
@@ -393,7 +401,8 @@ class StudentProfileManager extends BaseAPI
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, s.status, s.blood_group,
                         p.first_name, p.middle_name, p.last_name, p.gender
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                 FROM students s
+                 INNER JOIN persons p ON p.id = s.person_id
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$case['student_id']]);
@@ -447,6 +456,7 @@ class StudentProfileManager extends BaseAPI
     public function getHealthRecords(array $filters, string $userRole = '')
     {
         try {
+            $academicYearId = !empty($filters['academic_year_id']) ? (int) $filters['academic_year_id'] : null;
             $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
             $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
             $healthCategory = !empty($filters['health_category']) ? trim($filters['health_category']) : null;
@@ -484,6 +494,11 @@ class StudentProfileManager extends BaseAPI
                     WHERE 1=1";
 
             $bindings = [];
+
+            if ($academicYearId) {
+                $sql .= " AND ayc_h.academic_year_id = ?";
+                $bindings[] = $academicYearId;
+            }
 
             if ($classId) {
                 $sql .= " AND ayc_h.class_id = ?";
@@ -875,8 +890,9 @@ class StudentProfileManager extends BaseAPI
         try {
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
-                 WHERE s.id = ?"
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 WHERE s.id = ? LIMIT 1"
             );
             $studentStmt->execute([$studentId]);
             $student = $this->fetch($studentStmt);
@@ -1042,6 +1058,16 @@ class StudentProfileManager extends BaseAPI
     public function getBoardingStudents(array $filters)
     {
         try {
+            $academicYearId = !empty($filters['academic_year_id'])
+                ? (int) $filters['academic_year_id']
+                : 0;
+            if ($academicYearId < 1) {
+                $academicYearId = (int) ($this->db->query(
+                    "SELECT id FROM academic_years
+                     WHERE is_current = 1
+                     ORDER BY id DESC LIMIT 1"
+                )->fetchColumn() ?: 0);
+            }
             $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
             $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
             $gender = !empty($filters['gender']) ? trim($filters['gender']) : null;
@@ -1075,6 +1101,11 @@ class StudentProfileManager extends BaseAPI
                     WHERE da.id IS NOT NULL";
 
             $bindings = [];
+
+            if ($academicYearId > 0) {
+                $sql .= " AND sae.academic_year_id = ?";
+                $bindings[] = $academicYearId;
+            }
 
             if ($classId) {
                 $sql .= " AND ayc.class_id = ?";
@@ -1272,7 +1303,8 @@ class StudentProfileManager extends BaseAPI
         try {
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                 FROM students s
+                 INNER JOIN persons p ON p.id = s.person_id
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$studentId]);
@@ -1319,7 +1351,7 @@ class StudentProfileManager extends BaseAPI
 
             $exeatStmt = $this->db->prepare(
                 "SELECT pt.name AS exeat_type, sp.start_date AS leave_at, sp.end_date AS expected_return_at, sp.status
-                 FROM " . ReadReplicaService::qualifiedRef("student_permissions") . "
+                 FROM " . ReadReplicaService::qualifiedRef("student_permissions") . " sp
                  LEFT JOIN student_permission_types pt ON pt.id = sp.permission_type_id
                  WHERE sp.student_id = ? AND sp.permission_type_id = 1
                  ORDER BY sp.start_date DESC
@@ -1446,11 +1478,15 @@ class StudentProfileManager extends BaseAPI
                     tac.route_id,
                     tac.route_name,
                     tac.vehicle_id,
-                    tac.vehicle_registration_number AS vehicle_name,
+                    tac.registration_number AS vehicle_name,
                     tac.pickup_stop_name AS pickup_point,
                     tac.dropoff_stop_name AS dropoff_point,
                     tac.driver_full_name AS driver_name,
-                    tac.parent_phone AS guardian_phone
+                    (SELECT gp.phone FROM student_parents gsp
+                       JOIN parents gpa ON gpa.id = gsp.parent_id
+                       JOIN persons gp ON gp.id = gpa.person_id
+                      WHERE gsp.student_id = tac.student_id
+                      ORDER BY gsp.is_primary_contact DESC LIMIT 1) AS guardian_phone
                 FROM {$tac} tac
                 WHERE tac.assignment_status = 'active'
             ";
@@ -1458,7 +1494,7 @@ class StudentProfileManager extends BaseAPI
             $bindings = [];
 
             if (($user['role'] ?? '') === 'driver' && !empty($user['id'])) {
-                $sql .= " AND tac.driver_staff_id = (SELECT st.id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " WHERE u.id = ?)";
+                $sql .= " AND tac.driver_staff_id = (SELECT sd.staff_id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd WHERE sd.user_id = ? LIMIT 1)";
                 $bindings[] = (int) $user['id'];
             }
 
@@ -1574,12 +1610,12 @@ if ($classId) {
             $totalPassengers = $this->fetchColumnInt($stmt);
 
             $attendanceSql = "SELECT
-                        COUNT(DISTINCT CASE WHEN status = 'picked_up' THEN s.id END) AS picked_up,
-                        COUNT(DISTINCT CASE WHEN status = 'dropped_off' THEN s.id END) AS dropped_off,
-                        COUNT(DISTINCT CASE WHEN status = 'absent' THEN s.id END) AS absent,
-                        COUNT(DISTINCT CASE WHEN status = 'not_riding' THEN s.id END) AS not_riding,
-                        COUNT(DISTINCT CASE WHEN status = 'pending' THEN s.id END) AS pending
-                    FROM " . ReadReplicaService::qualifiedRef("student_transport_attendance") . "
+                        COUNT(DISTINCT CASE WHEN sta.status = 'picked_up' THEN s.id END) AS picked_up,
+                        COUNT(DISTINCT CASE WHEN sta.status = 'dropped_off' THEN s.id END) AS dropped_off,
+                        COUNT(DISTINCT CASE WHEN sta.status = 'absent' THEN s.id END) AS absent,
+                        COUNT(DISTINCT CASE WHEN sta.status = 'not_riding' THEN s.id END) AS not_riding,
+                        COUNT(DISTINCT CASE WHEN sta.status = 'pending' THEN s.id END) AS pending
+                    FROM " . ReadReplicaService::qualifiedRef("student_transport_attendance") . " sta
                     INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sta.student_id
                     WHERE sta.attendance_date = ?";
 
@@ -1654,7 +1690,8 @@ if ($classId) {
         try {
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                 FROM students s
+                 INNER JOIN persons p ON p.id = s.person_id
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$studentId]);
@@ -1996,7 +2033,8 @@ if ($classId) {
 
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                 FROM students s
+                 INNER JOIN persons p ON p.id = s.person_id
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$case['student_id']]);

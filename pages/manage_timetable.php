@@ -194,6 +194,14 @@
 ======================================================= -->
 <div class="academic-card p-3 mb-4">
     <div class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label fw-semibold" for="academicYearFilter">Academic year</label>
+            <select class="form-select" id="academicYearFilter"><option>Loading…</option></select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-semibold" for="academicTermFilter">Term</label>
+            <select class="form-select" id="academicTermFilter"><option>Loading…</option></select>
+        </div>
         <div class="col-md-3" data-role="school_admin,deputy_head_academic,headteacher,admin,director">
             <label class="form-label fw-semibold">View Scope</label>
             <select class="form-select" id="viewScopeFilter">
@@ -289,47 +297,44 @@
  GENERATE TIMETABLE MODAL
 ======================================================= -->
 <div class="modal fade" id="generateTimetableModal" tabindex="-1" aria-labelledby="generateTimetableLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header" style="background: var(--acad-primary); color: #fff;">
-                <h5 class="modal-title" id="generateTimetableLabel">
-                    <i class="bi bi-gear me-2"></i>Generate Timetable
-                </h5>
+                <div>
+                    <h5 class="modal-title" id="generateTimetableLabel"><i class="bi bi-magic me-2"></i>Generate timetable draft</h5>
+                    <small id="generateTermLabel">For the year and term selected on this page.</small>
+                </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Select Class</label>
-                    <select class="form-select" id="generateClass">
-                        <option value="">All Classes</option>
+                <p class="small text-muted">Every lesson is placed from the subject-teacher allocations, each class's weekly lessons and the lesson periods, with no class or teacher booked twice. The result is saved as a draft: nothing changes on the live timetable until it is approved by someone else and published.</p>
+                <div class="mb-3" style="max-width: 22rem;">
+                    <label class="form-label fw-semibold" for="generateScope">Classes</label>
+                    <select class="form-select" id="generateScope">
+                        <option value="whole_school">Whole school</option>
+                        <option value="lower_primary">Playgroup to Grade 3</option>
+                        <option value="upper_primary">Grades 4 to 9</option>
                     </select>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Algorithm</label>
-                    <select class="form-select" id="generateAlgorithm">
-                        <option value="auto">Auto (Recommended)</option>
-                        <option value="balanced">Balanced Load</option>
-                        <option value="compact">Compact Schedule</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Academic Term</label>
-                    <select class="form-select" id="generateTerm">
-                        <option value="">Current Term</option>
-                        <option value="Term 1">Term 1</option>
-                        <option value="Term 2">Term 2</option>
-                        <option value="Term 3">Term 3</option>
-                    </select>
-                </div>
-                <div class="alert alert-info border-0 mb-0" style="background: var(--acad-primary-soft); color: var(--acad-primary-dark);">
-                    <i class="bi bi-info-circle me-2"></i>
-                    The auto algorithm considers teacher availability, room capacity, and subject sequencing for optimal results.
-                </div>
+                <div id="generateReadiness" class="small" aria-live="polite"></div>
+                <div id="generateResult" class="mt-3" aria-live="polite"></div>
+
+                <hr class="my-4">
+                <section aria-labelledby="planningAssistantLabel">
+                    <h6 class="fw-semibold mb-1" id="planningAssistantLabel"><i class="bi bi-chat-dots me-1"></i>Ask the planning assistant</h6>
+                    <p class="small text-muted mb-2">It answers from the same set-up the draft uses (weekly lessons, allocations, lesson periods) and suggests the next step. It never changes the timetable.</p>
+                    <div id="planningConversation" class="d-flex flex-column gap-2 mb-2" aria-live="polite"></div>
+                    <div class="input-group">
+                        <textarea class="form-control" id="planningQuestion" rows="2" maxlength="2000" placeholder="e.g. What is stopping a complete draft for Grades 4 to 9?"></textarea>
+                        <button type="button" class="btn btn-outline-primary" id="planningAsk"><i class="bi bi-send me-1"></i>Ask</button>
+                    </div>
+                </section>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-academic" onclick="timetableController.generateTimetable && timetableController.generateTimetable()">
-                    <i class="bi bi-gear me-1"></i>Generate
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-outline-primary d-none" id="generateOpenDrafts">Review drafts</button>
+                <button type="button" class="btn btn-academic" id="generateRun">
+                    <i class="bi bi-magic me-1"></i>Generate draft
                 </button>
             </div>
         </div>
@@ -353,3 +358,4 @@
  SCRIPTS
 ======================================================= -->
 <?php asset_script($appBase, 'js/pages/manage_timetable.js'); ?>
+<?php asset_script($appBase, 'js/pages/timetable_drafting.js'); ?>

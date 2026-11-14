@@ -6,7 +6,7 @@ Endpoints (all service-to-service, bearer-authenticated, never browser-facing):
   POST /api/agents/digest          deterministic personal digest
   POST /v1/chat/completions        OpenAI-compatible raw provider access
   GET  /v1/models                  model advertisement for health checks
-  POST /internal/worker            curl-cron dispatch (queue jobs or digest/assist)
+  POST /internal/worker            manual dispatch (queue jobs or digest/assist); the ticker drains the queue itself
   POST /internal/behavior/forget   DPA erasure for one staff member
                               (behaviour profile and conversation turns)
   POST /api/sms/execute            TALKSASA provider call relayed by PHP (PHP
@@ -25,7 +25,9 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import hmac
 import os
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -34,22 +36,30 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, request
 
+from . import agents as agent_registry
+from . import intent
+from . import policy
+from . import output_guard
+from . import proactive
 from .agents import default_agent
 from .behavior import BehaviorStore
 from .conversation import ConversationStore
 from .config import Config
-from .journal import Journal
+from .journal import Journal, hash_text
 from .orchestrator import Orchestrator
+from .chat_sessions import ChatSessionStore
 from .providers import Provider, ProviderError
 from .security import bearer_authorized, ensure_staff_context, bound_question
 from .automations import AutomationEngine, AutomationError
 from .tools import ToolBridge
 from .read_models import ReadModelError, ReadModelRefresher, PolarsReadModelRefresher
+from .scheduler import Scheduler
 from .queue_worker import PythonQueueWorker
 from .sms_provider import SmsProviderError, execute as sms_provider_execute
 from .payhero_provider import PayheroProviderError, execute as payhero_provider_execute
 from .payment_gateway import PaymentGatewayError, execute as payment_gateway_execute
 from .email_provider import send_email as smtp_send_email
+from .public_faq import refresh_public_faq
 
 
 def _render_document_html(html: str) -> bytes:
@@ -64,6 +74,105 @@ def _render_document_html(html: str) -> bytes:
     return HTML(string=html, url_fetcher=safe_url_fetcher).write_pdf()
 
 
+_PLACEHOLDER = re.compile(r"\[([A-Za-z][A-Za-z /'&-]{1,40})\](?!\()")
+_MARKDOWN_LINE = re.compile(r"^\s{0,3}(#{1,6}\s+|[-*+]\s+|>\s+)", re.MULTILINE)
+# Channels whose text reaches a phone as plain characters.
+_PLAIN_CHANNELS = {"sms": 320, "whatsapp": 1000}
+
+
+# Extra instructions for workflows whose draft is a conversation turn rather
+# than a document.
+_WORKFLOW_GUIDANCE = {
+    "academics.timetable_planning": (
+        "You are the timetable planning assistant. The class timetable itself "
+        "is placed by the school's scheduling engine from allocations, weekly "
+        "lessons and lesson periods; you never place lessons and never return "
+        "'assignments'. Answer the planner's 'question' from the supplied "
+        "facts (period_count, stream_loads, setup_gaps, teacher_load, saved "
+        "constraints): what is ready, what blocks a complete draft, and the "
+        "next concrete step in the system (Lesson Periods for weekly lessons, "
+        "Subject Teachers for allocations, then Generate). 'body' is a short "
+        "plain answer to the question. Put follow-up questions for the planner "
+        "in 'questions', ideas in 'suggestions', and anything the facts cannot "
+        "settle in 'unresolved_constraints'. Never invent numbers that are not "
+        "in the facts."
+    ),
+}
+
+
+def _draft_school_facts(raw: Any) -> dict[str, str]:
+    """Public school facts PHP supplies with every draft (bounded strings)."""
+    facts = raw if isinstance(raw, dict) else {}
+    return {
+        key: str(facts.get(key) or "").strip()[:160]
+        for key in ("name", "location", "today", "academic_year", "term", "term_dates")
+    }
+
+
+def _draft_fact_lines(school: dict[str, str]) -> str:
+    lines = []
+    if school.get("name"):
+        lines.append(f"The school is {school['name']}" + (f", {school['location']}" if school.get("location") else "") + ".")
+    if school.get("today"):
+        lines.append(f"Today is {school['today']} (Kenya time); work out every date and year from it.")
+    if school.get("academic_year"):
+        term = f", {school['term']}" if school.get("term") else ""
+        dates = f" ({school['term_dates']})" if school.get("term_dates") else ""
+        lines.append(f"The current academic year is {school['academic_year']}{term}{dates}.")
+    lines.append(
+        "Write for school staff in plain words: never quote input field names, "
+        "keys or code formatting (no backticks). "
+        "State no fact that is not in the input or in these school facts: no "
+        "times, fees, dates, venues, requirements or contacts of your own. "
+        "Use the school's real name, never a placeholder such as [School Name]. "
+        "Where a detail is genuinely unknown, write it in square brackets, e.g. "
+        "[venue], and list it in 'next_steps' for the reviewer to fill in."
+    )
+    return " ".join(lines) + " "
+
+
+def _draft_channel_rule(channel: str) -> str:
+    limit = _PLAIN_CHANNELS.get(channel)
+    if not limit:
+        return ""
+    return (
+        f"This message is sent by {channel.upper() if channel == 'sms' else 'WhatsApp'}: "
+        f"'body' is plain text only - no markdown, headings, bullets, bold or emoji - "
+        f"and at most {limit} characters. Sign it from the school by name."
+    )
+
+
+def _finish_draft(draft: dict, school: dict[str, str], channel: str) -> None:
+    """Make the model's draft safe to hand a reviewer.
+
+    - A leftover [School Name] is filled from the school facts.
+    - Every other [placeholder] is listed in next_steps, so it cannot be
+      approved and sent unnoticed.
+    - Phone channels get plain text within their length limit.
+    """
+    body = draft.get("body")
+    if not isinstance(body, str):
+        return
+    name = school.get("name") or ""
+    if name:
+        body = re.sub(r"\[(?:the )?school(?:'s)? name\]", name, body, flags=re.IGNORECASE)
+    limit = _PLAIN_CHANNELS.get(channel)
+    if limit:
+        body = _MARKDOWN_LINE.sub("", body)
+        body = re.sub(r"(\*\*|__|\*|`)", "", body)
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    steps = draft.get("next_steps") if isinstance(draft.get("next_steps"), list) else []
+    gaps = sorted({match.group(0) for match in _PLACEHOLDER.finditer(body)})
+    for gap in gaps:
+        note = f"Fill in {gap} before approving."
+        if note not in steps:
+            steps.append(note)
+    if limit and len(body) > limit:
+        steps.append(f"Shorten the message: {len(body)} characters, the {channel} limit is {limit}.")
+    draft["body"] = body
+    draft["next_steps"] = steps
+
+
 def create_app(config: Config | None = None) -> Flask:
     app = Flask(__name__)
     # Bound service payloads before Flask parses them. This accommodates the
@@ -75,7 +184,10 @@ def create_app(config: Config | None = None) -> Flask:
     provider = Provider(cfg, journal)
     tools = ToolBridge(cfg, journal)
     conversation = ConversationStore(cfg.data_dir, journal)
-    orchestrator = Orchestrator(provider, tools, behavior, journal, conversation)
+    chat_sessions = ChatSessionStore(cfg.data_dir, journal)
+    orchestrator = Orchestrator(
+        provider, tools, behavior, journal, conversation, chat_sessions
+    )
     # One bounded background consumer per WSGI process. Jobs remain durable in
     # PHP's queue; lease fencing prevents duplicate acknowledgements and a
     # cross-process MySQL lock caps expensive projection refreshes.
@@ -126,6 +238,46 @@ def create_app(config: Config | None = None) -> Flask:
         if not bearer_authorized(request.headers, cfg.secret):
             return jsonify({"success": False, "message": "unauthorized"}), 401
         return None
+
+    @app.post("/internal/public-faq/refresh")
+    def public_faq_refresh():
+        """Refresh storage/public/faqs.json from the published school website.
+
+        Called on demand with X-Kingsway-Worker-Secret (or as a ticker job), so
+        term dates, a new academic year and contact changes reach the public
+        assistant without editing code or the JSON file by hand.
+        """
+        supplied = request.headers.get("X-Kingsway-Worker-Secret", "")
+        worker_authorized = bool(
+            supplied
+            and cfg.php_worker_secret
+            and hmac.compare_digest(supplied, cfg.php_worker_secret)
+        )
+        if not worker_authorized:
+            denied = auth_guard()
+            if denied is not None:
+                return denied
+        try:
+            result = refresh_public_faq(cfg)
+        except Exception as error:  # noqa: BLE001 - bounded maintenance route
+            journal.write(
+                "reads",
+                {
+                    "type": "public_faq_refresh_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "Public FAQ corpus refresh failed"}
+            ), 503
+        journal.write("reads", {"type": "public_faq_refreshed", **result})
+        return jsonify(
+            {
+                "success": True,
+                "data": result,
+                "message": "Public FAQ corpus refreshed",
+            }
+        )
 
     @app.post("/api/sms/execute")
     def sms_execute():
@@ -356,6 +508,314 @@ def create_app(config: Config | None = None) -> Flask:
             return jsonify(
                 {"success": False, "message": "ID-card PDF rendering failed"}
             ), 503
+
+    def _auth_or_worker():
+        if bearer_authorized(request.headers, cfg.secret):
+            return None
+        supplied = request.headers.get("X-Kingsway-Worker-Secret", "")
+        if (
+            supplied
+            and cfg.php_worker_secret
+            and hmac.compare_digest(supplied, cfg.php_worker_secret)
+        ):
+            return None
+        return jsonify({"success": False, "message": "unauthorized"}), 401
+
+    def _assistants():
+        from .assistants import (
+            ParentAssistantSkill,
+            PublicAssistantSkill,
+            ResearchAssistantSkill,
+        )
+
+        return {
+            "public": PublicAssistantSkill(provider, journal),
+            "parent": ParentAssistantSkill(provider, journal),
+            "research": ResearchAssistantSkill(provider, journal),
+        }
+
+    def _planning():
+        from .skills.academic_planning import AcademicPlanningSkill
+
+        return AcademicPlanningSkill(provider, journal)
+
+    @app.post("/api/public/ai-faq")
+    def public_assistant():
+        """Public FAQ assistant. PHP authenticates the anonymous caller and
+        supplies the approved corpus; Python owns policy, prompt, provider call
+        and output scrub."""
+        denied = _auth_or_worker()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question") or "")
+        corpus = (
+            payload.get("corpus") if isinstance(payload.get("corpus"), list) else []
+        )
+        conversation = (
+            payload.get("conversation")
+            if isinstance(payload.get("conversation"), list)
+            else []
+        )
+        try:
+            result = _assistants()["public"].ask(question, corpus, conversation)
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/parents/ai-assistant")
+    def parent_assistant():
+        """Parent portal assistant. PHP has already authorized the linked family
+        and supplied the bounded child summaries."""
+        denied = _auth_or_worker()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question") or "")
+        context = (
+            payload.get("context") if isinstance(payload.get("context"), dict) else {}
+        )
+        try:
+            result = _assistants()["parent"].ask(question, context)
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/research/ask")
+    def research_assistant():
+        """Staff research assistant over approved source snapshots."""
+        denied = auth_guard()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question") or "")
+        sources = (
+            payload.get("sources") if isinstance(payload.get("sources"), list) else []
+        )
+        try:
+            result = _assistants()["research"].ask(question, sources)
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/workflows/draft")
+    def workflow_draft():
+        """Governed draft generation for a named AI workflow.
+
+        PHP's DraftRepository::create() has always posted here after it
+        re-authorizes the operator and builds the aggregate input, but this
+        route did not exist: every governed workflow (scheme drafts, lesson
+        plans, assessments, rubrics, coverage and gap reviews, KPI briefs,
+        timetable plans, reconciliation reviews, ...) therefore failed at the
+        transport with "the Python AI platform rejected the request" - a 404,
+        not a policy decision.
+
+        Contract, matching DraftRepository::validateDraft():
+            data.title       string
+            data.body        string
+            data.next_steps  list of strings
+            data.criteria / items / questions / suggestions /
+                 unresolved_constraints / assignments
+                            optional, per workflow; PHP validates and bounds
+                            each one itself, so they are relayed verbatim.
+
+        Bounds come from policy.minimize() (field allowlist, per-field cap,
+        nested-data rejection, envelope byte budget) and the answer is scrubbed
+        by output_guard before it leaves.
+        """
+        denied = _auth_or_worker()
+        if denied is not None:
+            return denied
+
+        payload = request.get_json(silent=True) or {}
+        workflow_id = str(payload.get("workflow_id") or "").strip()
+        context = (
+            payload.get("context") if isinstance(payload.get("context"), dict) else {}
+        )
+        raw_input = (
+            payload.get("input") if isinstance(payload.get("input"), dict) else {}
+        )
+        metadata = (
+            payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        )
+
+        if not workflow_id:
+            return jsonify(
+                {"success": False, "message": "workflow_id is required"}
+            ), 400
+
+        # Every workflow in PHP's WorkflowRegistry now has an explicit FIELDS
+        # entry (see the block in policy.py), so no request needs the bounded
+        # default fallback. allow_default=False keeps an unlisted workflow
+        # failing closed here rather than running under a generic bound.
+        try:
+            envelope = policy.minimize(workflow_id, raw_input, allow_default=False)
+        except policy.PolicyError as error:
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "workflow_draft_policy_rejected",
+                    "workflow_id": workflow_id,
+                    "reason": str(error)[:200],
+                },
+            )
+            return jsonify({"success": False, "message": str(error)}), 422
+
+        prompt_version = "wf-2"
+        school = _draft_school_facts(context.get("school"))
+        channel = str(raw_input.get("channel") or metadata.get("channel") or "").strip().lower()
+        system_prompt = (
+            "You are a governed drafting assistant for a Kenyan CBC school. "
+            "Produce an editable DRAFT for a member of staff to review and approve; "
+            "never a finished document, never an instruction to act. "
+            "Use only the supplied school data. Never name or describe an individual "
+            "learner, staff member or parent; aggregate only. "
+            "If the request cannot be grounded in the supplied data, say so in "
+            "'next_steps' rather than inventing content. "
+            "Return one JSON object with exactly these keys: "
+            "'title' (short label), 'body' (the draft, markdown), "
+            "'next_steps' (list of what a human must check), "
+            "and any of 'criteria', 'items', 'questions', 'suggestions', "
+            "'unresolved_constraints', 'assignments' the workflow asked for. "
+            f"Workflow: {workflow_id}. "
+            + _draft_fact_lines(school)
+            + _draft_channel_rule(channel)
+            + _WORKFLOW_GUIDANCE.get(workflow_id, "")
+        )
+
+        try:
+            raw = provider.complete(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "workflow_id": workflow_id,
+                                "audience": str(context.get("audience") or "staff"),
+                                "input": envelope,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                {
+                    "response_format": "json_object",
+                    "temperature": 0.3,
+                    "max_tokens": 3000,
+                    # Drafts are long answers generated in the background:
+                    # they get the draft budget, and a timed-out primary goes
+                    # straight to the fallback instead of being retried.
+                    "task": "draft",
+                    "_retries": 0,
+                },
+            )
+        except ProviderError as error:
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "workflow_draft_provider_failed",
+                    "workflow_id": workflow_id,
+                    "reason": str(error)[:200],
+                },
+            )
+            return jsonify({"success": False, "message": str(error)}), 503
+
+        # The engine's own output guard: credentials, schema names, tool ids and
+        # internal hosts never leave, and a residual is reported rather than sent.
+        draft = output_guard.scrub(raw)
+        if not isinstance(draft, dict):
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "workflow_draft_invalid_shape",
+                    "workflow_id": workflow_id,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "provider did not return a draft object"}
+            ), 502
+
+        for field in ("title", "body", "next_steps"):
+            if field not in draft:
+                draft[field] = [] if field == "next_steps" else ""
+        _finish_draft(draft, school, channel)
+
+        journal.write(
+            "ai_generation",
+            {
+                "type": "workflow_draft_generated",
+                "workflow_id": workflow_id,
+                "operator_id": int(context.get("user_id") or 0),
+                "request_id": str(context.get("request_id") or "")[:80],
+                "input_hash": hash_text(json.dumps(envelope, ensure_ascii=False)),
+            },
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                # `prompt` sits INSIDE data because PythonAiBridge::call()
+                # returns only response "data"; at the top level PHP would
+                # discard it and record an empty prompt hash instead.
+                "data": dict(
+                    draft,
+                    prompt={
+                        "version": prompt_version,
+                        "hash": hash_text(system_prompt),
+                    },
+                ),
+            }
+        )
+
+    @app.post("/api/academic/plan")
+    def academic_plan():
+        """Academic planning: lesson plans, schemes of work, assessments, notes.
+
+        Python searches the web for ideas and grounds them in the school context
+        PHP supplies (KICD outcomes, available resources)."""
+        denied = auth_guard()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = _planning().plan(payload)
+        except policy.PolicyError as error:
+            # An unlisted workflow or an oversized field is a caller/policy
+            # problem, not a server fault. The orchestrator catches
+            # PolicyError and degrades; this route must do the same rather
+            # than returning a 500 for a request that was well-formed.
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "academic_planning_policy_rejected",
+                    "reason": str(error)[:200],
+                },
+            )
+            return jsonify({"success": False, "message": str(error)}), 422
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        if result.get("status") == "unavailable":
+            return jsonify({"success": False, "message": result.get("reason")}), 503
+        return jsonify({"success": True, "data": result})
+
+    @app.post("/api/web/search")
+    def web_search():
+        """Direct web search for staff assistant surfaces."""
+        denied = auth_guard()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        query = str(payload.get("query") or "")
+        limit = int(payload.get("limit") or 8)
+        from .skills.web_search import WebSearchSkill
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {"results": WebSearchSkill(journal).search(query, limit)},
+            }
+        )
 
     @app.post("/api/documents/render-batch")
     def render_document_batch():
@@ -4648,61 +5108,6 @@ def create_app(config: Config | None = None) -> Flask:
                 {"success": False, "message": "schedule extract failed"}
             ), 503
 
-    @app.post("/api/schedules/propose-rows")
-    def schedules_propose_rows():
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        job_id = str(payload.get("job_id") or "")
-        academic_year_id = int(payload.get("academic_year_id") or 0)
-        term_id = int(payload.get("term_id") or 0)
-        constraints = payload.get("constraints") or []
-        if not job_id or academic_year_id <= 0 or term_id <= 0:
-            return jsonify(
-                {
-                    "success": False,
-                    "message": "job_id, academic_year_id, term_id required",
-                }
-            ), 422
-        started = time.monotonic()
-        try:
-            proposed_rows, conflicts, coverage = 200, [], 0.95
-            journal.write(
-                "document_generation",
-                {
-                    "type": "schedules_propose_rows_completed",
-                    "job_id": job_id,
-                    "academic_year_id": academic_year_id,
-                    "term_id": term_id,
-                    "proposed_rows": proposed_rows,
-                    "coverage": coverage,
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "proposed_rows": proposed_rows,
-                        "conflicts": conflicts,
-                        "coverage": coverage,
-                    },
-                }
-            )
-        except Exception as e:
-            journal.write(
-                "document_generation",
-                {
-                    "type": "schedules_propose_rows_failed",
-                    "job_id": job_id,
-                    "error": str(e),
-                },
-            )
-            return jsonify(
-                {"success": False, "message": "schedule propose rows failed"}
-            ), 503
-
     @app.post("/api/staff/import")
     def staff_import():
         guard = auth_guard()
@@ -5836,6 +6241,122 @@ def create_app(config: Config | None = None) -> Flask:
         # authenticated /v1/models route instead.
         return jsonify({"status": "ok", "engine": "python"})
 
+    @app.post("/api/agents/intent")
+    def agent_intent():
+        """Classify a staff question into a governed report intent.
+
+        Called by PHP's NLQ engine when its deterministic classifier cannot
+        resolve the question. The engine only classifies: it receives the
+        report catalogue PHP already authorized for this operator, returns one
+        catalogue code and a small filter map, and PHP re-validates and
+        executes the report itself. No school data crosses this boundary and
+        no governed tool is called from here, so the hop cannot cycle.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            question = bound_question(payload.get("question"))
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        reports = payload.get("reports")
+        if not isinstance(reports, list) or not reports:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "no authorized report catalogue was supplied",
+                }
+            ), 422
+        try:
+            result = intent.parse_intent(
+                provider,
+                journal,
+                question,
+                str(payload.get("audience") or "staff"),
+                reports,
+            )
+        except Exception as error:  # noqa: BLE001 - bounded relay surface
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_intent_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "the question could not be matched to a governed report",
+                }
+            ), 503
+        return jsonify({"success": True, "data": result, "message": "Intent parsed"})
+
+    @app.post("/api/agents/suggest")
+    def agent_suggest():
+        """Page-aware next questions for the workspace a staff member is on.
+
+        Deterministic and free: no provider call, no database read, no figure in
+        the response. Each hint is dropped unless the operator holds a
+        permission that could actually run it, and the governed tool behind an
+        accepted hint re-authorizes on its own. The browser shows one at a time
+        and forgets a hint once it has been offered for that page state.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            message, code = (
+                str(error),
+                403 if isinstance(error, PermissionError) else 422,
+            )
+            return jsonify({"success": False, "message": message}), code
+
+        # Only the listed page fields are read, each bounded. The browser is
+        # not trusted to send a small payload.
+        raw_page = payload.get("page_context")
+        raw_page = raw_page if isinstance(raw_page, dict) else {}
+        page_context: dict = {}
+        entity = raw_page.get("page_entity")
+        if isinstance(entity, dict):
+            page_context["page_entity"] = {
+                "kind": str(entity.get("kind") or "")[:40],
+                "label": str(entity.get("label") or "")[:80],
+                "status": str(entity.get("status") or "")[:40],
+            }
+        filters = raw_page.get("filters")
+        if isinstance(filters, dict):
+            page_context["filters"] = {
+                str(key)[:40]: str(value)[:60]
+                for key, value in list(filters.items())[:10]
+                if str(value).strip()
+            }
+        try:
+            suggestions = proactive.build_suggestions(context, page_context)
+        except Exception as error:  # noqa: BLE001 - a nudge is never worth a 500
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_suggest_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            suggestions = []
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "suggestions": suggestions,
+                    "signature": proactive.signature(context, page_context),
+                },
+                "message": "Suggestions prepared",
+            }
+        )
+
     @app.post("/api/agents/assist")
     def agent_assist():
         guard = auth_guard()
@@ -5929,7 +6450,8 @@ def create_app(config: Config | None = None) -> Flask:
                 yield _event(
                     "error",
                     {
-                        "message": "the response was interrupted — please try again",
+                        "message": "I couldn’t finish that answer. Please try again.",
+                        "terminal": True,
                     },
                 )
             yield _event(
@@ -5952,6 +6474,224 @@ def create_app(config: Config | None = None) -> Flask:
             },
         )
         return response
+
+    @app.get("/api/agents/sessions")
+    def agents_sessions_list():
+        """List chat sessions for the current user."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        user_id = int(request.args.get("user_id", 0))
+        if user_id < 1:
+            return jsonify({"success": False, "message": "user_id required"}), 422
+        limit = min(max(int(request.args.get("limit", 30)), 1), 100)
+        assistant_domain = (
+            "system_admin"
+            if request.args.get("assistant_domain") == "system_admin"
+            else "staff"
+        )
+        sessions = chat_sessions.list_sessions(user_id, limit, assistant_domain)
+        return jsonify(
+            {"success": True, "data": sessions, "message": "Sessions retrieved"}
+        )
+
+    @app.post("/api/agents/sessions/create")
+    def agents_sessions_create():
+        """Create a new chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        route = str(payload.get("route") or "")[:120]
+        title = str(payload.get("title") or "")[:80]
+        session = chat_sessions.create(user_id, route, title, assistant_domain)
+        return jsonify({"success": True, "data": session, "message": "Session created"})
+
+    @app.post("/api/agents/sessions/get")
+    def agents_sessions_get():
+        """Get a chat session with its messages."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return jsonify({"success": False, "message": "session_id required"}), 422
+        limit = min(max(int(payload.get("limit", 200)), 1), 500)
+        session = chat_sessions.get_session(
+            user_id, session_id, limit, assistant_domain
+        )
+        if session is None:
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify(
+            {"success": True, "data": session, "message": "Session retrieved"}
+        )
+
+    @app.post("/api/agents/sessions/delete")
+    def agents_sessions_delete():
+        """Delete a chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return jsonify({"success": False, "message": "session_id required"}), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        ok = chat_sessions.delete_session(user_id, session_id)
+        if not ok:
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify({"success": True, "message": "Session deleted"})
+
+    @app.post("/api/agents/sessions/rename")
+    def agents_sessions_rename():
+        """Rename a chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        session_id = str(payload.get("session_id") or "")
+        title = str(payload.get("title") or "")
+        if not session_id or not title:
+            return jsonify(
+                {"success": False, "message": "session_id and title required"}
+            ), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        ok = chat_sessions.rename(user_id, session_id, title)
+        if not ok:
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify({"success": True, "message": "Session renamed"})
+
+    @app.post("/api/agents/sessions/topics")
+    def agents_sessions_topics():
+        """Merge topic labels into a chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        session_id = str(payload.get("session_id") or "")
+        topics = payload.get("topics")
+        if not session_id or not isinstance(topics, list):
+            return jsonify(
+                {"success": False, "message": "session_id and topics required"}
+            ), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        merged = chat_sessions.add_topics(user_id, session_id, topics)
+        return jsonify(
+            {
+                "success": True,
+                "data": {"session_id": session_id, "topics": merged},
+                "message": "Topics updated",
+            }
+        )
+
+    @app.post("/api/agents/sessions/clear-messages")
+    def agents_sessions_clear_messages():
+        """Empty one chat session's messages while keeping the session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return jsonify({"success": False, "message": "session_id required"}), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        if not chat_sessions.clear_messages(user_id, session_id):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify({"success": True, "message": "Session cleared"})
+
+    @app.post("/api/agents/sessions/clear")
+    def agents_sessions_clear():
+        """Clear all chat sessions for the user (DPA erasure)."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        count = chat_sessions.clear(user_id)
+        return jsonify(
+            {
+                "success": True,
+                "data": {"sessions_removed": count},
+                "message": "Sessions cleared",
+            }
+        )
+
+    @app.get("/api/agents/preferences")
+    def agents_preferences_get():
+        """Get chat preferences for the user."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        user_id = int(request.args.get("user_id", 0))
+        if user_id < 1:
+            return jsonify({"success": False, "message": "user_id required"}), 422
+        prefs = chat_sessions.get_prefs(user_id)
+        return jsonify(
+            {"success": True, "data": prefs, "message": "Preferences retrieved"}
+        )
+
+    @app.post("/api/agents/preferences")
+    def agents_preferences_set():
+        """Set chat preferences for the user."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        prefs = payload.get("preferences") or {}
+        updated = chat_sessions.set_prefs(user_id, prefs)
+        return jsonify(
+            {"success": True, "data": updated, "message": "Preferences updated"}
+        )
 
     @app.post("/api/automations/run")
     def automations_run():
@@ -6109,6 +6849,31 @@ def create_app(config: Config | None = None) -> Flask:
             {"success": True, "data": result, "message": "Workspace briefing ready"}
         )
 
+    @app.get("/api/agents/catalog")
+    def agents_catalog():
+        """Return the agent catalogue for the authenticated staff member.
+        Requires Authorization: Bearer <AI_PYTHON_SECRET> header (Node gateway).
+        """
+        # auth_guard() returns None when authorized and a (body, status) tuple
+        # when denied. Negating it inverts the check: valid callers were
+        # rejected and anonymous callers were served the full catalogue.
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        catalog = []
+        for agent in agent_registry.AGENTS.values():
+            catalog.append(
+                {
+                    "id": agent["id"],
+                    "name": agent["name"],
+                    "domain": agent["domain"],
+                    "goal": agent["goal"],
+                    "route_tokens": agent.get("route_tokens", []),
+                    "tools": list(agent.get("tools", [])),
+                }
+            )
+        return jsonify({"success": True, "data": catalog})
+
     @app.post("/v1/chat/completions")
     def chat_completions():
         """OpenAI-compatible surface so ANY existing consumer (including the
@@ -6165,9 +6930,16 @@ def create_app(config: Config | None = None) -> Flask:
             }
         )
 
+    queue_state = {"active": False}
+    queue_state_lock = Lock()
+
     @app.post("/internal/worker")
     def internal_worker():
-        """Curl-cron entry for bounded Python queue jobs or existing AI runs."""
+        """Manual entry for bounded Python queue jobs or existing AI runs.
+
+        Scheduled queue draining no longer comes through here: the ticker runs
+        the `python_queue` job from schedules.yaml in-process.
+        """
         guard = auth_guard()
         if guard is not None:
             return guard
@@ -6240,6 +7012,82 @@ def create_app(config: Config | None = None) -> Flask:
                 "message": "worker batch complete",
             }
         )
+
+    @app.post("/internal/tick")
+    def internal_tick():
+        """Change-driven projection refresh (Python only).
+
+        Manual / diagnostic entry only: the Passenger-started ticker runs the
+        same engine every 2 s, so nothing schedules this endpoint. The engine:
+
+        1. Ensures change-capture triggers are installed on every source table.
+        2. Reads the change log and marks affected projections dirty.
+        3. Runs a bounded batch: dirty projections first, then overdue safety sweeps.
+        4. Falls back to table UPDATE_TIME when triggers unavailable.
+
+        Users always see data: a missing or stale projection falls back to source
+        view via ReadReplicaService::qualifiedRef(). No "unavailable or stale" errors.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+
+        with queue_state_lock:
+            if queue_state["active"]:
+                return jsonify(
+                    {
+                        "success": True,
+                        "data": {"status": "busy"},
+                        "message": "Refresh engine is already running a bounded batch",
+                    }
+                ), 202
+            queue_state["active"] = True
+
+        payload = request.get_json(force=True, silent=True) or {}
+        max_jobs = payload.get("max_jobs")
+        max_seconds = payload.get("max_seconds")
+
+        try:
+            from .refresh_engine import RefreshEngine
+
+            scheduler = Scheduler(cfg)
+            engine = RefreshEngine(cfg, scheduler, journal)
+            outcome = engine.tick(
+                max_jobs=int(max_jobs) if str(max_jobs or "").isdigit() else 50,
+                max_seconds=(
+                    float(max_seconds)
+                    if str(max_seconds or "").replace(".", "", 1).isdigit()
+                    else 15.0
+                ),
+            )
+            journal.write("reads", outcome)
+            return jsonify(
+                {
+                    "success": True,
+                    "data": outcome,
+                    "message": "Refresh engine tick complete",
+                }
+            ), 200
+        except Exception as error:  # noqa: BLE001 - report, never crash Passenger
+            # Journal.write() takes (category, entry); a bare entry dict is a
+            # TypeError that masks the real failure it was meant to record.
+            journal.write(
+                "reads",
+                {
+                    "type": "refresh_engine_tick_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "data": None,
+                    "message": f"Refresh engine tick failed: {error}",
+                }
+            ), 503
+        finally:
+            with queue_state_lock:
+                queue_state["active"] = False
 
     @app.post("/internal/behavior/forget")
     def behavior_forget():

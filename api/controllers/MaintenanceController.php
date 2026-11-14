@@ -3,8 +3,8 @@ namespace App\API\Controllers;
 use Illuminate\Http\Request;
 
 use Exception;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 
 use App\API\Modules\system\SystemAPI;
@@ -60,7 +60,7 @@ class MaintenanceController extends BaseController
                 'recurring_type_count' => (string) count(array_filter($vehicleTypes, static fn(int $count): bool => $count > 1)),
                 'follow_up_intent' => 'Prepare a facilities maintenance review; staff must verify safety, urgency, vendor, cost, and work-order decisions.',
             ];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'maintenance.facilities_review', $this->aiFacilitiesContext(), $input,
                 ['subject_type' => 'maintenance_facilities_review', 'scope' => 'authorized_maintenance_aggregate']
             );
@@ -76,7 +76,7 @@ class MaintenanceController extends BaseController
     {
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiFacilities()) return $this->forbidden('Maintenance review permission is required');
-        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'maintenance'), 'scope' => $review ? 'review' : 'own'], 'Facilities maintenance reviews retrieved');
+        return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'maintenance'), 'scope' => $review ? 'review' : 'own'], 'Facilities maintenance reviews retrieved');
     }
 
     public function postAiFacilitiesReviewApprove($id = null, $data = [], $segments = [])
@@ -85,7 +85,7 @@ class MaintenanceController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'maintenance.facilities_review');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'maintenance.facilities_review');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Facilities maintenance review approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -94,12 +94,12 @@ class MaintenanceController extends BaseController
 
     private function aiFacilitiesContext(): array
     {
-        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
     }
 
     private function canUseAiFacilities(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('maintenance.facilities_review', $this->aiFacilitiesContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('maintenance.facilities_review', $this->aiFacilitiesContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiFacilities(): bool

@@ -399,36 +399,4 @@ class AuditLogger
     {
         return $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
     }
-
-    /**
-     * Create audit_logs table if not exists
-     */
-    public function createTableIfNotExists(): bool
-    {
-        $sql = "CREATE TABLE IF NOT EXISTS audit_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            action VARCHAR(50) NOT NULL,
-            entity VARCHAR(50) NOT NULL,
-            entity_id INT NULL,
-            user_id INT NULL,
-            ip_address VARCHAR(45) NULL,
-            user_agent VARCHAR(255) NULL,
-            details TEXT NULL,
-            status ENUM('success', 'failure') DEFAULT 'success',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_entity (entity, entity_id),
-            INDEX idx_user (user_id),
-            INDEX idx_action (action),
-            INDEX idx_created (created_at),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-        
-        try {
-            $this->db->exec($sql);
-            return true;
-        } catch (\Exception $e) {
-            \App\API\Services\Logger::legacyError("Failed to create audit_logs table: " . $e->getMessage());
-            return false;
-        }
-    }
 }

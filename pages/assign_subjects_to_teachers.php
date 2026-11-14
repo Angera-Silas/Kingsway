@@ -17,6 +17,9 @@
             <button class="btn btn-outline-primary btn-sm" id="exportAssignmentsBtn">
                 <i class="bi bi-download"></i> Export
             </button>
+            <button class="btn btn-outline-secondary btn-sm" id="printAssignmentsBtn" type="button">
+                <i class="bi bi-printer"></i> Print
+            </button>
             <button class="btn btn-success btn-sm" id="addAssignmentBtn">
                 <i class="bi bi-plus-circle"></i> New Assignment
             </button>
@@ -63,22 +66,34 @@
     <div class="card mb-4">
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-3">
+                <div class="col-6 col-md-2">
+                    <label class="form-label small text-muted mb-1" for="academicYearFilter">Academic year</label>
+                    <select class="form-select" id="academicYearFilter" aria-label="Academic year"></select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small text-muted mb-1" for="academicTermFilter">Term</label>
+                    <select class="form-select" id="academicTermFilter" aria-label="Term"></select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1" for="teacherFilter">Teacher</label>
                     <select class="form-select" id="teacherFilter">
                         <option value="">All Teachers</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1" for="subjectFilter">Learning area</label>
                     <select class="form-select" id="subjectFilter">
                         <option value="">All Subjects</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1" for="classFilter">Class</label>
                     <select class="form-select" id="classFilter">
                         <option value="">All Classes</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1" for="searchAssignments">Search</label>
                     <input type="text" class="form-control" id="searchAssignments" placeholder="Search assignments...">
                 </div>
             </div>
@@ -142,10 +157,17 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Class / Stream *</label>
+                        <label class="form-label">Class *</label>
                         <select class="form-select" id="assignClass" required>
                             <option value="">Select Class</option>
                         </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stream</label>
+                        <select class="form-select" id="assignStream">
+                            <option value="">All streams</option>
+                        </select>
+                        <div class="form-text">Leave as "All streams" when the teacher takes this subject in every stream.</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Periods Per Week</label>

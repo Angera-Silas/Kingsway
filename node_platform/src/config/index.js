@@ -60,6 +60,35 @@ const ConfigSchema = z.object({
     workerSecret: z.string().min(1),
     webOrigins: z.array(z.string().url()),
     publishAllowIps: z.array(z.string()),
+    internalSecret: z.string().min(1),
+    aiPythonSecret: z.string().min(1),
+    // Threat detection configuration
+    threatDetection: z.object({
+      bruteForce: z.object({
+        count: z.number().int().min(1).default(5),
+        windowMs: z.number().int().min(1000).default(900000), // 15 min
+        uniqueUsers: z.number().int().min(1).default(3),
+        alertCooldownMs: z.number().int().min(1000).default(1800000), // 30 min
+      }).optional(),
+      credentialStuffing: z.object({
+        count: z.number().int().min(1).default(10),
+        windowMs: z.number().int().min(1000).default(3600000), // 1 hour
+        alertCooldownMs: z.number().int().min(1000).default(3600000), // 1 hour
+      }).optional(),
+      suspiciousQuery: z.object({
+        count: z.number().int().min(1).default(3),
+        windowMs: z.number().int().min(1000).default(3600000), // 1 hour
+        alertCooldownMs: z.number().int().min(1000).default(3600000), // 1 hour
+      }).optional(),
+      offTopic: z.object({
+        minLength: z.number().int().min(1).default(20),
+      }).optional(),
+    }).optional(),
+    // Public assistant rate limiting
+    publicRateLimit: z.object({
+      requestsPerMinute: z.number().int().min(1).default(20),
+      burstLimit: z.number().int().min(1).default(50),
+    }).optional(),
   }),
   metrics: z.object({
     prefix: z.string(),
@@ -132,7 +161,18 @@ export function loadConfig(overrides = {}) {
 
   const env = process.env.NODE_ENV || 'development';
   const configPath = resolve(__dirname, `../../config/${env}.yaml`);
-  const fileConfig = loadEnvFile(resolve(__dirname, '../../.env'));
+
+  // Priority: process.env (Passenger SetEnv, Docker, systemd) > .env file > YAML defaults
+  // .env file is only for local development; production uses Passenger SetEnv / Docker env / systemd env
+  const nodeFileConfig = loadEnvFile(resolve(__dirname, '.env'));
+  // PHP issues browser SSE capabilities with the application JWT signing key.
+  // In local development, use PHP's config/.env as the shared source of truth.
+  // Production remains environment-driven and does not read the PHP local file.
+  const applicationFileConfig = env === 'development'
+    ? loadEnvFile(resolve(APP_ROOT, 'config/.env'))
+    : {};
+  const fileConfig = { ...nodeFileConfig, ...applicationFileConfig };
+  // process.env takes precedence (Passenger SetEnv in production, Docker env, systemd)
   const mergedEnv = mergeEnv(fileConfig, process.env);
 
   let yamlConfig = {};
@@ -146,15 +186,27 @@ export function loadConfig(overrides = {}) {
   const rawConfig = {
     ...yamlConfig,
     host: yamlConfig.app?.host,
-    port: yamlConfig.app?.port,
+    // Keep the local gateway port configurable alongside the PHP and
+    // Passenger settings. Without this override a developer can set
+    // NODE_REALTIME_PORT but the process still binds to the YAML default.
+    port: mergedEnv.NODE_REALTIME_PORT
+      ? Number.parseInt(mergedEnv.NODE_REALTIME_PORT, 10)
+      : yamlConfig.app?.port,
     security: {
       ...yamlConfig.security,
       jwtSecret: mergedEnv.JWT_SECRET || yamlConfig.security?.jwtSecret || '',
+      // Must equal PHP's JWT_ISSUER / JWT_AUDIENCE, which sign the stream
+      // capability; the env wins so both apps can share one value.
+      jwtIssuer: mergedEnv.JWT_ISSUER || yamlConfig.security?.jwtIssuer || '',
+      jwtAudience: mergedEnv.JWT_AUDIENCE || yamlConfig.security?.jwtAudience || '',
       workerSecret: mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.workerSecret || '',
       webOrigins: (mergedEnv.NODE_REALTIME_WEB_ORIGIN || yamlConfig.security?.webOrigins?.join(',') || '')
         .split(',')
         .map(s => s.trim())
-        .filter(Boolean),
+        .filter(Boolean)
+        .concat(['https://localhost', 'http://localhost']),
+      internalSecret: mergedEnv.KINGSWAY_INTERNAL_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.internalSecret || '',
+      aiPythonSecret: mergedEnv.AI_PYTHON_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.aiPythonSecret || '',
     },
     app: {
       ...yamlConfig.app,
@@ -169,6 +221,14 @@ export function loadConfig(overrides = {}) {
       heartbeatMs: mergedEnv.NODE_REALTIME_HEARTBEAT_MS
         ? Number.parseInt(mergedEnv.NODE_REALTIME_HEARTBEAT_MS, 10)
         : yamlConfig.sse?.heartbeatMs,
+      // Memory-safety soft cap per user (oldest connections are evicted,
+      // never a 429 lockout). Tunable from the host panel without redeploy.
+      userMaxConnections: mergedEnv.NODE_REALTIME_USER_MAX_CONNECTIONS
+        ? Number.parseInt(mergedEnv.NODE_REALTIME_USER_MAX_CONNECTIONS, 10)
+        : yamlConfig.sse?.userMaxConnections,
+      maxConnections: mergedEnv.NODE_REALTIME_MAX_CONNECTIONS
+        ? Number.parseInt(mergedEnv.NODE_REALTIME_MAX_CONNECTIONS, 10)
+        : yamlConfig.sse?.maxConnections,
     },
     internalHttp: {
       ...yamlConfig.internalHttp,

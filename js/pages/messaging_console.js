@@ -1,0 +1,1660 @@
+(function () {
+  "use strict";
+
+  const FOLDERS = [
+    { id: "all", label: "All messages", icon: "bi-inbox" },
+    { id: "sent", label: "Sent", icon: "bi-check2-circle" },
+    { id: "scheduled", label: "Scheduled", icon: "bi-clock" },
+    { id: "pending", label: "Pending / Queued", icon: "bi-hourglass-split" },
+    { id: "failed", label: "Failed", icon: "bi-x-octagon" },
+  ];
+
+  const FOLDER_STATUS = {
+    sent: ["sent", "delivered", "read"],
+    scheduled: ["scheduled"],
+    pending: ["pending", "queued", "draft", "processing"],
+    failed: ["failed", "bounced", "rejected", "expired", "undelivered"],
+  };
+
+  const SELECTED_RECIPIENT_TYPES = ["selected_students", "selected_class", "student_type", "school_level", "selected_parents", "selected_staff", "selected_vendors"];
+
+  function badgeClass(status) {
+    const st = String(status || "").toLowerCase();
+    if (["sent", "delivered", "read", "completed", "success", "synced", "active"].includes(st)) return "kw-badge kw-badge-ok";
+    if (["scheduled", "queued", "pending", "draft", "waiting"].includes(st)) return "kw-badge kw-badge-warn";
+    if (["failed", "error", "bounced", "rejected", "expired", "undelivered"].includes(st)) return "kw-badge kw-badge-err";
+    if (["processing", "sending", "dispatched"].includes(st)) return "kw-badge kw-badge-info";
+    return "kw-badge";
+  }
+
+  function severityRank(status) {
+    const st = String(status || "").toLowerCase();
+    if (["failed", "error", "bounced", "rejected", "expired", "undelivered"].includes(st)) return 5;
+    if (["pending", "queued", "sending", "processing", "dispatched", "sent", "waiting"].includes(st)) return 3;
+    if (["delivered", "read", "completed", "success"].includes(st)) return 1;
+    return st ? 2 : 0;
+  }
+
+  function create(config) {
+    if (!document.getElementById("messagesTable")) return null;
+
+    const Console = {
+      cfg: Object.assign(
+        {
+          channel: "sms",
+          realtimeKey: "manageSms",
+          permPrefix: "sms",
+          title: "SMS",
+          sendLabel: '<i class="bi bi-send"></i> Send Message',
+        },
+        config || {}
+      ),
+      root: null,
+      data: [],
+      filtered: [],
+      groups: [],
+      contacts: [],
+      templates: [],
+      templateLoadFailed: false,
+      optOuts: [],
+      audiences: { parents: [], students: [], classes: [], student_types: [], school_levels: [], vendors: [], staff: [] },
+      currentPage: 1,
+      perPage: 10,
+      folder: "all",
+      selectedId: null,
+      activeGroupId: null,
+      gatewayLoaded: false,
+      optOutsLoaded: false,
+      recipientPicker: null,
+      composeOffcanvas: null,
+      groupModal: null,
+      contactsModal: null,
+      templateModal: null,
+
+      init: async function () {
+        this.root = document.getElementById("kwConsole");
+        if (this.cfg.channel === "whatsapp") this.cfg.sendLabel = '<i class="bi bi-send"></i> Send Now';
+        await window.AuthContext?.ready();
+        if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
+          window.location.href = (window.APP_BASE || "") + "/index.php";
+          return;
+        }
+        const composeEl = document.getElementById("composeOffcanvas");
+        this.composeOffcanvas = window.bootstrap?.Offcanvas && composeEl ? new bootstrap.Offcanvas(composeEl) : null;
+        const groupEl = document.getElementById("groupModal");
+        const contactsEl = document.getElementById("contactsModal");
+        const templateEl = document.getElementById("templateModal");
+        if (groupEl) this.groupModal = bootstrap.Modal.getOrCreateInstance(groupEl);
+        if (contactsEl) this.contactsModal = bootstrap.Modal.getOrCreateInstance(contactsEl);
+        if (templateEl) this.templateModal = bootstrap.Modal.getOrCreateInstance(templateEl);
+        this.bindEvents();
+        this.updateCharMetrics();
+        this.subscribeRealtime();
+        this.applyPermissionGates();
+        await Promise.all([this.loadData(), this.loadGroups(), this.loadTemplates(), this.loadAudienceOptions()]);
+        if (!document.getElementById("composeBtn")?.hidden) await this.loadStaffTagOptions("");
+        if (this.cfg.channel === "whatsapp") await this.loadWhatsAppDocumentYears();
+        this.setupVariableMenu();
+        const currentUser = window.AuthContext?.getUser?.() || {};
+        const currentRoleId = Number(currentUser.role_id || currentUser.roleId || currentUser.primary_role_id || 0);
+        const currentRoleName = String(currentUser.role_name || currentUser.role || "").toLowerCase();
+        const canViewProviderAccount = (currentRoleId === 1 || currentRoleId === 4 || /system admin|school administrator/.test(currentRoleName)) &&
+          (!window.AuthContext?.hasPermission || AuthContext.hasPermission("communications_manage"));
+        const gateway = document.getElementById("gatewaySection");
+        if (gateway) gateway.hidden = !canViewProviderAccount;
+        const balanceChip = document.getElementById("smsBalanceChip");
+        if (balanceChip && this.cfg.channel === "sms") balanceChip.hidden = !canViewProviderAccount;
+        if (this.cfg.channel !== "sms") this.hideBalanceChip();
+        if (canViewProviderAccount && this.cfg.channel === "sms") this.checkBalance();
+      },
+
+      hideBalanceChip: function () {
+        const chip = document.getElementById("smsBalanceChip");
+        if (chip) chip.style.display = "none";
+      },
+
+      setupVariableMenu: function () {
+        const menu = document.getElementById("messageVariableMenu");
+        if (!menu || !window.RecipientPicker) return;
+        const self = this;
+        menu.innerHTML = window.RecipientPicker.variables()
+          .map((v) => '<li><button type="button" class="dropdown-item" data-var="' + v.token + '">' + v.token + ' <span class="text-muted small">' + v.label + '</span></button></li>')
+          .join("");
+        menu.querySelectorAll("[data-var]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            window.RecipientPicker.insertVariable("messageBody", this.getAttribute("data-var"));
+          });
+        });
+        menu.querySelectorAll("[data-var]").forEach((b) => b.addEventListener("click", () => self.updateCharMetrics()));
+      },
+
+      applyPermissionGates: function () {
+        const canExport = window.AuthContext?.canExport ? AuthContext.canExport("communications") : true;
+        const canPrint = window.AuthContext?.canPrint ? AuthContext.canPrint("communications") : true;
+        const user = window.AuthContext?.getUser?.() || {};
+        const isTestAccount = Number(user.is_test_user || 0) === 1 || user.account_type === "test";
+        const canCompose = isTestAccount || !window.AuthContext?.hasPermission ||
+          AuthContext.hasPermission("communications_create") || AuthContext.hasPermission("communications_manage");
+        const ex = document.getElementById("exportBtn");
+        const pr = document.getElementById("printBtn");
+        const compose = document.getElementById("composeBtn");
+        if (ex && !canExport) ex.style.display = "none";
+        if (pr && !canPrint) pr.style.display = "none";
+        if (compose) compose.hidden = !canCompose;
+        if (compose && this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled) {
+          compose.disabled = true;
+          compose.title = "WhatsApp sending is paused; use SMS or email for now";
+        }
+        const documentSelect = document.getElementById(this.cfg.channel === "sms" ? "smsRecipientDocument" : "generatedDocumentSelect");
+        if (documentSelect) {
+          const canAny = (permissions) => isTestAccount || !window.AuthContext?.hasPermission || permissions.some((permission) => AuthContext.hasPermission(permission));
+          const allowed = {
+            fee_statement: canAny(["finance_view", "finance_manage"]),
+            payslip: canAny(["finance_view", "payroll_view", "payroll_manage"]),
+            report_card: canAny(["academic_manage", "academic_approve"]),
+            student_id_card: canAny(["students_view", "students_view_all", "academic_view", "academic_manage"]),
+            portfolio: canAny(["students_view", "students_view_all", "academic_view", "academic_manage"]),
+            certificate: canAny(["students_view", "students_view_all", "academic_view", "academic_manage"]),
+            staff_security_pass: canAny(["staff_view", "staff_manage"]),
+          };
+          Array.from(documentSelect.options).forEach((option) => {
+            if (Object.prototype.hasOwnProperty.call(allowed, option.value)) option.disabled = !allowed[option.value];
+          });
+        }
+      },
+
+      bindEvents: function () {
+        const self = this;
+        this.on("composeBtn", "click", () => self.openCompose());
+        this.on("sendBtn", "click", () => self.submitMessage());
+        this.on("refreshBtn", "click", async () => { await self.loadData(); if (self.cfg.channel === "sms") self.checkBalance(); self.notify("Refreshed", "info"); });
+        this.on("exportBtn", "click", () => self.exportConsole());
+        this.on("printBtn", "click", () => self.printConsole());
+
+        this.root.querySelectorAll("[data-folder]").forEach(function (btn) {
+          btn.addEventListener("click", function () { self.setFolder(this.getAttribute("data-folder")); });
+        });
+        ["searchFilter"].forEach(function (id) {
+          self.on(id, "input", function () { self.currentPage = 1; self.applyFilters(); });
+        });
+        ["statusFilter", "categoryFilter", "dateFilter"].forEach(function (id) {
+          self.on(id, "change", function () {
+            if (id === "statusFilter") self.setFolder("all", true);
+            self.currentPage = 1;
+            self.applyFilters();
+          });
+        });
+        this.on("clearFiltersBtn", "click", function () {
+          const s = document.getElementById("searchFilter");
+          const st = document.getElementById("statusFilter");
+          const c = document.getElementById("categoryFilter");
+          const d = document.getElementById("dateFilter");
+          if (s) s.value = "";
+          if (st) st.value = "";
+          if (c) c.value = "";
+          if (d) d.value = "all";
+          self.setFolder("all", true);
+          self.currentPage = 1;
+          self.applyFilters();
+        });
+
+        this.on("recipientType", "change", function () { self.toggleRecipientSection(this.value); });
+        this.on("contactSearch", "input", function () { self.filterContactList(this.value); });
+        this.on("taggedStaffSearch", "input", function () { self.loadStaffTagOptions(this.value); });
+        this.on("enableReminder", "change", function () {
+          const ro = document.getElementById("reminderOptions");
+          if (ro) ro.style.display = this.checked ? "" : "none";
+          if (this.checked && !self.value("reminderAfter")) {
+            const ra = document.getElementById("reminderAfter");
+            if (ra) ra.value = "24";
+          }
+        });
+        this.on("messageType", "change", function () { self.suggestTemplate(this.value); });
+        this.on("templateSelect", "change", function () { self.applyTemplate(this.value); });
+        this.on("messageBody", "input", function () { self.updateCharMetrics(); });
+        const composeRoot = this.getComposeRoot();
+        composeRoot.querySelectorAll("[data-wa-source]").forEach(function (button) {
+          button.addEventListener("click", function () {
+            if (this.disabled) return;
+            const source = this.getAttribute("data-wa-source");
+            composeRoot.querySelectorAll("[data-wa-source]").forEach((item) => item.classList.toggle("active", item === this));
+            composeRoot.querySelectorAll("[data-wa-source-panel]").forEach((panel) => {
+              panel.hidden = panel.getAttribute("data-wa-source-panel") !== source;
+            });
+            self.updateWhatsAppMediaPreview();
+          });
+        });
+        this.on("mediaAttachment", "change", () => self.updateWhatsAppMediaPreview());
+        this.on("mediaPublicUrl", "input", () => self.updateWhatsAppMediaPreview());
+        this.on("generatedDocumentSelect", "change", () => self.updateWhatsAppMediaPreview());
+        this.on("smsRecipientDocument", "change", function () {
+          const period = document.getElementById("smsPayslipPeriod");
+          if (period) period.hidden = this.value !== "payslip";
+        });
+
+        this.on("newTemplateBtn", "click", () => self.openTemplateModal());
+        this.on("saveTemplateBtn", "click", () => self.saveTemplate());
+        const templatesList = document.getElementById("templatesList");
+        if (templatesList) templatesList.addEventListener("click", function (e) {
+          const actionBtn = e.target.closest("[data-template-action]");
+          const item = e.target.closest("[data-template-id]");
+          if (!item) return;
+          const id = item.getAttribute("data-template-id");
+          const action = actionBtn ? actionBtn.getAttribute("data-template-action") : "use";
+          if (action === "edit") self.openTemplateModal(id);
+          else if (action === "delete") self.deleteTemplate(id);
+          else self.useTemplate(id);
+        });
+
+        this.on("addGroupBtn", "click", () => self.openGroupModal());
+        this.on("saveGroupBtn", "click", () => self.saveGroup());
+        this.on("syncGroupsBtn", "click", () => self.syncGroups());
+        this.on("provisionGroupsBtn", "click", () => self.provisionGroups());
+        const groupsList = document.getElementById("groupsList");
+        if (groupsList) groupsList.addEventListener("click", function (e) {
+          const actionBtn = e.target.closest("[data-group-action]");
+          const item = e.target.closest("[data-group-id]");
+          if (!item) return;
+          const id = item.getAttribute("data-group-id");
+          const action = actionBtn ? actionBtn.getAttribute("data-group-action") : "compose";
+          if (action === "edit") self.openGroupModal(id);
+          else if (action === "delete") self.deleteGroup(id);
+          else if (action === "contacts") self.openContacts(id);
+          else self.composeToGroup(id);
+        });
+
+        const optOutsCollapse = document.getElementById("optOutsCollapse");
+        if (optOutsCollapse) optOutsCollapse.addEventListener("shown.bs.collapse", function () { if (!self.optOutsLoaded) self.loadOptOuts(); });
+
+        this.on("refreshBalanceBtn", "click", () => self.checkBalance());
+        this.on("loadProfileBtn", "click", () => self.loadProfile());
+
+        this.on("addContactBtn", "click", () => self.openContactForm());
+        this.on("cancelContactBtn", "click", () => self.hideContactForm());
+        this.on("saveContactBtn", "click", () => self.saveContact());
+        this.on("syncContactsBtn", "click", () => self.syncContacts());
+        this.on("importContactsBtn", "click", () => self.importContacts());
+        this.on("contactFilter", "input", function () { self.renderContacts(); });
+
+        const tbody = document.querySelector("#messagesTable tbody");
+        if (tbody) tbody.addEventListener("click", function (e) {
+          const tr = e.target.closest("tr[data-idx]");
+          if (tr) self.openDetail(Number(tr.getAttribute("data-idx")));
+        });
+        const contactsBody = document.querySelector("#contactsTable tbody");
+        if (contactsBody) contactsBody.addEventListener("click", function (event) {
+          const button = event.target.closest("button[data-contact-action]");
+          if (!button) return;
+          if (button.dataset.contactAction === "edit") self.openContactForm(button.dataset.id);
+          else self.deleteContact(button.dataset.id);
+        });
+
+        this.on("closeDetailBtn", "click", () => this.closeDetail());
+        this.on("resendBtn", "click", () => self.resendDetail());
+        this.on("deliveryList", "change", (event) => {
+          if (event.target?.matches?.(".kw-delivery-select")) self.updateResendButton();
+        });
+        this.on("copyBtn", "click", () => self.copyDetail());
+        this.on("updateScheduleBtn", "click", () => self.updateSchedule());
+      },
+
+      loadWhatsAppDocumentYears: async function () {
+        const select = document.getElementById("waDocumentAcademicYear");
+        if (!select || !window.API?.students?.getAllAcademicYears) return;
+        try {
+          const response = await window.API.students.getAllAcademicYears();
+          const payload = response?.data ?? response;
+          const years = Array.isArray(payload) ? payload : (payload?.academic_years || payload?.years || []);
+          years.forEach((year) => {
+            const id = Number(year.id || year.academic_year_id);
+            if (!Number.isInteger(id) || id < 1) return;
+            const option = document.createElement("option");
+            option.value = String(id);
+            option.textContent = String(year.year_name || year.name || year.year || id);
+            select.append(option);
+          });
+        } catch (error) {
+          console.warn("Unable to load academic years for WhatsApp documents", error);
+        }
+      },
+
+      subscribeRealtime: function () {
+        const self = this;
+        window.APIRealtime?.register?.(this.cfg.realtimeKey, this, ["communications"]);
+        const refresh = (() => {
+          let timer = null;
+          return function () {
+            clearTimeout(timer);
+            timer = setTimeout(function () {
+              if (!self.root || !document.contains(self.root)) return;
+              self.loadData();
+            }, 400);
+          };
+        })();
+        const channel = this.cfg.channel;
+        // APIRealtime.register() already refreshes this controller for
+        // kingsway:data-mutated events whose targets match `communications`.
+        // Listening to that event here as well caused a second GET for every
+        // matching mutation. Keep the page-specific listener for completed
+        // jobs, which are notifications and do not schedule a data refresh.
+        ["kingsway:job"].forEach(function (evt) {
+          window.addEventListener(evt, function (e) {
+            const scope = String(e.detail?.scope || "").toLowerCase();
+            const targets = Array.isArray(e.detail?.targets) ? e.detail.targets : [];
+            const relevantScope = scope !== "all" && (scope.includes("communic") || scope.includes("sms") || scope.includes("whatsapp") || scope.includes(channel));
+            const relevantTarget = targets.some((target) => /communicat|sms|whatsapp/i.test(String(target)));
+            if (!relevantScope && !relevantTarget) return;
+            refresh();
+          });
+        });
+      },
+
+      loadData: async function () {
+        try {
+          const response = await window.API.communications.getMessages({ type: this.cfg.channel });
+          this.data = this.unwrapList(response, ["items", "communications", "messages"]);
+        } catch (e) {
+          console.error("Failed to load " + this.cfg.title + " records:", e);
+          this.data = [];
+        }
+        this.applyFilters();
+      },
+
+      loadAudienceOptions: async function () {
+        try {
+          const r = await window.API.communications.getAudienceOptions();
+          let data = r?.data || r || {};
+          if (data?.data && typeof data.data === "object") data = data.data;
+          this.audiences = data;
+          const allowed = data.allowed_audiences || [];
+          const select = document.getElementById("recipientType");
+          if (select && allowed.length) Array.from(select.options).forEach((o) => { if (o.value && !allowed.includes(o.value)) o.remove(); });
+        } catch (e) {
+          this.audiences = { parents: [], students: [], classes: [], student_types: [], school_levels: [], vendors: [], staff: [] };
+          console.error("Audience load failed", e);
+        }
+      },
+
+      setFolder: function (folder, keepStatus) {
+        if (!FOLDERS.some((f) => f.id === folder)) folder = "all";
+        this.folder = folder;
+        if (!keepStatus) {
+          const st = document.getElementById("statusFilter");
+          if (st) st.value = "";
+        }
+        this.root.querySelectorAll("[data-folder]").forEach((b) => b.classList.toggle("active", b.getAttribute("data-folder") === folder));
+        const scope = document.getElementById("folderScopeLabel");
+        if (scope) {
+          const def = FOLDERS.find((f) => f.id === folder);
+          scope.innerHTML = '<i class="bi ' + (def ? def.icon : "bi-inbox") + '"></i> ' + this.esc(def ? def.label : "All messages");
+        }
+        this.currentPage = 1;
+        this.applyFilters();
+      },
+
+      inFolder: function (item) {
+        if (this.folder === "all") return true;
+        const st = String(item.status || "").toLowerCase();
+        return (FOLDER_STATUS[this.folder] || []).includes(st);
+      },
+
+      applyFilters: function () {
+        const search = this.value("searchFilter").toLowerCase();
+        const status = this.value("statusFilter").toLowerCase();
+        const category = this.value("categoryFilter").toLowerCase();
+        const range = this.value("dateFilter") || "30";
+        const today = new Date().toISOString().slice(0, 10);
+        let cutoff = null;
+        if (range === "1") cutoff = today;
+        else if (range !== "all") {
+          const d = new Date();
+          d.setDate(d.getDate() - (parseInt(range, 10) || 30));
+          cutoff = d.toISOString().slice(0, 10);
+        }
+        this.filtered = this.data.filter((item) => {
+          const content = String(item.content || item.body || item.message || "").toLowerCase();
+          const subject = String(item.subject || item.category || this.cfg.title + " Broadcast").toLowerCase();
+          const st = String(item.status || "").toLowerCase();
+          const summary = String(item.recipient_summary || item.recipient_type || "").toLowerCase();
+          const cd = item.created_at || item.sent_at || item.scheduled_at ? String(item.created_at || item.sent_at || item.scheduled_at).slice(0, 10) : "";
+          if (!this.inFolder(item)) return false;
+          if (search && !content.includes(search) && !subject.includes(search) && !summary.includes(search)) return false;
+          if (status && st !== status) return false;
+          if (category && !String(item.category || "").toLowerCase().includes(category) && !subject.replace(/_/g, " ").includes(category.replace(/_/g, " "))) return false;
+          if (cutoff && !(cd && cd >= cutoff)) return false;
+          return true;
+        });
+        this.renderStats();
+        this.renderFolderCounts();
+        this.renderTable();
+        this.renderPagination();
+      },
+
+      renderStats: function () {
+        const all = this.data;
+        const today = new Date().toISOString().slice(0, 10);
+        this.setText("sentToday", all.filter((i) => ["sent", "delivered"].includes(String(i.status || "").toLowerCase()) && String(i.created_at || "").startsWith(today)).length);
+        this.setText("pendingCount", all.filter((i) => ["pending", "queued", "scheduled", "processing", "draft"].includes(String(i.status || "").toLowerCase())).length);
+        this.setText("failedCount", all.filter((i) => String(i.status || "").toLowerCase() === "failed").length);
+        this.setText("totalCount", this.filtered.length);
+      },
+
+      renderFolderCounts: function () {
+        const self = this;
+        FOLDERS.forEach(function (f) {
+          const count = self.data.filter((item) => {
+            if (f.id === "all") return true;
+            return (FOLDER_STATUS[f.id] || []).includes(String(item.status || "").toLowerCase());
+          }).length;
+          self.setText("folderCount" + f.id.charAt(0).toUpperCase() + f.id.slice(1), count);
+        });
+      },
+
+      renderTable: function () {
+        const tbody = document.querySelector("#messagesTable tbody");
+        const stateRow = document.getElementById("messagesTableState");
+        const template = document.getElementById("messageListRowTemplate");
+        if (!tbody || !stateRow || !template) return;
+        tbody.querySelectorAll("[data-message-row]").forEach((row) => row.remove());
+        if (!this.filtered.length) {
+          stateRow.querySelector("td").textContent = "No " + this.cfg.title + " messages match the current filters.";
+          stateRow.hidden = false;
+          return;
+        }
+        stateRow.hidden = true;
+        const start = (this.currentPage - 1) * this.perPage;
+        const page = this.filtered.slice(start, start + this.perPage);
+        const fragment = document.createDocumentFragment();
+        page.forEach((row, i) => {
+          const msg = String(row.content || row.message || row.body || "");
+          const preview = msg.length > 90 ? msg.substring(0, 90) + "…" : (msg || "—");
+          const type = row.subject || row.category ? String(row.subject || row.category).replace(/_/g, " ") : this.cfg.title + " Broadcast";
+          const recipientCount = Number(row.recipient_count || 0);
+          const recipients = row.recipient_summary || row.recipient_type || (recipientCount ? recipientCount + " recipients" : "—");
+          const status = String(row.status || "unknown");
+          const active = String(row.id || row.communication_id) === String(this.selectedId);
+          const item = template.content.cloneNode(true);
+          item.querySelector('[data-fill="type"]').textContent = type;
+          item.querySelector('[data-fill="preview"]').textContent = preview;
+          item.querySelector('[data-fill="recipients"]').textContent = recipients;
+          const badge = item.querySelector('[data-fill="status"]');
+          badge.textContent = status;
+          badge.classList.add(...badgeClass(status).split(" "));
+          item.querySelector('[data-fill="created"]').textContent = this.formatDate(row.created_at || row.scheduled_at);
+          const tr = item.querySelector("tr");
+          tr.dataset.idx = String(start + i);
+          tr.classList.toggle("kw-row-active", active);
+          fragment.appendChild(item);
+        });
+        tbody.insertBefore(fragment, stateRow);
+      },
+
+      renderPagination: function () {
+        const container = document.getElementById("pagination");
+        if (!container) return;
+        const total = Math.max(1, Math.ceil(this.filtered.length / this.perPage));
+        this.currentPage = Math.min(this.currentPage, total);
+        container.innerHTML = "";
+        const add = (label, page, disabled) => {
+          const li = document.createElement("li");
+          li.className = "page-item" + (disabled ? " disabled" : "") + (page === this.currentPage ? " active" : "");
+          const a = document.createElement("a");
+          a.className = "page-link";
+          a.href = "#";
+          a.textContent = label;
+          if (!disabled) a.addEventListener("click", (e) => { e.preventDefault(); this.currentPage = page; this.renderTable(); this.renderPagination(); });
+          li.appendChild(a);
+          container.appendChild(li);
+        };
+        add("«", this.currentPage - 1, this.currentPage <= 1);
+        const windowSize = 7;
+        let first = Math.max(1, this.currentPage - Math.floor(windowSize / 2));
+        const last = Math.min(total, first + windowSize - 1);
+        first = Math.max(1, last - windowSize + 1);
+        for (let p = first; p <= last; p++) add(p, p, false);
+        add("»", this.currentPage + 1, this.currentPage >= total);
+      },
+
+      openDetail: async function (index) {
+        const item = this.filtered[index];
+        if (!item) return;
+        const id = item.id || item.communication_id;
+        this.selectedId = id;
+        const listPane = document.querySelector(".kw-console-list");
+        const detailPane = document.getElementById("detailPane");
+        if (listPane) listPane.hidden = true;
+        if (detailPane) detailPane.hidden = false;
+        const body = String(item.content || item.message || item.body || "No message content.");
+        const msgType = String(item.subject || item.category || this.cfg.title + " Broadcast").replace(/_/g, " ");
+        const recipients = item.recipient_summary || item.recipient_type || (item.recipient_count ? item.recipient_count + " recipients" : "—");
+        const empty = document.getElementById("detailEmpty");
+        const content = document.getElementById("detailContent");
+        if (empty) empty.hidden = true;
+        if (content) content.hidden = false;
+        this.setText("detailSubject", msgType);
+        const statusEl = document.getElementById("detailStatus");
+        if (statusEl) {
+          statusEl.className = badgeClass(item.status);
+          statusEl.textContent = item.status || "unknown";
+        }
+        const meta = [];
+        meta.push("Created: " + this.formatDate(item.created_at));
+        if (item.scheduled_at) meta.push("Scheduled: " + this.formatDate(item.scheduled_at));
+        if (item.reminder_at) meta.push("Reminder: " + this.formatDate(item.reminder_at));
+        meta.push("Channel: " + String(item.channel || item.message_channel || this.cfg.channel));
+        this.setText("detailMeta", meta.join("  ·  "));
+        const bodyEl = document.getElementById("detailBody");
+        if (bodyEl) bodyEl.textContent = body.substring(0, 2000);
+        const recipientType = String(item.recipient_type || item.channel_meta?.recipient_type || "").trim();
+        const audienceLabels = {
+          all_parents: "All Parents",
+          all_staff: "All Staff",
+          all_vendors: "All Vendors",
+          selected_parents: "Selected Parents",
+          selected_staff: "Selected Staff",
+          selected_students: "Parents of Selected Learners",
+          selected_class: "Parents in Selected Class",
+          student_type: "Parents by Learner Type",
+          school_level: "Parents by School Level",
+          selected_vendors: "Selected Vendors",
+          contact_group: "Contact Group",
+          custom_numbers: "Direct Phone Numbers",
+          mixed: "Custom Selection",
+        };
+        const audienceLabel = audienceLabels[recipientType] || recipientType.replace(/_/g, " ");
+        this.setText("detailAudience", "Recipients: " + recipients + (audienceLabel ? "  ·  Audience: " + audienceLabel : ""));
+        const schedWrap = document.getElementById("scheduleEditWrap");
+        const isScheduled = String(item.status || "").toLowerCase() === "scheduled";
+        if (schedWrap) schedWrap.hidden = !(isScheduled && window.API?.communications?.updateCommunication);
+        const schedInput = document.getElementById("detailScheduleTime");
+        if (schedInput && item.scheduled_at) schedInput.value = String(item.scheduled_at).replace(" ", "T").slice(0, 16);
+        this.renderTable();
+        if (id) this.loadDelivery(id);
+      },
+
+      closeDetail: function () {
+        this.selectedId = null;
+        const listPane = document.querySelector(".kw-console-list");
+        const detailPane = document.getElementById("detailPane");
+        if (listPane) listPane.hidden = false;
+        if (detailPane) detailPane.hidden = true;
+        const empty = document.getElementById("detailEmpty");
+        const content = document.getElementById("detailContent");
+        if (empty) empty.hidden = false;
+        if (content) content.hidden = true;
+        this.renderTable();
+      },
+
+      loadDelivery: async function (id) {
+        const listEl = document.getElementById("deliveryList");
+        if (!listEl) return;
+        if (!window.API?.communications?.getRecipients) {
+          listEl.innerHTML = '<div class="kw-rail-empty">Delivery detail unavailable.</div>';
+          return;
+        }
+        listEl.innerHTML = '<div class="kw-rail-empty">Loading delivery status…</div>';
+        try {
+          const res = await window.API.communications.getRecipients(id);
+          if (String(this.selectedId) !== String(id)) return;
+          const rows = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+          if (!rows.length) {
+            listEl.innerHTML = '<div class="kw-rail-empty">No per-recipient delivery records yet.</div>';
+            this.setText("deliveryCount", "");
+            this.updateResendButton();
+            return;
+          }
+          const groups = this.groupDelivery(rows);
+          this.setText("deliveryCount", "· " + groups.length + " endpoint" + (groups.length === 1 ? "" : "s"));
+          const self = this;
+          listEl.innerHTML = groups.map(function (g) {
+            return '<div class="kw-delivery-row">' +
+              '<label class="kw-delivery-select-wrap" title="Select this recipient for resend"><input class="kw-delivery-select" type="checkbox" value="' + self.esc(g.recipientRowId) + '" checked aria-label="Select ' + self.esc(g.address || g.name || "recipient") + ' for resend"></label>' +
+              '<div class="kw-delivery-main">' +
+              '<span class="kw-delivery-addr">' + self.esc(g.address || g.name || "—") + "</span>" +
+              '<span class="kw-delivery-sub">' + self.esc(g.channels.filter(Boolean).join(", ") || "—") + (g.at ? "  ·  " + self.esc(g.at) : "") + "</span>" +
+              (g.error ? '<span class="kw-delivery-err"><i class="bi bi-exclamation-triangle"></i> ' + self.esc(g.error) + "</span>" : "") +
+              "</div>" +
+              '<div class="kw-delivery-side">' +
+              '<span class="' + badgeClass(g.status) + '">' + self.esc(g.status || "unknown") + "</span>" +
+              '<span class="kw-delivery-attempts" title="Delivery attempts">' + (g.attempts || 0) + " attempt" + (g.attempts === 1 ? "" : "s") + "</span>" +
+              "</div>" +
+              "</div>";
+          }).join("");
+          this.updateResendButton();
+        } catch (e) {
+          if (String(this.selectedId) !== String(id)) return;
+          listEl.innerHTML = '<div class="kw-rail-empty kw-danger">Unable to load delivery status.</div>';
+        }
+      },
+
+      groupDelivery: function (rows) {
+        const byKey = {};
+        rows.forEach((r) => {
+          const key = String(r.id || r.recipient_row_id || r.recipient_id || "");
+          if (!byKey[key]) {
+            byKey[key] = { recipientRowId: String(r.id || r.recipient_row_id || ""), name: r.name || r.recipient_name || "", address: r.address || r.phone || "", channels: [], status: r.endpoint_status || r.status || "", attempts: 0, error: "", at: r.endpoint_delivered_at || r.delivered_at || "" };
+          }
+          const g = byKey[key];
+          if (!g.address && (r.address || r.phone)) g.address = r.address || r.phone;
+          if (!g.name && (r.name || r.recipient_name)) g.name = r.name || r.recipient_name;
+          if (r.channel && !g.channels.includes(r.channel)) g.channels.push(r.channel);
+          const st = r.endpoint_status || r.status || "";
+          if (severityRank(st) > severityRank(g.status)) g.status = st;
+          g.attempts = Math.max(g.attempts, Number(r.attempt_count || r.delivery_attempts || 0));
+          const err = r.last_error || r.error_message || "";
+          if (err) g.error = err;
+          if (!g.at && (r.endpoint_delivered_at || r.delivered_at)) g.at = r.endpoint_delivered_at || r.delivered_at;
+        });
+        return Object.values(byKey).sort((a, b) => severityRank(b.status) - severityRank(a.status));
+      },
+
+      resendDetail: async function () {
+        if (!this.selectedId) return;
+        if (this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled) {
+          this.notify("WhatsApp sending is paused. Use SMS or email for now.", "warning");
+          return;
+        }
+        const recipientRowIds = Array.from(document.querySelectorAll("#deliveryList .kw-delivery-select:checked"))
+          .map((input) => Number(input.value)).filter((id) => Number.isInteger(id) && id > 0);
+        if (!recipientRowIds.length) { this.notify("Select at least one recipient to resend", "warning"); return; }
+        if (!(await window.confirmAction("Confirm", `Resend this message to ${recipientRowIds.length} selected recipient${recipientRowIds.length === 1 ? "" : "s"}?`))) return;
+        try {
+          const btn = document.getElementById("resendBtn");
+          if (btn) btn.disabled = true;
+          const result = await window.API.communications.resendCommunication({ id: this.selectedId, recipient_row_ids: recipientRowIds });
+          if (result?.dispatch_result === "sent") this.notify(result.message || "Provider accepted the resend", "success");
+          else if (result?.dispatch_result === "failed" || result?.status === "error") this.notify(result.message || "Resend failed", "error");
+          else this.notify(result?.message || "Resend is waiting for outbox processing", "warning");
+          await this.loadData();
+        } catch (e) {
+          this.notify(e.message || "Failed to resend", "error");
+        } finally {
+          this.updateResendButton();
+        }
+      },
+
+      updateResendButton: function () {
+        const btn = document.getElementById("resendBtn");
+        if (btn) btn.disabled = (this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled)
+          || document.querySelectorAll("#deliveryList .kw-delivery-select:checked").length === 0;
+      },
+
+      copyDetail: function () {
+        const body = this.text("detailBody");
+        if (!body || body === "No message content.") { this.notify("Nothing to copy", "warning"); return; }
+        const done = () => this.notify("Message copied", "success");
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(body).then(done).catch(() => this.notify("Copy failed", "error"));
+        } else {
+          const ta = document.createElement("textarea");
+          ta.value = body;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand("copy"); done(); } catch (e) { this.notify("Copy failed", "error"); }
+          ta.remove();
+        }
+      },
+
+      updateSchedule: async function () {
+        const value = this.value("detailScheduleTime");
+        if (!value || !this.selectedId) { this.notify("Pick a new schedule time", "warning"); return; }
+        try {
+          const res = await window.API.communications.updateCommunication(this.selectedId, { scheduled_at: value, status: "scheduled" });
+          if (res?.success === false) this.notify(res.message || "Reschedule failed", "error");
+          else { this.notify("Message rescheduled", "success"); await this.loadData(); this.openDetail(this.filtered.findIndex((i) => String(i.id || i.communication_id) === String(this.selectedId))); }
+        } catch (e) {
+          this.notify(e.message || "Reschedule failed", "error");
+        }
+      },
+
+      loadGroups: async function () {
+        try {
+          let list = [];
+          if (window.API.messaging?.getGroups) {
+            const res = await window.API.messaging.getGroups();
+            list = this.unwrapList(res, ["groups"]);
+          }
+          if (!list.length && window.API.communications?.getGroup) {
+            const res = await window.API.communications.getGroup();
+            list = Array.isArray(res) ? res : (res?.data || []);
+          }
+          this.groups = list;
+        } catch (e) {
+          this.groups = [];
+        }
+        const sel = document.getElementById("groupSelect");
+        if (sel) {
+          const current = sel.value;
+          sel.innerHTML = '<option value="">Select group...</option>' +
+            this.groups.map((g) => '<option value="' + g.id + '">' + this.esc(g.name) + "</option>").join("");
+          if (current) sel.value = current;
+        }
+        this.renderGroups();
+      },
+
+      renderGroups: function () {
+        const container = document.getElementById("groupsList");
+        if (!container) return;
+        if (!this.groups.length) {
+          container.innerHTML = '<div class="kw-rail-empty">No groups yet. Add one or sync from the provider.</div>';
+          return;
+        }
+        const self = this;
+        container.innerHTML = this.groups.map(function (g) {
+          const count = Number(g.contact_count || g.contacts_count || 0);
+          return '<div class="kw-rail-item" data-group-id="' + g.id + '">' +
+            '<button type="button" class="kw-rail-item-main" title="Compose to this group">' +
+            '<i class="bi bi-people"></i>' +
+            '<span class="kw-rail-item-label">' + self.esc(g.name) + "</span>" +
+            '<span class="kw-folder-count">' + count + "</span>" +
+            "</button>" +
+            '<span class="kw-rail-item-actions">' +
+            '<button data-group-action="contacts" title="Manage contacts"><i class="bi bi-person-lines-fill"></i></button>' +
+            '<button data-group-action="edit" title="Rename"><i class="bi bi-pencil"></i></button>' +
+            '<button data-group-action="delete" title="Delete"><i class="bi bi-trash"></i></button>' +
+            "</span>" +
+            "</div>";
+        }).join("");
+      },
+
+      composeToGroup: function (groupId) {
+        this.openCompose();
+        const rt = document.getElementById("recipientType");
+        const gs = document.getElementById("groupSelect");
+        if (rt) rt.value = "contact_group";
+        if (gs) gs.value = groupId;
+        this.toggleRecipientSection("contact_group");
+      },
+
+      openGroupModal: function (groupId) {
+        const group = groupId ? this.groups.find((g) => String(g.id) === String(groupId)) : null;
+        const idEl = document.getElementById("groupEditId");
+        const nameEl = document.getElementById("groupName");
+        const audienceEl = document.getElementById("groupAudience");
+        const titleEl = document.getElementById("groupModalTitle");
+        if (idEl) idEl.value = group ? group.id : "";
+        if (nameEl) nameEl.value = group ? group.name || "" : "";
+        if (audienceEl) {
+          audienceEl.value = group ? group.entity_type || "external" : "external";
+          audienceEl.disabled = !!group && String(group.entity_type || "external") !== "external";
+        }
+        if (titleEl) titleEl.innerHTML = group ? '<i class="bi bi-pencil"></i> Rename Group' : '<i class="bi bi-plus-lg"></i> New Group';
+        this.groupModal?.show();
+      },
+
+      saveGroup: async function () {
+        const name = this.value("groupName").trim();
+        const id = this.value("groupEditId");
+        const entityType = this.value("groupAudience") || "external";
+        if (!name) { this.notify("Group name is required", "warning"); return; }
+        const btn = document.getElementById("saveGroupBtn");
+        if (btn) btn.disabled = true;
+        try {
+          if (id) await window.API.messaging.updateGroup(id, { name, entity_type: entityType });
+          else await window.API.messaging.createGroup({ name, entity_type: entityType });
+          this.groupModal?.hide();
+          this.notify(id ? "Group updated" : "Group created", "success");
+          await this.loadGroups();
+        } catch (e) {
+          this.notify(e.message || "Failed to save group", "error");
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      },
+
+      deleteGroup: async function (groupId) {
+        if (!(await window.confirmAction("Confirm", "Delete this contact group?"))) return;
+        try {
+          await window.API.messaging.deleteGroup(groupId);
+          if (String(this.activeGroupId) === String(groupId)) { this.activeGroupId = null; this.contacts = []; }
+          this.notify("Group deleted", "success");
+          await this.loadGroups();
+        } catch (e) {
+          this.notify(e.message || "Failed to delete group", "error");
+        }
+      },
+
+      syncGroups: async function () {
+        const btn = document.getElementById("syncGroupsBtn");
+        if (btn) btn.disabled = true;
+        try {
+          const res = await window.API.messaging.syncGroups();
+          this.notify(res?.message || "Groups synchronised", "success");
+          await this.loadGroups();
+        } catch (e) {
+          this.notify(e.message || "Group sync failed", "error");
+        } finally { if (btn) btn.disabled = false; }
+      },
+
+      provisionGroups: async function () {
+        const btn = document.getElementById("provisionGroupsBtn");
+        if (btn) btn.disabled = true;
+        try {
+          const res = await window.API.messaging.provisionGroups();
+          this.notify(res?.message || "Groups provisioned", "success");
+          await this.loadGroups();
+        } catch (e) {
+          this.notify(e.message || "Provisioning failed", "error");
+        } finally { if (btn) btn.disabled = false; }
+      },
+
+      openContacts: function (groupId) {
+        this.activeGroupId = groupId;
+        const group = this.groups.find((g) => String(g.id) === String(groupId));
+        this.setText("contactsModalTitle", group ? group.name : "Contacts");
+        this.hideContactForm();
+        const filter = document.getElementById("contactFilter");
+        if (filter) filter.value = "";
+        this.contactsModal?.show();
+        this.loadGroupContacts();
+      },
+
+      loadGroupContacts: async function () {
+        if (!this.activeGroupId) return;
+        try {
+          const res = await window.API.messaging.getContacts(this.activeGroupId, this.value("contactFilter"));
+          this.contacts = this.unwrapList(res, ["contacts"]);
+        } catch (e) {
+          this.contacts = [];
+          this.notify("Unable to load contacts", "warning");
+        }
+        this.renderContacts();
+      },
+
+      renderContacts: function () {
+        const tbody = document.querySelector("#contactsTable tbody");
+        const stateRow = document.getElementById("contactsTableState");
+        const template = document.getElementById("contactListRowTemplate");
+        if (!tbody || !stateRow || !template) return;
+        const q = this.value("contactFilter").toLowerCase();
+        const rows = (this.contacts || []).filter((c) =>
+          !q || String(c.name || [c.first_name, c.last_name].filter(Boolean).join(" ")).toLowerCase().includes(q) || String(c.phone || c.address || "").includes(q));
+        tbody.querySelectorAll("[data-contact-row]").forEach((row) => row.remove());
+        if (!rows.length) {
+          stateRow.querySelector("td").textContent = "No contacts.";
+          stateRow.hidden = false;
+          return;
+        }
+        stateRow.hidden = true;
+        const fragment = document.createDocumentFragment();
+        rows.forEach((contact) => {
+          const name = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(" ") || "—";
+          const status = contact.status || "active";
+          const item = template.content.cloneNode(true);
+          item.querySelector('[data-fill="name"]').textContent = name;
+          item.querySelector('[data-fill="phone"]').textContent = contact.phone || contact.address || "—";
+          const badge = item.querySelector('[data-fill="status"]');
+          badge.textContent = status;
+          badge.classList.add(...badgeClass(status).split(" "));
+          item.querySelectorAll("[data-contact-action]").forEach((button) => { button.dataset.id = String(contact.id); });
+          fragment.appendChild(item);
+        });
+        tbody.insertBefore(fragment, stateRow);
+      },
+      openContactForm: function (contactId) {
+        if (!this.activeGroupId) { this.notify("Open a group first", "warning"); return; }
+        const contact = contactId ? (this.contacts || []).find((c) => String(c.id) === String(contactId)) : null;
+        const form = document.getElementById("contactForm");
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        set("contactEditId", contact ? contact.id : "");
+        set("contactGroupId", this.activeGroupId);
+        set("contactPhone", contact ? contact.phone || contact.address || "" : "");
+        set("contactFirstName", contact ? contact.first_name || "" : "");
+        set("contactLastName", contact ? contact.last_name || "" : "");
+        if (form) form.hidden = false;
+        const phone = document.getElementById("contactPhone");
+        if (phone) phone.focus();
+      },
+
+      hideContactForm: function () {
+        const form = document.getElementById("contactForm");
+        if (form) form.hidden = true;
+      },
+
+      saveContact: async function () {
+        const groupId = this.value("contactGroupId");
+        const id = this.value("contactEditId");
+        const phone = this.value("contactPhone").trim();
+        if (!phone) { this.notify("Phone is required", "warning"); return; }
+        const payload = {
+          group_id: groupId,
+          phone,
+          first_name: this.value("contactFirstName").trim(),
+          last_name: this.value("contactLastName").trim(),
+        };
+        const btn = document.getElementById("saveContactBtn");
+        if (btn) btn.disabled = true;
+        try {
+          if (id) await window.API.messaging.updateContact(id, payload);
+          else await window.API.messaging.addContact(payload);
+          this.hideContactForm();
+          this.notify(id ? "Contact updated" : "Contact added", "success");
+          await Promise.all([this.loadGroupContacts(), this.loadGroups()]);
+        } catch (e) {
+          this.notify(e.message || "Failed to save contact", "error");
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      },
+
+      deleteContact: async function (contactId) {
+        if (!(await window.confirmAction("Confirm", "Delete this contact?"))) return;
+        try {
+          await window.API.messaging.deleteContact(contactId);
+          this.notify("Contact deleted", "success");
+          await Promise.all([this.loadGroupContacts(), this.loadGroups()]);
+        } catch (e) {
+          this.notify(e.message || "Failed to delete contact", "error");
+        }
+      },
+
+      syncContacts: async function () {
+        if (!this.activeGroupId) return;
+        const btn = document.getElementById("syncContactsBtn");
+        if (btn) btn.disabled = true;
+        try {
+          const res = await window.API.messaging.syncContacts(this.activeGroupId);
+          this.notify(res?.message || "Contacts synchronised", "success");
+          await this.loadGroupContacts();
+        } catch (e) {
+          this.notify(e.message || "Contact sync failed", "error");
+        } finally { if (btn) btn.disabled = false; }
+      },
+
+      importContacts: async function () {
+        if (!this.activeGroupId) return;
+        const group = this.groups.find((g) => String(g.id) === String(this.activeGroupId));
+        const entity = group ? String(group.entity_type || "").toLowerCase() : "";
+        if (!["parents", "staff", "students", "vendors"].includes(entity)) {
+          this.notify("This group is not linked to a school directory audience.", "warning");
+          return;
+        }
+        const btn = document.getElementById("importContactsBtn");
+        if (btn) btn.disabled = true;
+        try {
+          const res = await window.API.messaging.importContacts(this.activeGroupId);
+          this.notify(res?.message || "Contacts imported from directory", "success");
+          await Promise.all([this.loadGroups(), this.loadGroupContacts()]);
+        } catch (e) {
+          this.notify(e.message || "Import failed", "error");
+        } finally { if (btn) btn.disabled = false; }
+      },
+
+      templateVisible: function (t) {
+        const type = String(t.template_type || "").toLowerCase();
+        if (!type) return true;
+        if (this.cfg.channel === "whatsapp") return ["whatsapp", "sms", "announcement"].includes(type);
+        return type === "sms";
+      },
+
+      loadTemplates: async function () {
+        this.templateLoadFailed = false;
+        try {
+          const res = await window.API.communications.getTemplates({ channel: this.cfg.channel, status: "active" });
+          const catalogs = this.unwrapList(res, ["templates", "items", "rows", "records"]);
+          this.templates = catalogs.flatMap((catalog) => {
+            const versions = Array.isArray(catalog.versions) ? catalog.versions : [];
+            const version = versions.find((candidate) =>
+              Array.isArray(candidate.channels) && candidate.channels.some((channel) => channel.channel === this.cfg.channel)
+            );
+            if (!version) return [];
+            return version.channels
+              .filter((channel) => channel.channel === this.cfg.channel)
+              .map((channel) => ({
+                ...catalog,
+                ...channel,
+                id: channel.channel_id || channel.id,
+                name: catalog.name || channel.name || "Message template",
+                category: catalog.purpose || catalog.code || "",
+                template_type: channel.channel,
+                template_body: channel.body || "",
+                status: version.status || catalog.status || "active",
+              }));
+          }).filter((template) => this.templateVisible(template));
+        } catch (e) {
+          this.templateLoadFailed = true;
+          this.templates = [];
+          console.error("Template load failed", e);
+        }
+        this.renderTemplates();
+        const sel = document.getElementById("templateSelect");
+        if (sel) {
+          const current = sel.value;
+          const emptyLabel = this.templateLoadFailed ? "Templates could not be loaded" : (this.templates.length ? "No template" : "No active templates available");
+          sel.innerHTML = '<option value="">' + this.esc(emptyLabel) + "</option>" +
+            this.templates.map((t) => '<option value="' + t.id + '">' + this.esc(t.name) + "</option>").join("");
+          if (current) sel.value = current;
+        }
+      },
+
+      renderTemplates: function () {
+        const container = document.getElementById("templatesList");
+        if (!container) return;
+        if (!this.templates.length) {
+          container.innerHTML = '<div class="kw-rail-empty">' + (this.templateLoadFailed ? "Templates could not be loaded. Refresh to try again." : "No active templates for this channel yet.") + "</div>";
+          return;
+        }
+        const self = this;
+        container.innerHTML = this.templates.map(function (t) {
+          return '<div class="kw-rail-item" data-template-id="' + t.id + '">' +
+            '<button type="button" class="kw-rail-item-main" title="Insert into compose">' +
+            '<i class="bi bi-file-earmark-text"></i>' +
+            '<span class="kw-rail-item-label">' + self.esc(t.name) + "</span>" +
+            '<span class="kw-badge">' + self.esc(t.template_type || "any") + "</span>" +
+            "</button>" +
+            '<span class="kw-rail-item-actions">' +
+            '<button data-template-action="edit" title="Edit"><i class="bi bi-pencil"></i></button>' +
+            '<button data-template-action="delete" title="Delete"><i class="bi bi-trash"></i></button>' +
+            "</span>" +
+            "</div>";
+        }).join("");
+      },
+
+      useTemplate: function (templateId) {
+        const open = this.composeOffcanvas && !document.getElementById("composeOffcanvas").classList.contains("show");
+        if (open) this.openCompose();
+        const sel = document.getElementById("templateSelect");
+        if (sel) sel.value = templateId;
+        this.applyTemplate(templateId);
+      },
+
+      openTemplateModal: function (templateId) {
+        const tmpl = templateId ? this.templates.find((t) => String(t.id) === String(templateId)) : null;
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        set("templateEditId", tmpl ? tmpl.id : "");
+        set("templateName", tmpl ? tmpl.name || "" : "");
+        set("templateType", tmpl ? tmpl.template_type || this.cfg.channel : this.cfg.channel);
+        set("templateBody", tmpl ? tmpl.template_body || "" : "");
+        const titleEl = document.getElementById("templateModalTitle");
+        if (titleEl) titleEl.innerHTML = tmpl ? '<i class="bi bi-pencil"></i> Edit Template' : '<i class="bi bi-plus-lg"></i> New Template';
+        this.templateModal?.show();
+      },
+
+      saveTemplate: async function () {
+        const name = this.value("templateName").trim();
+        const body = this.value("templateBody").trim();
+        const type = this.value("templateType") || this.cfg.channel;
+        const id = this.value("templateEditId");
+        if (!name || !body) { this.notify("Template name and body are required", "warning"); return; }
+        const payload = { name, template_type: type, template_body: body };
+        const btn = document.getElementById("saveTemplateBtn");
+        if (btn) btn.disabled = true;
+        try {
+          if (id) await window.API.communications.updateTemplate(id, payload);
+          else await window.API.communications.createTemplate(payload);
+          this.templateModal?.hide();
+          this.notify(id ? "Template updated" : "Template created", "success");
+          await this.loadTemplates();
+        } catch (e) {
+          this.notify(e.message || "Failed to save template", "error");
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      },
+
+      deleteTemplate: async function (templateId) {
+        if (!(await window.confirmAction("Confirm", "Delete this template?"))) return;
+        try {
+          await window.API.communications.deleteTemplate(templateId);
+          this.notify("Template deleted", "success");
+          await this.loadTemplates();
+        } catch (e) {
+          this.notify(e.message || "Failed to delete template", "error");
+        }
+      },
+
+      loadOptOuts: async function () {
+        const listEl = document.getElementById("optOutsList");
+        if (!listEl) return;
+        listEl.innerHTML = '<div class="kw-rail-empty">Loading…</div>';
+        try {
+          const res = await window.API.communications.getOptOuts();
+          this.optOuts = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+          this.optOutsLoaded = true;
+        } catch (e) {
+          this.optOuts = [];
+          listEl.innerHTML = '<div class="kw-rail-empty kw-danger">Unable to load opt-outs.</div>';
+          return;
+        }
+        this.renderOptOuts();
+      },
+
+      renderOptOuts: function () {
+        const listEl = document.getElementById("optOutsList");
+        if (!listEl) return;
+        this.setText("optOutCount", this.optOuts.length);
+        if (!this.optOuts.length) {
+          listEl.innerHTML = '<div class="kw-rail-empty">No opted-out contacts.</div>';
+          return;
+        }
+        const self = this;
+        listEl.innerHTML = this.optOuts.slice(0, 60).map(function (o) {
+          const label = o.name || o.phone || o.email || "Contact";
+          const detail = o.phone || o.email || "";
+          return '<div class="kw-rail-item" title="' + self.esc(o.notes || "") + '">' +
+            '<span class="kw-rail-item-main"><i class="bi bi-person-dash"></i>' +
+            '<span class="kw-rail-item-label">' + self.esc(label) + "</span></span>" +
+            '<span class="kw-rail-item-meta">' + self.esc(detail) + "</span>" +
+            "</div>";
+        }).join("") + (this.optOuts.length > 60 ? '<div class="kw-rail-empty">Showing 60 of ' + this.optOuts.length + "</div>" : "");
+      },
+
+      loadProfile: async function () {
+        const user = window.AuthContext?.getUser?.() || {};
+        const roleId = Number(user.role_id || user.roleId || user.primary_role_id || 0);
+        const roleName = String(user.role_name || user.role || "").toLowerCase();
+        if (!(roleId === 1 || roleId === 4 || /system admin|school administrator/.test(roleName)) ||
+            (window.AuthContext?.hasPermission && !AuthContext.hasPermission("communications_manage"))) {
+          return this.notify("Only school administrators can view SMS provider details.", "warning");
+        }
+        const panel = document.getElementById("profilePanel");
+        try {
+          const res = await window.API.messaging.getProfile();
+          const profile = res?.data?.profile ?? res?.profile ?? res?.data ?? res;
+          if (panel) panel.innerHTML = '<pre class="small bg-light border rounded p-2 mb-0" style="max-height:200px;overflow:auto;">' +
+            this.esc(typeof profile === "object" ? JSON.stringify(profile, null, 2) : String(profile)) + "</pre>";
+        } catch (e) {
+          this.notify("Unable to load profile", "warning");
+        }
+      },
+
+      checkBalance: async function () {
+        const user = window.AuthContext?.getUser?.() || {};
+        const roleId = Number(user.role_id || user.roleId || user.primary_role_id || 0);
+        if ((roleId !== 1 && roleId !== 4) ||
+            (window.AuthContext?.hasPermission && !AuthContext.hasPermission("communications_manage"))) return;
+        try {
+          const response = await window.API.communications.getSmsBalance();
+          const payload = response?.data && typeof response.data === "object" ? response.data : response;
+          const topup = payload?.topup || {};
+          this.setText("smsTopupPaybill", topup.paybill || "—");
+          this.setText("smsTopupAccount", topup.account || "—");
+          this.setText("smsTopupNotes", topup.notes || "Units are credited automatically after confirmation.");
+          const available = payload?.available !== false;
+          const balance = Number(payload?.balance ?? 0);
+          const display = available ? balance : "—";
+          this.setText("smsBalance", display);
+          this.setText("railBalance", display);
+          const msg = available ? "Balance read from the configured provider." : (payload?.message || "SMS balance unavailable.");
+          this.setText("gatewayBalanceMsg", msg);
+        } catch (e) {
+          this.setText("smsTopupPaybill", "—");
+          this.setText("smsTopupAccount", "—");
+          this.setText("smsBalance", "—");
+          this.setText("railBalance", "—");
+          this.setText("gatewayBalanceMsg", "Unable to fetch SMS balance.");
+        }
+      },
+
+      toggleRecipientSection: function (val) {
+        const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? "" : "none"; };
+        show("recipientSelector", false);
+        show("groupSelector", false);
+        show("customNumbersDiv", false);
+        show("recipientPickerDiv", false);
+        const sel = document.getElementById("specificRecipients");
+        if (sel) sel.innerHTML = "";
+        if (val === "custom_selection") {
+          show("recipientPickerDiv", true);
+          const mount = document.getElementById("recipientPickerMount");
+          if (mount && !this.recipientPicker && window.RecipientPicker) {
+            this.recipientPicker = window.RecipientPicker.create(mount, {
+              mode: "multi",
+              placeholder: "Search learner, parent, staff, class or vendor…",
+            });
+          }
+        } else if (SELECTED_RECIPIENT_TYPES.includes(val)) {
+          show("recipientSelector", true);
+          this.populateRecipientList(val);
+        } else if (val === "contact_group") {
+          show("groupSelector", true);
+        } else if (val === "custom_numbers") {
+          show("customNumbersDiv", true);
+        }
+      },
+
+      populateRecipientList: function (type) {
+        const sel = document.getElementById("specificRecipients");
+        if (!sel) return;
+        sel.innerHTML = "";
+        const map = {
+          selected_students: this.audiences.students,
+          selected_class: this.audiences.classes,
+          student_type: this.audiences.student_types,
+          school_level: this.audiences.school_levels,
+          selected_parents: this.audiences.parents,
+          selected_staff: this.audiences.staff,
+          selected_vendors: this.audiences.vendors,
+        };
+        const items = map[type] || [];
+        if (!items.length) {
+          const option = document.createElement("option");
+          option.disabled = true;
+          option.textContent = "No matching records are available";
+          sel.appendChild(option);
+          return;
+        }
+        items.forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c.id;
+          opt.textContent = (c.name || c.code || "") + (c.phone ? " (" + c.phone + ")" : "") + (c.school_level ? " · " + c.school_level : "");
+          sel.appendChild(opt);
+        });
+      },
+
+      filterContactList: function (query) {
+        const sel = document.getElementById("specificRecipients");
+        if (!sel) return;
+        const q = String(query || "").toLowerCase();
+        Array.from(sel.options).forEach((opt) => {
+          opt.style.display = opt.textContent.toLowerCase().includes(q) ? "" : "none";
+        });
+      },
+
+      suggestTemplate: function (msgType) {
+        if (!msgType) return;
+        const matching = this.templates.find((t) => t.category === msgType || String(t.name || "").toLowerCase().includes(msgType));
+        if (matching) {
+          const sel = document.getElementById("templateSelect");
+          if (sel) sel.value = matching.id;
+          this.applyTemplate(matching.id);
+        }
+      },
+
+      applyTemplate: function (templateId) {
+        if (!templateId) return;
+        const tmpl = this.templates.find((t) => String(t.id) === String(templateId));
+        const body = document.getElementById("messageBody");
+        if (tmpl && tmpl.template_body && body) {
+          body.value = tmpl.template_body;
+          this.updateCharMetrics();
+        }
+      },
+
+      updateCharMetrics: function () {
+        const msg = this.value("messageBody");
+        const length = msg.length;
+        const segments = length === 0 ? 0 : Math.ceil(length / 160);
+        const costPerSms = 0.8;
+        this.setText("charCount", length);
+        this.setText("smsCount", segments);
+        this.setText("estimatedCost", (segments * costPerSms).toFixed(2));
+        const metrics = document.getElementById("smsMetrics");
+        const channel = this.cfg.channel;
+        if (metrics) metrics.style.display = channel === "sms" ? "" : "none";
+        if (channel === "whatsapp") this.updateWhatsAppMessagePreview();
+      },
+
+      openCompose: function () {
+        if (this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled) {
+          this.notify("WhatsApp sending is paused. Use SMS or email for now.", "warning");
+          return;
+        }
+        const form = document.getElementById("composeForm");
+        if (form) {
+          form.reset();
+          form.dataset.submissionKey = (window.crypto?.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+          delete form.dataset.submitting;
+        }
+        ["recipientSelector", "groupSelector", "customNumbersDiv", "recipientPickerDiv", "reminderOptions"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = "none";
+        });
+        const sel = document.getElementById("specificRecipients");
+        if (sel) sel.innerHTML = "";
+        if (this.cfg.channel === "whatsapp") {
+          this.getComposeRoot().querySelectorAll("[data-wa-source]").forEach((button) => button.classList.toggle("active", button.getAttribute("data-wa-source") === "upload"));
+          this.getComposeRoot().querySelectorAll("[data-wa-source-panel]").forEach((panel) => { panel.hidden = panel.getAttribute("data-wa-source-panel") !== "upload"; });
+          this.updateWhatsAppMediaPreview();
+        }
+        this.updateCharMetrics();
+        if (this.composeOffcanvas) this.composeOffcanvas.show();
+        else document.getElementById("composeOffcanvas")?.classList.add("show");
+      },
+
+      collectFormData: function (channelOverride) {
+        const channel = channelOverride || this.cfg.channel;
+        const recipientType = this.value("recipientType");
+        let recipients = [];
+        let payloadRecipientType = recipientType;
+        if (recipientType === "custom_numbers") {
+          recipients = this.value("customNumbers").split(",").map((s) => s.trim()).filter(Boolean);
+        } else if (recipientType === "contact_group") {
+          recipients = [this.value("groupSelect")];
+        } else if (recipientType === "custom_selection") {
+          recipients = this.recipientPicker ? this.recipientPicker.getTokens() : [];
+          payloadRecipientType = "mixed";
+        } else if (SELECTED_RECIPIENT_TYPES.includes(recipientType)) {
+          recipients = Array.from(document.getElementById("specificRecipients").selectedOptions).map((o) => o.value);
+        } else {
+          recipients = [recipientType];
+        }
+        const message = this.value("messageBody").trim();
+        if (!recipients.length) throw new Error("Select at least one recipient");
+        const msgType = this.value("messageType");
+        const scheduleTime = this.value("scheduleTime");
+        let reminderAt = null;
+        if (document.getElementById("enableReminder")?.checked) {
+          const val = parseInt(this.value("reminderAfter"), 10) || 24;
+          const unit = this.value("reminderUnit");
+          const ms = unit === "days" ? val * 86400000 : val * 3600000;
+          reminderAt = scheduleTime
+            ? new Date(new Date(scheduleTime).getTime() + ms).toISOString().slice(0, 19).replace("T", " ")
+            : new Date(Date.now() + ms).toISOString().slice(0, 19).replace("T", " ");
+        }
+        const payload = {
+          recipients,
+          message,
+          type: channel,
+          subject: msgType ? msgType.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()) : (channel === "whatsapp" ? "WhatsApp Message" : "SMS Broadcast"),
+          status: scheduleTime ? "scheduled" : "sent",
+          scheduled_at: scheduleTime || null,
+          reminder_at: reminderAt,
+          recipient_type: payloadRecipientType,
+          target_ids: payloadRecipientType === "mixed" ? [] : recipients,
+        };
+        if (channel === "whatsapp") payload.category = msgType;
+        const mediaSource = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source");
+        const selectedDocument = channel === "whatsapp"
+          ? (mediaSource === "generated" ? this.value("generatedDocumentSelect") : "")
+          : (channel === "sms" ? this.value("smsRecipientDocument") : "");
+        if (selectedDocument) {
+          payload.channel_meta = { recipient_document_strategy: selectedDocument };
+          const academicYearId = Number(this.value("waDocumentAcademicYear"));
+          if (selectedDocument === "fee_statement" && Number.isInteger(academicYearId) && academicYearId > 0) {
+            payload.channel_meta.academic_year_id = academicYearId;
+          }
+          if (selectedDocument === "payslip") {
+            const monthField = channel === "sms" ? "smsPayrollMonth" : "waPayrollMonth";
+            const yearField = channel === "sms" ? "smsPayrollYear" : "waPayrollYear";
+            payload.channel_meta.payroll_month = Number(this.value(monthField));
+            payload.channel_meta.payroll_year = Number(this.value(yearField));
+          }
+        }
+        return payload;
+      },
+
+      submitMessage: async function () {
+        const form = document.getElementById("composeForm");
+        // Multiple fragment/controller instances can bind the same button.
+        // Guard on the shared form before the first await so only one handler
+        // can create a communication for this compose action.
+        if (form?.dataset.submitting === "1") return;
+        const msg = this.value("messageBody").trim();
+        const channel = this.cfg.channel;
+        const hasWhatsAppMedia = channel === "whatsapp" && this.hasWhatsAppMediaSource();
+        if (!msg && !hasWhatsAppMedia) { this.notify(channel === "whatsapp" ? "Write a message or choose media" : "Message is required", "warning"); return; }
+        if (!this.value("recipientType")) { this.notify("Select recipients", "warning"); return; }
+        if (form) form.dataset.submitting = "1";
+        const sendBtn = document.getElementById("sendBtn");
+        if (sendBtn) {
+          sendBtn.disabled = true;
+          sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending…';
+        }
+        try {
+          if (channel !== "sms" && channel !== "whatsapp") {
+            await this.sendViaChannel(channel, msg);
+            if (this.composeOffcanvas) this.composeOffcanvas.hide();
+          } else {
+            const data = this.collectFormData(channel);
+            if (form) data.client_submission_id = form.dataset.submissionKey || "";
+            const mediaFirst = channel === "whatsapp" && hasWhatsAppMedia;
+            const intendedStatus = data.status;
+            if (mediaFirst) data.status = "draft";
+            const created = await window.API.communications.createCommunication(data);
+            const commId = created?.id || created?.communication_id || created?.data?.id;
+            if (channel === "whatsapp" && !created?.idempotent_replay) {
+              await this.uploadMedia(commId);
+              if (mediaFirst) {
+                await window.API.communications.updateCommunication(commId, {
+                  status: intendedStatus === "scheduled" ? "scheduled" : "queued",
+                  scheduled_at: data.scheduled_at || null,
+                });
+              }
+            }
+            const result = intendedStatus === "sent" && commId
+              ? await window.API.communications.dispatchCommunication(commId)
+              : created;
+            const label = channel === "whatsapp" ? "WhatsApp" : "SMS";
+            if (result?.status === "failed") this.notify(label + " delivery failed", "error");
+            else this.notify(intendedStatus === "scheduled" ? label + " scheduled" : label + " sent or queued", "success");
+            if (this.composeOffcanvas) this.composeOffcanvas.hide();
+            await this.loadData();
+          }
+        } catch (e) {
+          console.error("Send error:", e);
+          this.notify(e.message || "Failed to send", "error");
+        } finally {
+          if (form) delete form.dataset.submitting;
+          if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = this.cfg.sendLabel;
+          }
+        }
+      },
+
+      uploadMedia: async function (communicationId) {
+        const input = document.getElementById("mediaAttachment");
+        const activeSource = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        if (!communicationId || activeSource === "generated") return;
+        const formData = new FormData();
+        formData.append("communication_id", communicationId);
+        formData.append("channel", "whatsapp");
+        if (activeSource === "upload") {
+          if (!input?.files?.length) return;
+          formData.append("file", input.files[0]);
+          formData.append("file_name", input.files[0].name);
+        } else if (activeSource === "link") {
+          const url = this.value("mediaPublicUrl").trim();
+          if (!url) return;
+          formData.append("source_url", url);
+          formData.append("file_name", url.split("/").pop().split("?")[0] || "linked-media");
+        }
+        await window.API.communications.createAttachment(formData);
+      },
+
+      hasWhatsAppMediaSource: function () {
+        const source = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        if (source === "upload") return Boolean(document.getElementById("mediaAttachment")?.files?.length);
+        if (source === "link") return Boolean(this.value("mediaPublicUrl").trim());
+        return source === "generated" && ["fee_statement", "payslip", "report_card", "student_id_card", "portfolio", "certificate", "staff_security_pass"].includes(this.value("generatedDocumentSelect"));
+      },
+
+      updateWhatsAppMediaPreview: function () {
+        this.updateWhatsAppMessagePreview();
+        const preview = document.getElementById("waMediaPreview");
+        if (!preview) return;
+        preview.replaceChildren();
+        const source = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        const file = document.getElementById("mediaAttachment")?.files?.[0];
+        if (source === "generated") {
+          const selected = this.value("generatedDocumentSelect");
+          const feePeriod = document.getElementById("waFeeStatementPeriod");
+          const payslipPeriod = document.getElementById("waPayslipPeriod");
+          const help = document.getElementById("generatedDocumentHelp");
+          if (feePeriod) feePeriod.hidden = selected !== "fee_statement";
+          if (payslipPeriod) payslipPeriod.hidden = selected !== "payslip";
+          const descriptions = {
+            fee_statement: "Each parent receives statements for their own active linked learners.",
+            payslip: "Each staff recipient receives only their own approved payslip for the selected period.",
+            report_card: "Only officially released report cards for linked learners are sent.",
+            student_id_card: "A separate student ID card is generated for each linked learner.",
+            portfolio: "A separate portfolio is generated for each linked learner.",
+            certificate: "Previously issued award certificates for linked learners are shared.",
+            staff_security_pass: "An existing security pass is generated separately for each active staff recipient.",
+          };
+          if (help) help.textContent = descriptions[selected] || "Choose the system document to generate separately for each recipient.";
+          preview.hidden = !selected;
+          if (selected) {
+            const label = document.createElement("span");
+            label.className = "small text-success";
+            label.textContent = descriptions[selected] || "A separate document link will be created for each recipient.";
+            preview.append(label);
+          }
+          return;
+        }
+        const url = source === "link" ? this.value("mediaPublicUrl").trim() : (file ? URL.createObjectURL(file) : "");
+        if (!url) { preview.hidden = true; return; }
+        preview.hidden = false;
+        if (file?.type?.startsWith("image/")) {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "WhatsApp image preview";
+          img.className = "img-fluid rounded";
+          img.style.maxHeight = "180px";
+          preview.append(img);
+        } else {
+          const label = document.createElement("span");
+          label.className = "small text-muted";
+          label.textContent = file?.name || url.split("/").pop().split("?")[0] || "Media selected";
+          preview.append(label);
+        }
+      },
+
+      updateWhatsAppMessagePreview: function () {
+        const messagePreview = document.getElementById("waChatMessagePreview");
+        const mediaPreview = document.getElementById("waChatMediaPreview");
+        if (!messagePreview || !mediaPreview) return;
+        const message = this.value("messageBody").trim();
+        messagePreview.textContent = message || "Your message will appear here as parents and staff receive it.";
+        const source = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        const file = document.getElementById("mediaAttachment")?.files?.[0];
+        let mediaLabel = "";
+        if (source === "generated") {
+          const select = document.getElementById("generatedDocumentSelect");
+          mediaLabel = select?.selectedOptions?.[0]?.textContent?.trim() || "";
+        } else if (source === "link") {
+          mediaLabel = this.value("mediaPublicUrl").trim();
+        } else if (file) {
+          mediaLabel = file.name;
+        }
+        mediaPreview.hidden = !mediaLabel;
+        mediaPreview.textContent = mediaLabel ? `📎 ${mediaLabel}` : "";
+      },
+
+      sendViaChannel: async function (channel, message) {
+        const recipientType = this.value("recipientType");
+        const payload = {
+          mode: channel,
+          message,
+          schedule_time: this.value("scheduleTime") || null,
+          client_submission_id: document.getElementById("composeForm")?.dataset.submissionKey || "",
+          tagged_staff_user_ids: Array.from(document.getElementById("taggedStaffUserIds")?.selectedOptions || []).map((option) => Number(option.value)).filter((id) => id > 0),
+        };
+        if (channel === "mms") payload.media_url = this.value("mediaUrl").trim();
+        if (channel === "voice") {
+          payload.language = this.value("voiceLanguage") || "en";
+          payload.gender = this.value("voiceGender") || "female";
+        }
+        if (channel === "hashed") payload.recipient_format = this.value("recipientFormat") || "hashed";
+
+        if (recipientType === "custom_numbers") {
+          payload.recipients = this.value("customNumbers").split(",").map((s) => s.trim()).filter(Boolean);
+        } else if (recipientType === "contact_group" || channel === "campaign") {
+          const groupId = this.value("groupSelect");
+          if (!groupId) throw new Error("Select a contact group");
+          if (channel === "campaign") payload.contact_list_ids = [groupId];
+          else payload.group_id = groupId;
+        } else if (recipientType === "all_parents") {
+          payload.audience = "parents";
+        } else if (recipientType === "all_staff") {
+          payload.audience = "staff";
+        } else if (recipientType === "all_vendors") {
+          payload.audience = "vendors";
+        } else if (SELECTED_RECIPIENT_TYPES.includes(recipientType) || recipientType === "custom_selection") {
+          throw new Error("Selected recipients are only supported for SMS/WhatsApp. Choose a contact group or an all-<audience> option for this channel.");
+        }
+        const result = await window.API.messaging.send(payload);
+        this.notify(result?.message || (result?.status === "scheduled" ? "Message scheduled" : "Message sent or queued"), "success");
+      },
+
+      loadStaffTagOptions: async function (query) {
+        const select = document.getElementById("taggedStaffUserIds");
+        if (!select) return;
+        const selected = Array.from(select.selectedOptions).map((option) => ({ value: option.value, text: option.textContent }));
+        try {
+          const response = await window.API.communications.searchStaffTags(query || "");
+          let data = response?.data || response || {};
+          if (data?.data && typeof data.data === "object") data = data.data;
+          const staff = data?.staff || [];
+          const options = staff.map((member) => {
+            const option = document.createElement("option");
+            option.value = String(member.user_id);
+            option.textContent = member.name || member.email || `Staff ${member.user_id}`;
+            option.selected = selected.some((saved) => saved.value === option.value);
+            return option;
+          });
+          const seen = new Set(options.map((option) => option.value));
+          selected.forEach((saved) => {
+            if (seen.has(saved.value)) return;
+            const option = document.createElement("option");
+            option.value = saved.value;
+            option.textContent = saved.text;
+            option.selected = true;
+            options.push(option);
+          });
+          select.replaceChildren(...options);
+        } catch (error) {
+          this.notify(error.message || "Could not load staff tagging options", "error");
+        }
+      },
+
+      exportConsole: function () {
+        if (window.AuthContext?.canExport && !AuthContext.canExport("communications")) return;
+        const rows = [["Date/Time", "Type", "Recipients", "Message", "Status", "Channel"]];
+        (this.filtered || []).forEach((item) => {
+          rows.push([
+            this.formatDate(item.created_at || item.sent_at || item.scheduled_at),
+            item.subject || item.category || this.cfg.title + " Broadcast",
+            item.recipient_summary || item.recipient_type || (item.recipient_count ? item.recipient_count + " recipients" : ""),
+            String(item.content || item.message || item.body || "").replace(/\s+/g, " ").slice(0, 500),
+            item.status || "",
+            item.channel || item.message_channel || this.cfg.channel,
+          ]);
+        });
+        const csv = rows.map((row) => row.map((v) => '"' + String(v ?? "").replace(/"/g, '""') + '"').join(",")).join("\r\n");
+        if (window.KingswayFileLifecycle?.exportText) {
+          window.KingswayFileLifecycle.exportText(csv, this.cfg.channel + "_messages_" + new Date().toISOString().slice(0, 10) + ".csv", "text/csv;charset=utf-8;");
+        } else {
+          this.notify("Export unavailable", "error");
+        }
+      },
+
+      printConsole: function () {
+        if (window.AuthContext?.canPrint && !AuthContext.canPrint("communications")) return;
+        window.PrintManager?.printPage({ title: this.cfg.title + " Messages", orientation: "landscape" }) ?? window.print();
+      },
+
+      unwrapList: function (response, keys) {
+        if (!response) return [];
+        if (Array.isArray(response)) return response;
+        if (response.data && Array.isArray(response.data)) return response.data;
+        for (const k of (keys || [])) {
+          if (Array.isArray(response[k])) return response[k];
+          if (response.data && Array.isArray(response.data[k])) return response.data[k];
+        }
+        return [];
+      },
+
+      formatDate: function (v) {
+        if (!v) return "—";
+        const d = new Date(String(v).replace(" ", "T"));
+        return isNaN(d.getTime()) ? v : d.toLocaleString("en-KE", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+      },
+
+      esc: function (v) { return String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); },
+      getComposeRoot: function () { return document.getElementById("composeOffcanvas") || this.root || document; },
+      value: function (id) { const el = document.getElementById(id); return el ? el.value || "" : ""; },
+      text: function (id) { const el = document.getElementById(id); return el ? el.textContent || "" : ""; },
+      setText: function (id, v) { const el = document.getElementById(id); if (el) el.textContent = String(v); },
+      on: function (id, ev, fn) { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); },
+      notify: function (msg, type) { if (typeof showNotification === "function") showNotification(msg, type || "info"); else console.log(type + ": " + msg); },
+    };
+
+    Console.init();
+    window.__kwMessagingConsole = Console;
+    return Console;
+  }
+
+  window.MessagingConsole = { create };
+})();

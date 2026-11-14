@@ -12,6 +12,7 @@
  * - Campaigns and bulk operations
  * - Full analytics charts
  */
+$whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
 ?>
 
 <!-- Content Area -->
@@ -149,7 +150,7 @@
                 <select class="filter-select" id="channelFilter">
                     <option value="">All Channels</option>
                     <option value="sms">SMS</option>
-                    <option value="whatsapp">WhatsApp</option>
+                    <?php if ($whatsappSendingEnabled): ?><option value="whatsapp">WhatsApp</option><?php endif; ?>
                     <option value="email">Email</option>
                     <option value="push">Push</option>
                 </select>
@@ -230,8 +231,8 @@
                             <input type="radio" class="btn-check" name="channel" id="channelSMS" value="sms" checked>
                             <label class="btn btn-outline-primary" for="channelSMS">📱 SMS</label>
 
-                            <input type="radio" class="btn-check" name="channel" id="channelWhatsApp" value="whatsapp">
-                            <label class="btn btn-outline-success" for="channelWhatsApp">💬 WhatsApp</label>
+                            <?php if ($whatsappSendingEnabled): ?><input type="radio" class="btn-check" name="channel" id="channelWhatsApp" value="whatsapp">
+                            <label class="btn btn-outline-success" for="channelWhatsApp">💬 WhatsApp</label><?php endif; ?>
 
                             <input type="radio" class="btn-check" name="channel" id="channelEmail" value="email">
                             <label class="btn btn-outline-info" for="channelEmail">📧 Email</label>
@@ -283,8 +284,20 @@
     </div>
 </div>
 
+<div class="modal fade" id="messagePreviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">Message Preview</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="messagePreviewContent" style="white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55;"></div>
+        </div>
+    </div>
+</div>
+
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
+    const initializeAdminCommunications = function () {
         loadMessages();
         initCharts();
 
@@ -293,7 +306,12 @@
             new bootstrap.Modal(document.getElementById('composeModal')).show();
         });
         document.getElementById('searchMessages').addEventListener('input', debounce(filterMessages, 300));
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeAdminCommunications, { once: true });
+    } else {
+        initializeAdminCommunications();
+    }
 
     let _allMessages = [];
 

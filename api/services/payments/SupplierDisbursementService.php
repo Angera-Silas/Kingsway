@@ -28,7 +28,7 @@ class SupplierDisbursementService
     {
         $stmt = $this->db->prepare(
             "SELECT e.*, s.name AS supplier_name
-             FROM " . ReadReplicaService::qualifiedRef("expenses") . " JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
+             FROM " . ReadReplicaService::qualifiedRef("expenses") . " e JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
              WHERE e.id = ? AND e.status IN ('approved','payment_pending') LIMIT 1"
         );
         $stmt->execute([$expenseId]);
@@ -76,10 +76,10 @@ class SupplierDisbursementService
         $reference = strtoupper(substr((string) ($data['payment_reference'] ?? ('SUP' . bin2hex(random_bytes(5)))), 0, 12));
         $insert = $this->db->prepare(
             "INSERT INTO disbursement_transactions
-                (disbursement_type, expense_id, recipient_id, recipient_name,
+                (disbursement_type, expense_id, recipient_id, recipient_type, recipient_name,
                  payment_purpose, source_financial_account_id, idempotency_reference,
                  amount, account_number, bank_code, bank_name, channel, status)
-             VALUES ('supplier', ?, ?, ?, 'suppliers', ?, ?, ?, ?, ?, ?, 'kcb_bank', 'pending')"
+             VALUES ('supplier', ?, ?, 'supplier', ?, 'suppliers', ?, ?, ?, ?, ?, ?, 'kcb_bank', 'pending')"
         );
         $insert->execute([
             $expenseId, $expense['vendor_id'], $expense['supplier_name'],
@@ -131,7 +131,7 @@ class SupplierDisbursementService
             (new KcbTransferReconciliationService($this->db, $this->kcb))
                 ->flagSubmissionException($disbursementId, (string) ($result['message'] ?? 'Submission failed.'));
         }
-        $this->db->prepare("UPDATE supplier_payment_requests SET status = ?, provider_reference = ? WHERE id = ?")
+        $this->db->prepare("UPDATE supplier_payment_requests SET disbursement_id = ?, status = ? WHERE id = ?")
             ->execute([$accepted ? 'payment_pending' : 'failed', $result['transaction_ref'] ?? null, $supplierPaymentId]);
         $this->db->prepare("UPDATE expenses SET status = ?, payment_method = 'bank_transfer', reference_number = ?, paid_by = ? WHERE id = ?")
             ->execute([$accepted ? 'payment_pending' : 'approved', $result['transaction_ref'] ?? $reference, $userId, $expenseId]);
@@ -148,7 +148,7 @@ class SupplierDisbursementService
     {
         $stmt = $this->db->prepare(
             "SELECT e.*, s.name AS supplier_name
-             FROM " . ReadReplicaService::qualifiedRef("expenses") . " JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
+             FROM " . ReadReplicaService::qualifiedRef("expenses") . " e JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
              WHERE e.id = ? AND e.status IN ('approved','payment_pending') LIMIT 1"
         );
         $stmt->execute([$expenseId]);

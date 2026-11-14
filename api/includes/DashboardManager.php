@@ -242,7 +242,7 @@ class DashboardManager
         // Get all menu items assigned to this role
         $stmt = $this->db->prepare(
             "SELECT smi.*, rsm.custom_order
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " smi
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1
              ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
@@ -340,7 +340,7 @@ class DashboardManager
 
         $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
         $stmt = $this->db->prepare(
-            "SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
+            "SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("vw_role_routes_detailed") . "
              WHERE role_id IN ({$placeholders}) AND route_name = ? AND is_allowed = 1"
         );
         $params = array_merge($roleIds, [$route]);
@@ -427,7 +427,7 @@ class DashboardManager
     {
         $stmt = $this->db->prepare(
             "SELECT smi.*, rsm.custom_order
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " smi
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1
              ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
@@ -491,8 +491,8 @@ class DashboardManager
     public function getAllMenuRoutesForRole(int $roleId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT smi.url
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+            "SELECT smi.*, rsm.custom_order
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " smi
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1 AND smi.url IS NOT NULL"
         );

@@ -106,8 +106,8 @@ class CommunicationsAPI extends BaseAPI
             $visibilitySql = '';
             $visibilityParams = [];
             if ($visibility === 'self_or_tagged' && $userId > 0) {
-                $visibilitySql = " WHERE (c.sender_id = :scope_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = c.id AND cr_scope.recipient_id = :scope_recipient))";
-                $visibilityParams = [':scope_user' => $userId, ':scope_recipient' => $userId];
+                $visibilitySql = " WHERE (c.sender_id = :scope_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = c.id AND cr_scope.recipient_id = :scope_recipient) OR JSON_CONTAINS(COALESCE(c.channel_meta, JSON_OBJECT()), :scope_tagged_user, '$.tagged_staff_user_ids'))";
+                $visibilityParams = [':scope_user' => $userId, ':scope_recipient' => $userId, ':scope_tagged_user' => (string) $userId];
             } elseif ($visibility === 'self_or_tagged') {
                 $visibilitySql = ' WHERE 1 = 0';
             } elseif ($visibility === 'teacher_parent') {
@@ -218,6 +218,11 @@ class CommunicationsAPI extends BaseAPI
             $message = $data['message'] ?? '';
             $type = $data['type'] ?? 'sms';
         }
+        $type = strtolower(trim((string) $type));
+        if ($type === 'plain') $type = 'sms';
+        if (!in_array($type, ['sms', 'whatsapp'], true)) {
+            return ['status' => 'error', 'message' => 'Unsupported message channel', 'data' => null];
+        }
 
         // Validate inputs
         if (empty($recipients) || empty($message)) {
@@ -278,12 +283,64 @@ class CommunicationsAPI extends BaseAPI
         if (!$comm) {
             return ['status' => 'error', 'message' => 'Communication not found'];
         }
-        $this->db->prepare("UPDATE communication_recipient_endpoints e JOIN communication_recipients r ON r.id = e.communication_recipient_id SET e.status = 'retry', e.next_attempt_at = NULL, e.last_error = NULL, r.status = 'retry', r.error_message = NULL WHERE r.communication_id = ? AND e.status IN ('failed','retry')")
-            ->execute([(int) $commId]);
+        $recipientRowIds = $data['recipient_row_ids'] ?? null;
+        if (is_array($recipientRowIds)) {
+            $recipientRowIds = array_values(array_unique(array_filter(array_map('intval', $recipientRowIds), static fn(int $id): bool => $id > 0)));
+            if ($recipientRowIds === []) {
+                return ['status' => 'error', 'message' => 'Select at least one recipient to resend'];
+            }
+            $placeholders = implode(',', array_fill(0, count($recipientRowIds), '?'));
+            $update = $this->db->prepare(
+                "UPDATE communication_recipient_endpoints e
+                   JOIN communication_recipients r ON r.id = e.communication_recipient_id
+                    SET e.status = 'retry', e.next_attempt_at = NULL, e.last_error = NULL,
+                        r.status = 'retry', r.error_message = NULL
+                  WHERE r.communication_id = ? AND r.id IN ($placeholders) AND e.status <> 'processing'"
+            );
+            $update->execute(array_merge([(int) $commId], $recipientRowIds));
+            if ($update->rowCount() === 0) {
+                return ['status' => 'error', 'message' => 'No selected recipient deliveries can be resent'];
+            }
+        } else {
+            $this->db->prepare("UPDATE communication_recipient_endpoints e JOIN communication_recipients r ON r.id = e.communication_recipient_id SET e.status = 'retry', e.next_attempt_at = NULL, e.last_error = NULL, r.status = 'retry', r.error_message = NULL WHERE r.communication_id = ? AND e.status IN ('failed','retry')")
+                ->execute([(int) $commId]);
+        }
         $this->db->prepare("UPDATE communications SET status = 'queued', next_attempt_at = NULL, last_error = NULL, processed_at = NULL WHERE id = ?")
             ->execute([(int) $commId]);
-        $result = (new \App\API\Services\CommunicationOutboxService($this->db))->processOne((int) $commId);
-        return ['status' => $result === 'sent' ? 'success' : ($result === 'failed' ? 'error' : 'queued'), 'message' => 'Communication resend processed through the outbox.', 'communication_id' => (int) $commId, 'dispatch_result' => $result];
+        $result = (new \App\API\Services\CommunicationOutboxService($this->db))->processOne((int) $commId, is_array($recipientRowIds) ? $recipientRowIds : null);
+        $status = $result === 'sent' ? 'success' : ($result === 'failed' ? 'error' : 'queued');
+        if ($result === 'sent') {
+            $message = 'The provider accepted the resend. Delivery confirmation is tracked separately.';
+        } elseif ($result === 'failed') {
+            $errorParams = [(int) $commId];
+            $recipientFilter = '';
+            if (is_array($recipientRowIds) && $recipientRowIds !== []) {
+                $recipientFilter = ' AND r.id IN (' . implode(',', array_fill(0, count($recipientRowIds), '?')) . ')';
+                $errorParams = array_merge($errorParams, $recipientRowIds);
+            }
+            $errors = $this->db->prepare(
+                "SELECT e.last_error
+                   FROM communication_recipient_endpoints e
+                   JOIN communication_recipients r ON r.id = e.communication_recipient_id
+                  WHERE r.communication_id = ? AND e.status IN ('retry','failed')
+                    AND e.last_error IS NOT NULL AND e.last_error <> ''$recipientFilter
+                  ORDER BY e.id LIMIT 3"
+            );
+            $errors->execute($errorParams);
+            $details = array_values(array_filter(array_map('trim', $errors->fetchAll(\PDO::FETCH_COLUMN))));
+            $message = $details
+                ? 'Resend failed: ' . implode(' | ', array_map(static fn(string $error): string => mb_substr($error, 0, 300), $details))
+                : 'The resend attempt failed. Check the recipient delivery details for the provider error.';
+        } else {
+            $message = 'The outbox did not claim this resend. Refresh delivery status before retrying.';
+        }
+        return [
+            'status' => $status,
+            'message' => $message,
+            'communication_id' => (int) $commId,
+            'recipient_count' => is_array($recipientRowIds) ? count($recipientRowIds) : null,
+            'dispatch_result' => $result,
+        ];
     }
 
     /**
@@ -565,6 +622,11 @@ class CommunicationsAPI extends BaseAPI
      */
     public function sendTemplateSMS($recipients, $variables, $category = 'fee_payment_received', $type = 'sms')
     {
+        $type = strtolower(trim((string) $type));
+        if ($type === 'plain') $type = 'sms';
+        if (!in_array($type, ['sms', 'whatsapp'], true)) {
+            return ['status' => 'error', 'message' => 'Unsupported message channel', 'sent_count' => 0];
+        }
         return $this->manager->sendSMSToRecipients($recipients, $variables, $type, $category);
     }
 
@@ -582,6 +644,11 @@ class CommunicationsAPI extends BaseAPI
             $variables = $data['variables'] ?? [];
             $template_id = $data['template_id'] ?? null;
             $type = $data['type'] ?? 'sms';
+        }
+        $type = strtolower(trim((string) $type));
+        if ($type === 'plain') $type = 'sms';
+        if (!in_array($type, ['sms', 'whatsapp'], true)) {
+            return ['status' => 'error', 'message' => 'Unsupported message channel', 'sent_count' => 0];
         }
         if (empty($recipients) || empty($title)) {
             return ['status' => 'error', 'message' => 'Recipients and title required', 'sent_count' => 0];
@@ -708,6 +775,11 @@ class CommunicationsAPI extends BaseAPI
      */
     public function sendSms($recipients, $message, $type = 'sms')
     {
+        $type = strtolower(trim((string) $type));
+        if ($type === 'plain') $type = 'sms';
+        if (!in_array($type, ['sms', 'whatsapp'], true)) {
+            return ['status' => 'error', 'message' => 'Unsupported message channel', 'sent_count' => 0];
+        }
         if (!is_array($recipients)) $recipients = [$recipients];
         $platform = new \App\API\Services\CommunicationPlatformService($this->db);
         $sent = 0;
@@ -715,7 +787,7 @@ class CommunicationsAPI extends BaseAPI
 
         foreach ($recipients as $phone) {
             try {
-                $queued = $platform->queueRenderedForContacts([['phone' => $phone]], $type === 'whatsapp' ? 'whatsapp' : 'sms', $message, $message, [
+                $queued = $platform->queueRenderedForContacts([['phone' => $phone]], $type, $message, $message, [
                     'purpose' => 'transactional',
                     'sender_id' => $this->user_id ?: 1,
                 ]);
@@ -762,7 +834,8 @@ class CommunicationsAPI extends BaseAPI
             if ($signature !== '') $renderedBody .= '<p>' . htmlspecialchars($signature, ENT_QUOTES, 'UTF-8') . '</p>';
             $queued = $platform->queueRenderedForContacts([['email' => $email]], 'email', $subject, $renderedBody, [
                 'purpose' => 'transactional',
-                'sender_id' => $this->user_id ?: 1,
+                'sender_id' => (int) ($this->user_id ?? 0) > 0 ? (int) $this->user_id : null,
+                'channel_meta' => ['delivery_source' => (int) ($this->user_id ?? 0) > 0 ? 'staff' : 'system'],
             ]);
             if (($queued['recipient_count'] ?? 0) > 0) {
                 $queuedIds[] = (int) $queued['communication_id'];
@@ -1339,6 +1412,21 @@ class CommunicationsAPI extends BaseAPI
         return $this->manager->listCommunications($filters);
     }
 
+    public function searchStaffTags(string $term = ''): array
+    {
+        return $this->manager->searchStaffTags($term);
+    }
+
+    public function getStaffTagRecipients(array $userIds): array
+    {
+        return $this->manager->getStaffTagRecipients($userIds);
+    }
+
+    public function validateStaffTagUserIds(array $userIds): array
+    {
+        return $this->manager->validateStaffTagUserIds($userIds);
+    }
+
     // --- Attachments CRUD ---
     public function addAttachment($communicationId, $fileData)
     {
@@ -1409,6 +1497,10 @@ class CommunicationsAPI extends BaseAPI
     public function listRecipients($communicationId)
     {
         return $this->manager->listRecipients($communicationId);
+    }
+    public function listOptOuts()
+    {
+        return $this->manager->listOptOuts();
     }
 
     // --- Templates CRUD ---

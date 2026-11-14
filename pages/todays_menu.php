@@ -1,7 +1,6 @@
 <?php
 /* Today's Menu — the day's planned meals across all meal types. */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <div class="container-fluid px-4 py-4">
@@ -13,7 +12,7 @@ if ($appBase === '.') $appBase = '';
     </div>
     <div class="d-flex gap-2 align-items-center">
       <input type="date" class="form-control form-control-sm" id="tmPicker" style="width: 170px;">
-      <button class="btn btn-outline-success btn-sm" onclick="todaysMenuController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-secondary btn-sm" id="tmPrintBtn" type="button"><i class="bi bi-printer me-1"></i>Print / PDF</button>
     </div>
   </div>
 
@@ -22,5 +21,6 @@ if ($appBase === '.') $appBase = '';
   <div id="tmMeals"></div>
 
 </div>
+<style>@media print { #tmPicker, #tmPrintBtn { display:none !important; } }</style>
 
 <?php asset_script($appBase, 'js/pages/todays_menu.js'); ?>

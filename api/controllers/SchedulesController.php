@@ -255,6 +255,137 @@ class SchedulesController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /**
+     * PUT /api/schedules/timetable-time-slots — replace the school day's
+     * lesson periods, breaks, lunch, assembly and games. Academic leadership
+     * with a timetable-editing permission only (same gate as the timetable
+     * editor).
+     */
+    public function putTimetableTimeSlots($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->timetableSetupDenied('change the school day periods')) return $denied;
+        $slots = is_array($data['slots'] ?? null) ? $data['slots'] : [];
+        $result = $this->api->saveTimeSlots($slots);
+        if (($result['status'] ?? '') === 'success') {
+            \App\API\Includes\FileLogger::write('audit', [
+                'event' => 'time_slots_saved',
+                'user_id' => $this->currentUserId(),
+                'periods' => count($slots),
+            ]);
+        }
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * Timetable setup (school day periods, weekly lessons) is for academic
+     * leadership holding a timetable-editing permission, the same gate as the
+     * timetable editor.
+     */
+    private function timetableSetupDenied(string $what)
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        if (!preg_match('/admin|director|headteacher|deputy/', $this->currentRole())) {
+            return $this->forbidden("Only academic leadership may $what.");
+        }
+        $permissions = array_map('strval', (array) (
+            $this->user['effective_permissions'] ?? $this->user['permissions'] ?? $this->user['permission_codes'] ?? []
+        ));
+        $editing = ['schedules_create', 'schedules_update', 'schedules_manage', 'schedules_approve', '*'];
+        if (!array_intersect($editing, $permissions)) {
+            return $this->forbidden('Your account cannot edit the timetable.');
+        }
+        return null;
+    }
+
+    /** GET /api/schedules/weekly-lessons?academic_year_id= — lessons per week per class learning area. */
+    public function getWeeklyLessons($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        try {
+            $yearId = (int) ($_GET['academic_year_id'] ?? $data['academic_year_id'] ?? 0);
+            $service = new \App\API\Services\ClassLessonLoadService($this->db->getConnection());
+            return $this->success($service->grid($yearId));
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) $e->getCode() ?: 422, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] weekly lessons read failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load weekly lessons.');
+        }
+    }
+
+    /** PUT /api/schedules/weekly-lessons {academic_year_id, changes:[{id, lessons_per_week}]} */
+    public function putWeeklyLessons($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->timetableSetupDenied('change weekly lessons')) return $denied;
+        try {
+            $yearId = (int) ($data['academic_year_id'] ?? 0);
+            $changes = is_array($data['changes'] ?? null) ? $data['changes'] : [];
+            $service = new \App\API\Services\ClassLessonLoadService($this->db->getConnection());
+            $result = $service->save($yearId, $changes);
+            \App\API\Includes\FileLogger::write('audit', [
+                'event' => 'weekly_lessons_saved',
+                'user_id' => $this->currentUserId(),
+                'academic_year_id' => $yearId,
+                'changed' => $result['changed'],
+            ]);
+            return $this->success($result['grid'], $result['changed'] ? 'Weekly lessons saved' : 'No changes to save');
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) $e->getCode() ?: 422, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] weekly lessons save failed: ' . $e->getMessage());
+            return $this->serverError('Unable to save weekly lessons.');
+        }
+    }
+
+    /** GET /api/schedules/teacher-workload?academic_year_id=&academic_year_term_id= — weekly lessons per teacher. */
+    public function getTeacherWorkload($id = null, $data = [], $segments = [])
+    {
+        return $this->teachingLoadCall($data, static fn($resolver, $year, $term) => $resolver->workload($year, $term));
+    }
+
+    /** GET /api/schedules/teaching-load?academic_year_id=&academic_year_term_id= — every stream's lessons and teachers. */
+    public function getTeachingLoad($id = null, $data = [], $segments = [])
+    {
+        return $this->teachingLoadCall($data, static fn($resolver, $year, $term) => $resolver->resolve($year, $term));
+    }
+
+    private function teachingLoadCall(array $data, callable $call)
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        try {
+            $year = (int) ($_GET['academic_year_id'] ?? $data['academic_year_id'] ?? 0);
+            $term = (int) ($_GET['academic_year_term_id'] ?? $data['academic_year_term_id'] ?? 0);
+            $resolver = new \App\API\Services\TeachingLoadResolver($this->db->getConnection());
+            return $this->success($call($resolver, $year, $term));
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) $e->getCode() ?: 422, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] teaching load failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load the teaching load.');
+        }
+    }
+
+    /**
+     * POST /api/schedules/timetable-auto-draft {academic_year_id, academic_year_term_id, scope}
+     * Builds a class timetable draft from the allocations, weekly lessons and
+     * lesson periods, and saves it as a draft for review.
+     */
+    public function postTimetableAutoDraft($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->timetableSetupDenied('generate a timetable draft')) return $denied;
+        try {
+            return $this->handleResponse($this->api->autoDraftTimetable([
+                'academic_year_id' => (int) ($data['academic_year_id'] ?? 0),
+                'academic_year_term_id' => (int) ($data['academic_year_term_id'] ?? 0),
+                'scope' => (string) ($data['scope'] ?? 'whole_school'),
+                'created_by' => (int) ($this->user['id'] ?? 0),
+            ]));
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] timetable auto draft failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('The timetable draft could not be generated.');
+        }
+    }
+
     /** GET /api/schedules/timetable-drafts */
     public function getTimetableDrafts($id = null, $data = [], $segments = [])
     {
@@ -322,7 +453,7 @@ class SchedulesController extends BaseController
             $scope = $this->timetableScope([])['_scope_stream_ids'] ?? [];
             if (!$scope) return $this->forbidden('No assigned class stream is available for timetable submission.');
             $count = \App\API\Modules\schedules\SchedulesManager::countDraftEntriesForScope($this->db->getConnection(), (int)($data['id'] ?? 0), $scope);
-            if (!(int)$q->fetchColumn()) return $this->forbidden('You may only submit a draft containing your assigned streams.');
+            if (!(int)$count->fetchColumn()) return $this->forbidden('You may only submit a draft containing your assigned streams.');
         }
         $data['actor_id'] = (int)($this->user['id'] ?? 0);
         return $this->handleResponse($this->api->transitionTimetableDraft($data));
@@ -479,6 +610,11 @@ class SchedulesController extends BaseController
         return $this->handleResponse($result);
     }
 
+    public function postHolidaysCreate($id = null, $data = [], $segments = [])
+    {
+        return $this->postHolidayCreate($id, $data, $segments);
+    }
+
     /**
      * PUT /api/schedules/holidays-update/{id} - edit/re-date a holiday
      */
@@ -487,6 +623,11 @@ class SchedulesController extends BaseController
         if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->updateHoliday($id, $data);
         return $this->handleResponse($result);
+    }
+
+    public function putHolidaysUpdate($id = null, $data = [], $segments = [])
+    {
+        return $this->putHolidayUpdate($id, $data, $segments);
     }
 
     /**
@@ -499,6 +640,11 @@ class SchedulesController extends BaseController
         return $this->handleResponse($result);
     }
 
+    public function deleteHolidaysDelete($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteHolidayDelete($id, $data, $segments);
+    }
+
     /**
      * POST /api/schedules/holidays-apply - re-apply the registry to the calendar
      */
@@ -507,6 +653,11 @@ class SchedulesController extends BaseController
         if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->applyHolidays($data);
         return $this->handleResponse($result);
+    }
+
+    public function postHolidaysApply($id = null, $data = [], $segments = [])
+    {
+        return $this->postHolidayApply($id, $data, $segments);
     }
 
     // ========================================
@@ -851,17 +1002,39 @@ class SchedulesController extends BaseController
     {
         if ($guard = $this->guardSchedules()) return $guard;
         $ownerId = $this->currentUserId();
+        $permissions = array_values(array_unique((array) (
+            $this->user['effective_permissions'] ?? $this->user['permissions'] ?? $this->user['permission_codes'] ?? []
+        )));
+        try {
+            // Authorize before opening a conversation or writing any user input.
+            // The workflow remains unavailable until its server-owned timetable
+            // candidate scope and end-to-end lifecycle gates are complete.
+            $this->contract('App\\API\\Services\\WorkflowAuthorization')->authorize(
+                'academics.timetable_planning',
+                ['user_id' => $ownerId, 'effective_permissions' => $permissions]
+            );
+        } catch (\DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) $e->getCode(), false);
+        }
+        if (array_key_exists('assignment_candidates', $data)) {
+            return $this->respond(null, 'Timetable assignment candidates are resolved by the server.', 422, false);
+        }
         $context = [
             'user_id' => $ownerId,
-            'permissions' => array_values(array_unique(array_merge((array)($this->user['permissions'] ?? []), (array)($this->user['permission_codes'] ?? [])))),
+            'permissions' => $permissions,
             'request_id' => $_SERVER['REQUEST_ID'] ?? '',
         ];
+        $sessionId = (int)($data['session_id'] ?? 0);
+        // A new conversation is tied to one year and term; check before any
+        // database access.
+        if ($sessionId < 1 && ((int)($data['academic_year_id'] ?? 0) < 1 || (int)($data['academic_year_term_id'] ?? 0) < 1)) {
+            return $this->respond(null, 'Choose an academic year and term to plan for.', 422, false);
+        }
         try {
             $conversation = $this->contract(
                 'App\\API\\Services\\TimetablePlanningConversationService',
                 $this->db->getConnection()
             );
-            $sessionId = (int)($data['session_id'] ?? 0);
             if ($sessionId < 1) {
                 $sessionId = $conversation->create($ownerId, [
                     'scope' => (string)($data['class_band'] ?? 'upper_primary'),
@@ -876,16 +1049,6 @@ class SchedulesController extends BaseController
             'class_count' => (string)max(0, min(200, (int)($data['class_count'] ?? 0))),
             'learning_areas' => array_slice(array_map('strval', (array)($data['learning_areas'] ?? [])), 0, 100),
             'candidate_counts' => array_slice(array_map('strval', (array)($data['candidate_counts'] ?? [])), 0, 100),
-            'assignment_candidates' => array_values(array_filter(array_map(static function ($candidate): ?array {
-                if (!is_array($candidate)) return null;
-                return [
-                    'academic_year_class_stream_id' => max(0, (int) ($candidate['academic_year_class_stream_id'] ?? 0)),
-                    'learning_area_id' => max(0, (int) ($candidate['learning_area_id'] ?? 0)),
-                    'teacher_id' => max(0, (int) ($candidate['teacher_id'] ?? 0)),
-                    'day_of_week' => max(0, (int) ($candidate['day_of_week'] ?? 0)),
-                    'time_slot_id' => max(0, (int) ($candidate['time_slot_id'] ?? 0)),
-                ];
-            }, array_slice((array) ($data['assignment_candidates'] ?? []), 0, 60)), static fn (?array $candidate): bool => $candidate !== null)),
             'period_count' => (string)max(0, min(200, (int)($data['period_count'] ?? 0))),
             'availability_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['availability_constraints'] ?? [])), 0, 20),
             'workload_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['workload_constraints'] ?? [])), 0, 20),
@@ -894,8 +1057,18 @@ class SchedulesController extends BaseController
             'user_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['user_constraints'] ?? [])), 0, 20),
             ];
             $conversation->appendUserMessage($sessionId, $ownerId, $message, $constraints);
-            [, $input] = $conversation->input($sessionId, $ownerId, $message);
-            $queued = $this->contract('App\\API\\Services\\AiDraftService')->queue(
+            // No candidate tuples are accepted from this request. The server
+            // resolver will supply verified tuples when this workflow is enabled.
+            [$session, $input] = $conversation->input($sessionId, $ownerId, $message, []);
+            // The assistant answers from the same teaching load the draft
+            // solver uses (aggregate only), so it never contradicts Generate.
+            $input = array_merge($input, (new \App\API\Services\TimetablePlanningFacts($this->db->getConnection()))->build(
+                (int) ($session['academic_year_id'] ?? 0),
+                (int) ($session['academic_year_term_id'] ?? 0),
+                (string) ($session['scope'] ?? 'upper_primary')
+            ));
+            $input['question'] = $message;
+            $queued = $this->contract('App\\API\\Services\\DraftRepository')->queue(
                     'academics.timetable_planning',
                     $context,
                     $input,

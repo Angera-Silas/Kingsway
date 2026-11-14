@@ -110,11 +110,11 @@ class DriverManager
         $stmt = $this->db->prepare(
             "SELECT s.id, s.staff_no, s.position, s.status,
                     p.first_name, p.last_name, p.phone,
-                    (SELECT q.description FROM " . ReadReplicaService::qualifiedRef("staff_qualifications") . "
-                      WHERE q.staff_id = s.id AND q.title = 'Driving License'
-                      ORDER BY q.id DESC LIMIT 1) AS license_number
-             FROM " . ReadReplicaService::qualifiedRef("staff") . " s
-             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                    (SELECT description FROM staff_qualifications
+                      WHERE staff_id = s.id AND title = 'Driving License'
+                      ORDER BY id DESC LIMIT 1) AS license_number
+             FROM staff s
+             JOIN persons p ON p.id = s.person_id
              WHERE s.position = 'Driver'
              ORDER BY p.last_name, p.first_name"
         );
@@ -255,17 +255,36 @@ class DriverManager
 
     public function getVehicleForUser($userId)
     {
-        $stmt = $this->db->prepare(
-            "SELECT v.*, CONCAT(p.first_name, ' ', p.last_name) AS driver_name,
-                    s.staff_no, p.phone AS driver_phone
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-             WHERE u.id = ?
-               AND s.status IN ('active', 'on_leave')
-             ORDER BY v.id DESC
+        $staffStmt = $this->db->prepare(
+            "SELECT staff_id, staff_no, full_name, phone
+             FROM " . ReadReplicaService::qualifiedRef('staff_directory') . "
+             WHERE user_id = ?
+               AND position = 'Driver'
+               AND staff_status IN ('active', 'on_leave')
+             ORDER BY staff_id DESC
              LIMIT 1"
         );
-        $stmt->execute([(int) $userId]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $staffStmt->execute([(int) $userId]);
+        $driver = $staffStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$driver) {
+            return null;
+        }
+
+        // Vehicle assignment is keyed by the staff ID, while authentication
+        // supplies the user ID. Keep the assignment read scoped to that driver.
+        $vehicleStmt = $this->db->prepare(
+            'SELECT * FROM transport_vehicles WHERE driver_id = ? ORDER BY id DESC LIMIT 1'
+        );
+        $vehicleStmt->execute([(int) $driver['staff_id']]);
+        $vehicle = $vehicleStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$vehicle) {
+            return null;
+        }
+
+        $vehicle['driver_name'] = $driver['full_name'] ?? '';
+        $vehicle['staff_no'] = $driver['staff_no'] ?? '';
+        $vehicle['driver_phone'] = $driver['phone'] ?? '';
+        return $vehicle;
     }
 
 }

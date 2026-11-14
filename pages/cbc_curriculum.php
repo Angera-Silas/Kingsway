@@ -22,19 +22,25 @@
                     <p class="small text-muted mb-0">AI output is advisory, aggregate or curriculum-scoped, and requires human approval. It never edits official curriculum or learner records.</p>
                 </div>
                 <div class="d-flex flex-wrap gap-2 align-items-end">
-                    <label class="small text-muted">Class ID for coverage
-                        <input class="form-control form-control-sm" id="aiCoverageClassId" type="number" min="1" placeholder="Authorized class ID" aria-label="Authorized academic year class ID">
+                    <label class="small text-muted">Academic class
+                        <select class="form-select form-select-sm" id="aiCoverageClassId" aria-label="Academic class for curriculum mapping review"><option value="">Choose an authorized class</option></select>
                     </label>
-                    <button class="btn btn-outline-success btn-sm" id="queueAiCoverageReview" type="button">Review coverage</button>
+                    <button class="btn btn-outline-success btn-sm" id="queueAiCoverageReview" type="button">Review curriculum mapping</button>
+                    <label class="small text-muted">Academic class
+                        <select class="form-select form-select-sm" id="aiLearningGapClassId" aria-label="Academic class for learning-gap review"><option value="">Choose an authorized class</option></select>
+                    </label>
                     <button class="btn btn-outline-success btn-sm" id="queueAiLearningGapReview" type="button">Review learning gaps</button>
                 </div>
             </div>
             <div class="row g-2 mt-2">
                 <div class="col-md-6">
-                    <label class="small text-muted" for="aiRubricOutcomeId">Learning outcome ID for rubric draft</label>
-                    <div class="input-group input-group-sm">
-                        <input class="form-control" id="aiRubricOutcomeId" type="number" min="1" placeholder="Use an authorized outcome ID">
-                        <button class="btn btn-outline-success" id="queueAiRubricDraft" type="button">Draft rubric</button>
+                    <label class="form-label small mb-1" for="aiRubricLearningArea">Draft a rubric from an assigned CBC outcome</label>
+                    <div class="row g-2">
+                        <div class="col-sm-4"><select class="form-select form-select-sm" id="aiRubricLearningArea" aria-label="Learning area"><option value="">Choose learning area</option></select></div>
+                        <div class="col-sm-3"><select class="form-select form-select-sm" id="aiRubricGrade" aria-label="Grade"><option value="">Choose grade</option><?php foreach (['PlayGroup', 'PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'] as $grade): ?><option value="<?= htmlspecialchars($grade, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($grade, ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select></div>
+                        <div class="col-sm-5"><select class="form-select form-select-sm" id="aiRubricOutcome" aria-label="Learning outcome" disabled><option value="">Choose area and grade first</option></select></div>
+                        <div class="col-12"><input class="form-control form-control-sm" id="aiRubricIntent" maxlength="500" value="Create observable, age-appropriate criteria aligned to this outcome." aria-label="Optional rubric guidance"></div>
+                        <div class="col-12"><button class="btn btn-outline-success btn-sm" id="queueAiRubricDraft" type="button" disabled>Draft rubric</button> <span class="small text-muted">Your assignment is checked again when the draft runs.</span></div>
                     </div>
                 </div>
                 <div class="col-12"><div id="aiAcademicReviews" class="row g-2" aria-live="polite"><div class="col-12 small text-muted">No academic assistant reviews loaded.</div></div></div>

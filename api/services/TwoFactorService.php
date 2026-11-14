@@ -31,10 +31,25 @@ class TwoFactorService
     private const OTP_LENGTH = 6;
     private const OTP_TTL_MINUTES = 10;
     private const OTP_MAX_ATTEMPTS = 5;
+    // Aggregate send budget. For a login it is scoped to the current login
+    // challenge (one sign-in session); setup/disable codes keep the rolling
+    // account window. A completed sign-in clears its login codes so the next
+    // sign-in starts with a fresh allowance.
+    private const OTP_MAX_SENDS_PER_WINDOW = 8;
+    private const OTP_SEND_WINDOW_MINUTES = 15;
+    // Account-wide ceiling across repeated login sessions. This is the
+    // paid-SMS guard; the per-challenge allowance alone could otherwise be
+    // reset indefinitely by starting a new sign-in.
+    private const OTP_MAX_SENDS_PER_HOUR = 20;
 
     /** Backup codes */
     private const BACKUP_CODE_COUNT = 10;
     private const BACKUP_CODE_LENGTH = 8;
+    /**
+     * Unambiguous 32-symbol alphabet (Crockford Base32 without I, L, O and
+     * U). Eight characters from it carry 40 bits of entropy.
+     */
+    private const BACKUP_CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
     /**
      * Methods that can actually deliver or verify a code during login.
@@ -46,6 +61,16 @@ class TwoFactorService
      * `user_two_factor_challenges.method` does not accept 'none'.
      */
     public const DELIVERABLE_METHODS = ['totp', 'email', 'sms', 'whatsapp', 'passkey'];
+
+    /**
+     * Wrong codes allowed inside ONE sign-in session.
+     *
+     * The budget is per login challenge (one sign-in), so it never carries
+     * over into the next sign-in. It is deliberately generous because a
+     * single session may legitimately cover several factors: the default
+     * code plus one attempt with each alternative the user can switch to.
+     */
+    public const CHALLENGE_MAX_ATTEMPTS = 10;
 
     /** Fallback used when a stored method is missing or not deliverable. */
     private const FALLBACK_METHOD = 'email';
@@ -156,7 +181,16 @@ class TwoFactorService
         if (!$encoded) return null;
         $raw = base64_decode($encoded, true);
         if ($raw === false || strlen($raw) < 28) return null;
-        $plain = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', $this->encryptionKey(), OPENSSL_RAW_DATA, substr($raw, 0, 12), substr($raw, 12, 16));
+        try {
+            $key = $this->encryptionKey();
+        } catch (\Throwable $error) {
+            // A missing or invalid encryption key must not take down the whole
+            // sign-in: the account can still complete the step with another
+            // enrolled factor.
+            Logger::legacyError('[TwoFactor] Unable to decrypt the secret: ' . $error->getMessage());
+            return null;
+        }
+        $plain = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', $key, OPENSSL_RAW_DATA, substr($raw, 0, 12), substr($raw, 12, 16));
         return $plain === false ? null : $plain;
     }
 
@@ -188,9 +222,15 @@ class TwoFactorService
 
     /**
      * Generate and store an OTP for the given user and method.
+     *
+     * `$challengeCreatedAt` scopes the send limits to one login challenge. The
+     * login flow passes the challenge's creation time, so a new sign-in does
+     * not inherit the previous sign-in's send count. Setup/disable flows pass
+     * null and keep the rolling account window.
+     *
      * Returns the plaintext code (to be sent by the delivery service).
      */
-    public function generateOTP(int $userId, string $method, string $otpType = 'login'): ?string
+    public function generateOTP(int $userId, string $method, string $otpType = 'login', ?string $challengeCreatedAt = null): ?string
     {
         if (!in_array($method, ['email', 'sms', 'whatsapp'], true)) return null;
 
@@ -203,20 +243,58 @@ class TwoFactorService
         $lock->execute([$userId]);
         if (!$lock->fetchColumn()) throw new \RuntimeException('User account not found.');
 
+        // A login challenge is the session boundary for send limits. Count
+        // only codes issued for this challenge, so an earlier sign-in (or an
+        // already completed one) cannot spend the current sign-in's budget.
+        $scopedToChallenge = $otpType === 'login'
+            && $challengeCreatedAt !== null
+            && $challengeCreatedAt !== '';
+        $windowSql = $scopedToChallenge
+            ? 'created_at >= ?'
+            : 'created_at >= DATE_SUB(NOW(), INTERVAL ' . self::OTP_SEND_WINDOW_MINUTES . ' MINUTE)';
+        $windowParams = $scopedToChallenge ? [$challengeCreatedAt] : [];
+
         $recent = $this->db->prepare(
             "SELECT COUNT(*) AS window_count,
                     TIMESTAMPDIFF(SECOND, MAX(created_at), NOW()) AS seconds_since_last
              FROM user_2fa_otp_sessions
              WHERE user_id=? AND otp_type=? AND method=?
-               AND created_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+               AND $windowSql"
         );
-        $recent->execute([$userId, $otpType, $method]);
+        $recent->execute(array_merge([$userId, $otpType, $method], $windowParams));
         $rate = $recent->fetch(PDO::FETCH_ASSOC) ?: [];
         if ($rate['seconds_since_last'] !== null && (int)$rate['seconds_since_last'] < 60) {
             throw new \RuntimeException('Please wait 60 seconds before requesting another verification code.', 429);
         }
         if ((int)($rate['window_count'] ?? 0) >= 5) {
-            throw new \RuntimeException('Too many verification codes requested. Try again in 15 minutes.', 429);
+            throw new \RuntimeException('Too many verification codes for this method. Try again in 15 minutes.', 429);
+        }
+
+        // Aggregate budget across all methods on the same account. Without it a
+        // user could spend three per-method allowances in one login attempt.
+        $total = $this->db->prepare(
+            "SELECT COUNT(*) FROM user_2fa_otp_sessions
+             WHERE user_id=? AND otp_type=?
+               AND $windowSql"
+        );
+        $total->execute(array_merge([$userId, $otpType], $windowParams));
+        if ((int)$total->fetchColumn() >= self::OTP_MAX_SENDS_PER_WINDOW) {
+            throw new \RuntimeException('Too many verification codes requested. Wait a few minutes, or contact the school office if you cannot sign in.', 429);
+        }
+
+        // Hard account-wide ceiling across repeated login sessions. Without
+        // it, starting a new sign-in would reset the per-challenge budget and
+        // turn it into an unlimited paid-SMS trigger.
+        if ($otpType === 'login') {
+            $hourly = $this->db->prepare(
+                "SELECT COUNT(*) FROM user_2fa_otp_sessions
+                 WHERE user_id=? AND otp_type='login'
+                   AND created_at >= DATE_SUB(NOW(), INTERVAL 60 MINUTE)"
+            );
+            $hourly->execute([$userId]);
+            if ((int)$hourly->fetchColumn() >= self::OTP_MAX_SENDS_PER_HOUR) {
+                throw new \RuntimeException('Too many verification codes requested. Please wait before trying again.', 429);
+            }
         }
 
         $code = str_pad(
@@ -228,12 +306,13 @@ class TwoFactorService
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? null;
 
-        // Invalidate any previous unverified OTPs for this user/type
+        // Invalidate only the previous codes for THIS method, so switching to
+        // another method does not burn the code already sent for it.
         $this->db->prepare(
             "UPDATE user_2fa_otp_sessions
              SET verified = 1
-             WHERE user_id = ? AND otp_type = ? AND verified = 0"
-        )->execute([$userId, $otpType]);
+             WHERE user_id = ? AND otp_type = ? AND method = ? AND verified = 0"
+        )->execute([$userId, $otpType, $method]);
 
         $stmt = $this->db->prepare(
             "INSERT INTO user_2fa_otp_sessions
@@ -267,16 +346,19 @@ class TwoFactorService
     /**
      * Verify an OTP code. Returns true on success.
      */
-    public function verifyOTP(int $userId, string $code, string $otpType = 'login'): bool
+    public function verifyOTP(int $userId, string $code, string $otpType = 'login', ?string $method = null): bool
     {
         $stmt = $this->db->prepare(
             "SELECT id, otp_code, attempts
              FROM user_2fa_otp_sessions
              WHERE user_id = ? AND otp_type = ? AND verified = 0
              AND otp_expires_at > NOW()
+             " . ($method === null ? "" : " AND method = ?") . "
              ORDER BY id DESC LIMIT 1"
         );
-        $stmt->execute([$userId, $otpType]);
+        $params = [$userId, $otpType];
+        if ($method !== null) $params[] = $method;
+        $stmt->execute($params);
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$session) return false;
@@ -311,6 +393,12 @@ class TwoFactorService
 
     /**
      * Generate backup codes, store hashes, return plaintext codes.
+     *
+     * A recovery code is a real sign-in factor, so it carries enough entropy
+     * to survive an offline attack on the stored hashes: eight characters
+     * from a 32-symbol alphabet (40 bits) in the familiar XXXX-XXXX shape.
+     * Codes issued before this change (hex, 32 bits) keep working because
+     * only the hash is compared at verification time.
      */
     public function generateBackupCodes(int $userId): array
     {
@@ -320,9 +408,7 @@ class TwoFactorService
         );
 
         for ($i = 0; $i < self::BACKUP_CODE_COUNT; $i++) {
-            // Format: XXXX-XXXX (8 chars with dash)
-            $raw = bin2hex(random_bytes(4));
-            $formatted = strtoupper(substr($raw, 0, 4) . '-' . substr($raw, 4, 4));
+            $formatted = $this->formatBackupCode($this->randomBackupCode());
             $codes[] = $formatted;
             $stmt->execute([$userId, password_hash($formatted, PASSWORD_DEFAULT)]);
         }
@@ -335,11 +421,36 @@ class TwoFactorService
         return $codes;
     }
 
+    /** Eight random characters from the unambiguous recovery alphabet. */
+    private function randomBackupCode(): string
+    {
+        $alphabet = self::BACKUP_CODE_ALPHABET;
+        $max = strlen($alphabet) - 1;
+        $code = '';
+        for ($i = 0; $i < 8; $i++) {
+            $code .= $alphabet[random_int(0, $max)];
+        }
+        return $code;
+    }
+
+    /** Format a code as XXXX-XXXX. */
+    private function formatBackupCode(string $code): string
+    {
+        return strtoupper(substr($code, 0, 4) . '-' . substr($code, 4, 4));
+    }
+
     /**
      * Verify and consume a backup code. Returns true on success.
+     *
+     * The entry is accepted with or without the dash and in any case, and it
+     * is consumed exactly once: a concurrent replay loses the update and is
+     * rejected.
      */
     public function verifyBackupCode(int $userId, string $code): bool
     {
+        $candidates = $this->backupCodeCandidates($code);
+        if ($candidates === []) return false;
+
         $stmt = $this->db->prepare(
             "SELECT id, code_hash FROM user_2fa_backup_codes
              WHERE user_id = ? AND used_at IS NULL"
@@ -348,14 +459,38 @@ class TwoFactorService
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($rows as $row) {
-            if (password_verify(strtoupper(trim($code)), $row['code_hash'])) {
-                $this->db->prepare(
-                    "UPDATE user_2fa_backup_codes SET used_at = NOW() WHERE id = ?"
-                )->execute([$row['id']]);
+            foreach ($candidates as $candidate) {
+                if (!password_verify($candidate, $row['code_hash'])) continue;
+                // Consume exactly once. A concurrent replay loses this update.
+                $consume = $this->db->prepare(
+                    "UPDATE user_2fa_backup_codes SET used_at = NOW() WHERE id = ? AND used_at IS NULL"
+                );
+                $consume->execute([$row['id']]);
+                if ($consume->rowCount() !== 1) return false;
+                $this->audit($userId, 'backup_code_used', 'backup', true, null);
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Accepted spellings of a recovery code: as printed, and without the
+     * dash. Users type these from a printout or a photo, so both forms are
+     * honoured.
+     *
+     * @return string[]
+     */
+    private function backupCodeCandidates(string $code): array
+    {
+        $normalized = strtoupper(trim($code));
+        if ($normalized === '') return [];
+        $compact = preg_replace('/[^A-Z0-9]/', '', $normalized) ?? '';
+        $candidates = [$normalized];
+        if (strlen($compact) === 8 && !str_contains($normalized, '-')) {
+            $candidates[] = $this->formatBackupCode($compact);
+        }
+        return array_values(array_unique($candidates));
     }
 
     /**
@@ -533,13 +668,44 @@ class TwoFactorService
         $row = $this->challenge($raw, $userId, ['verified']); if (!$row) return false;
         $consume = $this->db->prepare("UPDATE user_two_factor_challenges SET status='consumed', consumed_at=NOW() WHERE id=? AND status='verified'");
         $consume->execute([$row['id']]);
-        return $consume->rowCount() === 1;
+        if ($consume->rowCount() !== 1) return false;
+        // A completed sign-in ends the OTP session. Remove its one-time login
+        // codes so they cannot be replayed or count against the next sign-in's
+        // cooldown/send budget. Setup and disable codes are left alone.
+        $this->clearLoginOtpHistory($userId);
+        return true;
+    }
+
+    /** Drop the login OTP rows for a user (successful sign-in cleanup). */
+    public function clearLoginOtpHistory(int $userId): void
+    {
+        try {
+            $this->db->prepare(
+                "DELETE FROM user_2fa_otp_sessions WHERE user_id=? AND otp_type='login'"
+            )->execute([$userId]);
+        } catch (\Throwable $error) {
+            // Cleanup must never block a valid sign-in.
+            Logger::legacyError('[TwoFactor] Login OTP cleanup failed: ' . $error->getMessage());
+        }
     }
 
     public function registerChallengeFailure(string $raw, ?int $userId = null): void
     {
         $row = $this->challenge($raw, $userId); if (!$row) return;
-        $this->db->prepare("UPDATE user_two_factor_challenges SET attempts=attempts+1, status=IF(attempts+1>=5,'locked',status) WHERE id=?")->execute([$row['id']]);
+        // The counter belongs to THIS sign-in session only. A new sign-in
+        // starts a new challenge with a fresh allowance, so a user who simply
+        // mistyped twice earlier is never locked out of the next login.
+        $update = $this->db->prepare(
+            "UPDATE user_two_factor_challenges
+             SET attempts = attempts + 1,
+                 status = CASE WHEN attempts + 1 >= ? THEN 'locked' ELSE status END
+             WHERE id = ?"
+        );
+        // The budget is bound as an integer so the comparison stays numeric on
+        // every driver (a text-bound value compares as a string on SQLite).
+        $update->bindValue(1, self::CHALLENGE_MAX_ATTEMPTS, PDO::PARAM_INT);
+        $update->bindValue(2, $row['id'], PDO::PARAM_INT);
+        $update->execute();
         $this->audit($row['user_id'], 'challenge_failed', $row['method'], false, (int) $row['id']);
     }
 
@@ -553,39 +719,36 @@ class TwoFactorService
     // ========================================================================
 
     /**
-     * Determine if a user needs 2FA verification after password login.
-     * Returns the method or null if 2FA is not required.
+     * Determine the default login method after password login.
+     * Honor a verified account preference; otherwise prefer SMS, then email,
+     * authenticator app, and passkey when each factor is usable.
      */
     public function getRequiredMethod(int $userId): ?string
     {
         $stmt = $this->db->prepare(
-            "SELECT two_factor_enabled, two_factor_method
+            "SELECT two_factor_enabled, two_factor_method, two_factor_verified_at
              FROM users WHERE id = ? AND status = 'active'"
         );
         $stmt->execute([$userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$row || !$row['two_factor_enabled']) return null;
+        if (!$row) return null;
 
-        // 'none' is the catalogued "no method" sentinel, and any value outside
-        // the deliverable set cannot produce a code. Returning it would gate
-        // the login on a challenge that can never be stored or delivered.
-        $method = strtolower(trim((string)($row['two_factor_method'] ?? '')));
-        if ($method !== '' && in_array($method, self::DELIVERABLE_METHODS, true)) return $method;
+        $available = $this->getAvailableLoginMethods($userId);
+        if ($available === []) return null;
 
-        // The stored method is unusable, but the account may still have a
-        // factor enrolled. Prefer a real enrolled channel over forcing the
-        // account back through setup. The flag above remains the only thing
-        // that switches the second factor off.
-        $enrolled = $this->db->prepare(
-            "SELECT method FROM user_two_factor_methods
-             WHERE user_id = ? AND is_enabled = 1
-               AND method IN ('" . implode("','", self::DELIVERABLE_METHODS) . "')
-             ORDER BY is_primary DESC, id ASC LIMIT 1"
-        );
-        $enrolled->execute([$userId]);
-        $fallback = strtolower(trim((string)($enrolled->fetchColumn() ?: '')));
-        return in_array($fallback, self::DELIVERABLE_METHODS, true) ? $fallback : null;
+        // A timestamp is set only when a factor is verified or the user
+        // explicitly changes their primary preference. The database's legacy
+        // DEFAULT 'email' therefore does not override the new SMS default.
+        $preferred = strtolower(trim((string) ($row['two_factor_method'] ?? '')));
+        if (!empty($row['two_factor_verified_at']) && in_array($preferred, $available, true)) {
+            return $preferred;
+        }
+
+        foreach (['sms', 'email', 'totp', 'passkey', 'whatsapp'] as $defaultMethod) {
+            if (in_array($defaultMethod, $available, true)) return $defaultMethod;
+        }
+        return null;
     }
 
     /**
@@ -609,10 +772,106 @@ class TwoFactorService
         $stmt = $this->db->prepare("SELECT method FROM user_two_factor_methods WHERE user_id=? AND is_enabled=1 ORDER BY is_primary DESC, id ASC");
         $stmt->execute([$userId]);
         $methods = array_values(array_unique(array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'method')));
-        if (!$methods) { $primary = $this->getRequiredMethod($userId); if ($primary) $methods[] = $primary; }
         $passkeys = $this->db->prepare("SELECT COUNT(*) FROM user_passkeys WHERE user_id=?"); $passkeys->execute([$userId]);
         if ((int) $passkeys->fetchColumn() > 0) $methods[] = 'passkey';
         return $methods;
+    }
+
+    /** Return only enrolled verification methods that can be used for login. */
+    public function getAvailableLoginMethods(int $userId): array
+    {
+        $enabled = $this->getEnabledMethods($userId);
+        $contact = $this->getUserContact($userId);
+        $email = trim((string)($contact['email'] ?? ''));
+        $phone = trim((string)($contact['phone_1'] ?? ''));
+        $isParent = \App\API\Modules\parent\ParentPortalManager::isParentAccount($this->db, $userId);
+        $available = [];
+
+        foreach (['sms', 'email', 'totp', 'passkey', 'whatsapp'] as $method) {
+            $contactChannel = in_array($method, ['email', 'sms'], true);
+            if ($method === 'totp') {
+                $totp = $this->db->prepare(
+                    "SELECT secret_ciphertext FROM user_two_factor_methods
+                     WHERE user_id = ? AND method = 'totp' AND is_enabled = 1 LIMIT 1"
+                );
+                $totp->execute([$userId]);
+                $ciphertext = $totp->fetchColumn();
+                if ((!$ciphertext || !$this->decryptSecret((string) $ciphertext)) && !$this->getSecret($userId)) continue;
+            } elseif ($method === 'passkey') {
+                $passkeys = $this->db->prepare('SELECT COUNT(*) FROM user_passkeys WHERE user_id = ?');
+                $passkeys->execute([$userId]);
+                if ((int) $passkeys->fetchColumn() < 1) continue;
+            } elseif (!$contactChannel && !in_array($method, $enabled, true)) {
+                continue;
+            }
+            if ($method === 'email' && ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL))) continue;
+            if (in_array($method, ['sms', 'whatsapp'], true)
+                && ($phone === '' || \App\API\Services\PhoneNumberNormalizer::normalize($phone) === null)) continue;
+            if ($isParent && in_array($method, ['sms', 'whatsapp'], true)) continue;
+            if ($method === 'whatsapp' && !\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) continue;
+            $available[] = $method;
+        }
+
+        return $available;
+    }
+
+    /**
+     * Masked destination hints for each verification method.
+     *
+     * The sign-in screen tells the user WHERE the code went ("sent to
+     * j•••@school.ac.ke"). It is the single most reassuring line on a
+     * second-factor step, because it proves the code went to the address the
+     * user expects. The details are masked so the answer can safely be shown
+     * on a shared office screen.
+     *
+     * @return array<string, string|null>
+     */
+    public function getMethodContactHints(int $userId): array
+    {
+        $contact = $this->getUserContact($userId);
+        $email = trim((string) ($contact['email'] ?? ''));
+        $phone = trim((string) ($contact['phone_1'] ?? ''));
+
+        return [
+            'email' => $this->maskEmail($email),
+            'sms' => $this->maskPhone($phone),
+            'whatsapp' => $this->maskPhone($phone),
+            'totp' => 'Authenticator app',
+            'passkey' => 'This device',
+            'backup' => 'One of the codes you saved',
+        ];
+    }
+
+    /**
+     * Mask an email address: the first letter of the local part and the
+     * domain, so the user can still recognise which address was used.
+     */
+    public function maskEmail(string $email): ?string
+    {
+        $email = trim($email);
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) return null;
+        [$local, $domain] = explode('@', $email, 2);
+        if (strlen($local) <= 1) return $local . '@' . $domain;
+        return $local[0] . '•••@' . $domain;
+    }
+
+    /**
+     * Mask a phone number: the country code, the first subscriber digit and
+     * the last three digits. Enough to recognise the number, not enough to
+     * read it aloud on a shared screen.
+     */
+    public function maskPhone(string $phone): ?string
+    {
+        $phone = trim($phone);
+        if ($phone === '') return null;
+        $canonical = \App\API\Services\PhoneNumberNormalizer::normalize($phone);
+        $digits = $canonical ?? (string) preg_replace('/\D+/', '', $phone);
+        if ($digits === '') return null;
+        if (strlen($digits) === 12 && str_starts_with($digits, '254')) {
+            $national = substr($digits, 3); // nine digits, e.g. 712345678
+            return '+254 ' . $national[0] . '••• ••• ' . substr($national, -3);
+        }
+        return '••• ••• ' . substr($digits, -3);
     }
 
     public function setPrimaryMethod(int $userId, string $method): bool
@@ -682,9 +941,26 @@ class TwoFactorService
 
     public function setChallengeMethod(string $raw, int $userId, string $method): bool
     {
-        if (!in_array($method, $this->getEnabledMethods($userId), true)) return false;
+        if (!in_array($method, $this->getAvailableLoginMethods($userId), true)) return false;
         $row = $this->challenge($raw, $userId); if (!$row) return false;
         return $this->db->prepare("UPDATE user_two_factor_challenges SET method=? WHERE id=? AND status='pending'")->execute([$method, $row['id']]);
+    }
+
+    /**
+     * Record the factor that actually completed the sign-in.
+     *
+     * Unlike setChallengeMethod() this is a record of what happened, not a
+     * request to change the channel, so it also accepts the recovery-code
+     * factor, which is never offered as a channel.
+     */
+    public function recordChallengeMethod(string $raw, int $userId, string $method): void
+    {
+        $allowed = array_merge(self::DELIVERABLE_METHODS, ['backup']);
+        if (!in_array($method, $allowed, true)) return;
+        $row = $this->challenge($raw, $userId); if (!$row) return;
+        $this->db->prepare(
+            "UPDATE user_two_factor_challenges SET method=? WHERE id=? AND status IN ('pending','verified')"
+        )->execute([$method, $row['id']]);
     }
 
     /**
@@ -751,14 +1027,20 @@ class TwoFactorService
      */
     public function getUserContact(int $userId): array
     {
-        $stmt = $this->db->prepare("SELECT email, phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE user_id = ?");
-        $stmt->execute([$userId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $stmt = $this->db->prepare("SELECT email, phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        return [
-            'email'   => $row['email'] ?? null,
-            'phone_1' => $row['phone_1'] ?? null,
-        ];
+            return [
+                'email'   => $row['email'] ?? null,
+                'phone_1' => $row['phone_1'] ?? null,
+            ];
+        } catch (\PDOException $e) {
+            // Users table may lack email/phone columns (e.g., test env SQLite).
+            // Return empty contact info and let the caller handle it.
+            return ['email' => null, 'phone_1' => null];
+        }
     }
 
     /** Store an encrypted pending TOTP setup secret with a 15-minute TTL. */

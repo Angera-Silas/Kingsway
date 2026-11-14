@@ -9,6 +9,12 @@ const CompetitionsController = (() => {
         document.getElementById('searchInput')?.addEventListener('input', filterData);
         document.getElementById('filterSelect')?.addEventListener('change', filterData);
         document.getElementById('dateFilter')?.addEventListener('change', filterData);
+        document.getElementById('competitionsTableBody')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-action]');
+            if (!button) return;
+            if (button.dataset.action === 'edit') editRecord(Number(button.dataset.index));
+            if (button.dataset.action === 'delete') deleteRecord(button.dataset.id);
+        });
     }
     async function loadData() {
         try {
@@ -58,15 +64,21 @@ const CompetitionsController = (() => {
         );
     }
     function renderTable(items) {
-        const tbody = document.querySelector('#dataTable tbody');
+        const tbody = document.getElementById('competitionsTableBody');
         if (!tbody) return;
+        const stateRow = document.getElementById('competitionsTableState');
+        const stateCell = stateRow?.querySelector('td');
+        tbody.querySelectorAll('[data-competition-row]').forEach((row) => row.remove());
         if (!items.length) {
-          tbody.innerHTML =
-            '<tr><td colspan="9" class="text-center text-muted py-4">No competitions found</td></tr>';
+          if (stateCell) stateCell.textContent = 'No competitions found';
+          if (stateRow) stateRow.hidden = false;
           return;
         }
-        tbody.innerHTML = items
-          .map((d, i) => {
+        if (stateRow) stateRow.hidden = true;
+        const template = document.getElementById('competitionRowTemplate');
+        if (!template) return;
+        const fragment = document.createDocumentFragment();
+        items.forEach((d, i) => {
             const result = d.result || d.position || d.award || "--";
             const resultLower = result.toLowerCase();
             const resultColor =
@@ -80,22 +92,28 @@ const CompetitionsController = (() => {
                     ? "info"
                     : "secondary";
             const cat = d.category || d.competition_type || d.type || "--";
-            return `<tr>
-                <td>${i + 1}</td>
-                <td><strong>${escapeHtml(d.name || d.competition_name || d.title || "--")}</strong></td>
-                <td><span class="badge bg-info">${escapeHtml(cat)}</span></td>
-                <td>${d.date || d.competition_date || "--"}</td>
-                <td>${escapeHtml(d.venue || d.location || "--")}</td>
-                <td>${d.participants || d.participant_count || d.team_size || "--"}</td>
-                <td><span class="badge bg-${resultColor}">${escapeHtml(result)}</span></td>
-                <td>${escapeHtml(d.award || d.prize || "--")}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="CompetitionsController.editRecord(${i})" title="Edit"><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="CompetitionsController.deleteRecord('${d.id}')" title="Delete"><i class="fas fa-trash"></i></button>
-                </td>
-            </tr>`;
-          })
-          .join("");
+            const row = template.content.firstElementChild.cloneNode(true);
+            const set = (field, value) => {
+                const element = row.querySelector(`[data-field="${field}"]`);
+                if (element) element.textContent = value ?? "—";
+            };
+            set('number', String(i + 1));
+            set('name', d.name || d.competition_name || d.title || "--");
+            set('category', cat);
+            set('date', d.date || d.competition_date || "--");
+            set('venue', d.venue || d.location || "--");
+            set('participants', d.participants || d.participant_count || d.team_size || "--");
+            set('result', result);
+            set('award', d.award || d.prize || "--");
+            const resultBadge = row.querySelector('[data-field="result"]');
+            if (resultBadge) resultBadge.classList.add(`bg-${resultColor}`);
+            row.querySelectorAll('[data-action]').forEach((button) => {
+                button.dataset.index = String(allData.indexOf(d));
+                if (button.dataset.action === 'delete') button.dataset.id = String(d.id ?? '');
+            });
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow || null);
     }
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
@@ -123,8 +141,7 @@ const CompetitionsController = (() => {
         renderTable(filtered);
     }
     function showAddModal() {
-        document.getElementById("formModalTitle").innerHTML =
-          '<i class="fas fa-trophy me-2"></i>Add Competition';
+        document.querySelector("#formModalTitle [data-modal-title]").textContent = "Add Competition";
         document.getElementById('recordForm').reset(); document.getElementById('recordId').value = '';
         const nameEl = document.getElementById("recordName");
         const descEl = document.getElementById("recordDescription");
@@ -140,12 +157,11 @@ const CompetitionsController = (() => {
           dateEl.previousElementSibling.textContent = "Date";
         if (statusEl?.previousElementSibling)
           statusEl.previousElementSibling.textContent = "Category";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     function editRecord(index) {
         const item = allData[index]; if (!item) return;
-        document.getElementById("formModalTitle").innerHTML =
-          '<i class="fas fa-edit me-2"></i>Edit Competition';
+        document.querySelector("#formModalTitle [data-modal-title]").textContent = "Edit Competition";
         document.getElementById('recordId').value = item.id || '';
         document.getElementById("recordName").value =
           item.name || item.competition_name || item.title || "";
@@ -155,7 +171,7 @@ const CompetitionsController = (() => {
           item.date || item.competition_date || "";
         document.getElementById("recordStatus").value =
           item.category || item.competition_type || item.type || "general";
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
     async function saveRecord() {
         const id = document.getElementById('recordId').value;

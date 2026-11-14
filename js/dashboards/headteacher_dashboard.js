@@ -31,7 +31,7 @@
  * 2. Open Discipline Cases
  */
 
-const headteacherDashboardController = {
+window.headteacherDashboardController = {
   runtimeConfig: window.headteacherDashboardConfig || {},
   period: 'today',
   state: {

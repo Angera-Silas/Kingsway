@@ -16,6 +16,7 @@ use App\API\Services\StaffDomainAccessService;
 use App\API\Services\StaffTeachingAssignmentService;
 use App\API\Services\ReportCardReleaseService;
 use App\API\Services\AcademicContextService;
+use App\API\Services\AcademicActivationService;
 use App\API\Services\TeacherCurriculumScopeService;
 use App\API\Services\CurriculumProposalService;
 use App\API\Modules\academic\AcademicCohortProjectionService;
@@ -23,8 +24,8 @@ use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use Exception;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 
 /**
@@ -760,7 +761,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/create-schedule - Create exam schedule
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsCreateSchedule($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -778,7 +778,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/submit-questions - Submit question papers
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsSubmitQuestions($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -797,7 +796,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/prepare-logistics - Prepare exam logistics
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsPrepareLogistics($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -811,7 +809,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/conduct - Conduct examination
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsConduct($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -825,7 +822,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/assign-marking - Assign exam marking
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsAssignMarking($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -843,7 +839,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/record-marks - Record exam marks
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsRecordMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -861,7 +856,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/verify-marks - Verify exam marks
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsVerifyMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -875,7 +869,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/moderate-marks - Moderate exam marks
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsModerateMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -893,7 +886,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/compile-results - Compile exam results
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsCompileResults($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -908,7 +900,6 @@ return $this->serverError('An internal error occurred.');
      * POST /api/academic/exams/approve-results - Approve exam results (Director/academic_approve)
      * Body: { instance_id, approved (bool, default true), comments }
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsApproveResults($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -943,7 +934,7 @@ return $this->serverError('An internal error occurred.');
         if ($id !== null) {
             $result = $this->api->getExamScheduleById($id);
         } else {
-            $result = $this->api->listExamSchedules($data);
+            $result = $this->api->listExamSchedules(array_merge($_GET, is_array($data) ? $data : []));
         }
         return $this->handleResponse($result);
     }
@@ -1239,9 +1230,7 @@ return $this->serverError('An internal error occurred.');
             $classIds = array_values(array_unique(array_map('intval', array_column($scope['class_teacher_pairs'] ?? [], 'class_id'))));
             if (count($classIds) === 1) {
                 $classId = $classIds[0];
-                $nameStmt = \App\Database\Database::getInstance()->getConnection()->prepare('SELECT name FROM classes WHERE id = ?');
-                $nameStmt->execute([$classId]);
-                $className = (string) ($nameStmt->fetchColumn() ?: '');
+                $className = $this->contract(\App\API\Services\AcademicContextService::class)->className($classId);
                 return $this->success(['class_id' => $classId, 'class_name' => $className], 'Class teacher default resolved.');
             }
             return $this->success(['class_id' => null, 'class_name' => null], 'All classes is the default.');
@@ -1336,7 +1325,7 @@ return $this->serverError('An internal error occurred.');
         try {
             $service = $this->contract(\App\API\Services\ExamPeriodService::class, $this->db->getConnection(), (int) ($this->getUserId() ?? 0));
             $plan = $service->aiTimetableInput($periodId, (array) $data);
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.exam_timetable_planning', $this->aiAcademicContext(), $plan['input'],
                 ['subject_type' => 'exam_period_timetable', 'subject_id' => $periodId, 'scope' => 'class_level_exam_period', 'scope_hash' => $plan['scope_hash'], 'planning' => $plan['planning']]
             );
@@ -1358,7 +1347,7 @@ return $this->serverError('An internal error occurred.');
         if ($periodId < 1) return $this->badRequest('period_id is required');
         try {
             $pdo = $this->db->getConnection();
-            $drafts = $this->contract(AiDraftService::class)->listForReview($pdo, (int) ($this->getUserId() ?? 0), false, 'academics');
+            $drafts = $this->contract(DraftRepository::class)->listForReview($pdo, (int) ($this->getUserId() ?? 0), false, 'academics');
             foreach ($drafts as $record) {
                 if (($record['workflow_id'] ?? '') !== 'academics.exam_timetable_planning'
                     || ($record['metadata']['subject_type'] ?? '') !== 'exam_period_timetable'
@@ -1392,7 +1381,28 @@ return $this->serverError('An internal error occurred.');
     public function postExamPeriodsPublishResults($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny([], [1,4], ['system administrator','school administrator'])) return $this->forbidden('Only the School Administrator can publish official summative results.');
-        return $this->examPeriodCall(fn($service) => $service->publishResults((int)$id), 'Official summative results published.');
+        $recipients = $data['notification_recipients'] ?? [];
+        $channels = $data['notification_channels'] ?? [];
+        if (!is_array($recipients) || !is_array($channels) || count($recipients) > 5000) return $this->badRequest('Invalid parent notification selection.');
+        return $this->examPeriodCall(fn($service) => $service->publishResults((int)$id, $recipients, $channels), 'Official summative results published.');
+    }
+
+    /** GET /api/academic/exam-periods/{id}/publication-recipients — parents linked to learners with submitted results. */
+    public function getExamPeriodsPublicationRecipients($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny([], [1, 4], ['system administrator', 'school administrator'])) return $this->forbidden('Only the School Administrator can select result-notification recipients.');
+        if ((int) $id < 1) return $this->badRequest('Exam period ID is required.');
+        try {
+            $service = $this->contract(\App\API\Services\ExamPeriodService::class, $this->db->getConnection(), (int) ($this->getUserId() ?? 0));
+            return $this->success($service->publicationNotificationRecipients((int) $id));
+        } catch (\PDOException $e) {
+            return $this->databaseFailure($e, 'result notification recipients', 'Unable to load result notification recipients.');
+        } catch (RuntimeException $e) {
+            return $this->respond(null, $e->getMessage(), in_array((int) $e->getCode(), [403, 404, 409, 422], true) ? (int) $e->getCode() : 422, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] result notification recipients lookup failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load result notification recipients.');
+        }
     }
 
     public function getExamPeriodsResults($id = null, $data = [], $segments = [])
@@ -1862,7 +1872,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/compile-data - Compile report data
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsCompileData($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1876,7 +1885,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/generate-student-reports - Generate student reports
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsGenerateStudentReports($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1921,7 +1929,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/review-and-approve - Review and approve reports
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsReviewAndApprove($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1943,7 +1950,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/distribute - Distribute reports
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsDistribute($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1952,11 +1958,13 @@ return $this->serverError('An internal error occurred.');
 
         if (!empty($data['release_id'])) {
             try {
+                if (empty($data['parent_ids']) || empty($data['channels']) || !is_array($data['parent_ids']) || !is_array($data['channels'])) {
+                    return $this->badRequest('Choose at least one linked parent and notification channel before release.');
+                }
                 $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
                 $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
-                $channels = $data['channels'] ?? ['sms', 'email', 'whatsapp'];
                 return $this->success(
-                    $service->release((int) $data['release_id'], $actor, is_array($channels) ? $channels : [$channels]),
+                    $service->release((int) $data['release_id'], $actor, $data['channels'], $data['parent_ids']),
                     'Report card released to parents and guardians'
                 );
             } catch (RuntimeException $e) {
@@ -1978,6 +1986,20 @@ return $this->serverError('An internal error occurred.');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AcademicController] report card releases: ' . $e->getMessage());
             return $this->serverError('Unable to load report card releases');
+        }
+    }
+
+    /** GET /api/academic/report-card-releases/{id}/parents — linked guardians for selective delivery. */
+    public function getReportCardReleasesParents($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
+        $releaseId = (int) ($id ?? ($segments[0] ?? 0));
+        if ($releaseId < 1) return $this->badRequest('A report card release ID is required');
+        try {
+            $service = $this->contract('App\\API\\Services\\ReportCardReleaseService', $this->db->getConnection());
+            return $this->success($service->parents($releaseId));
+        } catch (\Throwable $e) {
+            return $this->serverError('Unable to load linked guardians');
         }
     }
 
@@ -2040,7 +2062,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/curriculum/map-outcomes - Map curriculum outcomes
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumMapOutcomes($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
@@ -2054,7 +2075,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/curriculum/create-scheme - Create curriculum scheme
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumCreateScheme($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
@@ -2070,7 +2090,6 @@ return $this->serverError('An internal error occurred.');
      * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum (Director only)
      * Body: { instance_id, action (approve|reject), comments }
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumReviewAndApprove($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -2094,6 +2113,44 @@ return $this->serverError('An internal error occurred.');
 
     // ==================== YEAR TRANSITION WORKFLOW ====================
 
+    /** GET /api/academic/year-transition/active?to_year=YYYY/YYYY+1 */
+    public function getYearTransitionActive($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $yearCode = $data['to_year'] ?? ($data['year_code'] ?? '');
+        return $this->handleResponse($this->api->findActiveYearTransitionForYear($yearCode));
+    }
+
+    /** GET /api/academic/year-transition/class-setup-source?from_year=YYYY/YYYY+1 */
+    public function getYearTransitionClassSetupSource($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        return $this->handleResponse($this->api->getYearTransitionClassSetupSource($data['from_year'] ?? '', $data['to_year'] ?? ''));
+    }
+
+    /** GET /api/academic/year-transition/setup-drafts?instance_id=123 */
+    public function getYearTransitionSetupDrafts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        return $this->handleResponse($this->api->getYearTransitionSetupDrafts((int) ($data['instance_id'] ?? 0)));
+    }
+
+    /** PUT /api/academic/year-transition/setup-drafts?instance_id=123 */
+    public function putYearTransitionSetupDrafts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        return $this->handleResponse($this->api->saveYearTransitionSetupDrafts((int) ($data['instance_id'] ?? 0), $data));
+    }
+
+    /** POST /api/academic/year-transition/start-existing-workflow */
+    public function postYearTransitionStartExistingWorkflow($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $fromYear = $data['from_year'] ?? '';
+        $toYear = $data['to_year'] ?? '';
+        return $this->handleResponse($this->api->startYearTransitionForExistingYear($fromYear, $toYear));
+    }
+
     /**
      * POST /api/academic/year-transition/start-workflow - Start year transition workflow (Director only)
      * Body: { from_year, to_year, year_start_date, year_end_date, terms[] }
@@ -2111,23 +2168,8 @@ return $this->serverError('An internal error occurred.');
     }
 
     /**
-     * POST /api/academic/year-transition/archive-data - Archive academic data
-     */
-    // TODO: Delegate to AcademicYearService
-    public function postYearTransitionArchiveData($id = null, $data = [], $segments = [])
-    {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
-            return $guard;
-        }
-
-        $result = $this->api->archiveAcademicData($data['instance_id'] ?? null, $data);
-        return $this->handleResponse($result);
-    }
-
-    /**
      * POST /api/academic/year-transition/execute-promotions - Execute year promotions
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionExecutePromotions($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) {
@@ -2163,10 +2205,33 @@ return $this->serverError('An internal error occurred.');
     }
 
     /**
+     * POST /api/academic/year-transition/close-year - Close the outgoing year
+     *
+     * Marks the outgoing year active - completed. It is NOT archiving: records
+     * stay readable for every user and writable only by school admin / system
+     * admin / director. Archiving is a separate system-admin action and is
+     * deliberately unreachable from this workflow.
+     */
+    public function postYearTransitionCloseYear($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $archive = $this->api->closeYearTransition($instanceId, $data);
+        return $this->handleResponse($archive);
+    }
+
+    /** GET /api/academic/year-transition/summary?instance_id=123 */
+    public function getYearTransitionSummary($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->getYearRolloverSummary($instanceId));
+    }
+
+    /**
      * POST /api/academic/year-transition/setup-new-year - Setup new academic year (Director only)
      * Body: { instance_id, year_id (optional), class_structures[], clone_subjects, clone_staff_assignments }
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionSetupNewYear($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -2186,7 +2251,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/year-transition/migrate-competency-baselines - Migrate competency baselines
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionMigrateCompetencyBaselines($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
@@ -2199,12 +2263,108 @@ return $this->serverError('An internal error occurred.');
 
     /**
      * POST /api/academic/year-transition/validate-readiness - Validate year readiness
+     *
+     * Gate: the readiness pass is also the cutover — when every check passes it
+     * closes the outgoing year and activates the new one. It therefore carries
+     * the same academic_year_manage / system_admin guard as close-year and
+     * summary; without it any authenticated user could switch the system to a
+     * new academic year.
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionValidateReadiness($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
         $result = $this->api->validateYearReadiness($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/year-transition/regress-to-editable
+     * Regress workflow to make a previous stage editable
+     *
+     * Allows going back to a previous stage's data for editing while keeping
+     * the current_stage unchanged. The data from the specified previous stage
+     * is loaded and made available for editing, and the regression is recorded
+     * in the workflow stage history.
+     *
+     * Gate: academic_year_manage / system_admin
+     *
+     * @param int $instance_id Workflow instance ID
+     * @array $data Contains 'to_stage' code of the previous stage to make editable
+     */
+    public function postYearTransitionRegressToEditable($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        if (empty($instanceId)) {
+            return $this->badRequest('Academic year transition instance_id is required');
+        }
+        $toStage = $data['to_stage'] ?? null;
+        if (empty($toStage)) {
+            return $this->badRequest('Target stage (to_stage) is required');
+        }
+        return $this->handleResponse($this->api->regressToStageEditable($instanceId, $data));
+    }
+
+    /**
+     * POST /api/academic/activation-sweep - Date-driven activation engine.
+     *
+     * Internal worker endpoint (X-Kingsway-Worker-Secret): reconciles term
+     * statuses against the calendar and performs the year cutover once a
+     * certified target year reaches its start date. Idempotent, so a missed or
+     * repeated tick cannot double-activate a year.
+     */
+    public function postActivationSweep($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('ACADEMIC_ACTIVATION_WORKER_SECRET') ? (string) ACADEMIC_ACTIVATION_WORKER_SECRET : '';
+        if ($expected === '') {
+            $expected = defined('KINGSWAY_WORKER_SECRET') ? (string) KINGSWAY_WORKER_SECRET : '';
+        }
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+
+        try {
+            $service = new AcademicActivationService($this->getDb()->getConnection());
+            $onDate = is_string($data['on_date'] ?? null) ? $data['on_date'] : null;
+            $dryRun = (bool) ($data['dry_run'] ?? false);
+            $result = $service->sweep($onDate, $dryRun);
+            return $this->success($result, 'Academic activation sweep completed');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::error(
+                'academic_activation',
+                'Activation sweep failed: ' . $e->getMessage()
+            );
+            return $this->serverError('Academic activation sweep failed');
+        }
+    }
+
+    /**
+     * GET /api/academic/activation-state - Handover state for the rollover page.
+     *
+     * Reports the outgoing (still operational) year, the prepared target year,
+     * the switch date, and any term statuses that no longer match the calendar.
+     */
+    public function getActivationState($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+
+        try {
+            $service = new AcademicActivationService($this->getDb()->getConnection());
+            return $this->success($service->handover(), 'Academic handover state loaded');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::error(
+                'academic_activation',
+                'Handover state failed: ' . $e->getMessage()
+            );
+            return $this->serverError('Academic handover state could not be loaded');
+        }
     }
 
     // ==================== ACADEMIC CALENDAR ====================
@@ -2364,7 +2524,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/years/list - Get all academic years
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearsList($id = null, $data = [], $segments = [])
     {
         return $this->yearService->getYearsList($id, $data, $segments, $this);
@@ -2373,7 +2532,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/years/current - Get current academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearsCurrent($id = null, $data = [], $segments = [])
     {
         return $this->yearService->getYearsCurrent($id, $data, $segments, $this);
@@ -2382,7 +2540,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/years/get/{id} - Get academic year by ID
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearsGet($id = null, $data = [], $segments = [])
     {
         return $this->yearService->getYearsGet($id, $data, $segments, $this);
@@ -2391,7 +2548,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/years/create - Create academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearsCreate($id = null, $data = [], $segments = [])
     {
         return $this->yearService->postYearsCreate($id, $data, $segments, $this);
@@ -2400,7 +2556,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * PUT /api/academic/years/update/{id} - Update academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function putYearsUpdate($id = null, $data = [], $segments = [])
     {
         return $this->yearService->putYearsUpdate($id, $data, $segments, $this);
@@ -2409,7 +2564,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * DELETE /api/academic/years/delete/{id} - Delete academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function deleteYearsDelete($id = null, $data = [], $segments = [])
     {
         return $this->yearService->deleteYearsDelete($id, $data, $segments, $this);
@@ -2419,7 +2573,6 @@ return $this->serverError('An internal error occurred.');
      * PUT /api/academic/years/set-current - Set year as current (Director/System Admin only)
      * Accepts year_id from URL segment (/set-current/5) or from request body (year_id or id)
      */
-    // TODO: Delegate to AcademicYearService
     public function putYearsSetCurrent($id = null, $data = [], $segments = [])
     {
         // Only Director (role_id=3) or System Admin (role_id=1) may change the current year
@@ -2837,7 +2990,9 @@ return $this->serverError('An internal error occurred.');
     public function getStreamsList($id = null, $data = [], $segments = [])
     {
         $classId = $data['class_id'] ?? $id ?? null;
-        $result = $this->api->listClassStreams($classId);
+        // Pass the filters through: academic_year_id scopes the list to one
+        // year. Without it, streams from every year came back together.
+        $result = $this->api->listClassStreams($classId, is_array($data) ? $data : []);
         return $this->handleResponse($result);
     }
 
@@ -2962,25 +3117,21 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/curriculum-units/create - Create curriculum unit
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumUnitsCreate($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->postCurriculumUnitsCreate($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->postCurriculumUnitsCreate($id, $data, $segments);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnitsList($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->getCurriculumUnitsList($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnits($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
@@ -2990,31 +3141,26 @@ return $this->serverError('An internal error occurred.');
         return $this->getCurriculumUnitsList($id, $data, $segments);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnitsGet($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->getCurriculumUnitsGet($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function putCurriculumUnitsUpdate($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->putCurriculumUnitsUpdate($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function putCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->putCurriculumUnitsUpdate($id, $data, $segments);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function deleteCurriculumUnitsDelete($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->deleteCurriculumUnitsDelete($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function deleteCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->deleteCurriculumUnitsDelete($id, $data, $segments);
@@ -3261,9 +3407,14 @@ return $this->serverError('An internal error occurred.');
         if (!$this->canUseAiSchemeDraft()) return $this->forbidden('Academic curriculum permission is required');
         try {
             $input = $this->buildAiSchemeInput($data);
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.scheme_draft', $this->aiAcademicContext(), $input,
-                ['subject_type' => 'academic_scheme_draft', 'subject_id' => 0, 'scope' => 'authorized_teacher_curriculum']
+                [
+                    'subject_type' => 'academic_scheme_draft', 'subject_id' => 0,
+                    'scope' => 'authorized_teacher_curriculum',
+                    'learning_area_id' => (int) ($data['learning_area_id'] ?? 0),
+                    'grade_level' => (string) ($input['grade_level'] ?? ''),
+                ]
             );
             return $this->accepted($queued, 'CBC scheme draft queued for academic review');
         } catch (DomainException $e) {
@@ -3280,7 +3431,7 @@ return $this->serverError('An internal error occurred.');
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiSchemeDraft()) return $this->forbidden('Academic approval permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
             ), 'scope' => $review ? 'review' : 'own'], 'CBC AI drafts retrieved');
         } catch (Exception $e) {
@@ -3296,7 +3447,7 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.scheme_draft');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.scheme_draft');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'CBC draft approved for teacher editing; existing academic approval remains required');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -3314,7 +3465,7 @@ return $this->serverError('An internal error occurred.');
             $schemeId = (int) ($data['scheme_of_work_id'] ?? $id ?? 0);
             if ($schemeId < 1) throw new DomainException('An approved scheme row is required.', 422);
             $input = $this->buildAiLessonPlanInput($schemeId, $data);
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.lesson_plan_draft', $this->aiAcademicContext(), $input,
                 ['subject_type' => 'academic_lesson_plan_draft', 'subject_id' => $schemeId, 'scope' => 'approved_scheme_context']
             );
@@ -3333,7 +3484,7 @@ return $this->serverError('An internal error occurred.');
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiLessonPlanDraft()) return $this->forbidden('Academic approval permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
             ), 'scope' => $review ? 'review' : 'own'], 'Lesson-plan AI drafts retrieved');
         } catch (Exception $e) {
@@ -3349,7 +3500,7 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.lesson_plan_draft');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.lesson_plan_draft');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Lesson-plan draft approved for teacher editing');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -3361,7 +3512,7 @@ return $this->serverError('An internal error occurred.');
 
     private function canUseAiLessonPlanDraft(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.lesson_plan_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.lesson_plan_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiLessonPlanDraft(): bool
@@ -3422,7 +3573,7 @@ return $this->serverError('An internal error occurred.');
                 'learning_outcome' => (string) ($outcomePayload['outcome'] ?? ''),
                 'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create a fair, age-appropriate assessment with clear evidence of the outcome.')), 0, 500),
             ];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'academics.assessment_draft', $this->aiAcademicContext(), $input,
                 ['subject_type' => 'academic_assessment_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']
             );
@@ -3441,7 +3592,7 @@ return $this->serverError('An internal error occurred.');
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiAssessmentDraft()) return $this->forbidden('Academic approval permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
             ), 'scope' => $review ? 'review' : 'own'], 'Assessment AI drafts retrieved');
         } catch (Exception $e) {
@@ -3457,7 +3608,7 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.assessment_draft');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.assessment_draft');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Assessment draft approved for teacher editing');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -3470,20 +3621,25 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/ai-coverage-review-queue */
     public function postAiCoverageReviewQueue($id = null, $data = [], $segments = [])
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.coverage_review', $this->aiAcademicContext()); }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.coverage_review', $this->aiAcademicContext()); }
         catch (DomainException $e) { return $this->forbidden('Academic curriculum permission is required'); }
         $classId = (int) ($data['academic_year_class_id'] ?? $id ?? 0);
         if ($classId < 1) return $this->badRequest('academic_year_class_id is required');
         try {
+            if (!$this->curriculumScopeService->canAccessAcademicYearClass(
+                (int) ($this->getUserId() ?? 0),
+                $this->getUserRoleIds(),
+                $classId
+            )) {
+                return $this->notFound('Academic class not found');
+            }
             $raw = $this->api->getClassLearningAreaCoverage(['academic_year_class_id' => $classId]);
-            $rows = is_array($raw) ? ($raw['data']['learning_areas'] ?? $raw['learning_areas'] ?? []) : [];
-            $planned = count($rows); $withCurriculum = 0;
-            foreach ($rows as $row) if ((int) ($row['strand_count'] ?? 0) > 0 || (int) ($row['sub_strand_count'] ?? 0) > 0) $withCurriculum++;
-            $input = ['report_date' => date('Y-m-d'), 'grade_level' => mb_substr(trim((string) ($data['grade_level'] ?? '')), 0, 100), 'learning_area' => mb_substr(trim((string) ($data['learning_area'] ?? 'All learning areas')), 0, 100), 'planned_count' => (string) $planned, 'completed_count' => (string) $withCurriculum, 'overdue_count' => '0', 'coverage_rate' => $planned > 0 ? (string) round(($withCurriculum / $planned) * 100, 2) : '0', 'unmapped_count' => (string) max(0, $planned - $withCurriculum), 'follow_up_intent' => 'Verify curriculum mapping and delivery records before taking action.'];
-            $queued = $this->contract(AiDraftService::class)->queue('academics.coverage_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_coverage_review', 'subject_id' => $classId, 'scope' => 'authorized_class_curriculum_aggregate']);
-            return $this->accepted($queued, 'Curriculum coverage review queued');
+            if (!is_array($raw)) throw new DomainException('Curriculum mapping data is unavailable for this class.', 422);
+            $input = $this->contract('App\\API\\Services\\CurriculumMappingSummaryService')->aiPayloadFromResponse($raw);
+            $queued = $this->contract(DraftRepository::class)->queue('academics.coverage_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_coverage_review', 'subject_id' => $classId, 'scope' => 'authorized_class_curriculum_aggregate']);
+            return $this->accepted($queued, 'Curriculum mapping completeness review queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
-        catch (Exception $e) { return $this->serverError('Unable to queue curriculum coverage review'); }
+        catch (Exception $e) { return $this->serverError('Unable to queue curriculum mapping review'); }
     }
 
     /** POST /api/academic/ai-rubric-draft-queue */
@@ -3498,7 +3654,7 @@ return $this->serverError('An internal error occurred.');
             if (isset($outcome['data']) && is_array($outcome['data'])) $outcome = $outcome['data'];
             if (empty($outcome['id'])) throw new DomainException('The selected learning outcome is outside your academic scope.', 403);
             $input = ['learning_area' => (string) ($outcome['learning_area_name'] ?? ''), 'grade_level' => (string) ($outcome['grade_level'] ?? ''), 'term_name' => mb_substr(trim((string) ($data['term_name'] ?? '')), 0, 100), 'learning_outcome' => (string) ($outcome['outcome'] ?? ''), 'criterion_count' => (string) max(1, min(12, (int) ($data['criterion_count'] ?? 4))), 'performance_levels' => mb_substr(trim((string) ($data['performance_levels'] ?? 'Beginning, Developing, Meeting, Exceeding')), 0, 300), 'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create observable, age-appropriate criteria.')), 0, 500)];
-            return $this->accepted($this->contract(AiDraftService::class)->queue('academics.rubric_draft', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_rubric_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']), 'CBC rubric draft queued');
+            return $this->accepted($this->contract(DraftRepository::class)->queue('academics.rubric_draft', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_rubric_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']), 'CBC rubric draft queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (Exception $e) { return $this->serverError('Unable to queue rubric assistance'); }
     }
@@ -3508,20 +3664,62 @@ return $this->serverError('An internal error occurred.');
     {
         if (!$this->canUseAcademicAi('academics.learning_gap_review')) return $this->forbidden('Academic learning-gap permission is required');
         try {
-            // Request only the aggregate school/class view from the academic
-            // source service; learner rows never enter the AI payload.
-            $overview = $this->api->getPerformanceOverview(array_merge(['view_mode' => 'school'], $_GET, $data));
-            $rows = (array) ($overview['rows'] ?? $overview['data'] ?? []); $below = 0; $missing = 0; $bands = ['below_50' => 0, '50_to_74' => 0, '75_plus' => 0];
-            foreach ($rows as $row) { $score = $row['average_score'] ?? null; if ($score === null) { $missing++; continue; } $score = (float) $score; if ($score < 50) { $below++; $bands['below_50']++; } elseif ($score < 75) { $bands['50_to_74']++; } else $bands['75_plus']++; }
-            $input = ['report_date' => date('Y-m-d'), 'grade_level' => mb_substr((string) ($data['grade_level'] ?? ''), 0, 100), 'learning_area' => mb_substr((string) ($data['learning_area'] ?? 'All learning areas'), 0, 100), 'learner_count' => (string) count($rows), 'assessment_count' => (string) count($rows), 'below_threshold_count' => (string) $below, 'missing_evidence_count' => (string) $missing, 'gap_bands' => json_encode($bands), 'follow_up_intent' => 'Verify authorized assessment evidence and provide teacher-led support; do not identify learners in the AI response.'];
-            return $this->accepted($this->contract(AiDraftService::class)->queue('academics.learning_gap_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_learning_gap_review', 'scope' => 'authorized_aggregate_performance']), 'Learning-gap review queued');
+            $aycId = (int) ($data['academic_year_class_id'] ?? $id ?? 0);
+            if ($aycId < 1) return $this->badRequest('academic_year_class_id is required');
+            $userId = (int) ($this->getUserId() ?? 0);
+            $roleIds = $this->getUserRoleIds();
+            if (!$this->curriculumScopeService->canAccessAcademicYearClass($userId, $roleIds, $aycId)) {
+                return $this->notFound('Academic class not found');
+            }
+            $classYear = $this->curriculumScopeService->getAcademicYearClass($aycId);
+            $classId = (int) ($classYear['class_id'] ?? 0);
+            $yearId = (int) ($classYear['academic_year_id'] ?? 0);
+            if ($classId < 1 || $yearId < 1) return $this->notFound('Academic class not found');
+
+            // Source rows are consumed only inside the server. The provider
+            // receives bounded aggregate counts, never learner identifiers.
+            $rows = [];
+            for ($page = 1; $page <= 20; $page++) {
+                $overview = $this->api->getPerformanceOverview([
+                    'view_mode' => 'students', 'class_id' => $classId, 'academic_year_id' => $yearId,
+                    'page' => $page, 'limit' => 500,
+                ]);
+                if (!is_array($overview) || (int) ($overview['code'] ?? 200) >= 400 || ($overview['status'] ?? '') === 'error') {
+                    throw new DomainException('Academic results are unavailable for this class and year.', 422);
+                }
+                $pageRows = (array) ($overview['data']['rows'] ?? $overview['rows'] ?? []);
+                $rows = array_merge($rows, $pageRows);
+                if (count($pageRows) < 500) break;
+                if ($page === 20) throw new DomainException('The selected class is too large to summarize safely.', 422);
+            }
+            $draftService = $this->contract(DraftRepository::class);
+            $input = $draftService->buildLearningGapReviewInput($rows, (string) ($classYear['grade_level'] ?? ''));
+            return $this->accepted($draftService->queue(
+                'academics.learning_gap_review', $this->aiAcademicContext(), $input,
+                ['subject_type' => 'academic_learning_gap_review', 'subject_id' => $aycId, 'scope' => 'authorized_class_year_aggregate']
+            ), 'Learning-gap review queued');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (Exception $e) { return $this->serverError('Unable to queue learning-gap review'); }
     }
 
+    /** GET /api/academic/ai-academic-class-options */
+    public function getAiAcademicClassOptions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAcademicAi('academics.coverage_review')) {
+            return $this->forbidden('Academic curriculum permission is required');
+        }
+        try {
+            return $this->success($this->curriculumScopeService->listAccessibleAcademicYearClasses(
+                (int) ($this->getUserId() ?? 0), $this->getUserRoleIds()
+            ));
+        } catch (Exception $e) {
+            return $this->serverError('Unable to load your academic class options');
+        }
+    }
+
     private function canUseAcademicAi(string $workflow): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize($workflow, $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize($workflow, $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     public function postAiRubricDraftApprove($id = null, $data = [], $segments = [])
@@ -3545,14 +3743,14 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], ucfirst($label) . ' review approved for teacher editing');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
     }
 
     private function canUseAiAssessmentDraft(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.assessment_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.assessment_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiAssessmentDraft(): bool
@@ -3562,12 +3760,12 @@ return $this->serverError('An internal error occurred.');
 
     private function aiAcademicContext(): array
     {
-        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
     }
 
     private function canUseAiSchemeDraft(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('academics.scheme_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('academics.scheme_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
     }
 
     private function canApproveAiSchemeDraft(): bool
@@ -3606,7 +3804,11 @@ return $this->serverError('An internal error occurred.');
      */
     public function getSchemeOfWorkGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getSchemeOfWork($id ?? ($data['id'] ?? null));
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        if ($id !== null) {
+            $filters['id'] = $id;
+        }
+        $result = $this->api->getSchemeOfWork($filters);
         return $this->handleResponse($result);
     }
 
@@ -3685,7 +3887,7 @@ return $this->serverError('An internal error occurred.');
     public function getTeachersSchedule($id = null, $data = [], $segments = [])
     {
         $teacherId = $data['teacher_id'] ?? $id ?? null;
-        $result = $this->api->getTeacherSchedule($teacherId);
+        $result = $this->api->getTeacherSchedule($teacherId, is_array($data) ? $data : []);
         return $this->handleResponse($result);
     }
 
@@ -3868,7 +4070,11 @@ return $this->serverError('An internal error occurred.');
     public function getResults($id = null, $data = [], $segments = [])
     {
         $filters = array_merge($_GET, is_array($data) ? $data : []);
-        return $this->handleResponse($this->academicManager->getResults($filters, $this->getCurrentStaffId()));
+        $staffId = $this->getCurrentStaffId();
+        if (!empty($filters['subject_teacher_only']) && !$staffId) {
+            return $this->forbidden('A staff teaching assignment is required to view subject-scoped results');
+        }
+        return $this->handleResponse($this->academicManager->getResults($filters, $staffId));
     }
 
     /**
@@ -3878,7 +4084,17 @@ return $this->serverError('An internal error occurred.');
     public function getReports($id = null, $data = [], $segments = [])
     {
         $filters = array_merge($_GET, is_array($data) ? $data : []);
-        return $this->handleResponse($this->academicManager->getReports($filters, $this->getCurrentStaffId()));
+        $staffId = $this->getCurrentStaffId();
+        if ((!empty($filters['class_teacher_only']) || !empty($filters['subject_teacher_only'])) && !$staffId) {
+            return $this->forbidden('A staff teaching assignment is required to view teacher-scoped reports');
+        }
+        if (!empty($filters['class_teacher_only']) && !in_array(strtolower((string) ($filters['report_type'] ?? 'performance')), ['performance', 'assessment'], true)) {
+            return $this->badRequest('Class-teacher scoping is available only for performance reports');
+        }
+        if (!empty($filters['subject_teacher_only']) && !in_array(strtolower((string) ($filters['report_type'] ?? 'performance')), ['performance', 'assessment'], true)) {
+            return $this->badRequest('Subject-teacher scoping is available only for performance reports');
+        }
+        return $this->handleResponse($this->academicManager->getReports($filters, $staffId));
     }
 
     /**
@@ -4049,12 +4265,14 @@ return $this->serverError('An internal error occurred.');
      */
     public function getNationalExams($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_view', 'assessments_view', 'results_view'])) return $guard;
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getNationalExams($filters));
     }
 
     public function postNationalExams($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) return $guard;
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         return $this->handleResponse($this->academicManager->postNationalExams(is_array($data) ? $data : [], $userId));
     }
@@ -4099,6 +4317,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getClassStudents($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_view', 'assessments_view', 'academic_manage'])) return $guard;
         $classId = (int) ($id ?: ($data['class_id'] ?? ($_GET['class_id'] ?? 0)));
         if (!$classId) return $this->badRequest('class_id is required');
         return $this->handleResponse($this->academicManager->getClassStudents($classId));
@@ -4222,7 +4441,6 @@ return $this->serverError('An internal error occurred.');
      * GET /api/academic/year-rollover-status
      * Returns the current state of the rollover checklist.
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearRolloverStatus($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->academicManager->getYearRolloverStatus());
@@ -4233,7 +4451,6 @@ return $this->serverError('An internal error occurred.');
      * Executes one step of the year-end rollover process.
      * Body: { step: 'fee_carryover' | 'staff_reassignment' | 'create_new_year' | ... }
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearRollover($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
@@ -4297,9 +4514,7 @@ return $this->serverError('An internal error occurred.');
                 return $row ? $this->success($row) : $this->notFound('Class teacher assignment not found');
             }
             return $this->success($this->teachingAssignments->listClassTeachers(array_merge($_GET, $data)));
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
-            return $this->serverError('Failed to load class teacher assignments', 'An internal error occurred.');
-        }
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     /** POST /api/academic/class-teachers */
@@ -4310,9 +4525,7 @@ return $this->serverError('An internal error occurred.');
             $newId = $this->teachingAssignments->saveClassTeacher($data, null, $this->staffAccess->userId());
             $this->staffAccess->audit('create_class_teacher_assignment', 'staff_class_assignment', $newId, null, $data);
             return $this->created(['id'=>$newId], 'Class teacher assigned');
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
-            return $this->serverError('Failed to assign class teacher', 'An internal error occurred.');
-        }
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     /** PUT /api/academic/class-teachers/{id} */
@@ -4325,7 +4538,7 @@ return $this->serverError('An internal error occurred.');
             $this->teachingAssignments->saveClassTeacher($data, (int)$id, $this->staffAccess->userId());
             $this->staffAccess->audit('update_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, $data);
             return $this->success(['id'=>(int)$id], 'Class teacher assignment updated');
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     /** DELETE /api/academic/class-teachers/{id} */
@@ -4333,53 +4546,86 @@ return $this->serverError('An internal error occurred.');
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         if (!$id) return $this->badRequest('Assignment ID is required');
-        $before = $this->teachingAssignments->getClassTeacher((int)$id);
-        $this->teachingAssignments->removeClassTeacher((int)$id);
-        $this->staffAccess->audit('remove_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, ['status'=>'completed']);
-        return $this->success(null, 'Class teacher assignment removed');
+        try {
+            $before = $this->teachingAssignments->getClassTeacher((int)$id);
+            $this->teachingAssignments->removeClassTeacher((int)$id);
+            $this->staffAccess->audit('remove_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, ['status'=>'completed']);
+            return $this->success(null, 'Class teacher assignment removed');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
-    /** GET /api/academic/subject-assignments or /{id} */
+    /** Assignment scope ('class' | 'stream') from the query string or body; ids are unique per scope. */
+    private function subjectAssignmentScope(array $data): string
+    {
+        return \App\API\Services\StaffTeachingAssignmentService::normalizeScope($_GET['scope'] ?? $data['assignment_scope'] ?? $data['scope'] ?? 'class');
+    }
+
+    /** Validation failures (4xx) carry a user-facing message; anything else stays an opaque 500. */
+    private function subjectAssignmentFailure(\Throwable $e)
+    {
+        $code = (int) $e->getCode();
+        if ($e instanceof RuntimeException && $code >= 400 && $code < 500) {
+            return $this->respondWith($code, $e->getMessage());
+        }
+        \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        return $this->serverError('An internal error occurred.');
+    }
+
+    /** GET /api/academic/subject-assignments or /{id}?scope=class|stream */
     public function getSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments('staff.teaching_assignments.view')) return $denied;
         try {
             if ($id !== null) {
-                $row = $this->teachingAssignments->getSubjectAssignment((int)$id);
+                $row = $this->teachingAssignments->getSubjectAssignment((int)$id, $this->subjectAssignmentScope((array) $data));
                 return $row ? $this->success($row) : $this->notFound('Subject assignment not found');
             }
-            return $this->success($this->teachingAssignments->listSubjectAssignments(array_merge($_GET, $data)));
+            return $this->success($this->teachingAssignments->listSubjectAssignments(array_merge($_GET, (array) $data)));
         } catch (\Throwable $e) {
             return $this->serverError('Failed to load subject assignments', 'An internal error occurred.');
         }
     }
 
-    /** POST /api/academic/subject-assignments */
+    /** POST /api/academic/subject-assignments (stream optional: none = all streams) */
     public function postSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         try {
-            $newId=$this->teachingAssignments->saveSubjectAssignment($data,null,$this->staffAccess->userId());
-            $this->staffAccess->audit('create_subject_assignment','staff_class_assignment',$newId,null,$data);
-            return $this->created(['id'=>$newId],'Subject assignment created');
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+            $saved = $this->teachingAssignments->saveSubjectAssignmentScoped((array) $data, null, $this->staffAccess->userId());
+            $this->staffAccess->audit('create_subject_assignment', 'staff_class_assignment', $saved['id'], null, $data);
+            return $this->created($saved, 'Subject assignment created');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
-    /** PUT /api/academic/subject-assignments/{id} */
+    /** PUT /api/academic/subject-assignments/{id}?scope=class|stream */
     public function putSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
-        if(!$id)return $this->badRequest('Assignment ID is required');
-        try{$before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->saveSubjectAssignment($data,(int)$id,$this->staffAccess->userId());$this->staffAccess->audit('update_subject_assignment','staff_class_assignment',(int)$id,$before,$data);return $this->success(['id'=>(int)$id],'Subject assignment updated');}
-        catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        try {
+            $data = (array) $data;
+            $data['assignment_scope'] = $this->subjectAssignmentScope($data);
+            $before = $this->teachingAssignments->getSubjectAssignment((int)$id, $data['assignment_scope']);
+            if (!$before) return $this->notFound('Subject assignment not found');
+            $saved = $this->teachingAssignments->saveSubjectAssignmentScoped($data, (int)$id, $this->staffAccess->userId());
+            $this->staffAccess->audit('update_subject_assignment', 'staff_class_assignment', (int)$id, $before, $data);
+            return $this->success($saved, 'Subject assignment updated');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
-    /** DELETE /api/academic/subject-assignments/{id} */
+    /** DELETE /api/academic/subject-assignments/{id}?scope=class|stream */
     public function deleteSubjectAssignments($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
-        if(!$id)return $this->badRequest('Assignment ID is required');
-        $before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->removeSubjectAssignment((int)$id);$this->staffAccess->audit('remove_subject_assignment','staff_class_assignment',(int)$id,$before,['status'=>'completed']);return $this->success(null,'Subject assignment removed');
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        try {
+            $scope = $this->subjectAssignmentScope((array) $data);
+            $before = $this->teachingAssignments->getSubjectAssignment((int)$id, $scope);
+            if (!$before) return $this->notFound('Subject assignment not found');
+            $this->teachingAssignments->removeSubjectAssignment((int)$id, $scope);
+            $this->staffAccess->audit('remove_subject_assignment', 'staff_class_assignment', (int)$id, $before, ['status' => 'completed', 'assignment_scope' => $scope]);
+            return $this->success(null, 'Subject assignment removed');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     // ========================================================================
@@ -4923,7 +5169,9 @@ return $this->serverError('An internal error occurred.');
      */
     public function getYearCalendar($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->academicManager->getYearCalendar());
+        // GET /api/academic/year-calendar?academic_year_id=N (default: current year)
+        $yearId = (int) ($id ?: ($data['academic_year_id'] ?? 0));
+        return $this->handleResponse($this->academicManager->getYearCalendar($yearId > 0 ? $yearId : null));
     }
 
     /**
@@ -4970,6 +5218,16 @@ return $this->serverError('An internal error occurred.');
             $query['class_id'] = (int) $id;
         }
         return $this->handleResponse($this->academicManager->getLessonPlansByClass($query));
+    }
+
+    /** GET /api/academic/lesson-plans/by-teacher */
+    public function getLessonPlansByTeacher($id = null, $data = [], $segments = [])
+    {
+        if (!in_array(6, array_map('intval', $this->getUserRoleIds()), true)) {
+            return $this->forbidden('Only the Deputy Head - Academic can view teacher lesson-plan coverage.');
+        }
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getLessonPlansByTeacher($query));
     }
 
     /**

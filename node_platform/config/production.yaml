@@ -2,7 +2,7 @@ app:
   name: "kingsway-realtime-gateway"
   env: "production"
   port: 3000
-  host: "0.0.0.0"
+  host: "127.0.0.1"  # loopback only; nginx/Passenger front the gateway (review P0-5)
   instanceId: ""
 
 storage:
@@ -12,10 +12,10 @@ storage:
   logs: "logs/"
 
 sse:
-  maxConnections: 5000
-  userMaxConnections: 5
-  heartbeatMs: 20000
-  queueLimit: 50
+  maxConnections: 10000
+  userMaxConnections: 20
+  heartbeatMs: 10000
+  queueLimit: 100
   slowClientTimeoutMs: 5000
   presenceTtlMs: 45000
   capabilityTtlMinutes: 4
@@ -43,8 +43,11 @@ security:
   jwtAudience: "kingsway-staff"
   workerSecret: ""
   webOrigins:
+    - "https://kingswaypreparatoryschool.sc.ke"
     - "https://www.kingswaypreparatoryschool.sc.ke"
     - "https://realtime.kingswaypreparatoryschool.sc.ke"
+    - "https://localhost"
+    - "http://localhost"
   publishAllowIps:
     - "127.0.0.1"
     - "::1"

@@ -69,6 +69,16 @@ const StaffMeetingsController = (() => {
         document.getElementById('statusFilter')?.addEventListener('change', filterData);
         document.getElementById('typeFilter')?.addEventListener('change', filterData);
         document.getElementById('departmentFilter')?.addEventListener('change', filterData);
+        document.querySelector('#dataTable tbody')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-action]'); if (!button) return;
+            const index = Number(button.dataset.index); const id = Number(button.dataset.id);
+            if (button.dataset.action === 'view') viewMeeting(index);
+            else if (button.dataset.action === 'accept') respond(id, 'accepted');
+            else if (button.dataset.action === 'decline') respond(id, 'declined');
+            else if (button.dataset.action === 'edit') editMeeting(index);
+            else if (button.dataset.action === 'remind') remind(id);
+            else if (button.dataset.action === 'delete') deleteMeeting(id, button.dataset.title || '');
+        });
     }
 
     async function loadData() {
@@ -98,47 +108,53 @@ const StaffMeetingsController = (() => {
 
     function renderTable(items) {
         filtered = items;
-        const tbody = document.querySelector('#dataTable tbody');
-        if (!tbody) return;
+        const tbody = document.getElementById('staffMeetingsBody');
+        const stateRow = document.getElementById('staffMeetingsState');
+        const template = document.getElementById('staffMeetingRowTemplate');
+        if (!tbody || !stateRow || !template) return;
+        tbody.querySelectorAll('[data-staff-meeting-row]').forEach((row) => row.remove());
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No meetings found</td></tr>';
+            stateRow.querySelector('td').textContent = 'No meetings found';
+            stateRow.hidden = false;
             return;
         }
-        tbody.innerHTML = items.map((m, i) => {
-            const type = m.meeting_type || 'general';
-            const status = m.status || 'scheduled';
-            const statusColors = { scheduled: 'warning', ongoing: 'primary', completed: 'secondary', cancelled: 'danger' };
-            const when = fmtWhen(m);
-            const venue = m.venue || (m.meeting_link ? 'Online' : '—');
-            const venueMarkup = m.venue
-                ? `<span class="badge bg-secondary-subtle text-secondary border"><i class="fas fa-map-marker-alt me-1"></i>${escapeHtml(m.venue)}</span>`
-                : (m.meeting_link
-                    ? `<a href="${escapeHtml(m.meeting_link)}" target="_blank" rel="noopener" class="badge bg-info-subtle text-info border text-decoration-none"><i class="fas fa-video me-1"></i>Join online</a>`
-                    : '—');
-            const att = m.attendee_count || 0;
-            const myStatus = m.my_status || 'invited';
-            const myBadge = myStatus === 'invited'
-                ? '<span class="badge bg-secondary-subtle text-secondary">Invited</span>'
-                : `<span class="badge bg-${myStatus === 'accepted' ? 'success' : myStatus === 'declined' ? 'danger' : 'warning'}">${escapeHtml(myStatus)}</span>`;
-            return `<tr class="${status === 'cancelled' ? 'text-muted' : ''}">
-                <td>${i + 1}</td>
-                <td><strong>${escapeHtml(m.title)}</strong><br><span class="badge bg-${TYPE_COLORS[type] || 'secondary'}">${escapeHtml(TYPE_LABELS[type] || type)}</span></td>
-                <td>${escapeHtml(when)}</td>
-                <td>${venueMarkup}</td>
-                <td>${escapeHtml(m.organizer_name || '—')}</td>
-                <td>${att} <span class="text-muted small">(${m.accepted_count || 0} ✓)</span></td>
-                <td>${myBadge}</td>
-                <td><span class="badge bg-${statusColors[status] || 'secondary'}">${escapeHtml(status)}</span></td>
-                <td>
-                    <button class="btn btn-sm btn-outline-secondary me-1" onclick="StaffMeetingsController.viewMeeting(${i})" title="Details"><i class="fas fa-eye"></i></button>
-                    ${myStatus === 'invited' ? `<button class="btn btn-sm btn-outline-success me-1" onclick="StaffMeetingsController.respond(${m.id},'accepted')" title="Accept"><i class="fas fa-check"></i></button>
-                    <button class="btn btn-sm btn-outline-danger me-1" onclick="StaffMeetingsController.respond(${m.id},'declined')" title="Decline"><i class="fas fa-times"></i></button>` : ''}
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="StaffMeetingsController.editMeeting(${i})" title="Edit"><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-sm btn-outline-info me-1" onclick="StaffMeetingsController.remind(${m.id})" title="Send reminder to attendees"><i class="fas fa-bell"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="StaffMeetingsController.deleteMeeting(${m.id}, '${escapeAttr(m.title)}')" title="Delete"><i class="fas fa-trash"></i></button>
-                </td>
-            </tr>`;
-        }).join('');
+        stateRow.hidden = true;
+        const statusColors = { scheduled: 'warning', ongoing: 'primary', completed: 'secondary', cancelled: 'danger' };
+        const fragment = document.createDocumentFragment();
+        items.forEach((meeting, index) => {
+            const type = meeting.meeting_type || 'general';
+            const status = meeting.status || 'scheduled';
+            const venue = template.content.cloneNode(true);
+            const set = (name, value) => { const node = venue.querySelector(`[data-fill="${name}"]`); if (node) node.textContent = String(value ?? '—'); };
+            set('number', index + 1); set('title', meeting.title || '—'); set('when', fmtWhen(meeting));
+            set('organizer', meeting.organizer_name || '—'); set('attendee-count', Number(meeting.attendee_count || 0));
+            set('accepted-count', `(${Number(meeting.accepted_count || 0)} ✓)`);
+            const typeBadge = venue.querySelector('[data-fill="type"]');
+            typeBadge.textContent = TYPE_LABELS[type] || type;
+            typeBadge.classList.add('bg-' + (TYPE_COLORS[type] || 'secondary'));
+            const place = venue.querySelector('[data-fill="venue"]');
+            const link = venue.querySelector('[data-fill="meeting-link"]');
+            if (meeting.venue) place.textContent = meeting.venue;
+            else if (meeting.meeting_link) {
+                try { const url = new URL(meeting.meeting_link, window.location.origin); if (!["http:", "https:"].includes(url.protocol)) throw new Error(); place.hidden = true; link.hidden = false; link.href = url.href; }
+                catch (_) { place.textContent = '—'; }
+            }
+            else place.textContent = '—';
+            const myStatus = meeting.my_status || 'invited';
+            const myBadge = venue.querySelector('[data-fill="my-status"]');
+            myBadge.textContent = myStatus;
+            myBadge.classList.add(myStatus === 'accepted' ? 'bg-success' : myStatus === 'declined' ? 'bg-danger' : myStatus === 'invited' ? 'bg-secondary-subtle' : 'bg-warning');
+            const statusBadge = venue.querySelector('[data-fill="status"]');
+            statusBadge.textContent = status;
+            statusBadge.classList.add('bg-' + (statusColors[status] || 'secondary'));
+            const tr = venue.querySelector('tr');
+            tr.classList.toggle('text-muted', status === 'cancelled');
+            venue.querySelectorAll('[data-action]').forEach((button) => { button.dataset.index = String(index); button.dataset.id = String(Number(meeting.id)); button.dataset.title = meeting.title || ''; });
+            venue.querySelector('[data-action="accept"]').hidden = myStatus !== 'invited';
+            venue.querySelector('[data-action="decline"]').hidden = myStatus !== 'invited';
+            fragment.appendChild(venue);
+        });
+        tbody.insertBefore(fragment, stateRow);
     }
 
     function fmtWhen(m) {
@@ -179,7 +195,7 @@ const StaffMeetingsController = (() => {
         document.getElementById("recordType").value = 'general';
         document.getElementById("recordDepartment").value = '';
         clearAttendeeSelection();
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
 
     function clearAttendeeSelection() {
@@ -188,7 +204,7 @@ const StaffMeetingsController = (() => {
     }
 
     function editMeeting(index) {
-        const m = allData[index]; if (!m) return;
+        const m = filtered[index] || allData[index]; if (!m) return;
         document.getElementById("formModalTitle").innerHTML = '<i class="fas fa-edit me-2"></i>Edit Meeting';
         document.getElementById('recordId').value = m.id;
         document.getElementById("recordTitle").value = m.title || '';
@@ -209,7 +225,7 @@ const StaffMeetingsController = (() => {
             const ids = new Set(detail.attendees.map((a) => String(a.staff_id)));
             for (const o of sel.options) { if (ids.has(o.value)) o.selected = true; }
         }).catch(() => {});
-        new bootstrap.Modal(document.getElementById('formModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('formModal')).show();
     }
 
     async function getMeetingDetails(id) {
@@ -282,7 +298,7 @@ const StaffMeetingsController = (() => {
     }
 
     async function viewMeeting(index) {
-        const m = allData[index]; if (!m) return;
+        const m = filtered[index] || allData[index]; if (!m) return;
         const detail = await getMeetingDetails(m.id);
         const body = document.getElementById('detailModalBody');
         const title = document.getElementById('detailModalTitle');
@@ -303,7 +319,7 @@ const StaffMeetingsController = (() => {
             <h6 class="mt-3 fw-bold">Attendees (${attendees.length ? d.attendees.length : 0})</h6>
             <ul class="list-group mb-2">${attendees}</ul>
             <p class="small text-muted mb-0"><i class="bi bi-calendar-check me-1"></i>This meeting appears on the academic calendar and events pages.</p>`;
-        new bootstrap.Modal(document.getElementById('detailModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('detailModal')).show();
     }
 
     function exportCSV() {

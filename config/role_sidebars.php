@@ -360,21 +360,18 @@ return [
             ]
         ],
 
-        [
-            'label' => 'Website Management',
+       [
+            'label' => 'Staff',
             'url' => null,
-            'icon' => 'fas fa-globe',
+            'icon' => 'fas fa-chalkboard-teacher',
             'subitems' => [
-                ['label' => 'News & Stories', 'url' => 'manage_articles'],
-                ['label' => 'Public Events', 'url' => 'manage_public_events'],
-                ['label' => 'School Gallery', 'url' => 'manage_school_gallery'],
-                ['label' => 'Job Vacancies', 'url' => 'manage_job_vacancies'],
-                ['label' => 'Job Applications', 'url' => 'manage_job_applications'],
-                ['label' => 'Page Content', 'url' => 'manage_page_content'],
-                ['label' => 'Public Downloads', 'url' => 'manage_public_downloads'],
-                ['label' => 'Contact Inquiries', 'url' => 'manage_inquiries'],
-                ['label' => 'Website Overview', 'url' => 'manage_website'],
-            ],
+                ['label' => 'Staff Management', 'url' => 'manage_staff'],
+                ['label' => 'Staff Appointments', 'url' => 'staff_appointments'],
+                ['label' => 'Teachers', 'url' => 'all_teachers'],
+                ['label' => 'Staff Attendance', 'url' => 'staff_attendance'],
+                ['label' => 'Leave Management', 'url' => 'staff_leave'],
+                ['label' => 'Performance Overview', 'url' => 'staff_performance'],
+            ]
         ],
 
         // Activities — oversight, not operational and make recommendations to school admin
@@ -536,7 +533,6 @@ return [
                 ['label' => 'Year Calendar', 'url' => 'year_calendar'],
                 ['label' => 'Term Transition', 'url' => 'term_transition'],
                 ['label' => 'Acad. Year Rollover', 'url' => 'year_rollover'],
-                ['label' => 'View Timetable', 'url' => 'manage_timetable'],
                 ['label' => 'Academic Oversight', 'url' => 'academic_planning_oversight'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards
                 ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
@@ -546,6 +542,22 @@ return [
                 ['label' => 'Curriculum Proposals', 'url' => 'curriculum_proposals'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
 
+            ]
+        ],
+
+        // TIMETABLING: the preparation steps in order, then the AI draft.
+        // One page per job; Manage Timetable also covers the class and
+        // teacher views, so the separate view pages are not listed here.
+        [
+            'label' => 'Timetabling',
+            'url' => null,
+            'icon' => 'fas fa-calendar-week',
+            'subitems' => [
+                ['label' => 'Subject Teachers', 'url' => 'assign_subjects_to_teachers'],
+                ['label' => 'Class Teachers', 'url' => 'assign_class_teachers'],
+                ['label' => 'Teacher Workload', 'url' => 'teacher_workload'],
+                ['label' => 'Lesson Periods', 'url' => 'lesson_periods'],
+                ['label' => 'Draft & Publish Timetable', 'url' => 'manage_timetable'],
             ]
         ],
 

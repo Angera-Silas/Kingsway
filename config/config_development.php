@@ -145,13 +145,6 @@ if (strlen($tfaEncryptionKey) < 64 || !ctype_xdigit($tfaEncryptionKey)) {
 define('TFA_ENCRYPTION_KEY', $tfaEncryptionKey);
 define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'localhost');
 
-// Backs the unguessable slugs that secure role-scoped real-time buffer files.
-$realtimeBufferSecret = trim((string) ($_ENV['REALTIME_BUFFER_SECRET'] ?? ''));
-if (strlen($realtimeBufferSecret) < 64) {
-    throw new \RuntimeException('REALTIME_BUFFER_SECRET must contain at least 64 characters in every environment.');
-}
-define('REALTIME_BUFFER_SECRET', $realtimeBufferSecret);
-
 
 $authIdleTimeoutSeconds = max(
     300,
@@ -250,7 +243,6 @@ define(
 
 define('SMS_SENDER_ID', $_ENV['SMS_SENDER_ID'] ?? '');
 define('SMS_SHORTCODE', $_ENV['SMS_SHORTCODE'] ?? '');
-define('SMS_WHATSAPP_NUMBER', $_ENV['SMS_WHATSAPP_NUMBER'] ?? '');
 define('SMS_VOICE_LANGUAGE', $_ENV['SMS_VOICE_LANGUAGE'] ?? 'en-gb');
 define('SMS_VOICE_GENDER', $_ENV['SMS_VOICE_GENDER'] ?? 'female');
 
@@ -325,6 +317,47 @@ define(
     $_ENV['MPESA_SECURITY_CREDENTIAL'] ?? ''
 );
 define('MPESA_CERTIFICATE_PATH', $_ENV['MPESA_CERTIFICATE_PATH'] ?? __DIR__ . '/mpesa_sandbox_cert.cer');
+
+/*
+|--------------------------------------------------------------------------
+| M-Pesa Daraja — Per-Stream Credentials (Fluid: env-only, no DB)
+|--------------------------------------------------------------------------
+| If Safaricom allows 1 app for all paybills: leave these empty, shared
+| MPESA_CONSUMER_KEY/SECRET/PASSKEY will be used.
+| If 1 app per paybill: set MPESA_FEES_*, MPESA_TRN_*, MPESA_UNI_*.
+| Resolution in MpesaApiClient: per-stream → shared fallback.
+*/
+
+foreach (['FEES', 'TRN', 'UNI'] as $prefix) {
+    define(
+        "MPESA_{$prefix}_SHORTCODE",
+        $_ENV["MPESA_{$prefix}_SHORTCODE"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_CONSUMER_KEY",
+        $_ENV["MPESA_{$prefix}_CONSUMER_KEY"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_CONSUMER_SECRET",
+        $_ENV["MPESA_{$prefix}_CONSUMER_SECRET"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_PASSKEY",
+        $_ENV["MPESA_{$prefix}_PASSKEY"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_INITIATOR_NAME",
+        $_ENV["MPESA_{$prefix}_INITIATOR_NAME"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_INITIATOR_PASSWORD",
+        $_ENV["MPESA_{$prefix}_INITIATOR_PASSWORD"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_SECURITY_CREDENTIAL",
+        $_ENV["MPESA_{$prefix}_SECURITY_CREDENTIAL"] ?? ''
+    );
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -405,10 +438,19 @@ define('KCB_MPESA_EXPRESS_PATH', $_ENV['KCB_MPESA_EXPRESS_PATH'] ?? '/mm/api/req
 define('KCB_MPESA_ROUTE_CODE', $_ENV['KCB_MPESA_ROUTE_CODE'] ?? '207');
 define('KCB_MPESA_OPERATION', $_ENV['KCB_MPESA_OPERATION'] ?? 'STKPush');
 define('KCB_TRANSFER_STATUS_PATH', $_ENV['KCB_TRANSFER_STATUS_PATH'] ?? '/kcb/bi/ips/p2p/transfer/status/inquiry/1.0.0');
+define('KCB_ACCOUNT_BALANCE_PATH', $_ENV['KCB_ACCOUNT_BALANCE_PATH'] ?? '/accountservices/1.0.0/api/v1/balance');
+define('KCB_ACCOUNT_VALIDATE_PATH', $_ENV['KCB_ACCOUNT_VALIDATE_PATH'] ?? '/accountservices/1.0.0/api/v1/validate');
 define('KCB_STATUS_POLL_INITIAL_DELAY_SECONDS', max(60, (int) ($_ENV['KCB_STATUS_POLL_INITIAL_DELAY_SECONDS'] ?? 120)));
 define('KCB_STATUS_POLL_MAX_ATTEMPTS', max(1, (int) ($_ENV['KCB_STATUS_POLL_MAX_ATTEMPTS'] ?? 5)));
 define('KCB_STATUS_EXCEPTION_AFTER_MINUTES', max(5, (int) ($_ENV['KCB_STATUS_EXCEPTION_AFTER_MINUTES'] ?? 60)));
 define('KCB_RECONCILIATION_WORKER_SECRET', $_ENV['KCB_RECONCILIATION_WORKER_SECRET'] ?? ($_ENV['COMMUNICATION_WORKER_SECRET'] ?? ''));
+// The STK timeout sweeper falls back to the shared worker secret so an
+// unset constant cannot lock the cron job out of its own endpoint.
+define('PAYMENT_SWEEP_WORKER_SECRET', $_ENV['PAYMENT_SWEEP_WORKER_SECRET'] ?? ($_ENV['COMMUNICATION_WORKER_SECRET'] ?? ''));
+// KINGSWAY_WORKER_SECRET (config/.env) authenticates the academic activation
+// sweep (year cutover); AcademicController falls back to this constant. It
+// was never defined, so that endpoint rejected every worker call.
+define('KINGSWAY_WORKER_SECRET', $_ENV['KINGSWAY_WORKER_SECRET'] ?? '');
 
 define(
     'KCB_PUBLIC_KEY_PATH',
@@ -437,6 +479,10 @@ define('PAYHERO_WALLET_PATH', $_ENV['PAYHERO_WALLET_PATH'] ?? '/api/v2/wallets')
 define('PAYHERO_PAYMENT_CHANNELS_PATH', $_ENV['PAYHERO_PAYMENT_CHANNELS_PATH'] ?? '/api/v2/payment_channels');
 define('PAYHERO_CALLBACK_BASE_URL', $_ENV['PAYHERO_CALLBACK_BASE_URL'] ?? (defined('BASE_URL') ? BASE_URL : ''));
 define('PAYHERO_VERIFY_CALLBACK_STATUS', filter_var($_ENV['PAYHERO_VERIFY_CALLBACK_STATUS'] ?? '0', FILTER_VALIDATE_BOOLEAN));
+// Routes the collection through the school's own Daraja credentials instead of
+// a PayHero bank channel: the money settles on the school paybill, so PayHero
+// has nothing to settle and charges no service fee. Unset = use the channel.
+define('PAYHERO_CREDENTIAL_ID', (int) ($_ENV['PAYHERO_CREDENTIAL_ID'] ?? 0));
 define('PAYHERO_TIMEOUT_SECONDS', max(5, (int) ($_ENV['PAYHERO_TIMEOUT_SECONDS'] ?? 30)));
 
 /*
@@ -461,7 +507,7 @@ define(
 
 define(
     'NODE_REALTIME_PUBLIC_URL',
-    $_ENV['NODE_REALTIME_URL'] ?? 'http://localhost:3000'
+    $_ENV['NODE_REALTIME_URL'] ?? 'http://127.0.0.1:3000'
 );
 
 define(

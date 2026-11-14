@@ -361,7 +361,7 @@ const StudentsWithBalanceController = {
       // Remove existing modal if any
       document.getElementById("statementModal")?.remove();
       document.body.insertAdjacentHTML("beforeend", modalHtml);
-      new bootstrap.Modal(document.getElementById("statementModal")).show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("statementModal")).show();
     } catch (error) {
       console.error("Error loading statement:", error);
       this.showError("Failed to load fee statement");
@@ -415,7 +415,7 @@ const StudentsWithBalanceController = {
 
     document.getElementById("quickPaymentModal")?.remove();
     document.body.insertAdjacentHTML("beforeend", modalHtml);
-    new bootstrap.Modal(document.getElementById("quickPaymentModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("quickPaymentModal")).show();
   },
 
   submitPayment: async function () {

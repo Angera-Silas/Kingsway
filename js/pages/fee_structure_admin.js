@@ -105,6 +105,7 @@ class FeeStructureAdminController {
     );
 
     window.exportFeeStructures = () => this.exportFeeStructures();
+    window.printActiveFeeStructure = () => this.printActiveFeeStructure();
     window.showDuplicateModal = () => this.showDuplicateModal();
     window.showCreateFeeStructureModal = () => this.openCreateModal();
     window.applyFilters = () => this.applyFilters();
@@ -355,10 +356,32 @@ class FeeStructureAdminController {
     try {
       const model = await window.FeeStructureMatrix.load(selectedYear);
       window.FeeStructureMatrix.render(body, model);
-      await this.renderActiveExtraCharges(body, selectedYear);
     } catch (error) {
       body.innerHTML = `<div class="alert alert-danger mb-0">${this._esc(error.message || 'Failed to load active fee matrix')}</div>`;
     }
+  }
+
+  /** PDF of the active fee structure for the year chosen above the matrix. */
+  async printActiveFeeStructure() {
+    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('finance') && !window.AuthContext.canPrint('fees')) {
+      this.showError('You do not have permission to print fee structures');
+      return;
+    }
+    const year = document.getElementById('adminMatrixAcademicYearFilter')?.value || '';
+    if (!year) {
+      this.showError('Choose an academic year first');
+      return;
+    }
+    if (!window.PrintManager?.printSimpleFeeStructure) {
+      this.showError('Printing is not available on this page');
+      return;
+    }
+    await window.PrintManager.printSimpleFeeStructure({
+      academicYear: year,
+      scope: 'all',
+      studentType: 'both',
+      filename: `fee_structure_${year}`,
+    }).catch(() => {});
   }
 
   getGroupKey(structure) {
@@ -1681,7 +1704,7 @@ class FeeStructureAdminController {
   showModal(modalId) {
     const modalEl = document.getElementById(modalId);
     if (modalEl) {
-      const modal = new bootstrap.Modal(modalEl);
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
       modal.show();
     }
   }
@@ -1796,7 +1819,11 @@ class FeeStructureAdminController {
   _chargeAmountHtml(c) {
     const tiers = Array.isArray(c.pricing_tiers) ? c.pricing_tiers : [];
     if (tiers.length) {
-      return tiers.map(t => `<div><small>${this._esc(t.label || 'Tier')}: ${Number(t.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 })}</small></div>`).join('');
+      return tiers.map(t => {
+        const condition = String(t.condition || 'default');
+        const rule = condition === 'default' ? 'Default' : condition.replace(/^class:/, 'Class ').replace(/^student_type:/, 'Learner type ').replaceAll('_', ' ');
+        return `<div><small>${this._esc(t.label || 'Tier')} · ${this._esc(rule)}: KES ${Number(t.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 })}</small></div>`;
+      }).join('');
     }
     let html = Number(c.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 });
     if (c.calculation_mode === 'per_unit' && c.unit_label) html += ` <small class="text-muted">/ ${this._esc(c.unit_label)}</small>`;
@@ -1816,7 +1843,10 @@ class FeeStructureAdminController {
   _targetLabel(c) {
     const targets = { new_admissions: 'New Admissions', existing_students: 'Existing Students', all_students: 'All Students', boarders: 'Boarders', day_students: 'Day Students', specific_class: 'Specific Class' };
     let label = targets[c.target_scope] || c.target_scope || '—';
-    if (c.target_scope === 'specific_class' && c.class_name) label += ` (${c.class_name})`;
+    const classes = Array.isArray(c.class_names) ? c.class_names : (Array.isArray(c.class_ids) ? c.class_ids.map(id => `Class ${id}`) : (c.class_id ? [c.class_name || `Class ${c.class_id}`] : []));
+    const types = Array.isArray(c.student_type_names) ? c.student_type_names : (Array.isArray(c.student_type_ids) ? c.student_type_ids.map(id => `Type ${id}`) : []);
+    if (classes.length) label += ` · Classes: ${classes.join(', ')}`;
+    if (types.length) label += ` · Learner types: ${types.join(', ')}`;
     return label;
   }
 

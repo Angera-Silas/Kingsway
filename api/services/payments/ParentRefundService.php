@@ -69,7 +69,7 @@ class ParentRefundService
     public function createRequest(int $creditId, int $userId, array $data): array
     {
         $stmt = $this->db->prepare(
-            "SELECT c.*, sp.parent_id FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . "
+            "SELECT c.*, sp.parent_id FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " c
              JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = c.student_id
              WHERE c.id = ? AND c.status IN ('available','partially_applied')
              ORDER BY sp.is_primary_contact DESC, sp.parent_id ASC LIMIT 1"
@@ -106,7 +106,7 @@ class ParentRefundService
             return ['status' => in_array($result['status'] ?? '', ['success','pending'], true) ? 'processing' : 'failed', 'provider_reference' => $result['transaction_ref'] ?? null];
         }
         $reference = strtoupper(substr('REF' . bin2hex(random_bytes(5)), 0, 12));
-        $insert = $this->db->prepare("INSERT INTO disbursement_transactions (disbursement_type, payment_purpose, refund_request_id, source_financial_account_id, idempotency_reference, recipient_id, recipient_name, amount, account_number, bank_code, bank_name, channel, status) VALUES ('refund', 'refunds', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'kcb_bank', 'pending')");
+        $insert = $this->db->prepare("INSERT INTO disbursement_transactions (disbursement_type, payment_purpose, refund_request_id, source_financial_account_id, idempotency_reference, recipient_id, recipient_type, recipient_name, amount, account_number, bank_code, bank_name, channel, status) VALUES ('refund', 'refunds', ?, ?, ?, ?, 'parent', ?, ?, ?, ?, ?, 'kcb_bank', 'pending')");
         $insert->execute([$requestId, (int) $request['source_financial_account_id'], 'REFUND-' . $requestId, $request['parent_id'], $request['account_name'], $request['amount'], $request['account_number'], $request['bank_code'], $request['bank_name']]);
         $disbursementId = (int) $this->db->lastInsertId();
         $result = $this->kcb->transferFunds(['account_number' => $request['account_number'], 'bank_name' => $request['bank_name'], 'bank_code' => $request['bank_code'], 'amount' => (float) $request['amount'], 'narration' => 'Parent fee refund', 'beneficiary_name' => $request['account_name'], 'transaction_reference' => $reference, 'debit_account_number' => $request['source_account_identifier'], 'source_financial_account_id' => (int) $request['source_financial_account_id'], 'idempotency_reference' => 'REFUND-' . $requestId]);

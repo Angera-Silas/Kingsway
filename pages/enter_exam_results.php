@@ -13,6 +13,15 @@
     <div class="card mb-3">
         <div class="card-body">
             <div class="row g-3">
+                <div class="col-6 col-lg-3">
+                    <label class="form-label" for="eerYear">Academic year</label>
+                    <select id="eerYear" class="form-select"></select>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <label class="form-label" for="eerTerm">Term</label>
+                    <select id="eerTerm" class="form-select"></select>
+                </div>
+                <div class="col-12 w-100 d-none d-lg-block p-0 m-0"></div>
                 <div class="col-lg-4">
                     <label class="form-label" for="examFilter">Exam paper open for result entry</label>
                     <select id="examFilter" class="form-select">

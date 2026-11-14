@@ -9,13 +9,13 @@ use PDO;
  * IntelligenceEngine - deterministic rule orchestrator (P3a).
  *
  * Runs the registered deterministic detectors, aggregates their findings into
- * a single report, journals it to the `intelligence` file journal, and pushes
- * any raised alerts through the realtime EventBroadcaster pipeline so they
- * surface in the notification bell.
+ * a single report and journals it to the `intelligence` file journal. Alerts
+ * are returned to the caller; they are never pushed to browsers, because
+ * background detection is not something staff should see happening.
  *
  * Deliberately provider-free: this engine only computes values, flags, and
  * alerts (SQL/rules over the governed views). It never holds a provider
- * credential and never decides WHEN to call the LLM - the AiInsightOrchestrator
+ * credential and never decides WHEN to call the LLM - the InsightScheduler
  * (P3b) owns that decision and reuses this engine's findings as context.
  */
 final class IntelligenceEngine
@@ -55,6 +55,8 @@ final class IntelligenceEngine
      * Run all detectors (or a subset) and return the aggregated report.
      *
      * @param string[]|null $domains subset of DETECTORS keys; null runs all
+     * @param bool $broadcast accepted for existing callers; has no effect
+     *                        (alerts are no longer pushed to browsers)
      * @return array<string,mixed> {generated_at, ran, alerts, domains}
      */
     public function run(?array $domains = null, bool $broadcast = true, bool $journal = true): array
@@ -90,9 +92,6 @@ final class IntelligenceEngine
             foreach ((array) ($result['alerts'] ?? []) as $alert) {
                 $alert['domain'] = $domain;
                 $alerts[] = $alert;
-                if ($broadcast) {
-                    $this->broadcast($pdo, (string) $domain, $alert);
-                }
             }
         }
 
@@ -115,23 +114,5 @@ final class IntelligenceEngine
         }
 
         return $report;
-    }
-
-    /** Push a detector alert through EventBroadcaster. */
-    private function broadcast(PDO $pdo, string $domain, array $alert): void
-    {
-        $scopes = (array) ($alert['target_scopes'] ?? [EventBroadcaster::DEFAULT_SCOPE]);
-        $scopes = $scopes ?: [EventBroadcaster::DEFAULT_SCOPE];
-        EventBroadcaster::dispatch(
-            $pdo,
-            'intelligence',
-            $domain . '.' . (string) ($alert['code'] ?? 'alert'),
-            [
-                'level' => (string) ($alert['level'] ?? 'info'),
-                'message' => (string) ($alert['message'] ?? ''),
-                'domain' => $domain,
-            ],
-            $scopes
-        );
     }
 }

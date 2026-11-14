@@ -18,7 +18,7 @@ const pettyCashController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    this._modal = new bootstrap.Modal(document.getElementById('pettyCashModal'));
+    this._modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('pettyCashModal'));
     this._canCreate  = AuthContext.hasPermission('finance.create')  || AuthContext.hasPermission('finance_create')
                     || AuthContext.hasPermission('expenses.create') || AuthContext.hasPermission('expenses_create');
     this._canApprove = AuthContext.hasPermission('finance.approve') || AuthContext.hasPermission('finance_approve');

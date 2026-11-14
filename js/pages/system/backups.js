@@ -72,6 +72,7 @@ const BackupsController = {
       search: document.getElementById("backupsSearch"),
       count: document.getElementById("backupsCount"),
       body: document.getElementById("backupsTableBody"),
+      tableState: document.getElementById("backupsTableState"),
       rowTemplate: document.getElementById("backupsRowTemplate"),
       exportCsvBtn: document.getElementById("backupsExportCsvBtn"),
       printBtn: document.getElementById("backupsPrintBtn"),
@@ -108,12 +109,10 @@ const BackupsController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="6" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-backup-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + (className || "text-muted"); cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -189,13 +188,9 @@ const BackupsController = {
     this.render();
   },
 
-  statusBadge(status) {
-    const map = {
-      completed: "bg-success", success: "bg-success", done: "bg-success",
-      running: "bg-info", processing: "bg-info", pending: "bg-warning text-dark",
-      failed: "bg-danger", error: "bg-danger",
-    };
-    return `<span class="badge ${map[String(status).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(status || "—")}</span>`;
+  statusTone(status) {
+    const map = { completed: "bg-success", success: "bg-success", done: "bg-success", running: "bg-info", processing: "bg-info", pending: "bg-warning text-dark", failed: "bg-danger", error: "bg-danger" };
+    return map[String(status).toLowerCase()] || "bg-secondary";
   },
 
   render() {
@@ -205,23 +200,24 @@ const BackupsController = {
     if (!pageRows.length) {
       this.showTableMessage("No backups found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
-          fragment.querySelector('[data-fill="filename"]').textContent =
-            row.filename ?? row.label ?? row.name ?? "—";
-          fragment.querySelector('[data-fill="size"]').textContent =
-            row.size !== undefined && row.size !== null && row.size !== ""
-              ? (row.size / 1024 / 1024).toFixed(1) + " MB"
-              : "—";
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(row.status);
-          fragment.querySelector('[data-fill="created_at"]').textContent = row.created_at ?? "—";
-          const tr = fragment.querySelector("tr");
-          tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-backup-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
+        fragment.querySelector('[data-fill="filename"]').textContent = row.filename ?? row.label ?? row.name ?? "—";
+        fragment.querySelector('[data-fill="size"]').textContent = row.size !== undefined && row.size !== null && row.size !== "" ? (row.size / 1024 / 1024).toFixed(1) + " MB" : "—";
+        const badge = fragment.querySelector('[data-fill="status"]');
+        badge.textContent = row.status ?? "—";
+        this.statusTone(row.status).split(" ").forEach((name) => badge.classList.add(name));
+        fragment.querySelector('[data-fill="created_at"]').textContent = row.created_at ?? "—";
+        const tr = fragment.querySelector("tr");
+        tr.dataset.backupRow = "1";
+        tr.dataset.id = row.id;
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

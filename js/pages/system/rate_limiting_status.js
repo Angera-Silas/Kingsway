@@ -62,6 +62,7 @@ const RateLimitingStatusController = {
     this.elements = {
       state: document.getElementById("rateLimitingStatusState"),
       body: document.getElementById("rateLimitingStatusTableBody"),
+      tableState: document.getElementById("rateLimitingStatusTableState"),
       rowTemplate: document.getElementById("rateLimitingStatusRowTemplate"),
       policy: document.getElementById("rateLimitingStatusPolicy"),
       exportCsvBtn: document.getElementById("rateLimitingStatusExportCsvBtn"),
@@ -92,12 +93,13 @@ const RateLimitingStatusController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="4" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-rate-limit-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -150,9 +152,9 @@ const RateLimitingStatusController = {
     return "critical";
   },
 
-  statusBadge(status) {
+  statusTone(status) {
     const map = { ok: "bg-success", active: "bg-success", normal: "bg-success", warn: "bg-warning text-dark", low: "bg-warning text-dark", critical: "bg-danger", exhausted: "bg-danger" };
-    return `<span class="badge ${map[String(status).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(status || "—")}</span>`;
+    return map[String(status).toLowerCase()] || "bg-secondary";
   },
 
   renderBuckets() {
@@ -161,16 +163,23 @@ const RateLimitingStatusController = {
       this.showTableMessage("No rate-limit buckets reported.");
       return;
     }
-    this.elements.body.innerHTML = buckets
-      .map((bucket) => {
-        const fragment = this.elements.rowTemplate.content.cloneNode(true);
-        fragment.querySelector('[data-fill="key"]').textContent = bucket.key ?? bucket.name ?? bucket.scope ?? "—";
-        fragment.querySelector('[data-fill="limit"]').textContent = bucket.limit ?? bucket.max ?? bucket.capacity ?? bucket.rate ?? "—";
-        fragment.querySelector('[data-fill="window"]').textContent = bucket.window ?? bucket.period ?? bucket.interval ?? "—";
-        fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(this.statusOf(bucket));
-        return fragment.querySelector("tr").outerHTML;
-      })
-      .join("");
+    this.elements.body.querySelectorAll("[data-rate-limit-row]").forEach((row) => row.remove());
+    if (this.elements.tableState) this.elements.tableState.hidden = true;
+    const rows = document.createDocumentFragment();
+    buckets.forEach((bucket) => {
+      const fragment = this.elements.rowTemplate.content.cloneNode(true);
+      fragment.querySelector('[data-fill="key"]').textContent = bucket.key ?? bucket.name ?? bucket.scope ?? "—";
+      fragment.querySelector('[data-fill="limit"]').textContent = bucket.limit ?? bucket.max ?? bucket.capacity ?? bucket.rate ?? "—";
+      fragment.querySelector('[data-fill="window"]').textContent = bucket.window ?? bucket.period ?? bucket.interval ?? "—";
+      const statusValue = this.statusOf(bucket);
+      const badge = fragment.querySelector('[data-fill="status"]');
+      badge.textContent = statusValue || "—";
+      this.statusTone(statusValue).split(" ").forEach((name) => badge.classList.add(name));
+      const tr = fragment.querySelector("tr");
+      tr.dataset.rateLimitRow = "1";
+      rows.appendChild(fragment);
+    });
+    this.elements.body.insertBefore(rows, this.elements.tableState || null);
   },
 
   renderPolicy() {

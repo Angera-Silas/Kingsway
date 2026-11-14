@@ -3,9 +3,9 @@ namespace App\API\Controllers;
 
 use App\API\Modules\reports\ReportsAPI;
 use Exception;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiAnalyticsInsightService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\AnalyticsInsightService;
+use App\API\Services\WorkflowAuthorization;
 use App\API\Services\NlqQueryService;
 use DomainException;
 
@@ -138,7 +138,7 @@ class ReportsController extends BaseController
         if ($code === '') return $this->badRequest('Report code is required');
         try {
             $filters = isset($data['filters']) && is_array($data['filters']) ? $data['filters'] : [];
-            $queued = $this->contract(AiAnalyticsInsightService::class)->queue(
+            $queued = $this->contract(AnalyticsInsightService::class)->queue(
                 $code,
                 $filters,
                 $this->user,
@@ -158,7 +158,7 @@ class ReportsController extends BaseController
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiReport()) return $this->forbidden('Report review permission is required');
         try {
-            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+            return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview(
                 $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'reports'
             ), 'scope' => $review ? 'review' : 'own'], 'Report AI briefs retrieved');
         } catch (\Throwable $e) {
@@ -173,7 +173,7 @@ class ReportsController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'reports.kpi_brief');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'reports.kpi_brief');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Report explanation approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -203,6 +203,8 @@ class ReportsController extends BaseController
                 [
                     'user_id' => $userId,
                     'roles' => $this->user['roles'] ?? [],
+                    'role_ids' => $this->user['role_ids'] ?? [],
+                    'role_names' => $this->user['role_names'] ?? [],
                     'permissions' => $permissions,
                     'effective_permissions' => $permissions,
                     'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
@@ -220,12 +222,12 @@ class ReportsController extends BaseController
 
     private function aiReportContext(): array
     {
-        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
     }
 
     private function canApproveAiReport(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('reports.kpi_brief', $this->aiReportContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('reports.kpi_brief', $this->aiReportContext()); return true; } catch (DomainException $e) { return false; }
     }
     // --- Enrollment Summary (alias for Director dashboard) ---
     public function getEnrollmentSummary($id = null, $data = [], $segments = [])
@@ -392,6 +394,9 @@ class ReportsController extends BaseController
     // --- Logs Reports ---
     public function getCommunicationLogs($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['communications_view', 'communications_manage', 'reports_view'], [1, 3, 4, 5, 6, 7, 8], [])) {
+            return $this->forbidden('Communication activity access is required');
+        }
         return $this->handleResponse($this->api->communicationLogs($data));
     }
     public function getFeeStructureLogs($id = null, $data = [], $segments = [])

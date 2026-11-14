@@ -15,7 +15,7 @@
     .table-responsive { overflow: visible !important; }
 }
 </style>
-<div class="container-fluid px-3">
+<div class="container-fluid px-3" id="assessmentRubricsPage">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h4 class="mb-1"><i class="bi bi-grid-3x3-gap"></i> Assessment Rubrics</h4>
@@ -63,9 +63,13 @@
                         </tr>
                     </thead>
                     <tbody id="rubricTableBody">
-                        <tr><td colspan="10" class="text-center text-muted py-4">No rubrics found.</td></tr>
+                        <tr id="rubricTableState"><td colspan="10" class="text-center text-muted py-4">No rubrics found.</td></tr>
                     </tbody>
                 </table>
+                <template id="assessmentRubricRowTemplate"><tr data-rubric-row><td data-fill="number"></td><td data-fill="criteria"></td><td data-fill="tool"></td><td class="text-muted small" data-fill="level-1"></td><td class="text-muted small" data-fill="level-2"></td><td class="text-muted small" data-fill="level-3"></td><td class="text-muted small" data-fill="level-4"></td><td data-fill="points"></td><td data-fill="sort"></td><td><div data-fill="manager-actions"><button class="btn btn-sm btn-outline-primary me-1" type="button" data-action="edit"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger" type="button" data-action="delete"><i class="bi bi-trash"></i></button></div><a class="btn btn-sm btn-outline-success" data-action="propose" href="home.php?route=curriculum_proposals">Propose</a></td></tr></template>
+                <template id="rubricPreviousPageTemplate"><li class="page-item"><button class="page-link" data-rubric-page aria-label="Previous">&laquo;</button></li></template>
+                <template id="rubricPageTemplate"><li class="page-item"><button class="page-link" data-rubric-page></button></li></template>
+                <template id="rubricNextPageTemplate"><li class="page-item"><button class="page-link" data-rubric-page aria-label="Next">&raquo;</button></li></template>
             </div>
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
                 <div class="d-flex align-items-center gap-2">

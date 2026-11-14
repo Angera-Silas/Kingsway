@@ -69,8 +69,22 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Year</th><th scope="col">Start Date</th><th scope="col">End Date</th><th scope="col">Terms</th><th scope="col">Students</th><th scope="col">Performance Avg</th><th scope="col">Status</th></tr></thead>
-                    <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="yearHistoryTableBody">
+                        <tr id="yearHistoryTableState"><td colspan="8" class="text-center text-muted py-4">Loading academic year history...</td></tr>
+                    </tbody>
                 </table>
+                <template id="yearHistoryRowTemplate">
+                    <tr data-year-history-row>
+                        <td data-field="number"></td>
+                        <td><strong data-field="year"></strong></td>
+                        <td data-field="start"></td>
+                        <td data-field="end"></td>
+                        <td data-field="terms"></td>
+                        <td data-field="students"></td>
+                        <td><span class="badge" data-field="performance"></span></td>
+                        <td><span class="badge" data-field="status"></span></td>
+                    </tr>
+                </template>
             </div>
         </div>
     </div>

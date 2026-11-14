@@ -68,6 +68,7 @@ const TimeBoundAccessController = {
       search: document.getElementById("timeBoundAccessSearch"),
       count: document.getElementById("timeBoundAccessCount"),
       body: document.getElementById("timeBoundAccessTableBody"),
+      tableState: document.getElementById("timeBoundAccessTableState"),
       rowTemplate: document.getElementById("timeBoundAccessRowTemplate"),
       exportCsvBtn: document.getElementById("timeBoundAccessExportCsvBtn"),
       printBtn: document.getElementById("timeBoundAccessPrintBtn"),
@@ -103,12 +104,13 @@ const TimeBoundAccessController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="7" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-time-bound-access-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -177,30 +179,37 @@ const TimeBoundAccessController = {
     return "active";
   },
 
-  statusBadge(status) {
+  statusTone(status) {
     const map = { active: "bg-success", expired: "bg-danger", revoked: "bg-secondary" };
-    return `<span class="badge ${map[String(status).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(status)}</span>`;
+    return map[String(status).toLowerCase()] || "bg-secondary";
   },
 
   render() {
     if (!this.state.filtered.length) {
       this.showTableMessage("No access grants found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = this.state.filtered
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
-          fragment.querySelector('[data-fill="username"]').textContent = row.username ?? row.user ?? "—";
-          fragment.querySelector('[data-fill="grant"]').textContent = row.grant ?? row.role_name ?? row.permission ?? "—";
-          fragment.querySelector('[data-fill="granted_at"]').textContent = row.granted_at ?? "—";
-          fragment.querySelector('[data-fill="expires_at"]').textContent = row.expires_at ?? row.expires ?? "—";
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(this.statusOf(row));
-          const tr = fragment.querySelector("tr");
-          tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-time-bound-access-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      this.state.filtered.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
+        fragment.querySelector('[data-fill="username"]').textContent = row.username ?? row.user ?? "—";
+        fragment.querySelector('[data-fill="grant"]').textContent = row.grant ?? row.role_name ?? row.permission ?? "—";
+        fragment.querySelector('[data-fill="granted_at"]').textContent = row.granted_at ?? "—";
+        fragment.querySelector('[data-fill="expires_at"]').textContent = row.expires_at ?? row.expires ?? "—";
+        const status = this.statusOf(row);
+        const badge = fragment.querySelector('[data-fill="status"]');
+        badge.textContent = status;
+        badge.classList.add(this.statusTone(status));
+        const tr = fragment.querySelector("tr");
+        tr.dataset.timeBoundAccessRow = "1";
+        tr.dataset.id = row.id;
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
+
     const total = this.state.filtered.length;
     this.elements.count.textContent =
       total + " grant" + (total === 1 ? "" : "s") + (this.state.search ? " (filtered)" : "");

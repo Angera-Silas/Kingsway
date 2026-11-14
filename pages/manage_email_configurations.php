@@ -1,15 +1,12 @@
 <?php
 /** Kingsway System Administrator: Email Provider Configuration (system domain). */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') { $appBase = ''; }
-}
+
 ?>
 <div class="container-fluid py-4">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h2 class="h2 fw-bold mb-1"><i class="bi bi-envelope-gear me-2 text-success"></i>Email Mailbox Profiles</h2>
-            <p class="text-muted mb-0">Configure per-department email mailboxes (@kingswaypreparatoryschool.sc.ke), SMTP/IMAP credentials, and role access.</p>
+            <p class="text-muted mb-0">Configure group email accounts (@kingswaypreparatoryschool.sc.ke) and their SMTP/IMAP connections. Assign staff separately on each account from Kingsway Mail.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button class="btn btn-success btn-sm" id="emailExportCsv"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
@@ -26,9 +23,10 @@ if (!isset($appBase)) {
         </div>
         <div class="card-body">
             <div class="table-responsive"><table class="table table-hover table-sm mb-0" id="emailProfilesTable">
-                <thead class="table-light"><tr><th>Label</th><th>Email Address</th><th>Display Name</th><th>Status</th><th>Default</th><th>Roles</th><th>Actions</th></tr></thead>
-                <tbody id="emailProfilesBody"><tr><td colspan="7" class="text-muted">Loading...</td></tr></tbody>
+                <thead class="table-light"><tr><th>Label</th><th>Email Address</th><th>Display Name</th><th>Status</th><th>Default</th><th>Staff access</th><th>Actions</th></tr></thead>
+                <tbody id="emailProfilesBody"><tr id="emailProfilesState"><td colspan="7" class="text-center text-muted py-3">Loading...</td></tr></tbody>
             </table></div>
+            <template id="emailProfileRowTemplate"><tr data-email-profile-row><td class="align-middle"><strong data-fill="label"></strong></td><td class="align-middle"><a data-fill="email"></a></td><td class="align-middle" data-fill="display-name"></td><td class="align-middle"><span class="badge" data-fill="status"></span></td><td class="align-middle"><span data-fill="default"></span></td><td class="align-middle"><span class="badge bg-info text-dark">Per-mailbox</span></td><td class="align-middle"><div class="d-flex flex-wrap gap-1"><button class="btn btn-sm btn-outline-primary" data-action="view" type="button" title="View inbox"><i class="bi bi-envelope-open"></i></button><button class="btn btn-sm btn-outline-success" data-action="edit" type="button" title="Edit mailbox"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-warning" data-action="set_default" type="button" title="Set as default"><i class="bi bi-star"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_smtp" type="button" title="Test SMTP"><i class="bi bi-lightning"></i></button><button class="btn btn-sm btn-outline-info" data-action="test_imap" type="button" title="Test IMAP"><i class="bi bi-inbox"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete" type="button" title="Delete mailbox"><i class="bi bi-trash"></i></button></div></td></tr></template>
         </div>
     </div>
 
@@ -84,7 +82,11 @@ if (!isset($appBase)) {
                 <div class="col-12"><hr class="my-1"><strong>Settings</strong></div>
                 <div class="col-md-4"><label class="form-label fw-semibold">Status</label><select class="form-select" id="emailProfileActive"><option value="1">Active</option><option value="0">Inactive</option></select></div>
                 <div class="col-md-4"><label class="form-label fw-semibold">Set as Default</label><select class="form-select" id="emailProfileDefault"><option value="0">No</option><option value="1">Yes</option></select></div>
-                <div class="col-md-4"><label class="form-label fw-semibold">Role Access (staff who view this inbox)</label><input type="text" class="form-control" id="emailProfileRoles" placeholder="Role IDs comma-separated, e.g. 10,11. Leave blank = all staff"></div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">Staff access</label>
+                    <div class="form-control bg-light" aria-readonly="true">Managed per mailbox in Kingsway Mail</div>
+                    <small class="form-text">Save this mailbox, then open Kingsway Mail and use its shield button to add or remove staff for this account. Repeat for each group mailbox.</small>
+                </div>
             </div>
         </div>
         <div class="modal-footer">

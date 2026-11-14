@@ -68,6 +68,30 @@ final class ResponseCacheMiddleware
         'transport/payment-summary' => 120,
         'transport/bills-summary' => 120,
         'students/family-groups/stats' => 120,
+
+        // AI Agent: task list/status (GET only; agent-assist and streaming are POST/SSE, never cached)
+        'dashboard/agent-task' => 30,
+        'dashboard/agent-tasks' => 30,
+
+        // AI Draft lists (GET only; per-user, short TTL since drafts are created/approved by staff actions)
+        'activities/ai-drafts' => 30,
+        'finance/ai-drafts' => 30,
+        'staff/ai-drafts' => 30,
+        'health/ai-drafts' => 30,
+        'reports/ai-drafts' => 30,
+        'attendance/ai-drafts' => 30,
+        'inventory/ai-drafts' => 30,
+        'system/ai-drafts' => 30,
+        'boarding/ai-drafts' => 30,
+        'communications/ai-drafts' => 30,
+        'students/ai-drafts' => 30,
+        'counseling/ai-drafts' => 30,
+        'catering/ai-drafts' => 30,
+        'maintenance/ai-drafts' => 30,
+        'transport/ai-drafts' => 30,
+        'admission/ai-drafts' => 30,
+        'academics/ai-drafts' => 30,
+        // AI state and chat responses must always reach their live handlers.
     ];
 
     /** Query params that must bust a hit if present (cache-poisoning vectors). */
@@ -127,7 +151,7 @@ final class ResponseCacheMiddleware
     private static function cache(): SharedCache
     {
         if (self::$cache === null) {
-            self::$cache = new SharedCache(\App\API\Services\StorageRoot::path('php/response_cache'));
+            self::$cache = new SharedCache();
         }
         return self::$cache;
     }

@@ -229,7 +229,7 @@ final class StaffStatutoryService
     {
         $this->pdo->beginTransaction();
         try {
-            $q = $this->pdo->prepare("SELECT p.*, pr.id payroll_run_id FROM " . ReadReplicaService::qualifiedRef("payslips") . "
+            $q = $this->pdo->prepare("SELECT p.*, pr.id payroll_run_id FROM " . ReadReplicaService::qualifiedRef("payslips") . " p
                 LEFT JOIN payroll_runs pr ON pr.month=p.payroll_month AND pr.year=p.payroll_year
                 WHERE p.payroll_month=? AND p.payroll_year=? AND p.payslip_status IN ('approved','paid')
                 ORDER BY p.staff_id");
@@ -274,9 +274,17 @@ final class StaffStatutoryService
                 VALUES('payroll_register',?,?,LAST_DAY(?),?) ON DUPLICATE KEY UPDATE retain_until=VALUES(retain_until)");
             $period = sprintf('%04d-%02d-01', $year, $month);
             $ret->execute([$registerId, $period, $period, $retentionUntil]);
-            $this->pdo->prepare("INSERT INTO statutory_audit_log(actor_user_id,action,entity_type,entity_id,after_json) VALUES(?,?,?,?,?)")
-                ->execute([$actorId, 'generated', 'statutory_payroll_register', $registerId, json_encode(['month' => $month, 'year' => $year, 'payslips' => count($payslips)])]);
             $this->pdo->commit();
+            // Hard Rule 2: the audit trail is a file journal, not a table.
+            \App\API\Includes\FileLogger::write('statutory', [
+                'action' => 'generated',
+                'entity_type' => 'statutory_payroll_register',
+                'entity_id' => $registerId,
+                'actor_user_id' => $actorId,
+                'month' => $month,
+                'year' => $year,
+                'payslips' => count($payslips),
+            ]);
             return ['register_id' => $registerId, 'employee_count' => count($payslips)];
         } catch (Throwable $e) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();

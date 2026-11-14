@@ -9,6 +9,8 @@ const admissionsWorkspaceController = {
     initialized: false,
     dom: {},
     pendingStageSkip: null,
+    aiDraftPollTimer: null,
+    aiDraftPollRunId: 0,
     workspaceModalParentState: null,
     state: { referenceCache: null },
 
@@ -946,9 +948,19 @@ const admissionsWorkspaceController = {
             // must not be selectable for new intake windows.
             this.windowYears = years.filter((year) => {
                 const status = String(year.status || '').toLowerCase();
+                // Include current year, and years with active/planning/registration/closing status
+                // but exclude archived years (status='archived' is not in the allowed list)
                 return year.is_current || ['planning', 'registration', 'active', 'closing'].includes(status);
             });
-            this.windowTerms = terms;
+            // Filter terms to only those belonging to selected years
+            // Group terms by academic_year_id for proper term population
+            this.windowTerms = [];
+            (years.data || years || []).forEach((year) => {
+                const yearTerms = (terms.data || terms || []).filter(
+                    (t) => String(t.academic_year_id || t.year_id || t.id) === String(year.id)
+                );
+                this.windowTerms = this.windowTerms.concat(yearTerms);
+            });
             this.windowRecords = windows;
             this.renderWindowsTab(contentDiv, loadingDiv, windows);
         } catch (error) {
@@ -960,10 +972,27 @@ const admissionsWorkspaceController = {
     renderWindowsTab: function(contentDiv, loadingDiv, windows = []) {
         const yearOptions = (this.windowYears || []).map((y) => {
             const status = String(y.status || (y.is_current ? 'active' : 'planning')).toLowerCase();
-            const label = status === 'planning' ? 'Upcoming / Planning'
-                : status === 'registration' ? 'Registration Open'
-                    : status === 'closing' ? 'Closing'
-                        : status === 'active' ? 'Active' : this.formatLabel(status);
+            // Derive label from term statuses available in the year data
+            let label = status;
+            // Map status to human-readable label
+            if (status === 'active') {
+                // Check if year has upcoming terms (is the incoming/target year)
+                const hasUpcomingTerms = (y.term_statuses || y.termCounts || []).some(
+                    (t) => String(t).toLowerCase().includes('upcoming')
+                );
+                const hasCompletedTerms = (y.term_statuses || y.termCounts || []).some(
+                    (t) => String(t).toLowerCase().includes('completed')
+                );
+                if (hasUpcomingTerms) label = 'Upcoming';
+                else if (hasCompletedTerms) label = 'Completed';
+                else label = 'Current';
+            } else if (status === 'planning') {
+                label = 'Upcoming / Planning';
+            } else if (status === 'registration') {
+                label = 'Registration Open';
+            } else if (status === 'closing') {
+                label = 'Closing';
+            }
             return `<option value="${Number(y.id)}">${this.escapeHtml(y.year_code || y.year_name || y.id)} — ${this.escapeHtml(label)}</option>`;
         }).join('');
 
@@ -1017,7 +1046,7 @@ const admissionsWorkspaceController = {
                     <button type="button" class="btn btn-success" onclick="admissionsWorkspaceController.createAdmissionWindow()"><i class="bi bi-plus-circle me-1"></i>Create Window</button>
                 </div>
                 <div class="modal fade" id="admissionWindowModal" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                    <div class="modal-dialog modal-xl modal-dialog-scrollable">
                         <div class="modal-content">
                             <div class="modal-header"><h5 class="modal-title" id="admissionWindowModalTitle">Create Admission Window</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                             <div class="modal-body">
@@ -2509,9 +2538,9 @@ const admissionsWorkspaceController = {
         const aiBtn = ['application_received', 'application_review'].includes(stage)
             ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueFollowupDraft(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Draft follow-up</button>` : '';
         const aiInterviewBtn = ['interview_scheduling', 'interview_results'].includes(stage)
-            ? `<button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.queueInterviewPreparation(${Number(applicationId)})"><i class="bi bi-person-video3 me-1"></i>Prepare interview</button>` : '';
+            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueInterviewPreparation(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Prepare interview</button>` : '';
         const aiPlacementBtn = stage === 'class_placement'
-            ? `<button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.queuePlacementReview(${Number(applicationId)})"><i class="bi bi-mortarboard me-1"></i>Review placement</button>` : '';
+            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queuePlacementReview(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Review placement</button>` : '';
 
         if (['application_received', 'application_review'].includes(stage)) {
             const nextStage = stage === 'application_received'
@@ -2555,31 +2584,37 @@ const admissionsWorkspaceController = {
     },
 
     queueInterviewPreparation: async function(applicationId) {
+        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queueInterviewPreparation"]');
+        if (button) button.disabled = true;
         try {
-            const response = await this.apiCall('/admission/ai-interview-preparation-queue', 'POST', { application_id: Number(applicationId) });
+            const response = await window.API.admission.queueAiInterviewPreparation({ application_id: Number(applicationId) });
             this.notify('info', `Interview preparation queued${response?.job_id ? ` (${response.job_id})` : ''}.`);
-            await this.pollAiDraftsForApplication(applicationId);
+            this.pollAiDraftsForApplication(applicationId, response?.job_id, 'admissions.interview_preparation');
         } catch (error) { this.notify('error', error.message || 'Unable to queue interview preparation'); }
+        finally { if (button) button.disabled = false; }
     },
 
     queuePlacementReview: async function(applicationId) {
+        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queuePlacementReview"]');
+        if (button) button.disabled = true;
         try {
-            const response = await this.apiCall('/admission/ai-placement-review-queue', 'POST', { application_id: Number(applicationId) });
+            const response = await window.API.admission.queueAiPlacementReview({ application_id: Number(applicationId) });
             this.notify('info', `Placement review queued${response?.job_id ? ` (${response.job_id})` : ''}.`);
-            await this.pollAiDraftsForApplication(applicationId);
+            this.pollAiDraftsForApplication(applicationId, response?.job_id, 'admissions.placement_review');
         } catch (error) { this.notify('error', error.message || 'Unable to queue placement review'); }
+        finally { if (button) button.disabled = false; }
     },
 
     queueFollowupDraft: async function(applicationId) {
         const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queueFollowupDraft"]');
         if (button) button.disabled = true;
         try {
-            const response = await this.apiCall('/admission/ai-followup-draft-queue', 'POST', {
+            const response = await window.API.admission.queueAiFollowupDraft({
                 application_id: Number(applicationId),
                 channel: 'email'
             });
             this.notify('info', `Follow-up draft queued${response?.job_id ? ` (job ${response.job_id})` : ''}.`);
-            await this.pollAiDraftsForApplication(applicationId);
+            this.pollAiDraftsForApplication(applicationId, response?.job_id, 'admissions.application_followup_draft');
         } catch (error) {
             this.notify('error', error.message || 'Unable to queue follow-up draft');
         } finally {
@@ -2587,25 +2622,85 @@ const admissionsWorkspaceController = {
         }
     },
 
-    pollAiDraftsForApplication: async function(applicationId) {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 1200 : 2500));
-            await this.loadAiDraftsForApplication(applicationId);
-            const panel = document.getElementById('admissionsAiDraftPanel');
-            if (panel && panel.querySelector('[data-ai-draft-status="pending_approval"], [data-ai-draft-status="approved"]')) return;
+    pollAiDraftsForApplication: function(applicationId, jobId, workflowId) {
+        if (this.aiDraftPollTimer) window.clearTimeout(this.aiDraftPollTimer);
+        const pollRunId = ++this.aiDraftPollRunId;
+        const id = Number(jobId) || 0;
+        const labels = {
+            'admissions.application_followup_draft': 'Follow-up draft',
+            'admissions.interview_preparation': 'Interview preparation',
+            'admissions.placement_review': 'Placement review'
+        };
+        const label = labels[workflowId] || 'Admissions draft';
+        const panel = document.getElementById('admissionsAiDraftPanel');
+        if (!panel) return;
+        let state = document.getElementById('admissionsAiDraftJobState');
+        if (!state) {
+            state = document.createElement('div');
+            state.id = 'admissionsAiDraftJobState';
+            state.className = 'small mb-2';
+            state.setAttribute('role', 'status');
+            panel.before(state);
         }
+        const updateState = (message, kind = 'muted') => {
+            if (pollRunId !== this.aiDraftPollRunId) return;
+            state.className = `small mb-2 text-${kind}`;
+            state.textContent = message;
+        };
+        if (!id) {
+            updateState(`${label} was queued. Refresh the draft list to check its status.`);
+            return;
+        }
+        let attempt = 0;
+        updateState(`${label} is queued. Preparing it in the background…`);
+        const poll = async () => {
+            attempt += 1;
+            let job = null;
+            try { job = await window.API.nodeJobs?.status?.(id); } catch (_) {}
+            if (pollRunId !== this.aiDraftPollRunId) return;
+            const status = String(job?.status || '').toLowerCase();
+            if (['failed', 'cancelled', 'dead_letter'].includes(status)) {
+                updateState(`${label} could not be prepared. You can try again.`, 'danger');
+                await this.loadAiDraftsForApplication(applicationId);
+                return;
+            }
+            const drafts = await this.loadAiDraftsForApplication(applicationId);
+            if (pollRunId !== this.aiDraftPollRunId) return;
+            const match = (Array.isArray(drafts) ? drafts : []).find((draft) =>
+                Number(draft.metadata?.queue_job_id) === id && draft.workflow_id === workflowId
+            );
+            if (match && ['pending_approval', 'approved'].includes(match.status)) {
+                updateState(`${label} is ready for staff review.`, 'success');
+                return;
+            }
+            if (match?.status === 'failed') {
+                updateState(`${label} could not be prepared. You can try again.`, 'danger');
+                return;
+            }
+            if (['done', 'completed'].includes(status)) {
+                updateState(`${label} finished, but its matching draft was not returned. Refresh or contact support.`, 'danger');
+                return;
+            }
+            if (attempt >= 12) {
+                updateState(`${label} is still processing. The draft list will update when it is ready.`);
+                return;
+            }
+            updateState(['running', 'processing'].includes(status) ? `${label} is being prepared…` : `${label} is queued. Preparing it in the background…`);
+            this.aiDraftPollTimer = window.setTimeout(poll, 4000);
+        };
+        this.aiDraftPollTimer = window.setTimeout(poll, 1200);
     },
 
     loadAiDraftsForApplication: async function(applicationId) {
         const panel = document.getElementById('admissionsAiDraftPanel');
         if (!panel) return;
         try {
-            const own = await this.apiCall('/admission/ai-drafts?scope=own', 'GET');
+            const own = await window.API.admission.getAiDrafts('own', applicationId);
             const ownDrafts = Array.isArray(own?.drafts) ? own.drafts : [];
             const matching = ownDrafts.filter((draft) => Number(draft.subject_id) === Number(applicationId));
             let reviewDrafts = [];
             try {
-                const review = await this.apiCall('/admission/ai-drafts?scope=review', 'GET');
+                const review = await window.API.admission.getAiDrafts('review', applicationId);
                 reviewDrafts = (Array.isArray(review?.drafts) ? review.drafts : [])
                     .filter((draft) => Number(draft.subject_id) === Number(applicationId));
             } catch (_) {
@@ -2617,7 +2712,7 @@ const admissionsWorkspaceController = {
             ];
             if (!drafts.length) {
                 panel.innerHTML = '<div class="alert alert-light border small mb-0"><i class="bi bi-stars me-1"></i>AI follow-up drafts will appear here after generation.</div>';
-                return;
+                return drafts;
             }
             panel.innerHTML = `<div class="border rounded-3 p-3 bg-light">
                 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -2642,21 +2737,23 @@ const admissionsWorkspaceController = {
                     </article>`;
                 }).join('')}
             </div>`;
+            return drafts;
         } catch (error) {
             panel.innerHTML = '<div class="alert alert-warning small mb-0">AI draft status is temporarily unavailable.</div>';
+            return [];
         }
     },
 
     approveAiDraft: async function(draftId, applicationId, approvalKind = '') {
         try {
-            const endpointByKind = {
-                followup: '/admission/ai-followup-draft-approve',
-                interview: '/admission/ai-interview-preparation-approve',
-                placement: '/admission/ai-placement-review-approve'
+            const approveByKind = {
+                followup: window.API.admission.approveAiFollowupDraft,
+                interview: window.API.admission.approveAiInterviewPreparation,
+                placement: window.API.admission.approveAiPlacementReview
             };
-            const endpoint = endpointByKind[approvalKind];
-            if (!endpoint) throw new Error('This admissions AI workflow cannot be approved from this screen.');
-            await this.apiCall(`${endpoint}/${Number(draftId)}`, 'POST', {});
+            const approve = approveByKind[approvalKind];
+            if (typeof approve !== 'function') throw new Error('This admissions AI workflow cannot be approved from this screen.');
+            await approve(draftId);
             this.notify('success', 'AI draft approved for staff use.');
             await this.loadAiDraftsForApplication(applicationId);
         } catch (error) {
@@ -3478,6 +3575,10 @@ const admissionsWorkspaceController = {
             '<i class="bi bi-shield-check me-2"></i>Verify Payment',
             `<form id="paymentVerificationForm" class="row g-3">
                 <div class="col-12">${this.renderWorkflowContext({ application, stage_contract: { current_stage_name: this.formatLabel(application.current_stage || '') } }, 'Payment verification context')}<div class="alert alert-info small mb-2">The system will match <strong>${this.escapeHtml(application.pending_payment_reference || '')}</strong> against the official ${isMpesa ? 'M-Pesa callback/reconciliation record' : 'imported KCB statement record'} using the exact reference, amount, school account and transaction status. A receipt or note alone cannot confirm money received.</div><div class="alert alert-warning small mb-0"><strong>Until a match is found:</strong> this payment remains pending, the learner balance is unchanged, no fee ledger entry is posted, and the application cannot advance from Fees Payment.</div></div>
+                ${application.pending_payment_financial_account 
+                    ? `<div class="col-md-6"><label class="form-label">Receiving Account</label><input type="text" class="form-control" value="${this.escapeHtml(application.pending_payment_financial_account)}" readonly></div>`
+                    : `<div class="col-12"><div class="alert alert-warning small mb-0"><i class="bi bi-exclamation-triangle me-1"></i>No receiving financial account is set on this payment record. The payment cannot be posted to the fee ledger until an account is assigned.</div></div>`
+                }
                 <div class="col-12"><details class="border rounded-3 p-3" id="verifyPaymentFinancialReliefDetails"><summary class="fw-semibold"><i class="bi bi-shield-check me-1"></i>Authorize fee relief instead of payment</summary><div class="small text-muted mt-2">Use this only when the school has approved sponsorship or an exemption. Relief is recorded as an authorized concession; it is never represented as money received.</div><div class="row g-3 mt-1"><div class="col-md-6"><label class="form-label">Registration fee</label><select id="verifyRegistrationReliefType" class="form-select"><option value="none" ${registrationReliefType === 'none' ? 'selected' : ''}>Keep registration fee due</option><option value="full" ${registrationReliefType === 'full' ? 'selected' : ''}>Waive registration fee completely</option><option value="percentage" ${registrationReliefType === 'percentage' ? 'selected' : ''}>Waive a percentage</option><option value="fixed" ${registrationReliefType === 'fixed' ? 'selected' : ''}>Waive a fixed KES amount</option></select></div><div class="col-md-6"><label class="form-label">School fees</label><select id="verifySchoolReliefType" class="form-select"><option value="none" ${schoolReliefType === 'none' ? 'selected' : ''}>No school-fee relief</option><option value="percentage" ${schoolReliefType === 'percentage' ? 'selected' : ''}>Waive a percentage</option><option value="fixed" ${schoolReliefType === 'fixed' ? 'selected' : ''}>Waive a fixed KES amount</option><option value="full" ${schoolReliefType === 'full' ? 'selected' : ''}>Waive all school fees</option></select></div><div class="col-md-6"><label class="form-label">Registration relief value</label><input id="verifyRegistrationReliefValue" type="number" min="0" step="0.01" class="form-control" value="${this.escapeHtml(relief.registration_fee_waiver_value || '')}" placeholder="Percentage or KES amount"><div class="form-text">Required for percentage or fixed relief.</div></div><div class="col-md-6"><label class="form-label">School-fee relief value</label><input id="verifySchoolReliefValue" type="number" min="0" step="0.01" class="form-control" value="${this.escapeHtml(relief.school_fee_waiver_value || '')}" placeholder="Percentage or KES amount"><div class="form-text">For example, enter 50 for half of school fees.</div></div><div class="col-md-6"><label class="form-label">Exception type</label><select id="verifyReliefReasonCode" class="form-select"><option value="sponsored">Sponsored learner</option><option value="exempted">Exempted</option><option value="special_case">Special case</option><option value="administrative_exception">Administrative exception</option><option value="other">Other</option></select></div><div class="col-12"><label class="form-label">Authorization reason <span class="text-danger">*</span></label><textarea id="verifyReliefReason" class="form-control" rows="2" placeholder="Record who authorized the concession and why."></textarea></div><div class="col-12 d-flex justify-content-end"><button type="button" class="btn btn-outline-success" id="saveVerifyPaymentRelief"><i class="bi bi-shield-check me-1"></i>Save and apply approved relief</button></div></div></details></div>
                 <div class="col-md-6"><label class="form-label">Verification source</label><select name="verification_source" class="form-select" required><option value="${verificationSource}">${verificationLabel}</option></select></div>
                 <div class="col-12"><label class="form-label">Verification note</label><textarea name="verification_notes" class="form-control" rows="2" placeholder="Optional statement batch, reconciliation date, or finance review note"></textarea></div>

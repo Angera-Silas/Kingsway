@@ -134,7 +134,8 @@ class ClassTeacherAnalyticsService
                         SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent,
                         SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late,
                         COUNT(*) as total
-                      FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                      FROM student_attendance a
+                      JOIN student_academic_enrollments sae ON a.student_academic_enrollment_id = sae.id
                       WHERE sae.academic_year_class_stream_id = ?
                         AND a.date = CURDATE()
                         AND sae.enrollment_status = 'active'";
@@ -179,7 +180,7 @@ class ClassTeacherAnalyticsService
 
             // Get graded this week (approved results submitted this week)
             $gradedQuery = "SELECT COUNT(DISTINCT ar.assessment_id) as graded
-                           FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+                           FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
                            JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
                            WHERE a.assigned_by = ?
                              AND ar.is_approved = 1
@@ -209,9 +210,10 @@ class ClassTeacherAnalyticsService
                         COUNT(*) as total,
                         SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
                         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                        SUM(CASE WHEN YEARWEEK(lesson_date) = YEARWEEK(CURDATE()) THEN 1 ELSE 0 END) as this_week
-                      FROM lesson_plans 
-                      WHERE teacher_id = ?";
+                        SUM(CASE WHEN YEARWEEK(d.date) = YEARWEEK(CURDATE()) THEN 1 ELSE 0 END) as this_week
+                      FROM lesson_plans lp
+                      LEFT JOIN academic_year_calendar_days d ON d.id = lp.academic_year_calendar_day_id
+                      WHERE lp.teacher_id = ?";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -304,7 +306,8 @@ class ClassTeacherAnalyticsService
             $query = "SELECT 
                         DATE(a.date) as date,
                         ROUND(AVG(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) * 100, 1) as percentage
-                      FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                      FROM student_attendance a
+                      JOIN student_academic_enrollments sae ON a.student_academic_enrollment_id = sae.id
                       WHERE sae.academic_year_class_stream_id = ?
                         AND a.date >= DATE_SUB(CURDATE(), INTERVAL ? WEEK)
                         AND sae.enrollment_status = 'active'

@@ -28,13 +28,13 @@
                             <div class="col-md-3">
                                 <label class="form-label">Academic Year</label>
                                 <select id="yearFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Years</option>
+                                    <option value="">Loading…</option>
                                 </select>
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">Term</label>
                                 <select id="termFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Terms</option>
+                                    <option value="">Loading…</option>
                                 </select>
                             </div>
                             <div class="col-md-3">
@@ -77,7 +77,7 @@
                                         <th scope="col">Student</th>
                                         <th scope="col">Adm No</th>
                                         <th scope="col">Class</th>
-                                        <th scope="col">Subject</th>
+                                        <th scope="col">Term</th>
                                         <th scope="col">Marks</th>
                                         <th scope="col">Grade</th>
                                         <th scope="col">Remarks</th>
@@ -85,8 +85,8 @@
                                 </thead>
                                 <tbody id="resultsTableBody">
                                     <tr>
-                                        <td colspan="8" class="text-center text-muted py-4">
-                                            Select filters and click Load Results
+                                        <td colspan="7" class="text-center text-muted py-4">
+                                            Results load automatically for your assigned classes.
                                         </td>
                                     </tr>
                                 </tbody>

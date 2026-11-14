@@ -25,14 +25,10 @@
 ?>
 
 <div class="container-fluid py-4">
-     <!-- Meta Bar -->
-    <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
-        <span class="text-muted small">Updated: <span id="last_refresh">—</span></span>
-        <button class="btn btn-sm btn-outline-primary" id="generate_reports"><i class="bi bi-file-bar-graph me-1"></i>Reports</button>
-        <button class="btn btn-sm btn-outline-success" id="export_dashboard"><i class="bi bi-download me-1"></i>Export</button>
-        <button class="btn btn-sm btn-outline-info" id="system_health"><i class="bi bi-activity me-1"></i>Health</button>
-        <button class="btn btn-sm btn-outline-secondary" id="ceo_settings"><i class="bi bi-gear me-1"></i>Settings</button>
-    </div>
+    <?php
+    require_once __DIR__ . '/_dashboard_tabs.php';
+    kw_dashboard_tabs_open('schooladmin');
+    ?>
     <!-- Row 1: Operational Status Cards (5 cards) -->
     <div class="row g-3 mb-3">
         <!-- 1. Active Students -->
@@ -321,7 +317,7 @@
                         <!-- Pending Items Tab -->
                         <div class="tab-pane fade show active" id="pending" role="tabpanel" aria-labelledby="pending-tab">
                             <div class="table-responsive">
-                                <table class="table table-hover mb-0">
+                                <table class="table table-hover mb-0" data-export-title="Pending items" data-export-module="admission_applications">
                                     <thead class="table-light">
                                         <tr>
                                             <th scope="col">Type</th>
@@ -345,7 +341,7 @@
                         <!-- Today's Schedule Tab -->
                         <div class="tab-pane fade" id="schedule" role="tabpanel" aria-labelledby="schedule-tab">
                             <div class="table-responsive">
-                                <table class="table table-hover mb-0">
+                                <table class="table table-hover mb-0" data-export-title="Today's schedule" data-export-module="academic_classes">
                                     <thead class="table-light">
                                         <tr>
                                             <th scope="col">Time</th>
@@ -375,7 +371,7 @@
                                 </div>
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-hover mb-0">
+                                <table class="table table-hover mb-0" data-export-title="Staff directory" data-export-module="staff">
                                     <thead class="table-light">
                                         <tr>
                                             <th scope="col">Name</th>
@@ -401,6 +397,16 @@
         </div>
     </div>
 
+    <?php
+    kw_dashboard_tabs_close('schooladmin', [
+        ['route' => 'analytics_catalogue', 'icon' => 'bi-collection', 'label' => 'Analytics catalogue', 'about' => 'Every school report in one place, searchable by topic.'],
+        ['route' => 'academic_reports', 'icon' => 'bi-mortarboard', 'label' => 'Academic reports', 'about' => 'Class performance, subject analysis, learner progress and term comparisons.'],
+        ['route' => 'enrollment_reports', 'icon' => 'bi-person-lines-fill', 'label' => 'Enrollment reports', 'about' => 'Admissions and enrollment numbers by class and intake.'],
+        ['route' => 'attendance_reports', 'icon' => 'bi-calendar2-check', 'label' => 'Attendance reports', 'about' => 'Attendance by class, learners who are often absent, and trends.'],
+        ['route' => 'finance_reports', 'icon' => 'bi-cash-coin', 'label' => 'Financial summary', 'about' => 'Monthly income and expenses, and where revenue comes from.'],
+    ]);
+    ?>
+
     <!-- Quick Actions Floating Button (Mobile) -->
     <div class="d-lg-none position-fixed bottom-0 end-0 p-3" style="z-index: 1030;">
         <div class="dropdown dropup">
@@ -419,16 +425,5 @@
 </div>
 
 
-<!-- Dashboard Controller Script -->
+<!-- Dashboard Controller Script (self-initializes via __APP_BOOTED__ / kingsway:ready) -->
 <script src="<?= $appBase ?>/js/dashboards/school_administrative_officer_dashboard.js?v=<?php echo time(); ?>"></script>
-<script>
-    // Initialize the dashboard controller when DOM is ready
-    document.addEventListener('DOMContentLoaded', function () {
-        // Wait for API to be available (loaded in home.php)
-        if (typeof schoolAdministrativeOfficerDashboardController !== 'undefined') {
-            schoolAdministrativeOfficerDashboardController.init();
-        } else {
-            console.error('School Administrative Officer Dashboard Controller not loaded!');
-        }
-    });
-</script>

@@ -6,6 +6,7 @@ use PDO;
 use PDOException;
 use App\API\Services\SharedCache;
 use App\API\Services\ReadReplicaService;
+use App\API\Services\AcademicYearLifecycleService;
 
 /**
  * Academic Context Service
@@ -39,23 +40,10 @@ class AcademicContextService
     public function __construct($database = null)
     {
         if ($database === null) {
-            // Use database singleton if available
-            if (class_exists('App\Database\Database')) {
-                $this->db = \App\Database\Database::getInstance()->getConnection();
-            } else {
-                // Fallback to direct PDO connection (second instance — only used when
-                // Database singleton is unavailable, e.g. during early bootstrap).
-                $this->db = new PDO(
-                    'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
-                    DB_USER,
-                    DB_PASS,
-                    [
-                        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                        PDO::ATTR_EMULATE_PREPARES => false
-                    ]
-                );
-            }
+            // Always share the process singleton. A second PDO here meant a
+            // second MySQL connection per request, halving the connection
+            // budget for every request that resolved academic context.
+            $this->db = \App\Database\Database::getInstance()->getConnection();
         } else {
             $this->db = $database;
         }
@@ -86,6 +74,16 @@ class AcademicContextService
                 return [
                     'current_year' => $currentYear ? $currentYear['year_name'] : null,
                     'academic_year_id' => $currentYear ? $currentYear['id'] : null,
+                    // Lifecycle wording for the UI: "active - current",
+                    // "active - upcoming", "active - completed". Archiving is a
+                    // separate system-admin action and never appears here.
+                    'current_year_label' => $currentYear
+                        ? AcademicYearLifecycleService::label(
+                            (string) $currentYear['status'],
+                            (string) ($currentYear['state'] ?? '')
+                        )
+                        : null,
+                    'academic_year_id' => $currentYear ? $currentYear['id'] : null,
                     'current_term' => $currentTerm ? $currentTerm['name'] : null,
                     'term_id' => $currentTerm ? $currentTerm['id'] : null,
                     'term_start_date' => $currentTerm ? $currentTerm['start_date'] : null,
@@ -95,6 +93,9 @@ class AcademicContextService
                     'operations_open' => $this->areOperationsOpen(),
                     'grading_open' => $this->isGradingOpen(),
                     'timetable_editing_open' => $this->isTimetableEditingOpen(),
+                    // Soft transition: the outgoing year stays operational until
+                    // its last day while the target year is prepared alongside it.
+                    'handover' => $this->getHandover(),
                     'last_updated' => date('c')
                 ];
             }, $this->cacheTTL);
@@ -130,10 +131,10 @@ class AcademicContextService
             return $this->memo['year'];
         }
 
-        $sql = "SELECT id, year_name, year_code, start_date, end_date, is_current, status
+        $sql = "SELECT id, year_name, year_code, start_date, end_date, is_current, status, state
                 FROM academic_years
-                WHERE (is_current = 1 OR status = 'active')
-                ORDER BY is_current DESC, start_date DESC, id DESC
+                WHERE is_current = 1
+                ORDER BY start_date DESC, id DESC
                 LIMIT 1";
 
         try {
@@ -316,6 +317,56 @@ class AcademicContextService
     }
 
     /**
+     * Soft year-to-year handover state.
+     *
+     * Reports the year that is still operational, the year being prepared, and
+     * the date the automatic switch is due. The switch itself is performed by
+     * AcademicActivationService::sweep() when the calendar says so — never by
+     * this read path.
+     */
+    public function getHandover(): array
+    {
+        try {
+            $activation = new AcademicActivationService($this->db);
+            $handover = $activation->handover();
+
+            // The three clocks run on different boundaries. Admissions and fee
+            // preparation may open before the year; attendance and marks may not.
+            $handover['clocks'] = [
+                'admissions_open' => $this->admissionsOpen($handover),
+                'fees_open' => $this->feesOpen($handover),
+                'operations_open' => $this->areOperationsOpen(),
+            ];
+
+            return $handover;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('Error getting academic handover: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Admissions may enter into the prepared year before it opens. */
+    private function admissionsOpen(array $handover): bool
+    {
+        $prepared = $handover['prepared_year'] ?? null;
+        if (!$prepared) {
+            return false;
+        }
+        $start = (string) ($prepared['start_date'] ?? '');
+        if ($start === '') {
+            return false;
+        }
+
+        return strtotime($start) - strtotime($handover['on_date'] ?? date('Y-m-d')) <= 60 * 86400;
+    }
+
+    /** Fee schedules for the prepared year may be issued before it opens. */
+    private function feesOpen(array $handover): bool
+    {
+        return $this->admissionsOpen($handover);
+    }
+
+    /**
      * Check if specific operation is permitted
      * 
      * @param string $operation Operation to check
@@ -342,7 +393,10 @@ class AcademicContextService
      */
     public function getAcademicYears()
     {
-        $sql = "SELECT * FROM academic_years 
+        // Archived years are hidden completely; they are not part of ordinary
+        // access any more.
+        $sql = "SELECT * FROM academic_years
+                WHERE " . AcademicYearLifecycleService::visibleSql() . "
                 ORDER BY year_name DESC";
         
         try {
@@ -389,14 +443,24 @@ class AcademicContextService
         try {
             $this->db->beginTransaction();
 
-            // Deactivate all years
-            $sql = "UPDATE academic_years SET is_current = 0 WHERE is_current = 1";
+            // Only the single current row moves. A year that loses the flag
+            // falls back to upcoming; completed years keep their state so their
+            // data stays readable and writable-by-privilege during the overlap.
+            $sql = "UPDATE academic_years
+                       SET is_current = 0,
+                           state = CASE WHEN state = 'current' THEN 'upcoming' ELSE state END
+                     WHERE id <> :year_id";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute();
+            $stmt->execute(['year_id' => $yearId]);
 
-            // Activate specified year
-            $sql = "UPDATE academic_years SET is_current = 1, status = 'active' 
-                    WHERE id = :year_id";
+            // Activate specified year. Every non-archived year is 'active'; the
+            // lifecycle lives in `state`.
+            $sql = "UPDATE academic_years
+                       SET is_current = 1,
+                           state = 'current',
+                           status = 'active',
+                           completed_at = NULL
+                     WHERE id = :year_id";
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['year_id' => $yearId]);
 
@@ -475,6 +539,17 @@ class AcademicContextService
         }
     }
 
+    /** Display name of a class master row ('' when unknown). */
+    public function className(int $classId): string
+    {
+        if ($classId <= 0) {
+            return '';
+        }
+        $stmt = $this->db->prepare('SELECT name FROM classes WHERE id = ?');
+        $stmt->execute([$classId]);
+        return (string) ($stmt->fetchColumn() ?: '');
+    }
+
     /**
      * Active streams for a class (legacy class_streams table) — used by the
      * public enrolment-form cascade endpoint (streams.php).
@@ -506,11 +581,13 @@ class AcademicContextService
         )->fetchAll(PDO::FETCH_COLUMN) ?: [];
     }
 
-    /** All academic years for the picker, newest first. */
+    /** All academic years for the picker, newest first. Archived years are hidden. */
     public function yearsForPicker(): array
     {
         return $this->db->query(
-            'SELECT id,year_code,year_name,status,is_current,start_date,end_date FROM academic_years ORDER BY start_date DESC'
+            'SELECT id,year_code,year_name,status,is_current,start_date,end_date FROM academic_years
+             WHERE ' . AcademicYearLifecycleService::visibleSql() . '
+             ORDER BY start_date DESC'
         )->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
@@ -553,7 +630,9 @@ class AcademicContextService
     public function yearsNewestFirst(): array
     {
         return $this->db->query(
-            "SELECT id, year_code, year_name, status FROM academic_years ORDER BY id DESC"
+            "SELECT id, year_code, year_name, status, is_current FROM academic_years
+             WHERE " . AcademicYearLifecycleService::visibleSql() . "
+             ORDER BY id DESC"
         )->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

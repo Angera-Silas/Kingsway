@@ -24,14 +24,16 @@ final class ReadProjectionSynchronizer
 
     /**
      * Freshness budgets at or below this threshold are served by the
-     * per-projection sync-projection crontab lines, which refresh inline in
+     * per-projection refresh (formerly driven by sync-projection crontab
+     * lines) runs inline in
      * the request. Those projections are the expensive aggregate views on the
      * shortest leash, so the queued batch path deliberately skips them: it
      * would duplicate the inline work and push every cheaper projection on
      * the shared FIFO path past its own budget.
      *
      * Every projection with a budget this tight MUST therefore have its own
-     * crontab line (see deploy/kingsway.crontab.example).
+     * entry in python_platform/schedules.yaml (run by the Passenger-started
+     * ticker; there is no cron - see docs/OPERATIONS_SCHEDULER.md).
      */
     private const INLINE_REFRESH_BUDGET_SECONDS = 300;
 
@@ -99,6 +101,12 @@ final class ReadProjectionSynchronizer
         ],
         'fee_collection_monthly_trend' => [
             'idx_month' => ['month'],
+        ],
+        'financial_source_trace' => [
+            'idx_source' => ['source_type', 'source_id'],
+            'idx_batch' => ['journal_batch_id'],
+            'idx_batch_number' => ['batch_number'],
+            'idx_created_at' => ['created_at'],
         ],
         'fee_status_summary' => [
             'idx_year_term_class_stream' => ['academic_year', 'term_number', 'class_id', 'stream_id'],
@@ -411,6 +419,7 @@ final class ReadProjectionSynchronizer
         'streams' => ['idx_pk' => ['id']],
         'departments' => ['idx_pk' => ['id']],
         'staff_types' => ['idx_pk' => ['id']],
+        'student_types' => ['idx_pk' => ['id']],
         'inventory_items' => ['idx_pk' => ['id']],
         'inventory_categories' => ['idx_pk' => ['id']],
         'lesson_plans' => ['idx_pk' => ['id']],
@@ -655,14 +664,7 @@ final class ReadProjectionSynchronizer
      */
     public static function batchQueueSlice(int $batch, int $modulus = 5): array
     {
-        $queueable = [];
-        foreach (array_keys(ReadReplicaService::MATERIALIZED_TARGETS) as $projection) {
-            $budget = ReadReplicaService::POLICIES[$projection]['max_age_seconds'] ?? 600;
-            if ($budget <= self::INLINE_REFRESH_BUDGET_SECONDS) {
-                continue;
-            }
-            $queueable[] = $projection;
-        }
+        $queueable = array_keys(ReadReplicaService::MATERIALIZED_TARGETS);
         sort($queueable);
 
         return array_values(array_filter(
@@ -675,11 +677,14 @@ final class ReadProjectionSynchronizer
     /**
      * Whether a projection is refreshed inline by its own crontab line
      * instead of through the queued batch path.
+     *
+     * Python schedules.yaml is the sole authority on refresh cadence.
+     * This method is retained for backward compatibility but always
+     * returns false since Python handles all scheduling.
      */
     public static function usesInlineRefresh(string $projection): bool
     {
-        $budget = ReadReplicaService::POLICIES[$projection]['max_age_seconds'] ?? 600;
-        return $budget <= self::INLINE_REFRESH_BUDGET_SECONDS;
+        return false;
     }
 
     /**
@@ -889,7 +894,14 @@ final class ReadProjectionSynchronizer
 
     private static function writeMeta(PDO $pdo, string $reads, string $projection, string $source, int $rows, ?string $watermark, ?string $error): void
     {
-        $policy = ReadReplicaService::policy($projection);
+        // reads_meta.sensitivity is NOT NULL: the former hard-coded null made
+        // every PHP-side synchronize fail at this final step (and would have
+        // wiped the stored policy). Write the registered policy; when a
+        // projection has none, keep whatever policy is already stored.
+        $policy = ReadReplicaService::POLICIES[$projection] ?? null;
+        $policyUpdate = $policy !== null
+            ? 'storage_mode=VALUES(storage_mode), sensitivity=VALUES(sensitivity), max_age_seconds=VALUES(max_age_seconds), '
+            : '';
         $stmt = $pdo->prepare(
             'INSERT INTO ' . self::qid($reads, 'reads_meta') . ' '
             . '(projection, source_view, rows_count, source_watermark, as_of, refreshed_at, status, storage_mode, sensitivity, max_age_seconds, last_error) '
@@ -897,8 +909,7 @@ final class ReadProjectionSynchronizer
             . ($error === null ? 'NOW()' : 'NULL') . ', :status, :storage_mode, :sensitivity, :max_age_seconds, :last_error) '
             . 'ON DUPLICATE KEY UPDATE source_view=VALUES(source_view), rows_count=VALUES(rows_count), '
             . 'source_watermark=VALUES(source_watermark), as_of=VALUES(as_of), refreshed_at=VALUES(refreshed_at), '
-            . 'status=VALUES(status), storage_mode=VALUES(storage_mode), sensitivity=VALUES(sensitivity), '
-            . 'max_age_seconds=VALUES(max_age_seconds), last_error=VALUES(last_error)'
+            . 'status=VALUES(status), ' . $policyUpdate . 'last_error=VALUES(last_error)'
         );
         $stmt->execute([
             ':projection' => $projection,
@@ -906,9 +917,9 @@ final class ReadProjectionSynchronizer
             ':rows_count' => $rows,
             ':source_watermark' => $watermark,
             ':status' => $error === null ? 'live' : 'failed',
-            ':storage_mode' => 'materialized_table',
-            ':sensitivity' => $policy['sensitivity'],
-            ':max_age_seconds' => $policy['max_age_seconds'],
+            ':storage_mode' => $policy['storage_mode'] ?? 'materialized_table',
+            ':sensitivity' => $policy['sensitivity'] ?? 'unknown',
+            ':max_age_seconds' => (int) ($policy['max_age_seconds'] ?? 300),
             ':last_error' => $error,
         ]);
     }

@@ -523,16 +523,29 @@ class AcademicAPI extends BaseAPI
         return $this->yearTransitionWorkflow->prepareCalendar($data);
     }
 
-    public function archiveAcademicData($instanceId, $data)
+    public function findActiveYearTransitionForYear($yearCode)
     {
-        if (empty($instanceId)) {
-            return [
-                'status' => 'error',
-                'message' => 'Missing year transition instance_id',
-                'code' => 400
-            ];
-        }
-        return $this->yearTransitionWorkflow->archiveData($instanceId, $data);
+        return $this->yearTransitionWorkflow->findActiveWorkflowForYear($yearCode);
+    }
+
+    public function startYearTransitionForExistingYear($fromYear, $toYear)
+    {
+        return $this->yearTransitionWorkflow->startWorkflowForExistingYear($fromYear, $toYear);
+    }
+
+    public function getYearTransitionClassSetupSource($yearCode, $targetYearCode = '')
+    {
+        return $this->yearTransitionWorkflow->getClassSetupSource($yearCode, $targetYearCode);
+    }
+
+    public function getYearTransitionSetupDrafts($instanceId)
+    {
+        return $this->yearTransitionWorkflow->getSetupDrafts((int) $instanceId);
+    }
+
+    public function saveYearTransitionSetupDrafts($instanceId, $drafts)
+    {
+        return $this->yearTransitionWorkflow->saveSetupDrafts((int) $instanceId, (array) $drafts);
     }
 
     public function executeYearPromotions($instanceId, $data)
@@ -567,6 +580,25 @@ class AcademicAPI extends BaseAPI
             (string) ($data['stage_code'] ?? ''),
             (string) ($data['notes'] ?? '')
         );
+    }
+
+    /**
+     * Close the outgoing year.
+     *
+     * Closing marks the year active - completed. It is NOT archiving: the data
+     * stays readable for every user, and only school admin / system admin /
+     * director may write to it. Archiving is a separate system-admin action.
+     */
+    public function closeYearTransition($instanceId, $data = [])
+    {
+        if (empty($instanceId)) return ['status' => 'error', 'message' => 'Missing year transition instance_id', 'code' => 400];
+        return $this->yearTransitionWorkflow->closeOutgoingYear((int) $instanceId);
+    }
+
+    public function getYearRolloverSummary($instanceId)
+    {
+        if (empty($instanceId)) return ['status' => 'error', 'message' => 'Missing year transition instance_id', 'code' => 400];
+        return $this->yearTransitionWorkflow->getRolloverSummary((int) $instanceId);
     }
 
     public function setupNewAcademicYear($instanceId, $data)
@@ -676,6 +708,26 @@ class AcademicAPI extends BaseAPI
         return $this->yearTransitionWorkflow->validateReadiness($instanceId, $data);
     }
 
+    public function regressToStageEditable($instanceId, $data)
+    {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing year transition instance_id',
+                'code' => 400
+            ];
+        }
+        $toStage = $data['to_stage'] ?? null;
+        if (empty($toStage)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing target stage (to_stage)',
+                'code' => 400
+            ];
+        }
+        return $this->yearTransitionWorkflow->regressToStageEditable((int) $instanceId, $toStage);
+    }
+
     public function getTermTransitionContext($data = [])
     {
         return $this->termTransitionService->getContext(is_array($data) ? $data : []);
@@ -726,7 +778,15 @@ class AcademicAPI extends BaseAPI
                 throw new Exception('Invalid workflow type');
         }
 
-        return $workflow->getWorkflowInstance($instanceId);
+        $instance = $workflow->getWorkflowInstance($instanceId);
+        if (!$instance) {
+            return $this->errorResponse('Workflow instance was not found.', 404);
+        }
+
+        // Workflow instances have their own `status` field (for example,
+        // `in_progress`). Wrap the record in the API envelope so the
+        // controller does not mistake that domain status for an error result.
+        return $this->successResponse($instance, 'Workflow status loaded.');
     }
 
     // List all learning areas with pagination and search
@@ -1040,34 +1100,30 @@ class AcademicAPI extends BaseAPI
     public function getUnifiedCalendarEvents(array $params = [])
     {
         try {
-            $calendarSync = new CalendarSyncService($this->db);
-            $events = $calendarSync->getUnifiedEvents(false);
-
             $yearId = !empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : null;
+            // term_id is an academic_year_terms id (what the context lists).
             $termId = !empty($params['term_id']) ? (int) $params['term_id'] : null;
             $weekNo = isset($params['week_number']) && $params['week_number'] !== '' ? (int) $params['week_number'] : null;
             $type = isset($params['type']) ? trim((string) $params['type']) : '';
             $search = isset($params['search']) ? trim((string) $params['search']) : '';
             $scope = isset($params['scope']) ? trim((string) $params['scope']) : 'current_term';
 
-            $current = $this->currentCalendarContext();
-
-            if ($termId === null && $yearId !== null) {
-                $termIds = $this->termIdsForYear($yearId);
-                if ($termIds) {
-                    $events = array_values(array_filter($events, function ($ev) use ($termIds) {
-                        return $ev['term_id'] !== null && in_array($ev['term_id'], $termIds, true);
-                    }));
-                }
+            $current = $this->currentCalendarContext($yearId);
+            if ($current['year_id'] === null) {
+                // An unknown year (or no current year) has no events.
+                return successResponse(['events' => [], 'total' => 0, 'context' => $current]);
             }
 
-            if ($termId === null && $yearId === null && $scope === 'current_term' && $current['current_term_id'] !== null) {
+            $calendarSync = new CalendarSyncService($this->db);
+            $events = $calendarSync->getUnifiedEvents(false, $current['year_id']);
+
+            if ($termId === null && $scope === 'current_term' && $current['current_term_id'] !== null) {
                 $termId = $current['current_term_id'];
             }
 
             if ($termId !== null) {
                 $events = array_values(array_filter($events, function ($ev) use ($termId) {
-                    return $ev['term_id'] !== null && (int) $ev['term_id'] === $termId;
+                    return ($ev['academic_year_term_id'] ?? null) !== null && (int) $ev['academic_year_term_id'] === $termId;
                 }));
             }
 
@@ -1107,9 +1163,11 @@ class AcademicAPI extends BaseAPI
         }
     }
     /**
-     * Current year / term context used to pre-fill calendar filters.
+     * Year / term context used to pre-fill calendar filters: the given year
+     * (default: the current one), its terms, and its default term (the one
+     * running today, else the next to open, else the year's last term).
      */
-    private function currentCalendarContext(): array
+    private function currentCalendarContext(?int $yearId = null): array
     {
         $context = [
             'today' => date('Y-m-d'),
@@ -1121,10 +1179,15 @@ class AcademicAPI extends BaseAPI
             'weeks' => [],
         ];
 
-        $year = $this->db->prepare(
-            "SELECT id, year_name, year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
-        );
-        $year->execute();
+        if ($yearId !== null) {
+            $year = $this->db->prepare("SELECT id, year_name, year_code FROM academic_years WHERE id = ? LIMIT 1");
+            $year->execute([$yearId]);
+        } else {
+            $year = $this->db->prepare(
+                "SELECT id, year_name, year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+            );
+            $year->execute();
+        }
         $yearRow = $year->fetch(PDO::FETCH_ASSOC);
         if (!$yearRow) {
             return $context;
@@ -1161,6 +1224,16 @@ class AcademicAPI extends BaseAPI
             $cur->execute([$context['year_id']]);
             $curRow = $cur->fetch(PDO::FETCH_ASSOC);
         }
+        if (!$curRow) {
+            $cur = $this->db->prepare(
+                "SELECT ayt.academic_year_term_id AS id, ayt.term_name
+                 FROM " . ReadReplicaService::qualifiedRef("academic_term") . " ayt
+                 WHERE ayt.academic_year_id = ?
+                 ORDER BY ayt.closing_date DESC LIMIT 1"
+            );
+            $cur->execute([$context['year_id']]);
+            $curRow = $cur->fetch(PDO::FETCH_ASSOC);
+        }
         if ($curRow) {
             $context['current_term_id'] = (int) $curRow['id'];
             $context['current_term_name'] = $curRow['term_name'];
@@ -1168,7 +1241,7 @@ class AcademicAPI extends BaseAPI
 
         $weeksStmt = $this->db->prepare(
             "SELECT DISTINCT ac.week_number
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
              WHERE ayt.academic_year_id = ?
              ORDER BY ac.week_number ASC"
@@ -1177,13 +1250,6 @@ class AcademicAPI extends BaseAPI
         $context['weeks'] = array_map('intval', $weeksStmt->fetchAll(PDO::FETCH_COLUMN));
 
         return $context;
-    }
-
-    private function termIdsForYear(int $yearId): array
-    {
-        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ?");
-        $stmt->execute([$yearId]);
-        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
     public function createCalendarEvent($data)
@@ -1374,7 +1440,7 @@ class AcademicAPI extends BaseAPI
                     pm.updated_at,
                     CAST(NULL AS CHAR) AS organizer,
                     COALESCE((SELECT GROUP_CONCAT(DISTINCT target_class.name ORDER BY target_class.name SEPARATOR ', ')
-                              FROM " . ReadReplicaService::qualifiedRef("parent_meeting_targets") . "
+                              FROM " . ReadReplicaService::qualifiedRef("parent_meeting_targets") . " class_target
                               JOIN " . ReadReplicaService::qualifiedRef("classes") . " target_class ON target_class.id = class_target.target_id
                               WHERE class_target.meeting_id = pm.id AND class_target.target_type = 'class'), '—') AS class_name,
                     CAST(NULL AS CHAR) AS parent_name,
@@ -1513,7 +1579,9 @@ class AcademicAPI extends BaseAPI
             $when = date('Y-m-d H:i:s', strtotime($meeting['meeting_date'] . ' ' . $meeting['start_time'] . " -{$daysBefore} days"));
             if ($when < date('Y-m-d H:i:s')) $when = date('Y-m-d H:i:s');
             foreach ($targets as $target) {
-                foreach (['sms', 'whatsapp', 'email'] as $channel) {
+                $channels = ['sms', 'email'];
+                if (\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) $channels = ['sms', 'whatsapp', 'email'];
+                foreach ($channels as $channel) {
                     try {
                         $options = [
                             'scheduled_at' => $when,
@@ -1578,7 +1646,7 @@ class AcademicAPI extends BaseAPI
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON te.academic_year_class_stream_id = aycs.id
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " ON te.teacher_id = staff.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " staff ON te.teacher_id = staff.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = staff.person_id
                 WHERE te.learning_area_id = ? AND te.status = 'scheduled'
                 GROUP BY c.id
@@ -2160,7 +2228,7 @@ SELECT
     {
         $stmt = $this->db->prepare("
             SELECT acla.id
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . "
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " acla
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = acla.academic_year_class_id
             WHERE ayc.class_id = ? AND acla.learning_area_id = ? AND ayc.status = 'active'
             ORDER BY ayc.academic_year_id DESC
@@ -2174,7 +2242,7 @@ SELECT
     {
         $stmt = $this->db->prepare(
             "SELECT aysla.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aysla.academic_year_class_learning_area_id
              WHERE aysla.academic_year_class_stream_id = ? AND aycla.learning_area_id = ?
                AND aysla.status <> 'skipped'
@@ -2327,7 +2395,7 @@ SELECT
             // Get total count
             $countSql = "
                 SELECT COUNT(DISTINCT st.id)
-                FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("strands") . " st
                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON st.learning_area_id = la.id
                 $where
             ";
@@ -2502,10 +2570,12 @@ SELECT
             $sql = "
                 SELECT 
                     ayt.id,
+                    ayt.academic_year_id,
                     ayt.academic_year_id AS year,
                     ayt.term_id,
                     t.name AS name,
-                    t.code AS term_number,
+                    t.code AS code,
+                    CAST(SUBSTRING(t.code, 2) AS UNSIGNED) AS term_number,
                     ayt.opening_date AS start_date,
                     ayt.closing_date AS end_date,
                     ayt.opening_date,
@@ -3043,37 +3113,37 @@ return errorResponse($e->getMessage(), 400);
             $bindings = [];
 
             if ($id > 0) {
-                $where[] = 'sw.id = ?';
+                $where[] = 'slc.scheme_id = ?';
                 $bindings[] = $id;
             }
             if (!empty($filters['class_id'])) {
-                $where[] = 'ayc.class_id = ?';
+                $where[] = 'slc.class_id = ?';
                 $bindings[] = (int) $filters['class_id'];
             }
             if (!empty($filters['subject_id'])) {
-                $where[] = 'st.learning_area_id = ?';
+                $where[] = 'slc.learning_area_id = ?';
                 $bindings[] = (int) $filters['subject_id'];
             }
             if (!empty($filters['term_id'])) {
                 $where[] = 'ayt.id = ?';
                 $bindings[] = (int) $filters['term_id'];
             } elseif (!empty($filters['term'])) {
-                $where[] = 'SUBSTRING(t.code, 2) = ?';
+                $where[] = 'ayt.term_id = ?';
                 $bindings[] = (string) (int) $filters['term'];
             }
             if (!empty($filters['academic_year_id'])) {
-                $where[] = 'ayc.academic_year_id = ?';
+                $where[] = 'ayt.academic_year_id = ?';
                 $bindings[] = (int) $filters['academic_year_id'];
             }
             if (!empty($filters['status'])) {
-                $where[] = 'sw.status = ?';
+                $where[] = 'slc.scheme_status = ?';
                 $bindings[] = $filters['status'];
             }
 
             // Leaders may review school-wide schemes, but a teacher-authoring
             // view can request only the authenticated leader's own schemes.
             if (!empty($filters['teacher_id']) && $this->isAcademicLeader()) {
-                $where[] = 'sw.teacher_id = ?';
+                $where[] = 'slc.teacher_id = ?';
                 $bindings[] = (int) $filters['teacher_id'];
             }
 
@@ -3086,7 +3156,9 @@ return errorResponse($e->getMessage(), 400);
                 );
                 $where[] = 'slc.teacher_id = ?';
                 $bindings[] = (int) $staffId;
-                $where[] = 'slc.academic_year_term_id = ?';
+                // The scheme_lesson_context projection stores calendar_week_id;
+                // its term is resolved through academic_year_calendar below.
+                $where[] = 'ayt.id = ?';
                 $currentTermId = $this->db->query(
                     "SELECT id FROM academic_year_terms
                      WHERE academic_year_id = " . (int) $this->resolveCurrentAcademicYearId() . " AND status = 'current'
@@ -3095,11 +3167,11 @@ return errorResponse($e->getMessage(), 400);
                 $bindings[] = (int) $currentTermId;
                 $parts = [];
                 foreach ((array) ($scope['class_stream_ids'] ?? []) as $stream) {
-                    $parts[] = 'slc.aycs_id = ?';
+                    $parts[] = 'slad.academic_year_class_stream_id = ?';
                     $bindings[] = (int) $stream;
                 }
                 foreach ((array) ($scope['subject_assignments'] ?? []) as $assignment) {
-                    $parts[] = '(slc.aycs_id = ? AND slc.learning_area_id = ?)';
+                    $parts[] = '(slad.academic_year_class_stream_id = ? AND slc.learning_area_id = ?)';
                     $bindings[] = (int) ($assignment['stream_id'] ?? 0);
                     $bindings[] = (int) ($assignment['learning_area_id'] ?? 0);
                 }
@@ -3138,7 +3210,9 @@ return errorResponse($e->getMessage(), 400);
                     swb.revision_number,
                     swb.parent_workbook_id
                 FROM {$slc} slc
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = slc.academic_year_term_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = slc.calendar_week_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas_detailed") . " slad ON slad.id = slc.stream_learning_area_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("scheme_workbooks") . " swb ON swb.id = slc.scheme_workbook_id
                 WHERE " . implode(' AND ', $where) . "
                 ORDER BY ayt.id, slc.week_number, slc.scheme_id
@@ -3251,13 +3325,13 @@ return errorResponse($e->getMessage(), 400);
                         $resource = $this->db->prepare("SELECT id, resource_name AS name, resource_type AS type, resource_url AS url, description FROM sub_strand_resources WHERE sub_strand_id=? AND status='active' ORDER BY id");
                         $resource->execute([(int)$row['sub_strand_id']]);
                         $row['resources'] = $resource->fetchAll(PDO::FETCH_ASSOC);
-                        $competency = $this->db->prepare("SELECT cc.id, cc.code, cc.name, ssc.weight FROM " . ReadReplicaService::qualifiedRef("sub_strand_competencies") . " JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order, cc.id");
+                        $competency = $this->db->prepare("SELECT cc.id, cc.code, cc.name, ssc.weight FROM " . ReadReplicaService::qualifiedRef("sub_strand_competencies") . " ssc JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order, cc.id");
                         $competency->execute([(int)$row['sub_strand_id']]);
                         $row['competencies'] = $competency->fetchAll(PDO::FETCH_ASSOC);
                         $rubric = $this->db->prepare("SELECT id, level_number, level_label, descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order, level_number");
                         $rubric->execute([(int)$row['sub_strand_id']]);
                         $row['rubrics'] = $rubric->fetchAll(PDO::FETCH_ASSOC);
-                        $tools = $this->db->prepare("SELECT DISTINCT at.id, at.tool_name AS name, at.tool_code, at.description, at.assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " LEFT JOIN sub_strand_assessment_tools ssat ON ssat.assessment_tool_id=at.id AND ssat.sub_strand_id=? WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY (ssat.is_recommended IS NULL), ssat.sort_order, at.tool_name");
+                        $tools = $this->db->prepare("SELECT DISTINCT at.id, at.tool_name AS name, at.tool_code, at.description, NULL AS assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at LEFT JOIN sub_strand_assessment_tools ssat ON ssat.assessment_tool_id=at.id AND ssat.sub_strand_id=? WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY (ssat.is_recommended IS NULL), ssat.sort_order, at.tool_name");
                         $tools->execute([(int)$row['sub_strand_id'], (int)$row['learning_area_id'], (int)$row['learning_area_id']]);
                         $row['assessment_tools'] = $tools->fetchAll(PDO::FETCH_ASSOC);
                         $toolIds = array_values(array_filter(array_map('intval', array_column($row['assessment_tools'], 'id'))));
@@ -3292,9 +3366,9 @@ return errorResponse($e->getMessage(), 400);
             $exp = $this->db->prepare('SELECT id, experience AS text FROM sub_strand_suggested_experiences WHERE sub_strand_id=? ORDER BY sort_order,id'); $exp->execute([$sub]);
             $q = $this->db->prepare('SELECT id, question AS text FROM sub_strand_key_inquiry_questions WHERE sub_strand_id=? ORDER BY sort_order,id'); $q->execute([$sub]);
             $res = $this->db->prepare("SELECT id, resource_name AS name, resource_type AS type, resource_url AS url, description FROM sub_strand_resources WHERE sub_strand_id=? AND status='active' ORDER BY id"); $res->execute([$sub]);
-            $comp = $this->db->prepare("SELECT cc.id,cc.code,cc.name,ssc.weight FROM " . ReadReplicaService::qualifiedRef("sub_strand_competencies") . " JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order,cc.id"); $comp->execute([$sub]);
+            $comp = $this->db->prepare("SELECT cc.id,cc.code,cc.name,ssc.weight FROM " . ReadReplicaService::qualifiedRef("sub_strand_competencies") . " ssc JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order,cc.id"); $comp->execute([$sub]);
             $rub = $this->db->prepare('SELECT id,level_number,level_label,descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order,level_number'); $rub->execute([$sub]);
-            $tools = $this->db->prepare("SELECT DISTINCT at.id,at.tool_name AS name,at.tool_code,at.description,at.assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY at.tool_name"); $tools->execute([(int)$scheme['learning_area_id'], (int)$scheme['learning_area_id']]);
+            $tools = $this->db->prepare("SELECT DISTINCT at.id,at.tool_name AS name,at.tool_code,at.description,NULL AS assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY at.tool_name"); $tools->execute([(int)$scheme['learning_area_id'], (int)$scheme['learning_area_id']]);
             $days = $this->db->prepare('SELECT id,date,title FROM academic_year_calendar_days WHERE academic_year_calendar_id=? ORDER BY date'); $days->execute([(int)$scheme['calendar_week_id']]);
             $toolRows = $tools->fetchAll(PDO::FETCH_ASSOC);
             $toolIds = array_values(array_filter(array_map('intval', array_column($toolRows, 'id'))));
@@ -3305,7 +3379,7 @@ return errorResponse($e->getMessage(), 400);
             // opens with the teacher's scheme selections already checked.
             $selected = ['outcome_ids'=>[], 'outcomes'=>[], 'experience_ids'=>[], 'experiences'=>[], 'inquiry_question_ids'=>[], 'competency_ids'=>[], 'tool_ids'=>[], 'rubric_ids'=>[], 'assessment_rubric_ids'=>[]];
             if (!empty($scheme['scheme_workbook_id'])) {
-                $item = $this->db->prepare("SELECT swi.id FROM " . ReadReplicaService::qualifiedRef("scheme_workbook_items") . " JOIN " . ReadReplicaService::qualifiedRef("scheme_workbook_weeks") . " sww ON sww.id=swi.workbook_week_id WHERE sww.workbook_id=? AND sww.academic_year_calendar_week_id=? AND swi.strand_id=? AND swi.sub_strand_id=? AND swi.title=? ORDER BY swi.id LIMIT 1");
+                $item = $this->db->prepare("SELECT swi.id FROM " . ReadReplicaService::qualifiedRef("scheme_workbook_items") . " swi JOIN " . ReadReplicaService::qualifiedRef("scheme_workbook_weeks") . " sww ON sww.id=swi.workbook_week_id WHERE sww.workbook_id=? AND sww.academic_year_calendar_week_id=? AND swi.strand_id=? AND swi.sub_strand_id=? AND swi.title=? ORDER BY swi.id LIMIT 1");
                 $item->execute([(int)$scheme['scheme_workbook_id'], (int)$scheme['calendar_week_id'], (int)$scheme['strand_id'], (int)$scheme['sub_strand_id'], (string)$scheme['title']]);
                 $itemId = (int)($item->fetchColumn() ?: 0);
                 if ($itemId) {
@@ -3368,10 +3442,10 @@ return errorResponse($e->getMessage(), 400);
         $this->db->beginTransaction();
         try {
             if ($row['content_type']==='scheme_of_work') {
-                $check=$this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " JOIN schemes_of_work sw ON sw.id=? WHERE aysla.id=? AND aysla.academic_year_class_learning_area_id=sw.academic_year_class_learning_area_id"); $check->execute([(int)$row['content_id'],$streamArea]); if(!$check->fetchColumn()) throw new Exception('Selected stream-learning-area is not valid for this scheme');
+                $check=$this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla JOIN schemes_of_work sw ON sw.id=? WHERE aysla.id=? AND aysla.academic_year_class_learning_area_id=sw.academic_year_class_learning_area_id"); $check->execute([(int)$row['content_id'],$streamArea]); if(!$check->fetchColumn()) throw new Exception('Selected stream-learning-area is not valid for this scheme');
                 $this->db->prepare("UPDATE schemes_of_work SET academic_year_class_stream_learning_area_id=?, academic_year_calendar_week_id=? WHERE id=?")->execute([$streamArea,$week,(int)$row['content_id']]);
             } else {
-                $check=$this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " JOIN lesson_plans lp ON lp.id=? WHERE sw.id=? AND sw.academic_year_class_stream_learning_area_id=? AND sw.academic_year_calendar_week_id=?"); $check->execute([(int)$row['content_id'],$schemeId,$streamArea,$week]); if(!$check->fetchColumn()) throw new Exception('Selected scheme does not match the lesson context');
+                $check=$this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw JOIN lesson_plans lp ON lp.id=? WHERE sw.id=? AND sw.academic_year_class_stream_learning_area_id=? AND sw.academic_year_calendar_week_id=?"); $check->execute([(int)$row['content_id'],$schemeId,$streamArea,$week]); if(!$check->fetchColumn()) throw new Exception('Selected scheme does not match the lesson context');
                 $this->db->prepare("UPDATE lesson_plans SET scheme_of_work_id=?, academic_year_class_stream_learning_area_id=? WHERE id=?")->execute([$schemeId,$streamArea,(int)$row['content_id']]);
             }
             $this->db->prepare("UPDATE academic_content_reconciliation_queue SET status='resolved', resolution_type='manual', resolved_by=?, resolved_at=NOW() WHERE id=?")->execute([$this->getCurrentStaffId(),$queueId]);
@@ -3555,7 +3629,7 @@ return errorResponse($e->getMessage(), 400);
                 }
                 $selectedTools = [];
                 foreach (array_values(array_unique(array_filter(array_map('intval', (array)($item['assessment_tool_ids'] ?? []))))) as $order => $toolId) {
-                    $check = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " WHERE id=? AND status='active' AND (learning_area_id=(SELECT learning_area_id FROM " . ReadReplicaService::qualifiedRef("strands_learning_areas") . " WHERE strand_id=?) OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla JOIN " . ReadReplicaService::qualifiedRef("strands_learning_areas") . " sla ON sla.strand_id=atla.learning_area_id WHERE atla.assessment_tool_id=id AND sla.strand_id=?) OR EXISTS (SELECT 1 FROM sub_strand_assessment_tools ssat WHERE ssat.assessment_tool_id=id AND ssat.sub_strand_id=?))");
+                    $check = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " WHERE id=? AND status='active' AND (learning_area_id=(SELECT learning_area_id FROM " . ReadReplicaService::qualifiedRef("strands_learning_areas") . " WHERE id=?) OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla JOIN " . ReadReplicaService::qualifiedRef("strands_learning_areas") . " sla ON sla.learning_area_id=atla.learning_area_id WHERE atla.assessment_tool_id=id AND sla.id=?) OR EXISTS (SELECT 1 FROM sub_strand_assessment_tools ssat WHERE ssat.assessment_tool_id=id AND ssat.sub_strand_id=?))");
                     $check->execute([$toolId, $strandId, $strandId, $subStrandId]);
                     if (!$check->fetchColumn()) throw new Exception('A selected assessment tool is not valid for the selected learning area');
                     $selectedTools[$toolId] = true;
@@ -3615,7 +3689,7 @@ return errorResponse($e->getMessage(), 400);
     {
         $staff=$this->getCurrentStaffId();
         $leader = $this->isAcademicLeader();
-        $stmt=$this->db->prepare("SELECT swb.*, sw.academic_year_class_stream_learning_area_id, sw.academic_year_calendar_week_id FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " JOIN " . ReadReplicaService::qualifiedRef("scheme_workbooks") . " swb ON swb.id=sw.scheme_workbook_id WHERE sw.id=? AND (swb.teacher_id=? OR ?=1) LIMIT 1");
+        $stmt=$this->db->prepare("SELECT swb.*, sw.academic_year_class_stream_learning_area_id, sw.academic_year_calendar_week_id FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw JOIN " . ReadReplicaService::qualifiedRef("scheme_workbooks") . " swb ON swb.id=sw.scheme_workbook_id WHERE sw.id=? AND (swb.teacher_id=? OR ?=1) LIMIT 1");
         $stmt->execute([$schemeId,$staff,$leader ? 1 : 0]); $row=$stmt->fetch(PDO::FETCH_ASSOC);
         if(!$row)return errorResponse('This scheme is not linked to an editable teacher workbook',404);
         $row['payload']=json_decode((string)$row['payload'],true) ?: [];
@@ -3883,7 +3957,7 @@ return errorResponse($e->getMessage(), 400);
                     $weekCursor++;
 
                     $dupStmt = $this->db->prepare(
-                        "SELECT id FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " scheme_template_id = ? AND (academic_year_class_stream_learning_area_id <=> ?) AND (academic_year_calendar_week_id <=> ?)
+                        "SELECT id FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " WHERE scheme_template_id = ? AND (academic_year_class_stream_learning_area_id <=> ?) AND (academic_year_calendar_week_id <=> ?)
                          LIMIT 1"
                     );
                     $dupStmt->execute([$templateId, $streamLearningAreaId, $weekId]);
@@ -3946,7 +4020,7 @@ return errorResponse($e->getMessage(), 400);
             $stmt = $this->db->prepare("
                 SELECT sw.scheme_template_id, sw.academic_year_class_learning_area_id, sw.academic_year_class_stream_learning_area_id, sw.academic_year_calendar_week_id, sw.teacher_id,
                        st.learning_area_id, st.learning_area_id AS subject_id
-                FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . "
+                FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw
                 JOIN " . ReadReplicaService::qualifiedRef("scheme_templates") . " st ON st.id = sw.scheme_template_id
                 WHERE sw.id = ?
             ");
@@ -4287,12 +4361,12 @@ return errorResponse($e->getMessage(), 400);
                     CONCAT(op.first_name, ' ', op.last_name) as observer_name,
                     la.name as learning_area_name,
                     c.name as class_name
-                FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                FROM " . ReadReplicaService::masterRef("lesson_observations") . " AS lo
                 JOIN " . ReadReplicaService::qualifiedRef("staff") . " t ON lo.teacher_id = t.id
                 JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " tp ON tp.person_id = t.person_id
                 JOIN " . ReadReplicaService::qualifiedRef("staff") . " o ON lo.observer_id = o.id
                 JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " op ON op.person_id = o.person_id
-                JOIN learning_areas la ON lo.learning_area_id = la.id
+                JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " AS la ON lo.learning_area_id = la.id
                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON lo.class_id = c.id
                 ORDER BY lo.observation_date DESC
             ";
@@ -4373,7 +4447,7 @@ return errorResponse($e->getMessage(), 400);
                     st.*,
                     la.name as learning_area_name,
                     la.code as learning_area_code
-                FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("strands") . " st
                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON st.learning_area_id = la.id
                 WHERE st.id = ?
             ";
@@ -4408,7 +4482,7 @@ return errorResponse($e->getMessage(), 400);
                     st.*,
                     la.name as learning_area_name,
                     la.code as learning_area_code
-                FROM " . ReadReplicaService::qualifiedRef("strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("strands") . " st
                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON st.learning_area_id = la.id
                 WHERE 1=1
             ";
@@ -4556,7 +4630,7 @@ return errorResponse($e->getMessage(), 400);
                 SELECT 
                     ut.*,
                     st.name as unit_name
-                FROM " . ReadReplicaService::qualifiedRef("sub_strands") . "
+                FROM " . ReadReplicaService::qualifiedRef("sub_strands") . " ut
                 JOIN " . ReadReplicaService::qualifiedRef("strands") . " st ON ut.strand_id = st.id
                 $where
                 ORDER BY ut.sort_order ASC
@@ -4778,6 +4852,12 @@ return errorResponse($e->getMessage(), 400);
             $streamLearningAreas = ReadReplicaService::qualifiedRef('academic_year_class_stream_learning_areas');
             $streamTeachers = ReadReplicaService::qualifiedRef('academic_year_class_stream_learning_area_teachers');
             $classLearningAreaTeachers = ReadReplicaService::qualifiedRef('academic_year_class_learning_area_teachers');
+            // No KingsWayReads projections exist for the exam_period_* tables,
+            // so these resolve to the primary database.
+            $examPeriodEntries = ReadReplicaService::masterRef('exam_period_timetable_entries');
+            $examPeriodClassAreas = ReadReplicaService::masterRef('exam_period_class_learning_areas');
+            $examPeriodClasses = ReadReplicaService::masterRef('exam_period_classes');
+            $examPeriods = ReadReplicaService::masterRef('exam_periods');
 
             $where = ["1=1"];
             $bindings = [];
@@ -4902,15 +4982,15 @@ return errorResponse($e->getMessage(), 400);
                     sup.full_name AS supervisor_name,
                     es.notes,
                     es.status,
-                    NULL AS exam_period_id,
-                    NULL AS exam_period_title,
-                    NULL AS exam_period_status,
+                    ep.id AS exam_period_id,
+                    ep.title AS exam_period_title,
+                    ep.status AS exam_period_status,
                     a.title AS assessment_title,
                     es.max_marks,
                     a.assessment_type_classification_id,
                     a.status AS assessment_status,
                     a.assigned_by,
-                    at.name AS assessment_type_name,
+                    atc.name AS assessment_type_name,
                     es.created_at,
                     es.updated_at
                 FROM {$examSchedules} es
@@ -4924,8 +5004,12 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN {$rooms} r ON r.id = es.room_id
                 LEFT JOIN {$staffDirectory} inv ON inv.staff_id = es.invigilator_id
                 LEFT JOIN {$staffDirectory} sup ON sup.staff_id = es.supervisor_id
+                LEFT JOIN {$examPeriodEntries} ept ON ept.exam_schedule_id = es.id
+                LEFT JOIN {$examPeriodClassAreas} epcla ON epcla.id = ept.exam_period_class_learning_area_id
+                LEFT JOIN {$examPeriodClasses} epc ON epc.id = epcla.exam_period_class_id
+                LEFT JOIN {$examPeriods} ep ON ep.id = epc.exam_period_id AND ep.deleted_at IS NULL
                 LEFT JOIN {$assessments} a ON a.id = es.assessment_id
-                LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
+                LEFT JOIN " . ReadReplicaService::masterRef('assessment_type_classifications') . " atc ON atc.id = a.assessment_type_classification_id
                 WHERE {$whereClause}
                 ORDER BY es.exam_date ASC, es.start_time ASC
                 LIMIT ? OFFSET ?
@@ -6364,9 +6448,24 @@ return errorResponse($e->getMessage(), 400);
         }
     }
 
-    public function getTeacherSchedule($teacherId)
+    /**
+     * A teacher's weekly lessons. Without a year or term this returned every
+     * term the teacher was ever timetabled in, overlaid on one grid, so pass
+     * academic_year_term_id (or at least academic_year_id) to scope it.
+     */
+    public function getTeacherSchedule($teacherId, array $filters = [])
     {
         try {
+            $scope = '';
+            $bindings = [$teacherId];
+            if (!empty($filters['academic_year_term_id'])) {
+                $scope .= ' AND te.academic_year_term_id = ?';
+                $bindings[] = (int) $filters['academic_year_term_id'];
+            }
+            if (!empty($filters['academic_year_id'])) {
+                $scope .= ' AND ayc.academic_year_id = ?';
+                $bindings[] = (int) $filters['academic_year_id'];
+            }
             $sql = "
                 SELECT 
                     te.id,
@@ -6393,14 +6492,14 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = te.learning_area_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("rooms") . " r ON r.id = aycs.room_id
-                WHERE te.teacher_id = ? AND te.status = 'scheduled'
+                WHERE te.teacher_id = ? AND te.status = 'scheduled'{$scope}
                 ORDER BY 
                     FIELD(te.day_of_week, 1, 2, 3, 4, 5, 6, 7),
                     ts.period_number ASC
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$teacherId]);
+            $stmt->execute($bindings);
             $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($schedules as &$schedule) {
@@ -6542,9 +6641,10 @@ return errorResponse($e->getMessage(), 400);
     private function resolveAycsId($classId, $streamId = null, $academicYearId = null)
     {
         $sql = "
-            SELECT aycs.class_stream_id
-            FROM " . ReadReplicaService::qualifiedRef("academic_calendar") . " aycs
-            WHERE aycs.class_id = ? AND aycs.academic_year_class_status = 'active'
+            SELECT aycs.id
+            FROM academic_year_class_streams aycs
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE ayc.class_id = ? AND ayc.status = 'active'
         ";
         $params = [$classId];
         if ($streamId !== null) {
@@ -6641,13 +6741,13 @@ return errorResponse($e->getMessage(), 400);
             $sql = "
                 SELECT DISTINCT
                     s.id as teacher_id,
-                    CONCAT(pd.first_name, ' ', pd.last_name) as teacher_name,
+                    CONCAT(p.first_name, ' ', p.last_name) as teacher_name,
                     p.email,
                     p.phone,
                     COUNT(DISTINCT ayc.class_id) as class_count
-                FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " te
-                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON te.teacher_id = s.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                FROM timetable_entries te
+                JOIN staff s ON te.teacher_id = s.id
+                LEFT JOIN persons p ON p.id = s.person_id
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = te.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 WHERE te.learning_area_id = ? AND te.status = 'scheduled'
@@ -6822,7 +6922,11 @@ return errorResponse($e->getMessage(), 400);
                     c.name as class_name,
                     st.name AS stream_name,
                     'subject_teacher' as role
-                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . "   
+                FROM timetable_entries te
+                JOIN academic_year_class_streams aycs ON aycs.id = te.academic_year_class_stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON ayc.class_id = c.id
+                JOIN streams st ON aycs.stream_id = st.id
                 WHERE te.teacher_id = ? AND te.status = 'scheduled'
             ";
 
@@ -6863,12 +6967,12 @@ return errorResponse($e->getMessage(), 400);
                     s.staff_no,
                     p.first_name,
                     p.last_name,
-                    CONCAT(pd.first_name, ' ', pd.last_name) AS full_name,
+                    CONCAT(p.first_name, ' ', p.last_name) AS full_name,
                     s.position,
                     s.staff_type_id,
                     st.name AS staff_type_name
-                FROM " . ReadReplicaService::qualifiedRef("staff") . "
-                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON st.id = s.staff_type_id
                 WHERE {$whereClause}
                 ORDER BY p.first_name, p.last_name
@@ -7319,7 +7423,7 @@ return errorResponse($e->getMessage(), 400);
         }
         $stmt = $this->db->prepare("
             SELECT aycs.id
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . "
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
             WHERE ayc.class_id = ?
             ORDER BY ayc.academic_year_id DESC, aycs.id
@@ -7941,7 +8045,7 @@ return errorResponse($e->getMessage(), 400);
                             ROUND(SUM(present_marks) * 100.0 / NULLIF(SUM(days_marked), 0), 2) AS attendance_percentage,
                             SUM(present_marks) AS days_present,
                             SUM(days_marked - present_marks) AS days_absent
-                        FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                        FROM {$attendanceRef}
                         WHERE academic_year = ?
                         GROUP BY student_id
                     ) att ON att.student_id = s.id
@@ -8042,7 +8146,7 @@ return errorResponse($e->getMessage(), 400);
                         ON sae.student_id = tss.student_id AND sae.academic_year_id = {$yearId}
                     {$classAverageJoin}
                     WHERE tss.student_id = ?
-                      AND tss.term_id = (SELECT term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " WHERE id = ?)
+                      AND tss.term_id = (SELECT term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " class_subject_avg WHERE id = ?)
                     ORDER BY subject_name ASC
                 ";
                 $scoresStmt = $this->db->prepare($scoresSql);
@@ -8119,7 +8223,7 @@ return errorResponse($e->getMessage(), 400);
                 "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
                         ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
                         ai.overall_score, ai.recommendation, ai.remarks
-                   FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
+                   FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
                    JOIN admission_interviews ai ON ai.application_id = aa.id
                   WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
                   ORDER BY ai.id DESC LIMIT 1"
@@ -8176,8 +8280,8 @@ return errorResponse($e->getMessage(), 400);
                 $yearStmt = $this->db->prepare(
                     "SELECT id
                      FROM academic_years
-                     WHERE is_current = 1 OR status = 'active'
-                     ORDER BY is_current DESC, start_date DESC, id DESC
+                     WHERE is_current = 1
+                     ORDER BY start_date DESC, id DESC
                      LIMIT 1"
                 );
                 $yearStmt->execute();
@@ -8646,14 +8750,14 @@ return errorResponse($e->getMessage(), 400);
     {
         $academicYearId = $data['academic_year_id'] ?? $data['academic_year'] ?? null;
         if (empty($academicYearId)) {
-            $yearStmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1");
+            $yearStmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
             $academicYearId = $yearStmt->fetchColumn() ?: null;
         }
         $academicYearId = $academicYearId ? (int) $academicYearId : $this->resolveCurrentAcademicYearId();
 
         $yearValue = null;
         if ($academicYearId > 0) {
-            $yearValueStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE id = ? LIMIT 1");
+            $yearValueStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ? LIMIT 1");
             $yearValueStmt->execute([$academicYearId]);
             $yearValue = (int) ($yearValueStmt->fetchColumn() ?: 0);
         }
@@ -8810,7 +8914,7 @@ return errorResponse($e->getMessage(), 400);
             $code = $data['code'] ?? strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 6));
 
             // Check for duplicate class name in the same academic year
-            $checkSql = "SELECT 1 FROM " . ReadReplicaService::qualifiedRef("classes") . " JOIN academic_year_classes ayc ON ayc.class_id = c.id WHERE c.name = ? AND ayc.academic_year_id = ?";
+            $checkSql = "SELECT 1 FROM " . ReadReplicaService::qualifiedRef("classes") . " c JOIN academic_year_classes ayc ON ayc.class_id = c.id WHERE c.name = ? AND ayc.academic_year_id = ?";
             $stmt = $this->db->prepare($checkSql);
             $stmt->execute([$name, $academicYearId]);
             if ($stmt->fetch()) {
@@ -9119,7 +9223,7 @@ return errorResponse($e->getMessage(), 400);
             if ($studentCount === null) {
                 $countSql = "
                     SELECT COUNT(DISTINCT sae.student_id)
-                    FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                    FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                     WHERE aycs.academic_year_class_id = ? AND sae.enrollment_status = 'active'
                 ";
@@ -9305,6 +9409,10 @@ return errorResponse($e->getMessage(), 400);
                 'status' => in_array(($data['status'] ?? 'active'), ['planning', 'active', 'completed'], true) ? $data['status'] : 'active'
             ]);
 
+            // A new stream carries all of its class's learning areas from the
+            // start; learners placed in it get them through their enrolment.
+            (new LearningAreaSetupService($this->db))->syncStreamsForClasses([$aycId]);
+
             $this->logAction('stream_created', "Stream {$streamName} created for class {$class['name']}", [
                 'class_id' => $classId,
                 'stream_id' => $aycsId
@@ -9423,7 +9531,7 @@ return errorResponse($e->getMessage(), 400);
 
                 $checkStmt = $this->db->prepare("
                     SELECT s.id
-                    FROM " . ReadReplicaService::qualifiedRef("streams") . "
+                    FROM " . ReadReplicaService::qualifiedRef("streams") . " s
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.stream_id = s.id
                     WHERE aycs.academic_year_class_id = ? AND s.name = ? AND aycs.id != ?
                     LIMIT 1

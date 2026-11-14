@@ -5,13 +5,7 @@
  * Embedded in app_layout.php
  */
 
-// Ensure $appBase is available for script loading
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.' || $appBase === '/') {
-        $appBase = '';
-    }
-}
+$appBase = app_base_path();
 ?>
 
 <div class="container-fluid py-4" id="boardingStudentsPage">
@@ -131,12 +125,6 @@ if (!isset($appBase)) {
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by name, admission number, UPI, dormitory, bed">
                     </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
@@ -537,6 +525,12 @@ if (!isset($appBase)) {
             </div>
             <div class="modal-body">
                 <form id="addBoardingNoteForm">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="boardingNoteStudent">Student</label>
+                        <select class="form-select" id="boardingNoteStudent" required>
+                            <option value="">Select Student</option>
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Note Type</label>
                         <select class="form-select" id="boardingNoteType">

@@ -37,6 +37,28 @@ class TransportAPI extends BaseAPI
         }
     }
 
+    /** Return minimized aggregate context for the governed transport AI review. */
+    public function getAiOperationsSummaryInput(): array
+    {
+        $response = $this->getSummary();
+        if (($response['success'] ?? false) !== true) return $response;
+        $summary = is_array($response['data'] ?? null) ? $response['data'] : [];
+        return $this->successResponse(self::buildAiOperationsSummaryInput($summary, date('Y-m-d')));
+    }
+
+    /** Pure allow-listed aggregate transform shared by API and regression tests. */
+    public static function buildAiOperationsSummaryInput(array $summary, string $reportDate): array
+    {
+        $count = static fn($value): string => (string) max(0, (int) ($value ?? 0));
+        return [
+            'report_date' => $reportDate,
+            'active_route_count' => $count($summary['routes'] ?? 0),
+            'active_vehicle_count' => $count($summary['vehicles'] ?? 0),
+            'assigned_passenger_count' => $count($summary['active_subscriptions'] ?? 0),
+            'follow_up_intent' => 'Prepare transport operations review; do not change assignments or safety controls.',
+        ];
+    }
+
     // Mark a batch of students present on a transport trip.
     // Live table: student_transport_attendance (UNIQUE student_id, attendance_date, trip_session).
     // route_id defaults to the authenticated driver's assigned route when not supplied.
@@ -47,9 +69,14 @@ class TransportAPI extends BaseAPI
             if ($routeId <= 0) {
                 $routeStmt = $this->db->prepare(
                     "SELECT tvr.route_id
-                     FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-                     WHERE u.id = ? AND s.status IN ('active', 'on_leave')
-                     LIMIT 1"
+                     FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                     INNER JOIN transport_vehicles v ON v.driver_id = s.id
+                     INNER JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr
+                             ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+                     INNER JOIN users u ON u.person_id = s.person_id
+                    WHERE u.id = ?
+                      AND s.status IN ('active', 'on_leave')
+                    LIMIT 1"
                 );
                 $routeStmt->execute([(int) $userId]);
                 $routeId = (int) $routeStmt->fetchColumn();
@@ -105,7 +132,13 @@ class TransportAPI extends BaseAPI
 
     public function userHasAssignedRoute(int $userId, int $routeId): bool
     {
-        $stmt = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE u.id=? AND tvr.route_id=? AND s.status IN ('active','on_leave') LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1
+            FROM " . ReadReplicaService::masterRef("staff") . " s
+            INNER JOIN transport_vehicles v ON v.driver_id = s.id
+            INNER JOIN " . ReadReplicaService::masterRef("transport_vehicle_routes") . " tvr
+                    ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+            INNER JOIN users u ON u.person_id = s.person_id
+           WHERE u.id = ? AND tvr.route_id = ? AND s.status IN ('active','on_leave') LIMIT 1");
         $stmt->execute([$userId, $routeId]);
         return (bool)$stmt->fetchColumn();
     }
@@ -291,6 +324,11 @@ class TransportAPI extends BaseAPI
     public function withdrawAssignment($studentId, $month, $year)
     {
         return $this->assignmentManager->withdrawAssignment($studentId, $month, $year);
+    }
+
+    public function withdrawAssignmentById(int $assignmentId): bool
+    {
+        return $this->assignmentManager->withdrawAssignmentById($assignmentId);
     }
     public function getAssignments($studentId)
     {

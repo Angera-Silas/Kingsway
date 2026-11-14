@@ -183,13 +183,13 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
-                <button class="btn-close" onclick="closeModal('viewFeeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="viewModalBody">
                 <!-- Details content -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('viewFeeStructureModal')">Close</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
             </div>
         </div>
     </div>
@@ -201,7 +201,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Duplicate Fee Structure</h3>
-                <button class="btn-close" onclick="closeModal('duplicateModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('duplicateModal')">×</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -217,7 +217,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('duplicateModal')">Cancel</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('duplicateModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="confirmDuplicate()"><i class="bi bi-files"></i>
                     Duplicate</button>
             </div>
@@ -231,13 +231,13 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Reconciliation</h3>
-                <button class="btn-close" onclick="closeModal('reconciliationModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('reconciliationModal')">×</button>
             </div>
             <div class="modal-body" id="reconciliationBody">
                 <!-- Reconciliation data -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('reconciliationModal')">Close</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('reconciliationModal')">Close</button>
                 <button class="btn btn-success" onclick="exportReconciliation()"><i class="bi bi-download"></i> Export
                     Report</button>
             </div>
@@ -251,13 +251,13 @@
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h3 class="modal-title">Fee Structure Breakdown</h3>
-                <button class="btn-close btn-close-white" onclick="closeModal('detailedFeeStructureModal')">×</button>
+                <button class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="closeModal('detailedFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="detailedFeeBody" style="padding: 30px;">
                 <!-- Will be populated dynamically -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('detailedFeeStructureModal')">Close</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('detailedFeeStructureModal')">Close</button>
                 <button class="btn btn-warning" onclick="window.accountantController.editDetailedStructure()">
                     <i class="bi bi-pencil"></i> Edit
                 </button>

@@ -219,11 +219,12 @@ class StudentLeadershipService
 
         // Awards history for the same learner.
         $stmt = $this->db->prepare("
-            SELECT a.id, a.award_type, a.title, a.award_description, a.issued_by,
+            SELECT a.id, sat.name AS award_type, a.title, a.award_description, a.issued_by,
                    a.certificate_no, a.issue_date, a.status, a.notes,
                    ay.year_code AS academic_year, ay.year_name,
                    ayt.term_id AS term_number
             FROM student_awards a
+            LEFT JOIN student_award_types sat ON sat.id = a.award_type_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = a.academic_year_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = a.academic_year_term_id
             WHERE a.student_id = ?
@@ -566,23 +567,28 @@ class StudentLeadershipService
         if ($name === '') {
             return $this->fail(422, 'House name is required');
         }
+        $code = trim((string) ($data['code'] ?? ''));
+        if ($code === '') {
+            $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 8));
+        }
         $stmt = $this->db->prepare("SELECT 1 FROM houses WHERE name = ? OR code = ?");
-        $stmt->execute([$name, $data['code'] ?? null]);
+        $stmt->execute([$name, $code]);
         if ($stmt->fetchColumn()) {
             return $this->fail(409, 'A house with this name or code already exists');
         }
         $ins = $this->db->prepare("
             INSERT INTO houses (name, code, patron_staff_id, motto, color, mascot, display_order, is_active, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $ins->execute([
             $name,
-            $data['code'] ?? strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 8)),
+            $code,
             $data['patron_staff_id'] ?? null,
             $data['motto'] ?? null,
             $data['color'] ?? null,
             $data['mascot'] ?? null,
             (int) ($data['display_order'] ?? 0),
+            array_key_exists('is_active', $data) ? (int)(bool)$data['is_active'] : 1,
             $data['created_by'] ?? null,
         ]);
         return $this->created(['id' => (int) $this->db->lastInsertId()], 'House created');
@@ -658,7 +664,7 @@ class StudentLeadershipService
         $stmt = $this->db->prepare("
             SELECT c.id, c.code, c.name, c.description, c.sort_order, c.is_active,
                    COUNT(t.id) AS type_count
-            FROM " . ReadReplicaService::qualifiedRef("student_award_categories") . "
+            FROM " . ReadReplicaService::qualifiedRef("student_award_categories") . " c
             LEFT JOIN " . ReadReplicaService::qualifiedRef("student_award_types") . " t ON t.category_id = c.id
             GROUP BY c.id
             ORDER BY c.sort_order, c.name
@@ -787,7 +793,7 @@ class StudentLeadershipService
         }
         $fields = [];
         $params = [];
-        foreach (['category_id', 'department_id', 'template_key', 'code', 'name', 'description',
+        foreach (['category_id', 'department_id', 'template_key', 'code', 'name', 'description', 'number_prefix',
                   'signatory_label', 'secondary_signatory_label', 'requires_certificate',
                   'is_active', 'sort_order'] as $f) {
             if (array_key_exists($f, $data)) {
@@ -907,7 +913,7 @@ class StudentLeadershipService
         $awardTypeId = $this->normalizeAwardTypeId($data);
         $termId = ($data['academic_year_term_id'] ?? null) !== '' && ($data['academic_year_term_id'] ?? null) !== null
             ? (int) $data['academic_year_term_id'] : null;
-        $yearId = (int) ($data['academic_year_id'] ?? 0);
+        $yearId = !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : null;
         if ($termId && $this->termExists($termId)) {
             $stmt = $this->db->prepare("SELECT academic_year_id FROM academic_year_terms WHERE id = ?");
             $stmt->execute([$termId]);

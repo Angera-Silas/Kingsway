@@ -126,3 +126,79 @@ body.auth-page { color:#fff; background:#031c13; }
   .auth-recovery-page .reset-card,.auth-recovery-page .setup-shell{max-width:520px;margin:auto;padding:1.35rem;border:1px solid rgba(255,255,255,.16);border-radius:1rem;background:rgba(1,22,14,.72);backdrop-filter:blur(12px)}
   .auth-recovery-brand{left:1.25rem;top:1.25rem}
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Verification stage — the two-factor step of the staff sign-in page.
+   Scoped to the verification screen only: the shell, the campus background
+   image and the password step above it are deliberately untouched.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Progress rail — password accepted, verification in progress. */
+.auth-rail { display:flex; align-items:center; gap:.7rem; list-style:none; padding:0; margin:0 0 1.5rem; }
+.auth-rail-step { display:flex; align-items:center; gap:.5rem; color:rgba(255,255,255,.45); font-size:.76rem; font-weight:600; letter-spacing:.02em; white-space:nowrap; }
+.auth-rail-mark { display:grid; place-items:center; width:1.55rem; height:1.55rem; border-radius:50%; font-size:.72rem; font-weight:700; color:rgba(255,255,255,.5); border:1px solid rgba(255,255,255,.26); }
+.auth-rail-step.is-done { color:rgba(255,255,255,.7); }
+.auth-rail-step.is-done .auth-rail-mark { color:var(--auth-gold); border-color:rgba(214,173,45,.5); background:rgba(214,173,45,.14); }
+.auth-rail-step.is-active { color:#fff; }
+.auth-rail-step.is-active .auth-rail-mark { color:#123c29; background:var(--auth-gold); border-color:var(--auth-gold); }
+.auth-rail-sep { flex:0 0 2rem; height:1px; background:rgba(255,255,255,.2); }
+.auth-rail-sep.is-done { background:linear-gradient(90deg,rgba(214,173,45,.5),rgba(255,255,255,.18)); }
+
+/* Active method — icon, name and the masked destination the code went to. */
+.auth-method-card { display:flex; align-items:center; gap:.85rem; margin:1.5rem 0 0; padding:.8rem .9rem; border-radius:.85rem; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.13); box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+.auth-method-icon { display:grid; place-items:center; flex:0 0 auto; width:2.5rem; height:2.5rem; border-radius:.7rem; font-size:1.1rem; color:var(--auth-gold); background:rgba(214,173,45,.12); border:1px solid rgba(214,173,45,.22); }
+.auth-method-text { display:grid; gap:.1rem; flex:1 1 auto; min-width:0; }
+.auth-method-text strong { color:#fff; font-size:.92rem; font-weight:650; }
+.auth-method-text small { color:rgba(255,255,255,.58); font-size:.79rem; line-height:1.35; overflow-wrap:anywhere; }
+.auth-method-change { flex:0 0 auto; padding:.25rem .45rem; font-size:.82rem; font-weight:600; color:var(--auth-gold); text-decoration:none; }
+.auth-method-change:hover { color:#fff0ad; }
+.auth-method-change::after { content:''; }
+
+/* Inline method list — every enrolled factor, switched in place. */
+.auth-method-list { display:grid; gap:.35rem; margin-top:.5rem; padding:.45rem; border-radius:.85rem; background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.1); animation:auth-methods-in .18s ease-out; }
+@keyframes auth-methods-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+.auth-method-option { display:flex; align-items:center; gap:.7rem; width:100%; padding:.55rem .6rem; border:1px solid transparent; border-radius:.6rem; background:transparent; color:#fff; text-align:left; transition:background .15s ease,border-color .15s ease; }
+.auth-method-option:hover { background:rgba(255,255,255,.07); }
+.auth-method-option[aria-checked="true"] { background:rgba(214,173,45,.1); border-color:rgba(214,173,45,.42); }
+.auth-method-option-icon { display:grid; place-items:center; flex:0 0 auto; width:1.95rem; height:1.95rem; border-radius:.5rem; font-size:.92rem; color:rgba(255,255,255,.75); background:rgba(255,255,255,.08); }
+.auth-method-option[aria-checked="true"] .auth-method-option-icon { color:var(--auth-gold); background:rgba(214,173,45,.14); }
+.auth-method-option-label { display:grid; gap:.05rem; flex:1 1 auto; min-width:0; }
+.auth-method-option-label strong { font-size:.87rem; font-weight:600; }
+.auth-method-option-label small { font-size:.75rem; color:rgba(255,255,255,.5); overflow-wrap:anywhere; }
+.auth-method-option-check { flex:0 0 auto; color:var(--auth-gold); font-size:.95rem; opacity:0; }
+.auth-method-option[aria-checked="true"] .auth-method-option-check { opacity:1; }
+.auth-method-empty { padding:.7rem .75rem; color:rgba(255,255,255,.6); font-size:.82rem; }
+
+/* Quiet action row under the code entry. */
+.auth-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin-top:1.5rem; padding-top:1.1rem; border-top:1px solid rgba(255,255,255,.1); }
+.auth-actions .btn-outline-light { color:rgba(255,255,255,.82); border-color:rgba(255,255,255,.3); background:transparent; }
+.auth-actions .btn-outline-light:hover { color:#183c2a; background:#fff; border-color:#fff; }
+.auth-help-link { margin-left:auto; color:rgba(255,255,255,.58)!important; font-size:.82rem; text-decoration:none; }
+.auth-help-link:hover { color:#fff!important; }
+
+/* Recovery-code entry: one word, not six boxes. */
+.auth-code { min-height:56px!important; text-align:center; text-transform:uppercase; letter-spacing:.24em; font-weight:700; font-size:1.25rem!important; color:#fff!important; background:rgba(0,0,0,.16)!important; border:1px solid rgba(255,255,255,.58)!important; border-radius:.55rem; }
+.auth-code:focus { border-color:var(--auth-gold)!important; box-shadow:0 0 0 .2rem rgba(214,173,45,.14); }
+.auth-code::placeholder { color:rgba(255,255,255,.4); letter-spacing:.1em; }
+
+/* Verification notices, kept quiet so they do not shout over the code boxes. */
+#verifyError,#verifySuccess { border:0!important; border-radius:.7rem; font-size:.86rem; padding:.7rem .85rem; margin-top:1rem; }
+#verifyError { color:#ffd9dd!important; background:rgba(220,53,69,.16)!important; }
+#verifySuccess { color:#f7e3a6!important; background:rgba(214,173,45,.12)!important; }
+
+/* Keyboard focus stays visible against the photograph. */
+.auth-page :focus-visible { outline:2px solid var(--auth-gold); outline-offset:2px; }
+.auth-page .form-control:focus-visible,.auth-page .btn:focus-visible { outline:2px solid var(--auth-gold); outline-offset:2px; box-shadow:none; }
+
+@media(max-width:480px){
+  .auth-rail-sep { flex:0 0 1.4rem; }
+  .auth-method-change { padding:.25rem .3rem; font-size:.8rem; }
+  .auth-help-link { margin-left:0; width:100%; text-align:left; padding-left:0; }
+}
+@media(max-width:380px){
+  .auth-rail-text { display:none; }
+}
+
+@media(prefers-reduced-motion:reduce){
+  .auth-page *,.auth-page *::before,.auth-page *::after { animation-duration:.001ms!important; animation-iteration-count:1!important; transition-duration:.001ms!important; }
+}

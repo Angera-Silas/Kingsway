@@ -78,8 +78,8 @@ class AttendanceManager extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT id
              FROM academic_years
-             WHERE is_current = 1 OR status = 'active'
-             ORDER BY is_current DESC, id DESC
+             WHERE is_current = 1
+             ORDER BY id DESC
              LIMIT 1"
         );
         $stmt->execute();
@@ -537,7 +537,8 @@ class AttendanceManager extends BaseAPI
 
             $sql = "SELECT COUNT(*) AS total_days,
                            SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days
-                    FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                    FROM student_attendance sa
+                    JOIN student_academic_enrollments en ON en.id = sa.student_academic_enrollment_id
                     WHERE en.student_id = ? AND en.enrollment_status = 'active'";
             $params = [(int) $studentId];
 
@@ -728,7 +729,7 @@ class AttendanceManager extends BaseAPI
                     "SELECT ass.type,
                             COALESCE(cfg.status, ass.status) AS effective_status,
                             COALESCE(cfg.applicable_days, ass.applicable_days) AS effective_days
-                     FROM " . ReadReplicaService::qualifiedRef("attendance_sessions") . "
+                     FROM " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass
                      LEFT JOIN attendance_session_term_configs cfg
                        ON cfg.session_id = ass.id AND cfg.academic_year_term_id = ?
                      WHERE ass.id = ?
@@ -837,6 +838,7 @@ class AttendanceManager extends BaseAPI
         try {
             $type = $data['type'] ?? $_GET['type'] ?? null;
             $streamId = $data['stream_id'] ?? $_GET['stream_id'] ?? null;
+            $includeAllDays = filter_var($data['include_all_days'] ?? $_GET['include_all_days'] ?? false, FILTER_VALIDATE_BOOLEAN);
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
             $dayOfWeek = date('l', strtotime((string) $date));
             $term = $this->resolveTermForDate((string) $date);
@@ -889,7 +891,7 @@ class AttendanceManager extends BaseAPI
                 if (($session['status'] ?? 'inactive') !== 'active') continue;
                 if ($type && ($session['type'] ?? null) !== $type) continue;
                 $days = json_decode((string) ($session['applicable_days'] ?? '[]'), true) ?: [];
-                if (!in_array($dayOfWeek, $days, true)) continue;
+                if (!$includeAllDays && !in_array($dayOfWeek, $days, true)) continue;
                 if ($classId && !$this->sessionAppliesToClassForTerm((int) $session['id'], (int) $classId, $termId)) continue;
                 $session['academic_year_term_id'] = $termId;
                 $sessions[] = $session;
@@ -917,7 +919,7 @@ class AttendanceManager extends BaseAPI
                         cfg.is_mandatory AS term_is_mandatory,
                         cfg.display_order AS term_display_order,
                         cfg.status AS term_status
-                 FROM " . ReadReplicaService::qualifiedRef("attendance_sessions") . "
+                 FROM " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass
                  LEFT JOIN attendance_session_term_configs cfg
                    ON cfg.session_id = ass.id AND cfg.academic_year_term_id = ?
                  ORDER BY ass.type, COALESCE(cfg.display_order, ass.display_order), ass.id"
@@ -1402,13 +1404,10 @@ class AttendanceManager extends BaseAPI
             $trendParams = array_merge($trendParams, $streamScope['params']);
 
             if ($sessionId) {
-                $trendSql .= " AND student_id IN (
-                    SELECT DISTINCT en.student_id
-                    FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
-                    WHERE sa2.date BETWEEN ? AND ? AND sa2.session_id = ?
-                )";
-                $trendParams[] = $dateFrom;
-                $trendParams[] = $dateTo;
+                // The aggregate view already carries session_name. Keep the
+                // trend filter on that same source; the former subquery
+                // referenced an undefined sa2 alias and could not execute.
+                $trendSql .= ' AND session_name = (SELECT name FROM attendance_sessions WHERE id = ?)';
                 $trendParams[] = (int) $sessionId;
             }
 
@@ -1526,6 +1525,7 @@ class AttendanceManager extends BaseAPI
                         sa.notes
                     FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " en
                     JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = en.student_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = s.application_id
                     JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = en.academic_year_class_stream_id
                     JOIN " . ReadReplicaService::qualifiedRef("streams") . " stm ON stm.id = aycs.stream_id
@@ -2179,7 +2179,8 @@ class AttendanceManager extends BaseAPI
 
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, st.code AS student_type_code, st.name AS student_type
-                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                 FROM students s
+                 LEFT JOIN student_types st ON st.id = s.student_type_id
                  WHERE s.id = ?
                  LIMIT 1"
             );
@@ -2517,7 +2518,7 @@ class AttendanceManager extends BaseAPI
 
                 $rosterStmt = $this->db->prepare(
                     "SELECT sdr.id
-                     FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . "
+                     FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . " sdr
                      JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id
                      WHERE sdr.staff_id = ? AND sdr.date = ? AND sdt.code IN ('OFF','WEEKEND_OFF')
                      LIMIT 1"
@@ -2741,17 +2742,17 @@ class AttendanceManager extends BaseAPI
                 return $this->successResponse($this->buildEmptyStaffReport($dateFrom, $dateTo), 'Staff report generated');
             }
 
-            $where = ["s.status = 'active'"];
+            $where = ["sd.staff_status = 'active'"];
             $params = [];
 
             if ($departmentId) {
-                $where[] = "sep.department_id = ?";
+                $where[] = "sd.department_id = ?";
                 $params[] = (int) $departmentId;
             }
 
             if ($scope['restricted']) {
                 $placeholders = implode(',', array_fill(0, count($scope['staff_ids']), '?'));
-                $where[] = "s.id IN ({$placeholders})";
+                $where[] = "sd.staff_id IN ({$placeholders})";
                 $params = array_merge($params, array_map('intval', $scope['staff_ids']));
             }
 
@@ -2759,7 +2760,7 @@ class AttendanceManager extends BaseAPI
                 $where[] = "EXISTS (
                     SELECT 1
                     FROM staff_duty_roster sdr_filter
-                    WHERE sdr_filter.staff_id = s.id
+                    WHERE sdr_filter.staff_id = sd.staff_id
                       AND sdr_filter.date BETWEEN ? AND ?
                       AND sdr_filter.duty_type_id = ?
                 )";
@@ -2769,15 +2770,15 @@ class AttendanceManager extends BaseAPI
             }
 
             $staffSql = "SELECT
-                            s.id AS staff_id,
-                            p.first_name,
-                            p.last_name,
-                            s.staff_no,
-                            s.position,
-                            d.name AS department_name
-                         FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                            sd.staff_id,
+                            sd.first_name,
+                            sd.last_name,
+                            sd.staff_no,
+                            sd.position,
+                            sd.department_name
+                         FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
                          WHERE " . implode(' AND ', $where) . "
-                         ORDER BY p.last_name, p.first_name";
+                         ORDER BY sd.last_name, sd.first_name";
             $stmt = $this->db->prepare($staffSql);
             $stmt->execute($params);
             $staffRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -3096,7 +3097,7 @@ class AttendanceManager extends BaseAPI
                         COALESCE(cfg.end_time, ass.end_time) AS end_time,
                         COALESCE(cfg.applicable_days, ass.applicable_days) AS applicable_days,
                         COALESCE(cfg.status, ass.status) AS status
-                 FROM " . ReadReplicaService::qualifiedRef("attendance_sessions") . "
+                 FROM " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass
                  LEFT JOIN attendance_session_term_configs cfg
                    ON cfg.session_id=ass.id AND cfg.academic_year_term_id=?
                  WHERE COALESCE(cfg.status, ass.status)='active'
@@ -3136,7 +3137,8 @@ class AttendanceManager extends BaseAPI
             $existingCounts = ['class' => 0, 'boarding' => 0, 'activity' => 0];
             if ($streamId) {
                 $markSql = "SELECT sa.register_type, COUNT(DISTINCT sa.student_academic_enrollment_id) AS cnt
-                            FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+                            FROM student_attendance sa
+                            JOIN student_academic_enrollments en ON en.id = sa.student_academic_enrollment_id
                             WHERE sa.date = ? AND en.academic_year_class_stream_id = ?";
                 $markParams = [$date, (int) $streamId];
                 if ($sessionId) {

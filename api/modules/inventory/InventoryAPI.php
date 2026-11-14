@@ -208,6 +208,12 @@ class InventoryAPI extends BaseAPI
         return $this->purchaseOrdersManager->getPurchaseOrder($id);
     }
 
+    /** Line-level purchase report for the purchase-reports page. */
+    public function purchaseReport($params = [])
+    {
+        return $this->purchaseOrdersManager->purchaseReport($params);
+    }
+
     public function createPurchaseOrder($data, $userId)
     {
         return $this->purchaseOrdersManager->createPurchaseOrder($data, $userId);
@@ -542,8 +548,8 @@ class InventoryAPI extends BaseAPI
                     wd.name as workflow_name,
                     wd.code as workflow_type,
                     u.username as initiated_by_name
-                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . "
-                JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
+                FROM workflow_instances wi
+                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
                 LEFT JOIN users u ON wi.started_by = u.id
                 WHERE wi.id = ?
             ";
@@ -561,7 +567,7 @@ class InventoryAPI extends BaseAPI
                 SELECT 
                     wh.*,
                     u.username as performed_by_name
-                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . "
+                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . " wh
                 LEFT JOIN users u ON wh.processed_by = u.id
                 WHERE wh.instance_id = ?
                 ORDER BY wh.processed_at ASC
@@ -641,7 +647,7 @@ class InventoryAPI extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT us.*, ii.name AS item_name, ii.code AS item_code,
                         (us.unit_price * us.quantity) AS total_amount,
-                        COALESCE((SELECT SUM(up.amount) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " WHERE up.sale_id = us.id), 0) AS amount_paid,
+                        COALESCE((SELECT SUM(up.amount) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " up WHERE up.sale_id = us.id), 0) AS amount_paid,
                         (us.unit_price * us.quantity)
                             - COALESCE((SELECT SUM(up.amount) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " up WHERE up.sale_id = us.id), 0) AS outstanding
                  FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us

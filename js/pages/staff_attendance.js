@@ -59,7 +59,14 @@ const StaffAttendanceController = {
     });
     bind("exportBtn", "click", () => this.exportData());
     bind("printBtn", "click", () => this.printReport());
-    bind("loadStaffForMarkingBtn", "click", () => this.loadStaffForMarking());
+    // Rule 6: the marking register auto-loads when its filters change and on
+    // first open for users allowed to mark (no "Load" button).
+    ["markDate", "markDepartment", "markShift"].forEach((id) => {
+      bind(id, "change", () => this.loadStaffForMarking());
+    });
+    const canMark = ["attendance_staff_create", "attendance_staff_submit", "attendance_staff_edit", "attendance_staff_edit_own"]
+      .some((p) => window.AuthContext?.hasPermission?.(p));
+    if (canMark && document.getElementById("markStaffTableBody")) this.loadStaffForMarking();
     bind("markAllPresentBtn", "click", () => this.markAllStaff("present"));
     bind("markAllAbsentBtn", "click", () => this.markAllStaff("absent"));
     bind("submitStaffAttendanceBtn", "click", () => this.submitStaffAttendance());

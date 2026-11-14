@@ -3,10 +3,7 @@
  * System Administrator — Account Status
  * Controller: js/pages/account_status.js
  */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') $appBase = '';
-}
+
 ?>
 <div class="container-fluid py-4" id="accountStatusPage">
     <style>
@@ -127,13 +124,13 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="accountStatusTableBody">
-                    <tr>
+                    <tr id="accountStatusTableState">
                         <td colspan="8" class="text-center py-5 text-muted">Waiting for authentication...</td>
                     </tr>
                 </tbody>
             </table>
             <template id="accountStatusRowTemplate">
-                <tr>
+                <tr id="accountStatusTableState">
                     <td class="text-center">
                         <input
                             class="form-check-input"

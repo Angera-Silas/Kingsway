@@ -123,12 +123,12 @@ async function loadSettingsStatistics() {
 
 function attachSettingsEventListeners() {
     document.getElementById('createUserBtn')?.addEventListener('click', () => {
-        const modal = new bootstrap.Modal(document.getElementById('createUserModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('createUserModal'));
         modal.show();
     });
 
     document.getElementById('createRoleBtn')?.addEventListener('click', () => {
-        const modal = new bootstrap.Modal(document.getElementById('createRoleModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('createRoleModal'));
         modal.show();
     });
 

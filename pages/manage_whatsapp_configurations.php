@@ -1,9 +1,7 @@
 <?php
 /** Kingsway System Administrator: WhatsApp Provider Configuration (system domain). */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') { $appBase = ''; }
-}
+
+$whatsappFieldDefinitions = \App\API\Services\SystemCommsConfigService::fieldDefinitions('whatsapp');
 ?>
 <div class="container-fluid py-4">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -17,10 +15,7 @@ if (!isset($appBase)) {
             <button class="btn btn-success btn-sm" id="whatsappRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
         </div>
     </div>
-    <div id="whatsappState" class="alert alert-info" role="status"><i class="bi bi-hourglass-split me-1"></i>Loading WhatsApp configuration...</div>
-    <div class="row g-4" id="whatsappConfigPanel">
-        <div class="col-12"><div class="text-center py-5 text-muted">Loading...</div></div>
-    </div>
+    <div id="whatsappState" class="alert alert-info" role="status">Loading WhatsApp configuration...</div>
     <div class="mt-4">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
@@ -29,7 +24,34 @@ if (!isset($appBase)) {
             <div class="card-body">
                 <div class="table-responsive"><table class="table table-sm mb-0" id="whatsappFieldsTable">
                     <thead><tr><th>Setting</th><th>Value</th><th>Source</th><th>Actions</th></tr></thead>
-                    <tbody id="whatsappFieldsBody"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+                    <tbody id="whatsappFieldsBody">
+                        <?php foreach ($whatsappFieldDefinitions as $field): ?>
+                            <tr data-whatsapp-field="<?= htmlspecialchars($field['key'], ENT_QUOTES, 'UTF-8') ?>">
+                                <td>
+                                    <strong data-field-label><?= htmlspecialchars($field['label'], ENT_QUOTES, 'UTF-8') ?></strong><br>
+                                    <small class="text-muted" data-field-key><?= htmlspecialchars($field['key'], ENT_QUOTES, 'UTF-8') ?></small>
+                                </td>
+                                <td>
+                                    <?php if ($field['is_secret']): ?>
+                                        <span class="badge bg-secondary" data-secret-status>Not set</span>
+                                    <?php else: ?>
+                                        <code data-field-value>—</code>
+                                    <?php endif; ?>
+                                </td>
+                                <td><span class="badge bg-secondary" data-field-source>Environment</span></td>
+                                <td>
+                                    <?php if (!$field['is_secret']): ?>
+                                        <input type="text" class="form-control form-control-sm whatsapp-field-input"
+                                               data-key="<?= htmlspecialchars($field['key'], ENT_QUOTES, 'UTF-8') ?>"
+                                               aria-label="<?= htmlspecialchars($field['label'], ENT_QUOTES, 'UTF-8') ?>"
+                                               value="">
+                                    <?php else: ?>
+                                        <span class="text-muted small">Managed securely</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
                 </table></div>
             </div>
         </div>
@@ -41,7 +63,7 @@ if (!isset($appBase)) {
         <div class="card-body">
             <div class="row g-3 align-items-end">
                 <div class="col-md-3"><button class="btn btn-outline-info" id="whatsappTestBtn"><i class="bi bi-lightning me-1"></i>Test Connection</button></div>
-                <div class="col-md-9"><div id="whatsappTestResult" class="text-muted small"></div></div>
+                <div class="col-md-9"><div id="whatsappTestResult" class="text-muted small" role="status"></div></div>
             </div>
         </div>
     </div>

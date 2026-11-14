@@ -146,7 +146,7 @@
                     </tr>
                 </thead>
                 <tbody id="tokenManagementTableBody">
-                    <tr>
+                    <tr id="tokenManagementTableState">
                         <td colspan="9" class="text-center py-5 text-muted">
                             Waiting for authentication...
                         </td>

@@ -63,15 +63,21 @@ const ClassCapacityController = (() => {
         el("statUtil", utilization + "%");
     }
     function renderTable(items) {
-        const tbody = document.querySelector('#dataTable tbody');
+        const tbody = document.getElementById('classCapacityTableBody');
         if (!tbody) return;
+        const stateRow = document.getElementById('classCapacityTableState');
+        const stateCell = stateRow?.querySelector('td');
+        tbody.querySelectorAll('[data-capacity-row]').forEach((row) => row.remove());
         if (!items.length) {
-          tbody.innerHTML =
-            '<tr><td colspan="8" class="text-center text-muted py-4">No class data found</td></tr>';
+          if (stateCell) stateCell.textContent = 'No class data found';
+          if (stateRow) stateRow.hidden = false;
           return;
         }
-        tbody.innerHTML = items
-          .map((c, i) => {
+        if (stateRow) stateRow.hidden = true;
+        const template = document.getElementById('classCapacityRowTemplate');
+        if (!template) return;
+        const fragment = document.createDocumentFragment();
+        items.forEach((c, i) => {
             const capacity = parseInt(c.capacity) || 40;
             const enrolled =
               parseInt(c.enrolled || c.student_count || c.current_students || c.students) || 0;
@@ -80,18 +86,31 @@ const ClassCapacityController = (() => {
               capacity > 0 ? Math.round((enrolled / capacity) * 100) : 0;
             const barColor =
               util >= 90 ? "danger" : util >= 70 ? "warning" : "success";
-            return `<tr>
-                <td>${i + 1}</td>
-                <td><strong>${escapeHtml(c.name || c.class_name || "")}</strong></td>
-                <td>${escapeHtml(c.stream || c.stream_name || "--")}</td>
-                <td>${capacity}</td>
-                <td>${enrolled}</td>
-                <td>${available}</td>
-                <td><div class="d-flex align-items-center"><div class="progress flex-fill me-2" style="height:6px"><div class="progress-bar bg-${barColor}" style="width:${util}%"></div></div><small>${util}%</small></div></td>
-                <td><span class="badge bg-${util >= 90 ? "danger" : util >= 70 ? "warning" : "success"}">${util >= 90 ? "Full" : util >= 70 ? "Near Full" : "Available"}</span></td>
-            </tr>`;
-          })
-          .join("");
+            const row = template.content.firstElementChild.cloneNode(true);
+            const set = (field, value) => {
+                const element = row.querySelector(`[data-field="${field}"]`);
+                if (element) element.textContent = value ?? "—";
+            };
+            set('number', String(i + 1));
+            set('class', c.name || c.class_name || "");
+            set('stream', c.stream || c.stream_name || "--");
+            set('capacity', String(capacity));
+            set('enrolled', String(enrolled));
+            set('available', String(available));
+            set('utilization', `${util}%`);
+            const bar = row.querySelector('[data-field="bar"]');
+            if (bar) {
+                bar.classList.add(`bg-${barColor}`);
+                bar.style.width = `${util}%`;
+            }
+            const status = row.querySelector('[data-field="status"]');
+            if (status) {
+                status.classList.add(`bg-${barColor}`);
+                status.textContent = util >= 90 ? "Full" : util >= 70 ? "Near Full" : "Available";
+            }
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow || null);
     }
     function filterData() {
         const s = (document.getElementById('searchInput')?.value || '').toLowerCase();

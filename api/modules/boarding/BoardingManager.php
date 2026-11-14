@@ -46,7 +46,8 @@ class BoardingManager extends BaseAPI
     {
         try {
             $summary = $this->firstRow($this->db->query(
-                "SELECT COUNT(*) AS dormitories,
+                "SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS report_date,
+                        COUNT(*) AS dormitories,
                         COALESCE(SUM(capacity), 0) AS total_capacity,
                         COALESCE(SUM(current_occupancy), 0) AS assigned_beds
                  FROM dormitories
@@ -84,6 +85,7 @@ class BoardingManager extends BaseAPI
             $present = (int) ($roll['present_students'] ?? 0);
 
             return $this->successResponse([
+                'report_date' => (string) ($summary['report_date'] ?? ''),
                 'total_boarders' => $assigned,
                 'dormitories' => (int) ($summary['dormitories'] ?? 0),
                 'total_capacity' => $capacity,
@@ -267,33 +269,57 @@ class BoardingManager extends BaseAPI
         }
     }
 
-    public function getStudents($dormitoryId = null, $search = '')
+    public function getStudents($dormitoryId = null, $search = '', $academicYearId = null)
     {
         try {
-            $where = ["s.status = 'active'", "da.status = 'active'"];
+            // This page's roster is a multi-table composition. Read it from
+            // the governed projection instead of selecting undefined legacy
+            // aliases from student_directory (the old query had no `s`, `p`,
+            // `c`, `d`, `da`, or `ba` table aliases in its FROM clause).
+            $where = [
+                "bdc.assignment_status = 'active'",
+                "bdc.dormitory_status = 'active'",
+                '(bdc.end_date IS NULL OR bdc.end_date >= CURDATE())',
+            ];
             $params = [];
             if ($dormitoryId) {
-                $where[] = 'da.dormitory_id = ?';
+                $where[] = 'bdc.assignment_dormitory_id = ?';
                 $params[] = (int) $dormitoryId;
             }
+            if ($academicYearId === null) {
+                $yearStmt = $this->db->query(
+                    "SELECT id FROM academic_years
+                     WHERE is_current = 1
+                     ORDER BY is_current DESC, id DESC LIMIT 1"
+                );
+                $academicYearId = (int) ($yearStmt->fetchColumn() ?: 0);
+            }
+            if ((int) $academicYearId > 0) {
+                $where[] = 'bdc.assignment_academic_year_id = ?';
+                $params[] = (int) $academicYearId;
+            }
             if ($search !== '') {
-                $where[] = '(p.first_name LIKE ? OR p.last_name LIKE ? OR s.admission_no LIKE ?)';
-                $params[] = "%$search%";
+                $where[] = '(bdc.student_full_name LIKE ? OR bdc.admission_no LIKE ?)';
                 $params[] = "%$search%";
                 $params[] = "%$search%";
             }
 
-            $sql = "SELECT s.id, s.admission_no,
-                           CONCAT(p.first_name, ' ', p.last_name) AS student_name,
-                           p.gender,
-                           c.name AS class_name,
-                           d.name AS dormitory_name,
-                           da.bed_number,
-                           da.dormitory_id,
-                           COALESCE(ba.status, '—') AS tonight_status
-                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+            $sql = "SELECT bdc.student_id AS id,
+                           bdc.admission_no AS admission_number,
+                           bdc.student_full_name AS name,
+                           bdc.student_gender AS gender,
+                           bdc.class_name,
+                           bdc.stream_name,
+                           bdc.dormitory_name AS dormitory,
+                           bdc.bed_number,
+                           bdc.assignment_dormitory_id AS dormitory_id,
+                           bdc.assignment_academic_year_id AS academic_year_id,
+                           bdc.assignment_status AS boarding_status,
+                           bdc.roll_call_status AS tonight_status,
+                           bdc.permission_id
+                    FROM " . ReadReplicaService::qualifiedRef("boarding_dorm_context") . " bdc
                     WHERE " . implode(' AND ', $where) . "
-                    ORDER BY d.name, p.last_name, p.first_name
+                    ORDER BY bdc.dormitory_name, bdc.student_last_name, bdc.student_first_name
                     LIMIT 500";
 
             $stmt = $this->db->prepare($sql);
@@ -336,6 +362,110 @@ class BoardingManager extends BaseAPI
         }
     }
 
+    /** Aggregate authorized dormitory/session roll-call groups for AI review. */
+    public function getRollCallSummary(string $dateFrom, string $dateTo): array
+    {
+        $response = $this->getRollCall($dateTo, $dateFrom, $dateTo);
+        if (($response['success'] ?? false) !== true) return $response;
+        $rows = is_array($response['data'] ?? null) ? $response['data'] : [];
+        return $this->successResponse(self::buildRollCallSummary($rows));
+    }
+
+    /** Build the minimized, deterministic boarding context for AI review. */
+    public function getAiExceptionSummaryInput(string $dateFrom, string $dateTo): array
+    {
+        $statsResponse = $this->getStats();
+        if (($statsResponse['success'] ?? false) !== true) return $statsResponse;
+        $stats = is_array($statsResponse['data'] ?? null) ? $statsResponse['data'] : [];
+
+        $occupancyResponse = $this->getOccupancy();
+        if (($occupancyResponse['success'] ?? false) !== true) return $occupancyResponse;
+        $occupancy = is_array($occupancyResponse['data'] ?? null) ? $occupancyResponse['data'] : [];
+
+        $rollCallResponse = $this->getRollCallSummary($dateFrom, $dateTo);
+        if (($rollCallResponse['success'] ?? false) !== true) return $rollCallResponse;
+        $rollCall = is_array($rollCallResponse['data'] ?? null) ? $rollCallResponse['data'] : [];
+
+        $reportDate = (string) ($stats['report_date'] ?? '');
+        $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $reportDate);
+        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $reportDate) {
+            return $this->errorResponse('Boarding statistics did not provide a valid source date.', 503);
+        }
+
+        return $this->successResponse(self::buildAiExceptionSummaryInput(
+            $stats,
+            $occupancy,
+            $rollCall,
+            $dateFrom,
+            $dateTo
+        ));
+    }
+
+    /** Pure allow-listed payload transform; no identities or free-text notes. */
+    public static function buildAiExceptionSummaryInput(
+        array $stats,
+        array $occupancy,
+        array $rollCall,
+        string $dateFrom,
+        string $dateTo
+    ): array {
+        return [
+            'report_date' => (string) ($stats['report_date'] ?? ''),
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'roll_call_session_groups' => (string) max(0, (int) ($rollCall['session_group_count'] ?? 0)),
+            'roll_call_expected_records' => (string) max(0, (int) ($rollCall['expected_records'] ?? 0)),
+            'roll_call_present_count' => (string) max(0, (int) ($rollCall['present_count'] ?? 0)),
+            'roll_call_absent_count' => (string) max(0, (int) ($rollCall['absent_count'] ?? 0)),
+            'roll_call_permission_count' => (string) max(0, (int) ($rollCall['permission_count'] ?? 0)),
+            'roll_call_sick_bay_count' => (string) max(0, (int) ($rollCall['sick_bay_count'] ?? 0)),
+            'recorded_attendance_rate' => is_numeric($rollCall['recorded_attendance_rate'] ?? null)
+                ? (string) min(100, max(0, (float) $rollCall['recorded_attendance_rate']))
+                : 'not_available',
+            'dormitory_count' => (string) max(0, (int) ($stats['dormitories'] ?? count($occupancy))),
+            'capacity' => (string) max(0, (int) ($stats['total_capacity'] ?? 0)),
+            'assigned_beds' => (string) max(0, (int) ($stats['assigned_beds'] ?? 0)),
+            'available_beds' => (string) max(0, (int) ($stats['available_beds'] ?? 0)),
+            'occupancy_rate' => (string) min(100, max(0, (float) ($stats['occupancy_rate'] ?? 0))),
+            'present_tonight' => (string) max(0, (int) ($stats['present_tonight'] ?? 0)),
+            'absent_or_unknown' => (string) max(0, (int) ($stats['absent_or_unknown'] ?? 0)),
+            'on_leave' => (string) max(0, (int) ($stats['on_leave'] ?? 0)),
+            'pending_leaves' => (string) max(0, (int) ($stats['pending_leaves'] ?? 0)),
+            'urgent_notes' => (string) max(0, (int) ($stats['urgent_notes'] ?? 0)),
+            'roll_call_rate' => (string) min(100, max(0, (float) ($stats['roll_call_pct'] ?? 0))),
+            'follow_up_intent' => 'Prepare boarding operations follow-up; do not alter roll-call, occupancy, leave, or welfare records.',
+        ];
+    }
+
+    /** Pure aggregate transform kept separate for deterministic tests. */
+    public static function buildRollCallSummary(array $rows): array
+    {
+        $summary = [
+            'session_group_count' => count($rows),
+            'expected_records' => 0,
+            'present_count' => 0,
+            'absent_count' => 0,
+            'permission_count' => 0,
+            'sick_bay_count' => 0,
+        ];
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+            foreach ([
+                'total_students' => 'expected_records',
+                'present_count' => 'present_count',
+                'absent_count' => 'absent_count',
+                'permission_count' => 'permission_count',
+                'sick_bay_count' => 'sick_bay_count',
+            ] as $source => $target) {
+                $summary[$target] += max(0, (int) ($row[$source] ?? 0));
+            }
+        }
+        $summary['recorded_attendance_rate'] = $summary['expected_records'] > 0
+            ? round(100 * $summary['present_count'] / $summary['expected_records'], 1)
+            : 'not_available';
+        return $summary;
+    }
+
     public function markRollCall($data, $markedBy)
     {
         try {
@@ -357,11 +487,13 @@ class BoardingManager extends BaseAPI
             }
 
             $dormStmt = $this->db->prepare(
-                "SELECT da.dormitory_id
-                 FROM " . ReadReplicaService::qualifiedRef("dormitory_assignments") . "
-                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = da.student_academic_enrollment_id
-                 WHERE sae.student_id = ? AND da.status = 'active'
-                 ORDER BY da.id DESC LIMIT 1"
+                "SELECT bdc.assignment_dormitory_id
+                 FROM " . ReadReplicaService::qualifiedRef("boarding_dorm_context") . " bdc
+                 WHERE bdc.student_id = ?
+                   AND bdc.assignment_status = 'active'
+                   AND bdc.dormitory_status = 'active'
+                   AND (bdc.end_date IS NULL OR bdc.end_date >= CURDATE())
+                 ORDER BY bdc.assignment_id DESC LIMIT 1"
             );
             $ins = $this->db->prepare(
                 "INSERT INTO boarding_attendance

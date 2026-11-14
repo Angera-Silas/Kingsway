@@ -3,14 +3,8 @@
  * Report Cards Page — Production UI
  * All logic handled in: js/pages/report_cards.js
  *
- * API Endpoints:
- *   GET /academic/years-list   → academic years
- *   GET /academic/terms-list   → terms (dynamic — replaces hardcoded Term 1/2/3)
- *   GET /academic/classes-list → classes
- *   GET /students/student      → students (double-wrapped: data.data.students[])
- *   POST /academic/reports-start-workflow
- *   POST /academic/reports-compile-data
- *   POST /academic/reports-generate-student-reports
+ * The page lists authorized report card releases and uses the official generation
+ * endpoint for class batches or a selected learner.
  */
 ?>
 <style>
@@ -103,6 +97,7 @@
 .rc-loading .spinner-border { width:2.5rem; height:2.5rem; border-color:var(--rc-primary); border-right-color:transparent; }
 .rc-empty   { text-align:center; padding:3rem; color:#9e9e9e; font-size:.9rem; }
 .rc-empty i { font-size:2.5rem; display:block; margin-bottom:.5rem; opacity:.5; }
+@media print { .rc-print-hidden { display:none !important; } }
 
 .btn-rc { background:var(--rc-primary); color:#fff; border:none; border-radius:8px; }
 .btn-rc:hover { background:var(--rc-primary-mid); color:#fff; }
@@ -120,7 +115,7 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-light btn-sm" id="generateAllBtn">
-            <i class="bi bi-file-earmark-plus me-1"></i>Generate All
+            <i class="bi bi-file-earmark-plus me-1"></i>Generate Class Cards
         </button>
         <button class="btn btn-light btn-sm" id="downloadAllBtn">
             <i class="bi bi-download me-1"></i>Download All
@@ -131,9 +126,6 @@
         <button class="btn btn-light btn-sm" id="printAllBtn">
             <i class="bi bi-printer me-1"></i>Print Summary
         </button>
-        <button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#startReportWorkflowModal">
-            <i class="bi bi-diagram-3 me-1"></i>Start Workflow
-        </button>
     </div>
 </div>
 
@@ -143,7 +135,7 @@
 <div class="row g-3 mb-3">
     <div class="col-6 col-md-3">
         <div class="rc-kpi d-flex justify-content-between align-items-center">
-            <div><div class="kv" id="totalStudents">—</div><div class="kl">Total Students</div></div>
+            <div><div class="kv" id="totalStudents">—</div><div class="kl">Report Cards Listed</div></div>
             <i class="bi bi-people ki"></i>
         </div>
     </div>
@@ -161,7 +153,7 @@
     </div>
     <div class="col-6 col-md-3">
         <div class="rc-kpi d-flex justify-content-between align-items-center" style="border-top-color:#0d47a1">
-            <div><div class="kv" id="cardsDownloaded" style="color:#0d47a1">—</div><div class="kl">Downloaded</div></div>
+            <div><div class="kv" id="cardsDownloaded" style="color:#0d47a1">—</div><div class="kl">PDFs Available</div></div>
             <i class="bi bi-cloud-download ki" style="color:#bbdefb"></i>
         </div>
     </div>
@@ -174,14 +166,13 @@
     <div>
         <label class="form-label small fw-semibold mb-1">Academic Year</label>
         <select class="form-select form-select-sm" id="yearFilter" style="width:175px">
-            <option value="">All Years</option>
+            <option value="">Loading…</option>
         </select>
     </div>
     <div>
         <label class="form-label small fw-semibold mb-1">Term</label>
         <select class="form-select form-select-sm" id="termFilter" style="width:165px">
-            <option value="">All Terms</option>
-            <!-- Loaded dynamically from /academic/terms-list -->
+            <option value="">Loading…</option>
         </select>
     </div>
     <div>
@@ -212,9 +203,6 @@
                placeholder="Name or admission number…">
     </div>
     <div>
-        <button class="btn btn-rc btn-sm" id="loadBtn">
-            <i class="bi bi-search me-1"></i>Search
-        </button>
         <button class="btn btn-rc-outline btn-sm ms-1" id="clearBtn">
             <i class="bi bi-x-circle me-1"></i>Clear
         </button>
@@ -226,7 +214,7 @@
 ══════════════════════════════════════════════════ -->
 <div class="rc-card">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <span><i class="bi bi-table me-2"></i>Students &amp; Report Card Status</span>
+        <span><i class="bi bi-table me-2"></i>Generated Report Card Releases</span>
         <div class="d-flex gap-2 align-items-center">
             <button class="btn btn-sm btn-rc-outline" id="printSelectedBtn" style="display:none" onclick="reportCardsCtrl.printSelected()">
                 <i class="bi bi-file-check me-1"></i>Print Selected
@@ -267,44 +255,17 @@
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════
-     MODAL: START REPORT WORKFLOW
-══════════════════════════════════════════════════ -->
-<div class="modal fade" id="startReportWorkflowModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header" style="background:var(--rc-primary);color:#fff">
-                <h5 class="modal-title"><i class="bi bi-diagram-3 me-2"></i>Start Report Card Workflow</h5>
-                <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="reportWorkflowForm" onsubmit="reportCardsCtrl.startWorkflow(event)">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>
-                        <select class="form-select" name="academic_year_id" id="wfRcYear" required>
-                            <option value="">Select Year</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Term <span class="text-danger">*</span></label>
-                        <select class="form-select" name="term_id" id="wfRcTerm" required>
-                            <option value="">Select Term</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Affected Classes</label>
-                        <select class="form-select" name="class_id" id="wfRcClass">
-                            <option value="">All Classes</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-rc"><i class="bi bi-play-circle me-1"></i>Start Workflow</button>
-                </div>
-            </form>
-        </div>
+<div class="modal fade" id="releaseParentsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Approve report card delivery</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <p class="small text-muted">Choose the guardians and channels for this learner. The released report also becomes available in the parent portal.</p>
+      <div class="d-flex gap-3 mb-3" id="releaseChannels"><label><input type="checkbox" value="sms" checked> SMS</label><label><input type="checkbox" value="email" checked> Email</label><label><input type="checkbox" value="whatsapp"> WhatsApp</label></div>
+      <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2"><strong>Linked parents / guardians</strong><button class="btn btn-sm btn-link" type="button" id="toggleReleaseParents">Select none</button></div>
+      <div id="releaseParentsList" class="list-group"><div class="text-muted small">Loading linked guardians…</div></div>
     </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="confirmReleaseBtn">Release report card</button></div>
+  </div></div>
 </div>
 
 <!-- Toast -->

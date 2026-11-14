@@ -18,6 +18,12 @@
  */
 
 const AdmissionsController = {
+  escapeHtml(value) {
+    const node = document.createElement("span");
+    node.textContent = String(value ?? "");
+    return node.innerHTML;
+  },
+
   // State management
   state: {
     currentTab: "documents_pending",
@@ -1131,33 +1137,33 @@ const AdmissionsController = {
         // Add document count for documents_pending tab
         let extraInfo = "";
         if (tabKey === "documents_pending" && app.doc_count !== undefined) {
-          extraInfo = `<small class="text-muted">${app.verified_count || 0}/${
-            app.doc_count || 0
+          extraInfo = `<small class="text-muted">${Number(app.verified_count) || 0}/${
+            Number(app.doc_count) || 0
           } docs verified</small>`;
         }
 
         return `
                 <tr>
                     <td>
-                        <strong>${app.application_no}</strong><br>
+                        <strong>${this.escapeHtml(app.application_no)}</strong><br>
                         ${extraInfo}
                     </td>
                     <td>
-                        ${app.applicant_name}<br>
+                        ${this.escapeHtml(app.applicant_name)}<br>
                         <small class="text-muted">${
-                          app.grade_applying_for
+                          this.escapeHtml(app.grade_applying_for)
                         }</small>
                     </td>
                     <td>
-                      ${parentName}<br>
-                      <small class="text-muted">${parentContact}</small>
+                      ${this.escapeHtml(parentName)}<br>
+                      <small class="text-muted">${this.escapeHtml(parentContact)}</small>
                     </td>
                     <td>${statusBadge}</td>
                     <td>${createdDate}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
                             <button class="btn btn-outline-secondary" data-action="view" data-application-id="${
-                              app.id
+                              Number(app.id) || 0
                             }">
                                 <i class="bi bi-eye"></i>
                             </button>
@@ -1282,7 +1288,7 @@ const AdmissionsController = {
 
     return `
             <button class="btn btn-${config.color}" data-action="${action}" 
-                    data-application-id="${applicationId}" title="${config.title}"
+                    data-application-id="${Number(applicationId) || 0}" title="${config.title}"
                     data-server-authorized="${serverAuthorized ? "1" : "0"}">
                 <i class="bi ${config.icon}"></i>
             </button>
@@ -1303,7 +1309,7 @@ const AdmissionsController = {
       cancelled: { color: "danger", text: "Cancelled" },
     };
 
-    const config = configs[status] || { color: "secondary", text: status };
+    const config = configs[status] || { color: "secondary", text: this.escapeHtml(status) };
     return `<span class="badge bg-${config.color}">${config.text}</span>`;
   },
 
@@ -1378,7 +1384,7 @@ const AdmissionsController = {
                     <div class="d-flex justify-content-between align-items-center border-bottom py-2">
                         <div>
                             <i class="bi bi-file-earmark me-2"></i>
-                            ${doc.document_type}
+                            ${this.escapeHtml(doc.document_type)}
                             ${
                               doc.is_mandatory
                                 ? '<span class="badge bg-danger ms-1">Required</span>'
@@ -1386,7 +1392,7 @@ const AdmissionsController = {
                             }
                         </div>
                         <span class="badge bg-${statusClass}">${
-                          doc.verification_status
+                          this.escapeHtml(doc.verification_status)
                         }</span>
                     </div>
                 `;
@@ -1413,15 +1419,15 @@ const AdmissionsController = {
                     <h6 class="text-muted mb-3">Applicant Information</h6>
                     <dl class="row">
                         <dt class="col-5">Application #</dt>
-                        <dd class="col-7">${application.application_no}</dd>
+                        <dd class="col-7">${this.escapeHtml(application.application_no)}</dd>
                         <dt class="col-5">Name</dt>
-                        <dd class="col-7">${application.applicant_name}</dd>
+                        <dd class="col-7">${this.escapeHtml(application.applicant_name)}</dd>
                         <dt class="col-5">Grade</dt>
-                        <dd class="col-7">${application.grade_applying_for}</dd>
+                        <dd class="col-7">${this.escapeHtml(application.grade_applying_for)}</dd>
                         <dt class="col-5">Date of Birth</dt>
-                        <dd class="col-7">${dobValue}</dd>
+                        <dd class="col-7">${this.escapeHtml(dobValue)}</dd>
                         <dt class="col-5">Gender</dt>
-                        <dd class="col-7">${application.gender || "N/A"}</dd>
+                        <dd class="col-7">${this.escapeHtml(application.gender || "N/A")}</dd>
                         <dt class="col-5">Status</dt>
                         <dd class="col-7">${this.getStatusBadge(
                           application.status,
@@ -1432,11 +1438,11 @@ const AdmissionsController = {
                     <h6 class="text-muted mb-3">Parent/Guardian</h6>
                     <dl class="row">
                         <dt class="col-5">Name</dt>
-                        <dd class="col-7">${parentDisplay}</dd>
+                        <dd class="col-7">${this.escapeHtml(parentDisplay)}</dd>
                         <dt class="col-5">Phone</dt>
-                        <dd class="col-7">${parentPhone}</dd>
+                        <dd class="col-7">${this.escapeHtml(parentPhone)}</dd>
                         <dt class="col-5">Email</dt>
-                        <dd class="col-7">${parentEmail}</dd>
+                        <dd class="col-7">${this.escapeHtml(parentEmail)}</dd>
                     </dl>
                 </div>
             </div>
@@ -1462,7 +1468,7 @@ const AdmissionsController = {
         `;
 
     // Show the modal
-    const bsModal = new bootstrap.Modal(modal);
+    const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
   },
 
@@ -1530,7 +1536,7 @@ const AdmissionsController = {
       const checkbox = modal.querySelector("#hasSpecialNeeds");
       this.toggleSpecialNeeds(checkbox?.checked);
       this.syncNewApplicationModal(modal);
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     }
   },
@@ -1915,7 +1921,7 @@ const AdmissionsController = {
         </button>
       `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2114,7 +2120,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2263,7 +2269,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2354,7 +2360,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2526,7 +2532,7 @@ const AdmissionsController = {
                 </button>
             `;
 
-      const bsModal = new bootstrap.Modal(modal);
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
       bsModal.show();
     } catch (error) {
       console.error(
@@ -2641,7 +2647,7 @@ const AdmissionsController = {
     const notes = modalEl.querySelector('textarea[name="notes"]');
     if (notes) notes.value = "";
 
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
   },
 
@@ -2743,7 +2749,7 @@ const AdmissionsController = {
     if (titleEl) titleEl.textContent = title;
     if (messageEl) messageEl.textContent = message;
 
-    const bsModal = new bootstrap.Modal(modal);
+    const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
 
     const newOk = okBtn.cloneNode(true);

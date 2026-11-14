@@ -26,33 +26,23 @@ const fAssCtrl = {
       return;
     }
     await GradingScale.preload();
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload assessments when academic year or term changes
-          this.loadAll();
-          this._loadSummary();
-        }
+    // Year and term filters: the year list defaults to the current year and
+    // the term list holds only that year's terms (AcademicYearFilter).
+    const yearSelect = document.getElementById('faYearFilter');
+    if (window.AcademicYearFilter && yearSelect) {
+      let ready = false;
+      await window.AcademicYearFilter.mount(yearSelect, {
+        termSelect: document.getElementById('faTermFilter'),
+        allTermsLabel: 'All Terms',
+        onChange: (yearId, _year, termId) => {
+          this._currentAcademicYear = Number(yearId || 0);
+          this._currentTerm = Number(termId || 0);
+          if (ready) { this.loadAll(); this._loadSummary(); }
+        },
       });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this._currentTerm = window.AcademicContext.getTermId();
-      
-      // Update term filter to use current context
-      if (this._currentTerm) {
-        const termFilter = document.getElementById('faTermFilter');
-        if (termFilter) termFilter.value = this._currentTerm;
-      }
+      ready = true;
     }
-    
+
     await Promise.all([
       this._loadReferencesComposed(),
       this._loadClasses(),
@@ -97,7 +87,7 @@ const fAssCtrl = {
         sel.innerHTML = `<option value="">${placeholder}</option>`;
         rows.forEach(t => sel.insertAdjacentHTML('beforeend', `<option value="${t.id}">${this._esc(t.name)}</option>`));
       });
-      fill(['faTermFilter', 'faTerm'], this._terms);
+      fill(['faTerm'], this._terms);
       fill(['faSubjectFilter', 'faSubject'], this._subjects);
       fill(['faTypeFilter', 'faType'], this._types);
     } catch (e) {
@@ -110,7 +100,7 @@ const fAssCtrl = {
     try {
       const r = await callAPI('/academic/terms-list', 'GET');
       this._terms = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      ['faTermFilter', 'faTerm'].forEach(id => {
+      ['faTerm'].forEach(id => {
         const sel = document.getElementById(id);
         if (!sel) return;
         const placeholder = sel.options[0].textContent;
@@ -193,6 +183,7 @@ const fAssCtrl = {
   _loadSubStrandsForSubject: async function (learningAreaId) {
     const mount = document.getElementById('faSubStrandPicker');
     if (!mount) return;
+    const requestId = this._taxonomyRequestId = (this._taxonomyRequestId || 0) + 1;
     this._selectedSubStrandIds = new Set();
     if (!learningAreaId) {
       mount.innerHTML = '<div class="text-muted small">Select a learning area to load its sub-strands.</div>';
@@ -201,18 +192,50 @@ const fAssCtrl = {
     mount.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading sub-strands…</div>';
     try {
       const classId = document.getElementById('faClass')?.value;
-      let gradeFilter = '';
+      let selectedGrade = '';
       if (classId) {
         const cls = (this._classes || []).find(c => String(c.id) === String(classId));
         if (cls && cls.name) {
           const match = cls.name.match(/Grade (\d+)/);
-          if (match) gradeFilter = '&grade_level=' + encodeURIComponent(match[1]);
+          if (match) selectedGrade = match[1];
         }
       }
-      const r = await callAPI('/academic/curriculum-taxonomy?learning_area_id=' + learningAreaId + gradeFilter, 'GET');
-      const rows = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      // There is no /academic/curriculum-taxonomy route. Load the existing
+      // scoped strand and sub-strand resources for the selected learning area.
+      const strandResponse = await callAPI(
+        '/academic/strands?learning_area_id=' + encodeURIComponent(learningAreaId),
+        'GET',
+      );
+      if (!mount.isConnected || requestId !== this._taxonomyRequestId) return;
+      const allStrands = Array.isArray(strandResponse?.data)
+        ? strandResponse.data
+        : (Array.isArray(strandResponse) ? strandResponse : []);
+      const strands = selectedGrade
+        ? allStrands.filter((strand) => String(strand.grade_level || '').match(/\d+/)?.[0] === selectedGrade)
+        : allStrands;
+      const subStrandResponses = await Promise.allSettled(strands.map((strand) =>
+        callAPI('/academic/sub-strands?strand_id=' + encodeURIComponent(strand.id), 'GET')
+      ));
+      if (!mount.isConnected || requestId !== this._taxonomyRequestId) return;
+      const rows = strands.flatMap((strand, index) => {
+        const settled = subStrandResponses[index];
+        if (settled.status !== 'fulfilled') return [];
+        const response = settled.value;
+        const subStrands = Array.isArray(response?.data)
+          ? response.data
+          : (Array.isArray(response) ? response : []);
+        return subStrands.map((subStrand) => ({
+          strand_id: strand.id,
+          strand_name: strand.name,
+          sub_strand_id: subStrand.id,
+          sub_strand_name: subStrand.name,
+        }));
+      });
+      const failedStrandLoads = subStrandResponses.filter((result) => result.status === 'rejected').length;
       if (!rows.length) {
-        mount.innerHTML = '<div class="text-muted small">No sub-strands found for this learning area.</div>';
+        mount.innerHTML = failedStrandLoads
+          ? '<div class="text-danger small">Sub-strands could not be loaded. Try another learning area or reload the page.</div>'
+          : '<div class="text-muted small">No sub-strands found for this learning area.</div>';
         return;
       }
       const byStrand = {};
@@ -223,7 +246,9 @@ const fAssCtrl = {
           byStrand[sid].subs.push({ id: row.sub_strand_id, name: row.sub_strand_name || '' });
         }
       });
-      mount.innerHTML = Object.entries(byStrand).map(([sid, strand]) => `
+      mount.innerHTML = (failedStrandLoads
+        ? '<div class="alert alert-warning py-2 small">Some sub-strands could not be loaded.</div>'
+        : '') + Object.entries(byStrand).map(([sid, strand]) => `
         <div class="mb-2">
           <div class="fw-semibold small text-muted text-uppercase">${this._esc(strand.name)}</div>
           ${strand.subs.map(ss => `
@@ -239,7 +264,9 @@ const fAssCtrl = {
         });
       });
     } catch (e) {
-      mount.innerHTML = '<div class="text-muted small">Unable to load sub-strands.</div>';
+      if (mount.isConnected && requestId === this._taxonomyRequestId) {
+        mount.innerHTML = '<div class="text-danger small">Sub-strands could not be loaded. Try another learning area or reload the page.</div>';
+      }
     }
   },
 
@@ -276,6 +303,7 @@ const fAssCtrl = {
       const subject = document.getElementById('faSubjectFilter')?.value;
       const type    = document.getElementById('faTypeFilter')?.value;
       if (term)    params.set('term_id',    term);
+      if (this._currentAcademicYear) params.set('year_id', this._currentAcademicYear);
       if (cls)     params.set('class_id',   cls);
       if (subject) params.set('subject_id', subject);
       if (type)    params.set('type_id',    type);
@@ -347,7 +375,7 @@ const fAssCtrl = {
     document.getElementById('faCreateError')?.classList.add('d-none');
     const outcomeSel = document.getElementById('faOutcome');
     if (outcomeSel) outcomeSel.innerHTML = '<option value="">— Select learning outcome —</option>';
-    new bootstrap.Modal(document.getElementById('faCreateModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('faCreateModal')).show();
   },
 
   saveAssessment: async function () {

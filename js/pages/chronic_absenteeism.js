@@ -12,7 +12,8 @@ const chronicAbsenteeismController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    document.getElementById('caApplyBtn')?.addEventListener('click', () => this._load());
+    // Rule 6: the threshold filter auto-loads on change (no Apply button).
+    document.getElementById('caThreshold')?.addEventListener('change', () => this._load());
     await this._load();
   },
 

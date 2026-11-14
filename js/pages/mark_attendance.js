@@ -395,7 +395,7 @@ const MarkAttendanceController = {
     this.ui.confirmPending.textContent = counts.pending;
 
     if (typeof bootstrap !== "undefined" && this.ui.saveConfirmationModal) {
-      const modalInstance = new bootstrap.Modal(this.ui.saveConfirmationModal);
+      const modalInstance = bootstrap.Modal.getOrCreateInstance(this.ui.saveConfirmationModal);
       modalInstance.show();
     }
   },

@@ -325,7 +325,7 @@ const AlumniController = {
         }
         modal.querySelector('.modal-title').textContent = title;
         modal.querySelector('.modal-body').innerHTML = bodyHtml;
-        new bootstrap.Modal(modal).show();
+        bootstrap.Modal.getOrCreateInstance(modal).show();
         if (onShow) setTimeout(onShow, 300);
     },
 };

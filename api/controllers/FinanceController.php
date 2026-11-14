@@ -18,8 +18,8 @@ use App\API\Services\payments\PaymentRoutingService;
 use App\API\Services\payments\KcbFundsTransferService;
 use App\API\Services\payments\KcbTransferReconciliationService;
 use App\API\Services\FinancialReconciliationService;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 
 /**
@@ -343,6 +343,30 @@ class FinanceController extends BaseController
         }
     }
 
+    /**
+     * POST /api/finance/extra-charge-obligations-worker
+     * Ticker job extra_charge_obligations (schedules.yaml). Replaces the
+     * MariaDB event, which needed event_scheduler=ON.
+     */
+    public function postExtraChargeObligationsWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        try {
+            $result = (new \App\API\Services\ExtraChargeObligationService($this->db->getConnection()))->generateDue();
+            if ($result['created'] > 0) {
+                \App\API\Includes\FileLogger::write('finance', ['action' => 'extra_charge_obligations_generated'] + $result);
+            }
+            return $this->success($result, 'Extra-charge obligations generated.');
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::error('finance', ['action' => 'extra_charge_obligations_worker', 'error' => $e->getMessage()]);
+            return $this->serverError('Extra-charge obligation worker failed.');
+        }
+    }
+
     /** POST /api/finance/kcb-disbursements/{id}/retry */
     public function postKcbDisbursementsRetry($id = null, $data = [], $segments = [])
     {
@@ -446,6 +470,36 @@ class FinanceController extends BaseController
     }
 
     /**
+     * GET /api/finance/financial-accounts/{id}/permissions
+     *
+     * The router hyphen-joins the remaining path segments, so this route
+     * resolves to getFinancialAccountsPermissions (plural). Without this alias
+     * the lookup 404'd while the POST sibling resolved, leaving the
+     * permissions panel unable to read what it had just written.
+     */
+    public function getFinancialAccountsPermissions($id = null, $data = [], $segments = [])
+    {
+        return $this->getFinancialAccountPermissions($id, $data, $segments);
+    }
+
+    /** DELETE /api/finance/financial-accounts/{id} */
+    public function deleteFinancialAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('Financial account ID required');
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Only authorized integration administrators may remove accounts');
+        return $this->handleResponse($this->api->deleteFinancialAccount((int)$id, (int)$this->getUserId()));
+    }
+
+    /** PUT /api/finance/financial-accounts/{id}/status — activate or suspend */
+    public function putFinancialAccountsStatus($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('Financial account ID required');
+        $status = (string)($data['status'] ?? 'active');
+        if (!in_array($status, ['active', 'suspended'], true)) return $this->badRequest('status must be active or suspended');
+        return $this->api->verifyFinancialAccount((int)$id, (int)$this->getUserId(), $status);
+    }
+
+    /**
      * GET /api/finance/supplier-payables
      * Returns approved supplier expenses with outstanding balances and verified
      * payout accounts so the finance UI never asks users to type IDs.
@@ -529,6 +583,13 @@ class FinanceController extends BaseController
         return $this->success(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->sources());
     }
 
+    /** GET /api/finance/student-fund-destinations */
+    public function getStudentFundDestinations($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        return $this->success(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->destinations());
+    }
+
     /** GET /api/finance/payment-routing-cases */
     public function getPaymentRoutingCases($id = null, $data = [], $segments = [])
     {
@@ -558,7 +619,7 @@ class FinanceController extends BaseController
                 'provider' => implode(', ', array_slice($providers, 0, 10)) ?: 'mixed providers',
                 'reconciliation_rule' => 'Review reference, account routing, duplicate risk, and missing evidence before deterministic resolution.',
             ];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'finance.reconciliation_review',
                 $this->aiFinanceContext(),
                 $input,
@@ -589,7 +650,7 @@ class FinanceController extends BaseController
         if ($review && !$this->canApproveAiReconciliation()) return $this->forbidden('Senior finance reconciliation permission is required');
         try {
             return $this->success([
-                'drafts' => $this->contract(AiDraftService::class)->listForReview(
+                'drafts' => $this->contract(DraftRepository::class)->listForReview(
                     $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'finance'
                 ),
                 'scope' => $review ? 'review' : 'own',
@@ -607,7 +668,7 @@ class FinanceController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'finance.reconciliation_review');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'finance.reconciliation_review');
             return $this->success([
                 'draft_id' => $draftId,
                 'status' => 'approved',
@@ -626,9 +687,8 @@ class FinanceController extends BaseController
     {
         return [
             'user_id' => (int) ($this->getUserId() ?? 0),
-            'permissions' => array_values(array_unique(array_merge(
-                (array) ($this->user['effective_permissions'] ?? []),
-                (array) ($this->user['permissions'] ?? [])
+            'permissions' => array_values(array_unique((array) (
+                $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
             ))),
             'request_id' => $_SERVER['REQUEST_ID'] ?? '',
         ];
@@ -636,7 +696,7 @@ class FinanceController extends BaseController
 
     private function canUseAiReconciliation(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('finance.reconciliation_review', $this->aiFinanceContext()); return true; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('finance.reconciliation_review', $this->aiFinanceContext()); return true; }
         catch (DomainException $e) { return false; }
     }
 
@@ -1742,6 +1802,21 @@ class FinanceController extends BaseController
     }
 
     /**
+     * GET /api/finance/fee-structures OR /api/finance/fee-structures/{id}
+     * Detail view when an id is supplied; otherwise the permission-aware list.
+     * The Node data-operation spec for finance/fee_structures calls this bare
+     * resource for its detail query, so it must resolve explicitly instead of
+     * relying on the router's list fallback.
+     */
+    public function getFeeStructures($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null && is_numeric($id)) {
+            return $this->getFeeStructuresGet($id, $data, $segments);
+        }
+        return $this->getFeeStructuresList($id, $data, $segments);
+    }
+
+    /**
      * GET /api/finance/fee-structures/list
      * Get fee structures with permission-aware filtering
      */
@@ -2462,6 +2537,7 @@ return $this->error('An internal error occurred.');
     /** GET /api/finance/exception-reports — list flagged exceptions */
     public function getExceptionReports($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         return $this->success($this->crud->listExceptionReports($data));
     }
 

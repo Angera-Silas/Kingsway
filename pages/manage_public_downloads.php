@@ -1,7 +1,6 @@
 <?php
 /* Public Downloads — standalone page (split from Website Management). */
-$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
 ?>
 
 <style>

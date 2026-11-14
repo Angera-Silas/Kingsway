@@ -15,14 +15,15 @@ const ResultsAnalysisController = (() => {
       pagination.page = page;
       const params = new URLSearchParams({ page, limit: pagination.limit });
 
-      const term = document.getElementById("termFilterResults")?.value;
-      if (term) params.append("term", term);
+      // The server reads term_id (an academic_year_terms id) and
+      // academic_year_id. The old "term"/"year" parameters were ignored, so
+      // these filters never changed the analysis.
+      if (currentTerm) params.append("term_id", currentTerm);
       const cls = document.getElementById("classFilterResults")?.value;
       if (cls) params.append("class_id", cls);
       const subject = document.getElementById("subjectFilterResults")?.value;
       if (subject) params.append("subject_id", subject);
-      const year = document.getElementById("yearFilterResults")?.value;
-      if (year) params.append("year", year);
+      if (currentAcademicYear) params.append("academic_year_id", currentAcademicYear);
 
       const response = await window.API.apiCall(
         `/academic/results-analysis?${params.toString()}`,
@@ -51,7 +52,7 @@ const ResultsAnalysisController = (() => {
       // stale-while-revalidate) to avoid re-querying the DB on every page load.
       const [classResp, subjectResp, yearResp] = await Promise.all([
         DataStore.fetchPage('classes', {
-          endpoint: '/academic/classes', storeName: 'reference_classes',
+          endpoint: '/academic/classes-list', storeName: 'reference_classes',
           ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
         }).catch(() => []),
         DataStore.fetchPage('subjects', {
@@ -59,14 +60,16 @@ const ResultsAnalysisController = (() => {
           ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
         }).catch(() => []),
         DataStore.fetchPage('academic_years', {
-          endpoint: '/academic/years', storeName: 'reference_academic_years',
+          endpoint: '/academic/years/list', storeName: 'reference_academic_years',
           ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
         }).catch(() => []),
       ]);
 
-      const classes = Array.isArray(classResp?.data || classResp)
+      // One entry per class: the list has a row per class per academic year.
+      const classRows = Array.isArray(classResp?.data || classResp)
         ? classResp?.data || classResp
         : [];
+      const classes = [...new Map(classRows.map((c) => [String(c.class_id || c.id), c])).values()];
       const subjects = Array.isArray(subjectResp?.data || subjectResp)
         ? subjectResp?.data || subjectResp
         : [];
@@ -94,16 +97,6 @@ const ResultsAnalysisController = (() => {
         });
       }
 
-      const yearSelect = document.getElementById("yearFilterResults");
-      if (yearSelect) {
-        years.forEach((y) => {
-          const opt = document.createElement("option");
-          opt.value = y.academic_year || y.year || y.id;
-          opt.textContent = y.year_code || y.year_name || y.year || "";
-          if (y.is_current) opt.selected = true;
-          yearSelect.appendChild(opt);
-        });
-      }
     } catch (e) {
       console.warn("Failed to load reference data:", e);
     }
@@ -152,51 +145,41 @@ const ResultsAnalysisController = (() => {
 
   function renderTable(items) {
     const tbody = document.getElementById("resultsTableBody");
-    if (!tbody) return;
-
+    const stateRow = document.getElementById("resultsTableState");
+    const template = document.getElementById("resultsAnalysisRowTemplate");
+    if (!tbody || !stateRow || !template) return;
+    tbody.querySelectorAll("[data-results-row]").forEach((row) => row.remove());
     if (!items.length) {
-      tbody.innerHTML =
-        '<tr><td colspan="8" class="text-center py-4 text-muted">No results data found</td></tr>';
+      stateRow.querySelector("td").textContent = "No results data found";
+      stateRow.hidden = false;
       return;
     }
-
-    tbody.innerHTML = items
-      .map((r, i) => {
-        const mean = parseFloat(r.mean_score || r.mean || 0);
-        const passRate = parseFloat(r.pass_rate || 0);
-        const meanColor =
-          mean >= 70 ? "success" : mean >= 50 ? "warning" : "danger";
-        const passColor =
-          passRate >= 80 ? "success" : passRate >= 50 ? "warning" : "danger";
-
-        const gradeA = r.grade_a || r.grades?.A || 0;
-        const gradeB = r.grade_b || r.grades?.B || 0;
-        const gradeC = r.grade_c || r.grades?.C || 0;
-        const gradeD = r.grade_d || r.grades?.D || 0;
-        const gradeE = r.grade_e || r.grades?.E || 0;
-
-        return `
-                <tr>
-                    <td>${(pagination.page - 1) * pagination.limit + i + 1}</td>
-                    <td><strong>${r.subject_name || r.subject || "-"}</strong></td>
-                    <td>${r.teacher_name || "-"}</td>
-                    <td><span class="badge bg-${meanColor}">${mean.toFixed(1)}%</span></td>
-                    <td>${r.highest_score || r.highest || "-"}</td>
-                    <td>${r.lowest_score || r.lowest || "-"}</td>
-                    <td><span class="text-${passColor} fw-bold">${passRate.toFixed(1)}%</span></td>
-                    <td>
-                        <small>
-                            <span class="badge bg-success">A:${gradeA}</span>
-                            <span class="badge bg-primary">B:${gradeB}</span>
-                            <span class="badge bg-info">C:${gradeC}</span>
-                            <span class="badge bg-warning text-dark">D:${gradeD}</span>
-                            <span class="badge bg-danger">E:${gradeE}</span>
-                        </small>
-                    </td>
-                </tr>
-            `;
-      })
-      .join("");
+    stateRow.hidden = true;
+    const fragment = document.createDocumentFragment();
+    items.forEach((record, index) => {
+      const mean = parseFloat(record.mean_score || record.mean || 0);
+      const passRate = parseFloat(record.pass_rate || 0);
+      const row = template.content.cloneNode(true);
+      const fill = (name, value) => { row.querySelector(`[data-fill="${name}"]`).textContent = String(value ?? "-"); };
+      fill("number", (pagination.page - 1) * pagination.limit + index + 1);
+      fill("subject", record.subject_name || record.subject || "-");
+      fill("teacher", record.teacher_name || "-");
+      fill("highest", record.highest_score || record.highest || "-");
+      fill("lowest", record.lowest_score || record.lowest || "-");
+      const meanBadge = row.querySelector('[data-fill="mean"]');
+      meanBadge.textContent = mean.toFixed(1) + "%";
+      meanBadge.classList.add(mean >= 70 ? "bg-success" : mean >= 50 ? "bg-warning" : "bg-danger");
+      const passNode = row.querySelector('[data-fill="pass-rate"]');
+      passNode.textContent = passRate.toFixed(1) + "%";
+      passNode.classList.add(passRate >= 80 ? "text-success" : passRate >= 50 ? "text-warning" : "text-danger");
+      fill("grade-a", "A:" + (record.grade_a || record.grades?.A || 0));
+      fill("grade-b", "B:" + (record.grade_b || record.grades?.B || 0));
+      fill("grade-c", "C:" + (record.grade_c || record.grades?.C || 0));
+      fill("grade-d", "D:" + (record.grade_d || record.grades?.D || 0));
+      fill("grade-e", "E:" + (record.grade_e || record.grades?.E || 0));
+      fragment.appendChild(row);
+    });
+    tbody.insertBefore(fragment, stateRow);
   }
 
   function renderPagination() {
@@ -379,17 +362,12 @@ const ResultsAnalysisController = (() => {
   }
 
   function attachListeners() {
-    document
-      .getElementById("termFilterResults")
-      ?.addEventListener("change", () => loadData(1));
+    // Year and term changes are handled by AcademicYearFilter (see init).
     document
       .getElementById("classFilterResults")
       ?.addEventListener("change", () => loadData(1));
     document
       .getElementById("subjectFilterResults")
-      ?.addEventListener("change", () => loadData(1));
-    document
-      .getElementById("yearFilterResults")
       ?.addEventListener("change", () => loadData(1));
     document
       .getElementById("exportResultsBtn")
@@ -405,34 +383,26 @@ const ResultsAnalysisController = (() => {
   }
 
   async function init() {
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload results when academic year or term changes
-          loadData();
-        }
+    // Year and term come from the shared selector (default: the current
+    // year, all terms). The term list follows the chosen year.
+    let ready = false;
+    const yearSelect = document.getElementById("yearFilterResults");
+    const termSelect = document.getElementById("termFilterResults");
+    if (window.AcademicYearFilter && yearSelect && termSelect) {
+      await window.AcademicYearFilter.mount(yearSelect, {
+        termSelect,
+        allTermsLabel: "All terms",
+        onChange: (yearId, _year, termId) => {
+          currentAcademicYear = yearId;
+          currentTerm = termId;
+          if (ready) loadData();
+        },
       });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      currentTerm = window.AcademicContext.getTermId();
-      
-      // Update filters to use current context
-      if (currentTerm) {
-        const termFilter = document.getElementById('termFilterResults');
-        if (termFilter) termFilter.value = currentTerm;
-      }
     }
-    
+
     attachListeners();
     await loadReferenceData();
+    ready = true;
     await loadData();
   }
 

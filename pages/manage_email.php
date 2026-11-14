@@ -261,7 +261,10 @@
 
       <div class="kw-mail-accounts">
         <div class="d-flex align-items-center justify-content-between px-3 pt-2 pb-1">
-          <small class="text-uppercase text-muted" style="letter-spacing:.08em;font-size:.7rem;">Mail accounts</small>
+          <div>
+            <small class="text-uppercase text-muted" style="letter-spacing:.08em;font-size:.7rem;">Mail accounts</small>
+            <small class="d-block text-muted" style="font-size:.68rem;">Each account has its own staff list. Use its shield to manage who can access that group mailbox.</small>
+          </div>
           <button type="button" class="kw-account-gear" id="mailAccessBtn" title="Manage mailbox access" style="display:none;"><i class="fas fa-user-shield"></i></button>
         </div>
         <div id="mailboxTabs" role="tablist"></div>
@@ -391,6 +394,17 @@
                             <button type="button" class="btn btn-link btn-sm p-0" id="composeCcBccToggle">Show Cc / Bcc</button>
                         </div>
                         <div class="col-12">
+                            <label class="form-label fw-semibold" for="emailStaffTagSearch">Staff copied on this message</label>
+                            <input type="search" class="form-control" id="emailStaffTagSearch" placeholder="Find staff by name or email" autocomplete="off">
+                            <div class="form-text">Selected staff are added as email recipients using the copy type below.</div>
+                            <div class="d-flex gap-2 mt-2">
+                                <select class="form-select" id="emailStaffTagMode" aria-label="Staff copy type" style="max-width:130px">
+                                    <option value="cc">Cc</option><option value="bcc">Bcc</option>
+                                </select>
+                                <select class="form-select" id="emailStaffTags" multiple size="4" aria-label="Staff copied on email"></select>
+                            </div>
+                        </div>
+                        <div class="col-12">
                             <label class="form-label fw-semibold">Subject <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="composeSubject" required>
                         </div>
@@ -401,6 +415,12 @@
                                     <button class="btn btn-link btn-sm p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown">Insert variable</button>
                                     <ul class="dropdown-menu" id="messageVariableMenu"></ul>
                                 </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="templateSelect">Template <small class="text-muted">(optional)</small></label>
+                                <select class="form-select" id="templateSelect">
+                                    <option value="">No template</option>
+                                </select>
                             </div>
                             <textarea class="form-control" id="composeBody" rows="10" required></textarea>
                         </div>
@@ -432,17 +452,18 @@
             </div>
             <div class="modal-body">
                 <p class="small text-muted mb-3">
-                    Choose which staff may open this mailbox. <strong>Read</strong> lets them view mail,
+                    This list applies only to <strong id="accessMailboxHelpName">this mailbox</strong>. Add each staff member who should access this group account. <strong>Read</strong> lets them view mail,
                     <strong>Reply</strong> lets them answer existing threads, and <strong>Compose</strong> lets them send new mail.
                 </p>
                 <div class="input-group input-group-sm mb-2">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                     <input type="text" class="form-control" id="accessUserSearch" placeholder="Search staff by name or username..." autocomplete="off">
                 </div>
+                <h6 class="text-uppercase text-muted small">Available staff — select to add</h6>
                 <div id="accessUserResults" class="list-group mb-3" style="max-height:220px;overflow-y:auto;"></div>
                 <h6 class="text-uppercase text-muted small">Members</h6>
                 <div id="accessMembersList"></div>
-                <div id="accessMembersEmpty" class="text-muted small py-3" style="display:none;">No staff have explicit access yet. School and department rules still apply.</div>
+                <div id="accessMembersEmpty" class="text-muted small py-3" style="display:none;">No staff are assigned to this mailbox yet. Add staff above, choose their permissions, then save.</div>
             </div>
             <div class="modal-footer">
                 <span class="text-muted small me-auto" id="accessStatus"></span>

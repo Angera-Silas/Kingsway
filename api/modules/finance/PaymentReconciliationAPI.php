@@ -85,19 +85,27 @@ class PaymentReconciliationAPI extends BaseAPI {
                 $data['notes'] ?? null
             ]);
 
+            // Capture the new reconciliation id BEFORE any other statement.
+            // PDO's lastInsertId() is reset by any intervening statement on
+            // this connection -- even a plain SELECT -- so reading it after the
+            // status UPDATE below returned 0, leaving the freshly saved
+            // reconciliation unreadable by its own lookup.
+            $reconciliationId = (int) $this->db->lastInsertId();
+            if ($reconciliationId <= 0) {
+                throw new RuntimeException('The reconciliation record could not be created');
+            }
+
             // Update transaction status
             $sql = "
-                UPDATE school_transactions 
+                UPDATE school_transactions
                 SET status = 'reconciled'
                 WHERE id = ?
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$data['transaction_id']]);
 
-            $reconciliationId = $this->db->lastInsertId();
-
             // Fetch inserted reconciliation record
-            $stmt = $this->db->prepare("SELECT pr.*, u.username as reconciled_by_name FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " LEFT JOIN users u ON pr.reconciled_by = u.id WHERE pr.id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT pr.*, u.username as reconciled_by_name FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " pr LEFT JOIN users u ON pr.reconciled_by = u.id WHERE pr.id = ? LIMIT 1");
             $stmt->execute([$reconciliationId]);
             $reconRecord = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -135,7 +143,7 @@ class PaymentReconciliationAPI extends BaseAPI {
                     COUNT(pr.id) as reconciled_count,
                     SUM(p.amount) as total_amount,
                     SUM(CASE WHEN pr.id IS NOT NULL THEN p.amount ELSE 0 END) as reconciled_amount
-                FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " pr ON p.id = pr.transaction_id
                 WHERE p.payment_date BETWEEN ? AND ?
                 GROUP BY p.method

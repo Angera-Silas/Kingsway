@@ -24,7 +24,7 @@ use Throwable;
  *     provider.
  *
  *  2. interpret(PDO, payload) - worker stage. Re-authorizes the governed
- *     workflow with the recorded operator and creates a reviewable AiDraftService
+ *     workflow with the recorded operator and creates a reviewable DraftRepository
  *     draft so staff decide what (if anything) to do with the change. The
  *     provider call happens here, safely inside the background job.
  *
@@ -51,41 +51,33 @@ final class CurriculumPolicyWatchAgent
     /** @var callable(string,array):int */
     private $queuer;
 
-    /** @var callable(PDO,string,string,array,array):int */
-    private $broadcaster;
+    /** @var callable(PDO,int):list<string>|null authoritative permission resolver seam */
+    private $permissionResolver;
 
     /** @var string absolute path of the baseline state file */
     private $stateFile;
 
-    /** @var AiDraftService|null */
+    /** @var DraftRepository|null */
     private $drafts;
 
     /**
      * @param callable(string,array):int   $queuer pushes a background job; tests inject a recorder.
      * @param string|null                  $stateFile override the baseline state file path (tests).
-     * @param AiDraftService|null          $drafts override the draft service (tests).
-     * @param callable|null                $broadcaster override the realtime dispatch (tests).
+     * @param DraftRepository|null          $drafts override the draft service (tests).
+     * @param callable(PDO,int):list<string>|null $permissionResolver authoritative worker permission resolver (tests).
      */
     public function __construct(
         ?callable $queuer = null,
         ?string $stateFile = null,
-        ?AiDraftService $drafts = null,
-        ?callable $broadcaster = null
+        ?DraftRepository $drafts = null,
+        ?callable $permissionResolver = null
     ) {
         $this->queuer = $queuer ?? static function (string $type, array $payload): int {
             return JobQueue::push($type, $payload, 0, 3, 60);
         };
         $this->stateFile = $stateFile ?? dirname(__DIR__, 2) . '/' . self::STATE_FILE;
         $this->drafts = $drafts;
-        $this->broadcaster = $broadcaster ?? static function (
-            PDO $pdo,
-            string $domain,
-            string $eventName,
-            array $payload,
-            array $targetScopes
-        ): int {
-            return EventBroadcaster::dispatch($pdo, $domain, $eventName, $payload, $targetScopes);
-        };
+        $this->permissionResolver = $permissionResolver;
     }
 
     /**
@@ -107,7 +99,7 @@ final class CurriculumPolicyWatchAgent
 
     /**
      * Watch every configured authority (KICD + KNEC + MoE) with an independent
-     * baseline per authority. KNEC/MoE changes journal + broadcast an alert for
+     * baseline per authority. Every change is written to the file journal for
      * staff review; LLM interpretation is only queued where a governed
      * workflow is registered (KICD today).
      */
@@ -214,18 +206,13 @@ final class CurriculumPolicyWatchAgent
             'last_source' => $source,
         ], $stateFile);
         $this->log('change_queued', [
+            'event' => $eventName,
             'source' => $source,
             'previous_hash' => $baselineHash,
             'current_hash' => $currentHash,
             'job_id' => $jobId,
             'operator_id' => $userId,
         ]);
-        call_user_func($this->broadcaster, $pdo, 'assessment', $eventName, [
-            'authority' => $authority,
-            'source' => $source,
-            'previous_hash' => $baselineHash,
-            'current_hash' => $currentHash,
-        ], ['academics', 'system_admin']);
 
         return ['status' => 'change_queued', 'source' => $source, 'current_hash' => $currentHash, 'previous_hash' => $baselineHash, 'job_id' => $jobId];
     }
@@ -240,16 +227,26 @@ final class CurriculumPolicyWatchAgent
      */
     public function interpret(PDO $pdo, array $payload): array
     {
+        $userId = (int) ($payload['user_id'] ?? 0);
+        if ($userId < 1) {
+            throw new DomainException('A valid operator is required for curriculum interpretation.', 422);
+        }
+        $permissions = $this->permissionResolver !== null
+            ? (array) call_user_func($this->permissionResolver, $pdo, $userId)
+            : (new AgentAssistant())->resolveEffectivePermissions($pdo, $userId);
+        if ($permissions === []) {
+            throw new DomainException('Current operator permissions could not be resolved.', 403);
+        }
         $context = [
-            'user_id' => (int) ($payload['user_id'] ?? 0),
-            'permissions' => array_values(array_map('strval', (array) ($payload['permissions'] ?? []))),
+            'user_id' => $userId,
+            'permissions' => $permissions,
             'request_id' => substr((string) ($payload['request_id'] ?? 'ai-curriculum-change'), 0, 100),
         ];
         $input = (array) ($payload['input'] ?? []);
         $requestId = $context['request_id'];
 
         if ($this->drafts === null) {
-            $this->drafts = new AiDraftService();
+            $this->drafts = new DraftRepository();
         }
         try {
             $draft = $this->drafts->create($pdo, self::WORKFLOW, $context, $input, [
@@ -265,10 +262,6 @@ final class CurriculumPolicyWatchAgent
                 'operator_id' => $context['user_id'],
                 'request_id' => $requestId,
             ]);
-            call_user_func($this->broadcaster, $pdo, 'curriculum', 'curriculum.policy_change_interpreted', [
-                'draft_id' => $draftId,
-                'source' => (string) ($input['source'] ?? ''),
-            ], ['academics', 'system_admin']);
             return ['status' => 'interpreted', 'draft_id' => $draftId];
         } catch (Throwable $e) {
             $this->log('interpretation_failed', [
@@ -301,7 +294,7 @@ final class CurriculumPolicyWatchAgent
             ]);
             $body = curl_exec($curl);
             $errno = curl_errno($curl);
-            curl_close($curl);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
             if ($body === false || $errno !== 0) {
                 throw new DomainException('Unable to fetch the KICD policy source.', 502);
             }
@@ -320,7 +313,7 @@ final class CurriculumPolicyWatchAgent
     /**
      * Pick the staff operator for the interpretation draft. Only users who
      * hold the workflow permission (academic_view) - or the '*' superuser
-     * marker - are eligible, mirroring AiWorkflowService::authorize. The SQL
+     * marker - are eligible, mirroring WorkflowAuthorization::authorize. The SQL
      * projection derives a compact JSON list rather than exposing row details.
      *
      * @return array{0:int,1:array<int,string>}|null
@@ -377,7 +370,7 @@ final class CurriculumPolicyWatchAgent
         $target = $stateFile ?? $this->stateFile;
         $dir = dirname($target);
         if (!is_dir($dir)) {
-            @mkdir($dir, 0777, true);
+            @mkdir($dir, 02770, true);
         }
         $state['updated_at'] = gmdate('c');
         $bytes = @file_put_contents(

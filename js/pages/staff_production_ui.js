@@ -324,11 +324,27 @@ const StaffProductionUI = {
 
     extractStaffList(data) {
         if (!data) return [];
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data.staff)) return data.staff;
-        if (Array.isArray(data.data?.staff)) return data.data.staff;
-        if (Array.isArray(data.data)) return data.data;
-        return [];
+        let rows = [];
+        if (Array.isArray(data)) rows = data;
+        else if (Array.isArray(data.staff)) rows = data.staff;
+        else if (Array.isArray(data.data?.staff)) rows = data.data.staff;
+        else if (Array.isArray(data.data)) rows = data.data;
+
+        // GET /api/staff (list) keys a row as `staff_id`, while
+        // GET /api/staff/{id} (detail) keys it as `id`. Every row renderer and
+        // selection helper reads `staff.id`, so without this alias
+        // Number(staff.id) is NaN, data-staff-id="NaN" is emitted, and the
+        // click handler's `if (!staffId) return` guard silently swallows every
+        // row action - no View/Edit/Roles/Reset modal ever opens. Normalise the
+        // list once here so both response shapes behave identically.
+        return rows.map((row) => {
+            if (row && typeof row === 'object'
+                && (row.id === undefined || row.id === null)
+                && row.staff_id !== undefined && row.staff_id !== null) {
+                return { ...row, id: row.staff_id };
+            }
+            return row;
+        });
     },
 
     renderLoadError(error) {

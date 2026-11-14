@@ -86,15 +86,32 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Holiday</th><th scope="col">Type</th><th scope="col">Start Date</th><th scope="col">End Date</th><th scope="col">Days</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-                    <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="holidayTableBody">
+                        <tr id="holidayTableState"><td colspan="8" class="text-center text-muted py-4">Loading holidays...</td></tr>
+                    </tbody>
                 </table>
+                <template id="holidayRowTemplate">
+                    <tr data-holiday-row>
+                        <td data-field="number"></td>
+                        <td><strong data-field="name"></strong><div class="small text-muted" data-field="description" hidden></div></td>
+                        <td><span class="badge" data-field="type"></span></td>
+                        <td data-field="start"></td>
+                        <td data-field="end"></td>
+                        <td data-field="days"></td>
+                        <td><span class="badge" data-field="active"></span></td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit / re-date"><i class="fas fa-edit"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                </template>
             </div>
         </div>
     </div>
 </div>
 
 <div class="modal fade" id="formModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-calendar-plus me-2"></i>Add Holiday</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-calendar-plus me-2"></i><span data-modal-title>Add Holiday</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body"><form id="recordForm"><input type="hidden" id="recordId">
         <div class="mb-3"><label class="form-label">Holiday Name <span class="text-danger">*</span></label><input type="text" class="form-control" id="recordName" required placeholder="e.g., Idd-ul-Fitr, April Holiday, Diwali"></div>
         <div class="row g-3">

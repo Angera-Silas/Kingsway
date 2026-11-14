@@ -21,14 +21,12 @@ class AttendanceStudentService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentSummary($id, $data, $segments, BaseController $controller) {
         $studentId = $id ?? ($data['studentId'] ?? null);
         $result = $this->api->getStudentAttendanceSummary($studentId);
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getClassAttendance($id, $data, $segments, BaseController $controller) {
         $classId = $id;
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
@@ -37,12 +35,11 @@ class AttendanceStudentService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentPercentage($id, $data, $segments, BaseController $controller) {
         $studentId = $id;
         try {
             $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
-            $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . "  WHERE sae.student_id = ?";
+            $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days FROM student_attendance sa JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id WHERE sae.student_id = ?";
             $params = [$studentId];
             if ($termId) { $sql .= " AND sae.academic_year_terms_id = ?"; $params[] = $termId; }
             $result = $controller->getDb()->query($sql, $params);
@@ -57,7 +54,6 @@ class AttendanceStudentService
         }
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getChronicStudentAbsentees($id, $data, $segments, BaseController $controller) {
         $classId = $id;
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
@@ -67,7 +63,6 @@ class AttendanceStudentService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentsByClass($id, $data, $segments, BaseController $controller) {
         try {
             $streamId = $id ?? $data['stream_id'] ?? $_GET['stream_id'] ?? null;
@@ -75,7 +70,7 @@ class AttendanceStudentService
             $scope = $controller->getAccessibleClassScope();
             if ($scope['restricted'] && !in_array((int) $streamId, $scope['stream_ids'], true)) { return $controller->forbidden('You are not allowed to access this class attendance register'); }
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
-            $query = "SELECT s.id, s.admission_no, p.first_name, p.last_name, st.name as student_type, st.code as student_type_code, sa.id as attendance_id, sa.status as stored_status, sa.absence_reason, CASE WHEN sa.absence_reason = 'permission' THEN 'permission' ELSE sa.status END as attendance_status, CASE WHEN sp.id IS NULL THEN 0 ELSE 1 END as has_permission, spt.code as permission_type_code, spt.name as permission_type, sp.reason as permission_reason FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE aycs.id = ? AND s.status = 'active' AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= ? ORDER BY p.last_name, p.first_name";
+            $query = "SELECT s.id, s.admission_no, p.first_name, p.last_name, st.name as student_type, st.code as student_type_code, sa.id as attendance_id, sa.status as stored_status, sa.absence_reason, CASE WHEN sa.absence_reason = 'permission' THEN 'permission' ELSE sa.status END as attendance_status, CASE WHEN sp.id IS NULL THEN 0 ELSE 1 END as has_permission, spt.code as permission_type_code, spt.name as permission_type, sp.reason as permission_reason FROM students s JOIN persons p ON p.id = s.person_id LEFT JOIN student_types st ON s.student_type_id = st.id JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active' JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id LEFT JOIN admission_applications aa ON aa.id = s.application_id LEFT JOIN student_attendance sa ON sa.student_academic_enrollment_id = sae.id AND sa.date = ? LEFT JOIN student_permissions sp ON sp.student_id = s.id AND ? BETWEEN sp.start_date AND sp.end_date AND sp.status = 'approved' LEFT JOIN student_permission_types spt ON spt.id = sp.permission_type_id WHERE aycs.id = ? AND s.status = 'active' AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= ? ORDER BY p.last_name, p.first_name";
             $result = $controller->getDb()->query($query, [$date, $date, $streamId, $date]);
             $students = $result->fetchAll(\PDO::FETCH_ASSOC);
             return $controller->success($students, 'Students retrieved successfully');
@@ -85,7 +80,6 @@ class AttendanceStudentService
         }
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function postMarkBulk($id, $data, $segments, BaseController $controller) {
         try {
             $streamId = $data['stream_id'] ?? null;
@@ -191,7 +185,6 @@ class AttendanceStudentService
         }
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentHistoryByYear($id, $data, $segments, BaseController $controller) {
         $studentId = $id ?? ($segments[0] ?? null);
         if (!$studentId) { return $controller->badRequest('Student ID is required'); }

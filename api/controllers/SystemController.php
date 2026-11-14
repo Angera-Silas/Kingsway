@@ -11,6 +11,7 @@ use App\API\Services\AnnouncementBulletinService;
 use App\API\Services\EmailProfileService;
 use App\API\Services\EmailInboxService;
 use App\API\Services\SystemAdminAnalyticsService;
+
 use App\API\Services\OperatingModeService;
 use App\API\Services\EnvironmentPhaseService;
 use App\API\Services\TestDataManagementService;
@@ -289,7 +290,7 @@ class SystemController extends BaseController
         if (!$this->canUseAiOperations()) return $this->forbidden('Security AI assistance is not available for your account');
         try {
             $signals = $this->contract('App\\API\\Services\\SystemSecuritySignalsService');
-            $queued = $this->contract('App\\API\\Services\\AiDraftService')->queue(self::SECURITY_WORKFLOW, $this->aiOperationsContext(), $signals->aiPayload($signals->summary()), ['subject_type' => 'system_security_review', 'scope' => 'identity_free_security_aggregates']);
+            $queued = $this->contract('App\\API\\Services\\DraftRepository')->queue(self::SECURITY_WORKFLOW, $this->aiOperationsContext(), $signals->aiPayload($signals->summary()), ['subject_type' => 'system_security_review', 'scope' => 'identity_free_security_aggregates']);
             return $this->accepted($queued, 'Security review queued for review');
         } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
         catch (\Throwable $e) { return $this->serverError('Security assistance is temporarily unavailable'); }
@@ -302,8 +303,13 @@ class SystemController extends BaseController
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         try {
-            $matrix = $this->contract('App\\API\\Services\\AiCapabilityMatrix');
-            return $this->success(['summary' => $matrix->summary(), 'capabilities' => $matrix->all()], 'AI capability matrix retrieved');
+            // Capability status is engine-owned: resolve the registry through the
+            // workflow catalog, and let the Python platform report live counts.
+            $bridge = new \App\API\Services\PythonAiBridge();
+            $matrix = $bridge->available()
+                ? $bridge->call('/api/system/ai-capability-matrix', [])
+                : ['summary' => [], 'capabilities' => []];
+            return $this->success($matrix, 'AI capability matrix retrieved');
         } catch (\Throwable $e) {
             return $this->serverError('AI capability matrix is temporarily unavailable');
         }
@@ -313,8 +319,16 @@ class SystemController extends BaseController
     public function getAiReadiness($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
-        try { return $this->success($this->contract('App\\API\\Services\\AiReadinessReportService')->report(), 'AI readiness report retrieved'); }
-        catch (\Throwable $e) { return $this->serverError('AI readiness report is temporarily unavailable'); }
+        try {
+            // Readiness is engine-owned; PHP authorizes the viewer only.
+            $bridge = new \App\API\Services\PythonAiBridge();
+            return $this->success(
+                $bridge->available()
+                    ? $bridge->call('/api/system/ai-readiness', [])
+                    : ['readiness_status' => 'not_production_ready', 'counts' => [], 'release_gates' => []],
+                'AI readiness report retrieved'
+            );
+        } catch (\Throwable $e) { return $this->serverError('AI readiness report is temporarily unavailable'); }
     }
 
     // GET /api/system/ai-provider-health
@@ -322,7 +336,12 @@ class SystemController extends BaseController
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         try {
-            return $this->success($this->contract('App\\API\\Services\\AiProviderGateway')->health(), 'AI provider health retrieved');
+            // Provider/model health is engine-owned; never a PHP provider client.
+            $bridge = new \App\API\Services\PythonAiBridge();
+            return $this->success(
+                $bridge->available() ? $bridge->call('/healthz', [], 'GET') : [],
+                'AI provider health retrieved'
+            );
         } catch (\Throwable $e) { return $this->serverError('AI provider health is temporarily unavailable'); }
     }
 
@@ -335,10 +354,12 @@ class SystemController extends BaseController
         if (!$this->canUseAiOperations()) {
             return $this->forbidden('Operations AI assistance is not available for your account');
         }
+        $phase = 'summary';
         try {
             $service = $this->contract('App\API\Services\SystemOperationsReviewService');
             $input = $service->aiPayload($service->summary($this->db->getConnection()));
-            $queued = $this->contract('App\API\Services\AiDraftService')->queue(
+            $phase = 'enqueue';
+            $queued = $this->contract('App\API\Services\DraftRepository')->queue(
                 'system.operations_brief', $this->aiOperationsContext(), $input,
                 ['subject_type' => 'system_operations_review', 'scope' => 'authorized_system_aggregates']
             );
@@ -346,6 +367,17 @@ class SystemController extends BaseController
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
         } catch (\Throwable $e) {
+            $safeMessage = \RuntimeException::class . " relayed";
+            Logger::error('errors', 'AI operations review could not be queued', [
+                'exception_class' => get_class($e),
+                'phase' => $phase,
+                // Keep diagnostics correlatable without copying SQL, paths,
+                // credentials, or provider details into the operations log.
+                'exception_fingerprint' => hash('sha256', get_class($e) . ':' . $safeMessage),
+                'exception_summary' => mb_substr($safeMessage, 0, 240),
+                'workflow_id' => 'system.operations_brief',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ]);
             return $this->serverError('Operations assistance is temporarily unavailable');
         }
     }
@@ -360,7 +392,7 @@ class SystemController extends BaseController
             return $this->forbidden('Operations review permission is required');
         }
         return $this->success([
-            'drafts' => $this->contract('App\API\Services\AiDraftService')->listForReview($this->db->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'system'),
+            'drafts' => $this->contract('App\API\Services\DraftRepository')->listForReview($this->db->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'system'),
             'scope' => $review ? 'review' : 'own',
         ], 'Operations reviews retrieved');
     }
@@ -378,7 +410,7 @@ class SystemController extends BaseController
             return $this->badRequest('draft_id is required');
         }
         try {
-            $approved = $this->contract('App\API\Services\AiDraftService')->approve($this->db->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'system.operations_brief');
+            $approved = $this->contract('App\API\Services\DraftRepository')->approve($this->db->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'system.operations_brief');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Operations review approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -389,7 +421,7 @@ class SystemController extends BaseController
     {
         return [
             'user_id' => (int) ($this->getUserId() ?? 0),
-            'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))),
+            'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))),
             'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId,
         ];
     }
@@ -397,7 +429,7 @@ class SystemController extends BaseController
     private function canUseAiOperations(): bool
     {
         try {
-            $this->contract('App\API\Services\AiWorkflowService')->authorize('system.operations_brief', $this->aiOperationsContext());
+            $this->contract('App\API\Services\WorkflowAuthorization')->authorize('system.operations_brief', $this->aiOperationsContext());
             return true;
         } catch (DomainException $e) {
             return false;
@@ -661,8 +693,11 @@ class SystemController extends BaseController
         return $this->success([
             'status' => 'active',
             'uptime' => $this->formatUptime(),
-            'window' => defined('RATE_LIMIT_WINDOW') ? RATE_LIMIT_WINDOW : null,
-            'max_requests' => defined('RATE_LIMIT_MAX_REQUESTS') ? RATE_LIMIT_MAX_REQUESTS : null,
+            'window' => \App\API\Middleware\RateLimitMiddleware::TIME_WINDOW,
+            // Anonymous bucket. Authenticated requests are no longer counted or
+            // throttled, so reporting a per-user budget would be a lie.
+            'max_requests' => \App\API\Middleware\RateLimitMiddleware::ANONYMOUS_REQUESTS_LIMIT,
+            'applies_to' => 'anonymous requests only',
             'source' => 'RateLimitMiddleware',
             'timestamp' => date('c'),
         ], 'Rate limiting status retrieved');
@@ -799,7 +834,7 @@ class SystemController extends BaseController
 
             if ($format === 'csv') {
                 $stream = fopen('php://temp', 'w+');
-                fputcsv($stream, ['timestamp', 'level', 'category', 'user_id', 'user', 'ip', 'method', 'route', 'status', 'action/type/event', 'message', 'request_id', 'archive']);
+                fputcsv($stream, ['timestamp', 'level', 'category', 'user_id', 'user', 'ip', 'method', 'route', 'status', 'action/type/event', 'message', 'request_id', 'archive'], ',', '"', '\\');
                 foreach ($entries as $row) {
                     fputcsv($stream, [
                         $row['timestamp'] ?? '', $row['level'] ?? '', $row['_category'] ?? '',
@@ -807,7 +842,7 @@ class SystemController extends BaseController
                         $row['method'] ?? '', $row['route'] ?? '', $row['status'] ?? '',
                         $row['action'] ?? $row['type'] ?? $row['event'] ?? '', $row['message'] ?? '',
                         $row['request_id'] ?? '', !empty($row['_archive']) ? 'yes' : 'no',
-                    ]);
+                    ], ',', '"', '\\');
                 }
                 rewind($stream); $content = stream_get_contents($stream); fclose($stream);
                 $mime = 'text/csv';
@@ -2284,11 +2319,6 @@ class SystemController extends BaseController
         return $this->handleApiResponse($this->systemAdminManager->getSidebarMenus());
     }
 
-    public function getMenus($id = null, $data = [], $segments = [])
-    {
-        return $this->getSidebarMenus($id, $data, $segments);
-    }
-
     // GET /api/system/role-sidebar-assignments
     public function getRoleSidebarAssignments($id = null, $data = [], $segments = [])
     {
@@ -2496,4 +2526,101 @@ class SystemController extends BaseController
 
         return $this->forbidden('Director or School Administrator access required');
     }
+
+    /**
+     * POST /api/system/send-security-alert
+     * Worker-secret authenticated; sends email to system administrators.
+     * Called by Node gateway ThreatDetector.
+     */
+    public function postSendSecurityAlert($id = null, $data = [], $segments = [])
+    {
+        if (!$this->validWorkerSecret()) return $this->unauthorized('Invalid worker secret');
+        $alert = $this->sanitizeSecurityAlert(is_array($data) ? $data : []);
+        if ($alert === null) return $this->respond(null, 'Invalid alert payload', 422, false);
+
+        try {
+            $securityAlerts = $this->contract(\App\API\Services\SecurityAlertService::class);
+            $securityAlerts->record($alert);
+            $admins = $securityAlerts->activeAdministratorRecipients($this->db->getConnection());
+            if (!$admins) return $this->respond(null, 'No recipients configured', 500, false);
+
+            $subject = '[Kingsway Security] ' . $alert['severity'] . ': ' . $alert['type'];
+            $details = ['IP' => $alert['details']['ip'] ?? 'not supplied', 'Count' => $alert['details']['count']];
+            if ($alert['details']['topics']) $details['Categories'] = implode(', ', $alert['details']['topics']);
+            $body = "A security alert was triggered:\n\nType: {$alert['type']}\nSeverity: {$alert['severity']}\nTime: {$alert['timestamp']}\n";
+            foreach ($details as $label => $value) $body .= $label . ': ' . $value . "\n";
+
+            $messageService = $this->contract(\App\API\Services\MessageService::class);
+            $sent = 0;
+            foreach ($admins as $admin) {
+                $name = trim(($admin['first_name'] ?? '') . ' ' . ($admin['last_name'] ?? ''));
+                try { $messageService->sendEmail([$admin['email'] => $name], $subject, nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'))); $sent++; }
+                catch (\Throwable $e) { Logger::error('security', 'Security alert email delivery failed', ['type' => $alert['type']]); }
+            }
+            return $sent ? $this->success(['sent_to' => $sent], 'Security alert sent') : $this->serverError('Failed to send alerts to administrators');
+        } catch (\Throwable $e) {
+            Logger::error('security', 'Security alert processing failed', ['type' => $alert['type']]);
+            return $this->serverError('Security alert processing failed');
+        }
+    }
+
+    /** POST /api/system/monitoring-worker — governed journal scan. */
+    public function postMonitoringWorker($id = null, $data = [], $segments = [])
+    {
+        if (!$this->validWorkerSecret()) return $this->unauthorized('Invalid worker secret');
+        try {
+            $result = \App\API\Services\LogMonitoringService::run();
+            return $this->success($result, 'Monitoring scan completed');
+        } catch (\Throwable $e) {
+            Logger::error('security', 'Automated log monitoring failed');
+            return $this->serverError('Monitoring scan failed');
+        }
+    }
+
+    /**
+     * POST /api/system/prune-rate-limit — drop expired rate-limit buckets.
+     *
+     * The file limiter writes one JSON-lines bucket per minute, so without
+     * housekeeping the directory grows without bound. Called from the
+     * scheduler manifest (schedules.yaml) rather than its own crontab line.
+     */
+    public function postPruneRateLimit($id = null, $data = [], $segments = [])
+    {
+        if (!$this->validWorkerSecret()) return $this->unauthorized('Invalid worker secret');
+        try {
+            $keepDays = isset($data['keep_days']) ? max(1, min(30, (int) $data['keep_days'])) : 2;
+            $removed = \App\API\Services\FileRateLimiter::prune($keepDays);
+            return $this->success(['removed' => $removed, 'keep_days' => $keepDays], 'Rate-limit buckets pruned');
+        } catch (\Throwable $e) {
+            Logger::error('security', 'Rate-limit bucket pruning failed');
+            return $this->serverError('Rate-limit pruning failed');
+        }
+    }
+
+    private function validWorkerSecret(): bool
+    {
+        $secret = (string) ($_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '');
+        $expected = (string) \App\Config\Config::get('COMMUNICATION_WORKER_SECRET');
+        return $expected !== '' && $secret !== '' && hash_equals($expected, $secret);
+    }
+
+    private function sanitizeSecurityAlert(array $payload): ?array
+    {
+        $types = ['brute_force', 'credential_stuffing', 'suspicious_query'];
+        $type = (string) ($payload['type'] ?? '');
+        if (!in_array($type, $types, true)) return null;
+        $details = is_array($payload['details'] ?? null) ? $payload['details'] : [];
+        $topics = $details['topics'] ?? [];
+        $allowedTopics = ['credentials', 'database', 'prompt_injection', 'code_execution', 'infrastructure'];
+        if (!is_array($topics)) $topics = [];
+        $topics = array_values(array_unique(array_filter($topics, static fn($topic) => is_string($topic) && in_array($topic, $allowedTopics, true))));
+        $ip = filter_var($details['ip'] ?? null, FILTER_VALIDATE_IP) ?: null;
+        return [
+            'type' => $type,
+            'severity' => in_array($type, ['brute_force', 'credential_stuffing'], true) ? 'critical' : 'warning',
+            'timestamp' => date('c'),
+            'details' => ['ip' => $ip, 'count' => max(0, min(1000000, (int) ($details['count'] ?? 0))), 'topics' => $topics],
+        ];
+    }
+
 }

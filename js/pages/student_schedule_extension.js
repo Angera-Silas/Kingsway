@@ -7,7 +7,7 @@ const studentScheduleExtensionController = {
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   async loadReferencesComposed() {
     this.state.referenceCache = {};
@@ -28,7 +28,7 @@ const studentScheduleExtensionController = {
   render() {
     const extensions = this.state.extensions;
     const student = this.state.student;
-    document.getElementById('sseStudentName')?.textContent = student?.name || '—';
+    { const el = document.getElementById('sseStudentName'); if (el) el.textContent = student?.name || '—'; }
     const body = document.getElementById('sseExtensionsBody');
     if (!extensions.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No schedule extensions.</td></tr>'; return; }
     body.innerHTML = extensions.map(e => `<tr>

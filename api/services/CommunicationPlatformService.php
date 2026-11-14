@@ -35,15 +35,20 @@ class CommunicationPlatformService
         array $options = []
     ): array {
         $stmt = $this->db->prepare(
-            "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, p.email, p.phone
+            "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, pd.email, pd.phone
                FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
                JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.id = sp.parent_id AND pr.status = 'active'
-               JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
-               JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = u.person_id
+               LEFT JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
+               JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = pr.person_id
               WHERE sp.student_id = ?"
         );
         $stmt->execute([$studentId]);
-        return $this->queueForContacts($stmt->fetchAll(PDO::FETCH_ASSOC), $channel, $templateCode, $variables, $options);
+        $contacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!empty($options['parent_ids'])) {
+            $ids = array_fill_keys(array_map('intval', (array) $options['parent_ids']), true);
+            $contacts = array_values(array_filter($contacts, static fn(array $contact): bool => isset($ids[(int) ($contact['parent_id'] ?? 0)])));
+        }
+        return $this->queueForContacts($contacts, $channel, $templateCode, $variables, $options);
     }
 
     public function queueForParent(
@@ -55,7 +60,9 @@ class CommunicationPlatformService
     ): array {
         $stmt = $this->db->prepare(
             "SELECT u.id AS user_id, p.email, p.phone
-               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+               FROM parents pr
+               JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
+               JOIN persons p ON p.id = u.person_id
               WHERE pr.id = ? AND pr.status = 'active'"
         );
         $stmt->execute([$parentId]);
@@ -100,7 +107,7 @@ class CommunicationPlatformService
         array $options = []
     ): array {
         $stmt = $this->db->prepare(
-            "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, p.email, p.phone
+            "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, pd.email, pd.phone
                FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
                JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.id = sp.parent_id AND pr.status = 'active'
                LEFT JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
@@ -108,8 +115,13 @@ class CommunicationPlatformService
               WHERE sp.student_id = ?"
         );
         $stmt->execute([$studentId]);
+        $contacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!empty($options['parent_ids'])) {
+            $ids = array_fill_keys(array_map('intval', (array) $options['parent_ids']), true);
+            $contacts = array_values(array_filter($contacts, static fn(array $contact): bool => isset($ids[(int) ($contact['parent_id'] ?? 0)])));
+        }
         return $this->queueRenderedForContacts(
-            $stmt->fetchAll(PDO::FETCH_ASSOC),
+            $contacts,
             $channel,
             $subject,
             $body,
@@ -119,6 +131,7 @@ class CommunicationPlatformService
 
     public function queueProviderTemplateForContacts(array $contacts, string $providerTemplateId, array $variables, array $options = []): array
     {
+        \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
         $code = 'whatsapp.provider.' . sha1($providerTemplateId);
         $this->db->prepare("INSERT INTO communication_template_catalog (code, name, purpose, status) VALUES (?, ?, 'provider_template', 'active') ON DUPLICATE KEY UPDATE status = 'active'")
             ->execute([$code, 'WhatsApp provider template ' . $providerTemplateId]);
@@ -154,6 +167,10 @@ class CommunicationPlatformService
 
     private function queueResolvedContacts(array $contacts, string $channel, array $template, array $options): array
     {
+        $channel = strtolower(trim($channel));
+        if ($channel === 'whatsapp') {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
+        }
         $scheduledAt = $options['scheduled_at'] ?? null;
         $status = $scheduledAt ? 'scheduled' : 'queued';
         $communicationId = $this->insertCommunication($channel, $template, $status, $scheduledAt, $options);
@@ -210,12 +227,6 @@ class CommunicationPlatformService
         $stmt->execute([$channel, $channel . '.' . $code]);
         $template = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$template) {
-            $stmt->execute([$channel, $code]);
-        }
-        if (!$template) {
-            $template = $stmt->fetch(PDO::FETCH_ASSOC);
-        }
-        if (!$template) {
             $legacy = $this->legacyTemplates->getTemplate($channel, $code);
             if ($legacy) {
                 $template = [
@@ -237,15 +248,19 @@ class CommunicationPlatformService
 
     private function insertCommunication(string $channel, array $template, string $status, ?string $scheduledAt, array $options): int
     {
+        $senderId = isset($options['sender_id']) && (int) $options['sender_id'] > 0 ? (int) $options['sender_id'] : null;
+        $channelMeta = is_array($options['channel_meta'] ?? null) ? $options['channel_meta'] : [];
+        $channelMeta['delivery_source'] = $senderId === null ? 'system' : ($channelMeta['delivery_source'] ?? 'staff');
+        $channelMeta['system_generated'] = $senderId === null;
         $stmt = $this->db->prepare(
             "INSERT INTO communications
                 (sender_id, subject, body, type, status, priority, template_id, template_channel_id,
                  academic_year_id, academic_year_term_id, scheduled_at, reminder_at,
-                 sender_signature, thread_id, business_event_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                 sender_signature, thread_id, business_event_id, channel_meta)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
-            $options['sender_id'] ?? 1,
+            $senderId,
             $options['subject'] ?? ($template['subject'] ?? 'Kingsway Preparatory School'),
             $template['body'],
             $channel,
@@ -257,9 +272,10 @@ class CommunicationPlatformService
             $options['academic_year_term_id'] ?? null,
             $scheduledAt,
             $options['reminder_at'] ?? null,
-            $options['sender_signature'] ?? null,
+            $options['sender_signature'] ?? ($senderId === null ? 'System' : null),
             $options['thread_id'] ?? null,
             $options['business_event_id'] ?? null,
+            json_encode($channelMeta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         ]);
         return (int) $this->db->lastInsertId();
     }

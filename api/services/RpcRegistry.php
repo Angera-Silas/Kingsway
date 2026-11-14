@@ -54,8 +54,10 @@ class RpcRegistry
                     'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
                     'php_version' => PHP_VERSION,
                     'request_id' => (string) ($ctx['request_id'] ?? ($_SERVER['REQUEST_ID'] ?? '')),
-                    'queue_namespace' => 'KingsWayBuffers',
-                    'database' => 'KingsWayAcademy',
+                    // Logical namespaces only: physical schema names differ per
+                    // environment and are never disclosed to API clients.
+                    'queue_namespace' => \App\Database\ConnectionManager::NS_BUFFERS,
+                    'database' => \App\Database\ConnectionManager::NS_MASTER,
                     'authenticated_user' => (int) ($ctx['user_id'] ?? 0),
                 ];
             },
@@ -104,7 +106,7 @@ class RpcRegistry
                     }
                 }
                 return [
-                    'namespace' => 'KingsWayBuffers',
+                    'namespace' => \App\Database\ConnectionManager::NS_BUFFERS,
                     'jobs' => $counts,
                     'dead_letter' => count($dead),
                     'oldest_pending_available_at' => $oldestPending,

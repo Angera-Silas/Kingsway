@@ -221,12 +221,7 @@ abstract class BaseController extends FileLifecycleBase
      */
     protected function getSearchParams()
     {
-        $search = isset($_GET['search']) ? trim($_GET['search']) : '';
-        $sort = isset($_GET['sort']) ? preg_replace('/\W/', '', $_GET['sort']) : 'id';
-        $order = isset($_GET['order']) ? strtoupper(trim($_GET['order'])) : 'ASC';
-        $order = in_array($order, ['ASC', 'DESC']) ? $order : 'ASC';
-
-        return [$search, $sort, $order];
+        return \App\API\Includes\searchParamsFromQuery($_GET);
     }
 
     /**
@@ -416,6 +411,34 @@ abstract class BaseController extends FileLifecycleBase
     public function getDb()
     {
         return $this->db;
+    }
+
+    /**
+     * Coerce a request value to string without triggering PHP's "Array to
+     * string conversion" notice. Casting an array to (string) emits that
+     * notice and yields "Array", which silently corrupts request fields such
+     * as route/title/question. Arrays and objects cannot be safely
+     * represented as a single request string, so they coerce to ''; scalars
+     * cast normally.
+     *
+     * @param mixed $value
+     * @return string
+     */
+    protected function castStr($value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+        if (is_string($value)) {
+            return $value;
+        }
+        if (is_bool($value)) {
+            return $value ? '1' : '';
+        }
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+        return '';
     }
 
     protected function getModule()

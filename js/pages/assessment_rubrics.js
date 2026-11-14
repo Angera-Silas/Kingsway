@@ -14,9 +14,14 @@ const RubricsController = {
         pageSize: 25,
     },
 
+    isMounted() {
+        return Boolean(document.getElementById('assessmentRubricsPage')?.isConnected);
+    },
+
     async init() {
-        if (this.initialized) return;
+        if (this.initialized || !this.isMounted()) return;
         await window.AuthContext?.ready?.();
+        if (!this.isMounted()) return;
         if (!window.AuthContext?.isAuthenticated?.()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
@@ -31,7 +36,9 @@ const RubricsController = {
         document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !this.canManage));
         this.setupEventListeners();
         await this.loadToolReferencesComposed();
+        if (!this.isMounted()) return;
         await this.loadRubrics();
+        if (!this.isMounted()) return;
         window.APIRealtime?.register?.(
             "assessment_rubrics",
             { refresh: async () => { await this.loadToolReferencesComposed(); await this.loadRubrics(); } },
@@ -44,6 +51,13 @@ const RubricsController = {
         document.getElementById('toolFilter')?.addEventListener('change', () => { this.state.page = 1; this.loadRubrics(); });
         document.getElementById('searchFilter')?.addEventListener('input', () => { this.state.page = 1; this.render(); });
         document.getElementById('rubricPageSize')?.addEventListener('change', event => { this.state.pageSize = Number(event.target.value) || 25; this.state.page = 1; this.render(); });
+        document.getElementById('rubricTableBody')?.addEventListener('click', event => {
+            const button = event.target.closest('[data-action]');
+            if (!button) return;
+            const id = Number(button.dataset.id);
+            if (button.dataset.action === 'edit') this.openModal(id);
+            else if (button.dataset.action === 'delete') this.delete(id);
+        });
         document.getElementById('rubricPagination')?.addEventListener('click', event => {
             const button = event.target.closest('[data-rubric-page]');
             if (!button || button.disabled) return;
@@ -60,6 +74,7 @@ const RubricsController = {
     },
 
     async loadToolReferences() {
+        if (!this.isMounted()) return;
         try {
             const [types, areas] = await Promise.all([
                 callAPI('/api/academic/assessment-classifications'),
@@ -67,9 +82,13 @@ const RubricsController = {
             ]);
             const typeRows = Array.isArray(types) ? types : (types?.data || []);
             const areaRows = Array.isArray(areas) ? areas : (areas?.data || []);
-            document.getElementById('toolType').innerHTML = '<option value="">Select type</option>' +
+            const typeSelect = document.getElementById('toolType');
+            const areaSelect = document.getElementById('toolArea');
+            if (!this.isMounted()) return;
+            if (!typeSelect || !areaSelect) return;
+            typeSelect.innerHTML = '<option value="">Select type</option>' +
                 typeRows.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-            document.getElementById('toolArea').innerHTML = '<option value="">Select learning area</option>' +
+            areaSelect.innerHTML = '<option value="">Select learning area</option>' +
                 areaRows.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
         } catch (e) {
             console.error('Failed to load assessment tool references', e);
@@ -79,28 +98,35 @@ const RubricsController = {
     // Composed startup read: one authorized Node view supplies assessment
     // classifications, learning areas and tools; rubric rows stay a direct read.
     async loadToolReferencesComposed() {
+        if (!this.isMounted()) return;
         try {
             const response = await window.API.nodeViews.resolve("academic", "assessment-rubrics-reference");
+            if (!this.isMounted()) return;
             const sources = response?.data?.sources || response?.sources || {};
             const pick = (value) => (Array.isArray(value) ? value : (value?.data || []));
             const typeRows = pick(sources.classifications);
             const areaRows = pick(sources.learningAreas);
             this.state.tools = pick(sources.tools);
-            document.getElementById('toolType').innerHTML = '<option value="">Select type</option>' +
+            const typeSelect = document.getElementById('toolType');
+            const areaSelect = document.getElementById('toolArea');
+            if (!typeSelect || !areaSelect) return;
+            typeSelect.innerHTML = '<option value="">Select type</option>' +
                 typeRows.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-            document.getElementById('toolArea').innerHTML = '<option value="">Select learning area</option>' +
+            areaSelect.innerHTML = '<option value="">Select learning area</option>' +
                 areaRows.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
             this.populateToolSelects();
         } catch (e) {
             console.error('Assessment rubric reference Node view failed; falling back to direct reads:', e);
-            await this.loadToolReferences();
-            await this.loadTools();
+            if (this.isMounted()) {
+                await this.loadToolReferences();
+                if (this.isMounted()) await this.loadTools();
+            }
         }
     },
 
     openToolModal() {
         document.getElementById('assessmentToolForm')?.reset();
-        new bootstrap.Modal(document.getElementById('assessmentToolModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('assessmentToolModal')).show();
     },
 
     async saveTool() {
@@ -126,8 +152,10 @@ const RubricsController = {
     },
 
     async loadTools() {
+        if (!this.isMounted()) return;
         try {
             const res = await callAPI('/api/academic/assessment-tools');
+            if (!this.isMounted()) return;
             this.state.tools = Array.isArray(res) ? res : (res?.data || []);
             this.populateToolSelects();
         } catch (e) {
@@ -148,10 +176,12 @@ const RubricsController = {
     },
 
     async loadRubrics() {
+        if (!this.isMounted()) return;
         try {
             const toolId = document.getElementById('toolFilter')?.value || '';
             const url = toolId ? `/api/academic/assessment-rubrics?tool_id=${toolId}` : '/api/academic/assessment-rubrics';
             const res = await callAPI(url);
+            if (!this.isMounted()) return;
             this.state.rubrics = Array.isArray(res) ? res : (res?.data || []);
             this.state.page = 1;
             this.render();
@@ -181,39 +211,51 @@ const RubricsController = {
         if (summary) summary.textContent = `Showing ${total ? start + 1 : 0}–${Math.min(start + pageSize, total)} of ${total}`;
         const pagination = document.getElementById('rubricPagination');
         if (pagination) {
-            const pages = [];
-            const first = Math.max(1, this.state.page - 2);
-            const last = Math.min(pageCount, first + 4);
-            pages.push(`<li class="page-item ${this.state.page === 1 ? 'disabled' : ''}"><button class="page-link" data-rubric-page="${this.state.page - 1}" ${this.state.page === 1 ? 'disabled' : ''} aria-label="Previous">&laquo;</button></li>`);
-            for (let page = first; page <= last; page++) pages.push(`<li class="page-item ${page === this.state.page ? 'active' : ''}"><button class="page-link" data-rubric-page="${page}" aria-current="${page === this.state.page ? 'page' : 'false'}">${page}</button></li>`);
-            pages.push(`<li class="page-item ${this.state.page === pageCount ? 'disabled' : ''}"><button class="page-link" data-rubric-page="${this.state.page + 1}" ${this.state.page === pageCount ? 'disabled' : ''} aria-label="Next">&raquo;</button></li>`);
-            pagination.innerHTML = pageCount > 1 ? pages.join('') : '';
+            pagination.replaceChildren();
+            if (pageCount > 1) {
+                const first = Math.max(1, this.state.page - 2);
+                const last = Math.min(pageCount, first + 4);
+                const appendPage = (templateId, page, label, active = false, disabled = false) => {
+                    const item = document.getElementById(templateId).content.cloneNode(true);
+                    const li = item.querySelector('li');
+                    const button = item.querySelector('[data-rubric-page]');
+                    li.classList.toggle('disabled', disabled);
+                    li.classList.toggle('active', active);
+                    button.dataset.rubricPage = String(page);
+                    button.disabled = disabled;
+                    button.textContent = label;
+                    if (active) button.setAttribute('aria-current', 'page');
+                    pagination.appendChild(item);
+                };
+                appendPage('rubricPreviousPageTemplate', this.state.page - 1, '«', false, this.state.page === 1);
+                for (let page = first; page <= last; page += 1) appendPage('rubricPageTemplate', page, String(page), page === this.state.page);
+                appendPage('rubricNextPageTemplate', this.state.page + 1, '»', false, this.state.page === pageCount);
+            }
         }
+        tbody.querySelectorAll('[data-rubric-row]').forEach((row) => row.remove());
+        const stateRow = document.getElementById('rubricTableState');
         if (!total) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No rubrics found.</td></tr>';
+            if (stateRow) stateRow.hidden = false;
             return;
         }
-        tbody.innerHTML = pageRows.map((r, i) => `
-            <tr>
-                <td>${start + i + 1}</td>
-                <td>${escapeHtml(r.criteria_name)}</td>
-                <td>${escapeHtml(r.tool_name || '—')}</td>
-                <td class="text-muted small">${escapeHtml(r.level_1_descriptor || '—')}</td>
-                <td class="text-muted small">${escapeHtml(r.level_2_descriptor || '—')}</td>
-                <td class="text-muted small">${escapeHtml(r.level_3_descriptor || '—')}</td>
-                <td class="text-muted small">${escapeHtml(r.level_4_descriptor || '—')}</td>
-                <td>${r.points_per_level || 0}</td>
-                <td>${r.sort_order || 1}</td>
-                <td>${this.canManage ? `
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="RubricsController.openModal(${r.id})">
-                        <i class="bi bi-pencil"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="RubricsController.delete(${r.id})">
-                        <i class="bi bi-trash"></i>
-                    </button>
-                ` : '<a class="btn btn-sm btn-outline-success" href="home.php?route=curriculum_proposals">Propose</a>'}</td>
-            </tr>
-        `).join('');
+        if (stateRow) stateRow.hidden = true;
+        const template = document.getElementById('assessmentRubricRowTemplate');
+        const fragment = document.createDocumentFragment();
+        pageRows.forEach((rubric, index) => {
+            const row = template.content.cloneNode(true);
+            const fill = (name, value) => { row.querySelector(`[data-fill="${name}"]`).textContent = String(value ?? '—'); };
+            fill('number', start + index + 1); fill('criteria', rubric.criteria_name); fill('tool', rubric.tool_name || '—');
+            fill('level-1', rubric.level_1_descriptor || '—'); fill('level-2', rubric.level_2_descriptor || '—');
+            fill('level-3', rubric.level_3_descriptor || '—'); fill('level-4', rubric.level_4_descriptor || '—');
+            fill('points', rubric.points_per_level || 0); fill('sort', rubric.sort_order || 1);
+            row.querySelectorAll('[data-action]').forEach((button) => {
+                button.dataset.id = String(Number(rubric.id));
+                button.hidden = button.dataset.action === 'propose' ? this.canManage : !this.canManage;
+            });
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow || null);
+
     },
 
     exportRubrics() {
@@ -228,7 +270,7 @@ const RubricsController = {
     openModal(id) {
         const modalEl = document.getElementById('rubricModal');
         if (!modalEl) return;
-        const modal = new bootstrap.Modal(modalEl);
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         document.getElementById('rubricId').value = '';
         document.getElementById('rubricCriteria').value = '';
         document.getElementById('rubricL1').value = '';

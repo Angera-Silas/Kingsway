@@ -354,28 +354,43 @@ const ProfileController = (() => {
             const history = response?.data || response || [];
             renderLoginHistory(Array.isArray(history) ? history : []);
         } catch (e) {
-            document.querySelector('#loginHistoryTable tbody')?.replaceChildren();
-            const tbody = document.querySelector('#loginHistoryTable tbody');
-            if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Unable to load login history</td></tr>';
+            showLoginHistoryState('Unable to load login history');
         }
+    }
+
+    function showLoginHistoryState(message) {
+        const tbody = document.querySelector('#loginHistoryTable tbody');
+        const stateRow = document.getElementById('loginHistoryState');
+        tbody?.querySelectorAll('[data-login-history-row]').forEach((row) => row.remove());
+        const cell = stateRow?.querySelector('td');
+        if (cell) cell.textContent = message;
+        if (stateRow) stateRow.hidden = false;
     }
 
     function renderLoginHistory(history) {
         const tbody = document.querySelector('#loginHistoryTable tbody');
-        if (!tbody) return;
+        const stateRow = document.getElementById('loginHistoryState');
+        const template = document.getElementById('loginHistoryRowTemplate');
+        if (!tbody || !stateRow || !template) return;
+        tbody.querySelectorAll('[data-login-history-row]').forEach((row) => row.remove());
         if (!history.length) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No login history available</td></tr>';
+            showLoginHistoryState('No login history available');
             return;
         }
-        tbody.innerHTML = history.slice(0, 20).map(h => `
-            <tr>
-                <td>${h.created_at ? new Date(h.created_at).toLocaleString() : '--'}</td>
-                <td>${escapeHtml(h.ip_address || '--')}</td>
-                <td>${escapeHtml(h.device || '--')}</td>
-                <td>${escapeHtml(h.browser || '--')}</td>
-                <td><span class="badge bg-${h.status === 'success' ? 'success' : 'danger'}">${escapeHtml(h.status || 'unknown')}</span></td>
-            </tr>
-        `).join('');
+        stateRow.hidden = true;
+        const fragment = document.createDocumentFragment();
+        history.slice(0, 20).forEach((entry) => {
+            const row = template.content.cloneNode(true);
+            row.querySelector('[data-fill="created"]').textContent = entry.created_at ? new Date(entry.created_at).toLocaleString() : '--';
+            row.querySelector('[data-fill="ip"]').textContent = entry.ip_address || '--';
+            row.querySelector('[data-fill="device"]').textContent = entry.device || '--';
+            row.querySelector('[data-fill="browser"]').textContent = entry.browser || '--';
+            const status = row.querySelector('[data-fill="status"]');
+            status.textContent = entry.status || 'unknown';
+            status.classList.add(entry.status === 'success' ? 'bg-success' : 'bg-danger');
+            fragment.appendChild(row);
+        });
+        tbody.insertBefore(fragment, stateRow);
     }
 
     function escapeHtml(v) {

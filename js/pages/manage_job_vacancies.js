@@ -84,7 +84,7 @@ const manageJobVacanciesController = {
         try { document.getElementById('jobResponsibilities').value = JSON.parse(j.responsibilities || '[]').join('\n'); } catch (_) {}
       }
     }
-    new bootstrap.Modal(document.getElementById('wsJobModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsJobModal')).show();
   },
 
   async save() {

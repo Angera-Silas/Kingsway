@@ -876,7 +876,7 @@ const newApplicationsController = {
 
     const firstTab = this.dom.newApplicationModal.querySelector('[data-bs-toggle="tab"]');
     if (firstTab && bootstrap.Tab) bootstrap.Tab.getOrCreateInstance(firstTab).show();
-    const modal = new bootstrap.Modal(this.dom.newApplicationModal);
+    const modal = bootstrap.Modal.getOrCreateInstance(this.dom.newApplicationModal);
     modal.show();
   },
 
@@ -1124,7 +1124,7 @@ const newApplicationsController = {
       };
     }
 
-    const modal = new bootstrap.Modal(this.dom.viewApplicationModal);
+    const modal = bootstrap.Modal.getOrCreateInstance(this.dom.viewApplicationModal);
     modal.show();
   },
 

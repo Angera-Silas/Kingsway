@@ -7,9 +7,7 @@
  * interviews or make admission decisions.
  */
 
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.')
-    $appBase = '';
+
 
 ?>
 <style>

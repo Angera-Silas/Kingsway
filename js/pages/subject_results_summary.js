@@ -72,46 +72,6 @@ const subjectResultsController = (() => {
         return d.innerHTML;
     };
 
-    async function loadYears() {
-        try {
-            const response = referenceCache?.years ?? (await apiCall('academic/years-list'));
-            state.years = response || [];
-            const select = document.getElementById('yearFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Years</option>';
-                state.years.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year.id;
-                    option.textContent = year.year_name;
-                    if (year.is_current) option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load years:', error);
-        }
-    }
-
-    async function loadTerms() {
-        try {
-            const response = referenceCache?.terms ?? (await apiCall('academic/terms-list'));
-            state.terms = response || [];
-            const select = document.getElementById('termFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Terms</option>';
-                state.terms.forEach(term => {
-                    const option = document.createElement('option');
-                    option.value = term.id;
-                    option.textContent = `${term.name} (${term.year_code || ''})`;
-                    if (term.status === 'current') option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load terms:', error);
-        }
-    }
-
     async function loadSubjects() {
         try {
             // Load only subjects assigned to this teacher
@@ -339,17 +299,6 @@ const subjectResultsController = (() => {
         document.getElementById('exportBtn')?.addEventListener('click', exportResults);
         document.getElementById('printBtn')?.addEventListener('click', printResults);
         
-        document.getElementById('yearFilter')?.addEventListener('change', () => {
-            // Auto-load results when filters change
-            if (document.getElementById('subjectFilter').value && document.getElementById('classFilter').value) {
-                loadResults();
-            }
-        });
-        document.getElementById('termFilter')?.addEventListener('change', () => {
-            if (document.getElementById('subjectFilter').value && document.getElementById('classFilter').value) {
-                loadResults();
-            }
-        });
         document.getElementById('subjectFilter')?.addEventListener('change', () => {
             if (document.getElementById('classFilter').value) {
                 loadResults();
@@ -371,33 +320,26 @@ const subjectResultsController = (() => {
 
         await GradingScale.preload();
 
-        // Initialize Academic Context if available
-        if (window.AcademicContext) {
-            window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadYears();
-                    loadTerms();
-                    if (document.getElementById('subjectFilter').value && document.getElementById('classFilter').value) {
-                        loadResults();
-                    }
-                }
-            });
-
-            if (!window.AcademicContext.isLoaded()) {
-                await window.AcademicContext.init();
-            }
-
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
-        }
-
         document.getElementById('resultsLoading').style.display = 'none';
         document.getElementById('resultsContent').style.display = 'block';
 
         await loadReferencesComposed();
-        await Promise.all([loadYears(), loadTerms(), loadSubjects(), loadClasses()]);
+        await Promise.all([loadSubjects(), loadClasses()]);
         bindEvents();
-        window.APIRealtime?.register?.('subject_results_summary', { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadYears(), loadTerms(), loadSubjects(), loadClasses()]); } }, ['academic']);
+        // Year and term: the shared filter (current year, all terms by
+        // default, kept in the URL). Results load once a subject and class
+        // are chosen.
+        const yearSelect = document.getElementById('yearFilter');
+        if (window.AcademicYearFilter && yearSelect) {
+            await window.AcademicYearFilter.mount(yearSelect, {
+                termSelect: document.getElementById('termFilter'),
+                allTermsLabel: 'All terms',
+                onChange: () => {
+                    if (document.getElementById('subjectFilter')?.value && document.getElementById('classFilter')?.value) loadResults();
+                },
+            });
+        }
+        window.APIRealtime?.register?.('subject_results_summary', { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadSubjects(), loadClasses()]); } }, ['academic']);
     }
 
     return { init };

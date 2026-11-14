@@ -426,7 +426,7 @@ const PortfolioController = {
         }
         document.getElementById('pfPortfolioForm')?.reset();
         document.getElementById('pfPortfolioYear').value = new Date().getFullYear();
-        new bootstrap.Modal(document.getElementById('pfPortfolioModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('pfPortfolioModal')).show();
     },
 
     async savePortfolio() {
@@ -485,7 +485,7 @@ const PortfolioController = {
             if (artifact) this.populateArtifactForm(artifact);
         }
 
-        new bootstrap.Modal(document.getElementById('pfArtifactModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('pfArtifactModal')).show();
     },
 
     editArtifact(artifactId) {

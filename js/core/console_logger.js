@@ -57,6 +57,26 @@
     return sanitizeText(parts.join(" ") || "Suppressed legacy console event");
   }
 
+  var TELEMETRY_PATH = "/system/client-log";
+
+  function isTelemetryDelivery(message, context) {
+    // Telemetry must never report about itself. The logger's own delivery
+    // path (failed /system/client-log batches) is routed here by console.error,
+    // so accepting it would close the loop: flush fails -> error logged -> new
+    // flush -> fails. api.js suppresses these at the source too; this guard
+    // covers any other caller that names the telemetry endpoint.
+    var haystack = String(message || "");
+    if (context && typeof context.error === "string") haystack += " " + context.error;
+    if (context && typeof context.error_stack === "string") {
+      haystack += " " + context.error_stack;
+    }
+    if (context && typeof context.endpoint === "string") haystack += " " + context.endpoint;
+    // Named symbols/paths only: a bare keyword such as "telemetry" appears in
+    // unrelated diagnostics, and dropping those would lose real signal.
+    return haystack.indexOf(TELEMETRY_PATH) !== -1
+      || /client-log|logFromClient|telemetry (?:endpoint|ingest|delivery)/i.test(haystack);
+  }
+
   function route(level) {
     return function () {
       var args = Array.prototype.slice.call(arguments);
@@ -73,6 +93,10 @@
             context.error_stack = sanitizeText(args[i].stack).slice(0, 4000);
           }
         }
+      }
+      if (isTelemetryDelivery(message, context)) {
+        // Dropped on purpose: see isTelemetryDelivery().
+        return;
       }
       if (typeof window.AppLogger !== "undefined" && window.AppLogger[level]) {
         try {

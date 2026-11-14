@@ -20,6 +20,7 @@ class SMSService
 {
     private PDO $db;
     private SMSGateway $gateway;
+    private ?SMSGateway $whatsappGateway = null;
     private SystemCommsConfigService $configService;
 
     public function __construct(PDO $db, ?SMSGateway $gateway = null)
@@ -110,12 +111,13 @@ class SMSService
         ];
     }
 
-    public function createGroup(string $name): array
+    public function createGroup(string $name, string $entityType = 'external'): array
     {
         $name = trim($name);
         if ($name === '') {
             throw new \InvalidArgumentException('Group name is required');
         }
+        $entityType = $this->normalizeGroupAudience($entityType);
         $result = $this->gateway->createGroup($name);
         if (!($result['ok'] ?? false)) {
             throw new \RuntimeException($result['message'] ?: 'Group could not be created at the provider');
@@ -123,18 +125,27 @@ class SMSService
         $providerGroupId = $this->extractUid($result['data'] ?? null);
         $stmt = $this->db->prepare(
             "INSERT INTO communication_groups (name, provider, provider_group_id, entity_type, created_by, sync_status, last_synced_at)
-             VALUES (?, ?, ?, 'external', ?, 'synced', NOW())"
+             VALUES (?, ?, ?, ?, ?, 'synced', NOW())"
         );
-        $stmt->execute([$name, $this->providerName(), $providerGroupId, $this->currentUserId()]);
-        return ['id' => (int) $this->db->lastInsertId(), 'name' => $name, 'provider_group_id' => $providerGroupId];
+        $stmt->execute([$name, $this->providerName(), $providerGroupId, $entityType, $this->currentUserId()]);
+        return ['id' => (int) $this->db->lastInsertId(), 'name' => $name, 'entity_type' => $entityType, 'provider_group_id' => $providerGroupId];
     }
 
-    public function updateGroup(int $id, string $name): array
+    public function updateGroup(int $id, string $name, ?string $entityType = null): array
     {
         $group = $this->findGroup($id);
         $name = trim($name);
         if ($name === '') {
             throw new \InvalidArgumentException('Group name is required');
+        }
+        $currentAudience = (string) (($group['entity_type'] ?? null) ?: 'external');
+        if ($entityType !== null) {
+            $entityType = $this->normalizeGroupAudience($entityType);
+            if ($currentAudience !== 'external' && $entityType !== $currentAudience) {
+                throw new \InvalidArgumentException('A directory-linked group cannot be switched to a different audience. Create a new group for that audience.');
+            }
+        } else {
+            $entityType = $currentAudience;
         }
         if (!empty($group['provider_group_id'])) {
             $result = $this->gateway->updateGroup($group['provider_group_id'], $name);
@@ -142,8 +153,9 @@ class SMSService
                 throw new \RuntimeException($result['message'] ?: 'Group could not be updated at the provider');
             }
         }
-        $this->db->prepare("UPDATE communication_groups SET name = ?, sync_status = 'synced', last_synced_at = NOW() WHERE id = ?")->execute([$name, $id]);
-        return ['id' => $id, 'name' => $name];
+        $this->db->prepare("UPDATE communication_groups SET name = ?, entity_type = ?, sync_status = 'pending', last_error = NULL WHERE id = ?")
+            ->execute([$name, $entityType, $id]);
+        return ['id' => $id, 'name' => $name, 'entity_type' => $entityType];
     }
 
     public function deleteGroup(int $id): array
@@ -206,7 +218,7 @@ class SMSService
      */
     public function provisionGroups(): array
     {
-        $stmt = $this->db->query(
+        $stmt = $this->db->prepare(
             "SELECT id, name FROM communication_groups WHERE provider = ? AND (provider_group_id IS NULL OR provider_group_id = '') ORDER BY id"
         );
         $stmt->execute([$this->providerName()]);
@@ -237,24 +249,42 @@ class SMSService
 
         $pushed = 0;
         $failed = 0;
-        $stmt = $this->db->prepare("SELECT id FROM communication_groups WHERE provider = ? ORDER BY id");
+        $imported = ['added' => 0, 'updated' => 0, 'removed' => 0];
+        $stmt = $this->db->prepare("SELECT id, entity_type FROM communication_groups WHERE provider = ? ORDER BY id");
         $stmt->execute([$this->providerName()]);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $group) {
             try {
+                if (in_array((string) $group['entity_type'], ['parents', 'staff', 'students', 'vendors'], true)) {
+                    $refresh = $this->importAudience((int) $group['id']);
+                    foreach (array_keys($imported) as $key) $imported[$key] += (int) ($refresh[$key] ?? 0);
+                    $this->db->prepare("UPDATE communication_groups SET last_error = NULL WHERE id = ?")->execute([(int) $group['id']]);
+                }
                 $result = $this->syncContacts((int) $group['id']);
                 $pushed += (int) ($result['pushed'] ?? 0);
                 $failed += (int) ($result['failed'] ?? 0);
             } catch (\Throwable $e) {
                 $failed++;
+                $this->db->prepare("UPDATE communication_groups SET sync_status = 'error', last_error = ? WHERE id = ?")
+                    ->execute([substr($e->getMessage(), 0, 500), (int) $group['id']]);
             }
         }
 
         return [
             'groups' => $groups,
             'provisioned' => $provisioned,
+            'directory_contacts' => $imported,
             'contacts_pushed' => $pushed,
             'contacts_failed' => $failed,
         ];
+    }
+
+    private function normalizeGroupAudience(string $entityType): string
+    {
+        $entityType = strtolower(trim($entityType));
+        if (!in_array($entityType, ['external', 'parents', 'staff', 'students', 'vendors'], true)) {
+            throw new \InvalidArgumentException('Choose a valid contact group audience.');
+        }
+        return $entityType;
     }
 
     // ── Contacts ────────────────────────────────────────────────────────────
@@ -569,10 +599,48 @@ class SMSService
 
     public function send(array $params): array
     {
+        $submissionId = trim((string) ($params['client_submission_id'] ?? ''));
+        if ($submissionId === '' || !preg_match('/^[A-Za-z0-9_-]{12,100}$/', $submissionId)) {
+            return $this->sendOnce($params);
+        }
+
+        $senderId = $this->currentUserId();
+        $lockName = 'sms_submit_' . substr(hash('sha256', (string) $senderId . ':' . $submissionId), 0, 48);
+        $lock = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+        $lock->execute([$lockName]);
+        if ((int) $lock->fetchColumn() !== 1) {
+            throw new \RuntimeException('Could not safely confirm message submission; please retry.');
+        }
+
+        try {
+            $existing = $this->db->prepare(
+                "SELECT id, status FROM communications WHERE sender_id <=> ? AND JSON_UNQUOTE(JSON_EXTRACT(channel_meta, '$.client_submission_id')) = ? ORDER BY id DESC LIMIT 1"
+            );
+            $existing->execute([$senderId, $submissionId]);
+            $row = $existing->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                return [
+                    'communication_id' => (int) $row['id'],
+                    'mode' => (string) ($params['mode'] ?? $params['channel'] ?? 'sms'),
+                    'status' => (string) $row['status'],
+                    'idempotent_replay' => true,
+                ];
+            }
+            return $this->sendOnce($params);
+        } finally {
+            $this->db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
+        }
+    }
+
+    private function sendOnce(array $params): array
+    {
         $mode = strtolower((string) ($params['mode'] ?? $params['channel'] ?? 'sms'));
         $allowed = ['sms', 'whatsapp', 'voice', 'mms', 'hashed', 'campaign'];
         if (!in_array($mode, $allowed, true)) {
             throw new \InvalidArgumentException('Unsupported messaging mode');
+        }
+        if ($mode === 'whatsapp') {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
         }
 
         $message = trim((string) ($params['message'] ?? $params['body'] ?? ''));
@@ -595,12 +663,14 @@ class SMSService
 
         $channelMeta = array_filter([
             'mode' => $mode,
+            'client_submission_id' => $params['client_submission_id'] ?? null,
             'schedule_time' => $scheduleTime,
             'media_url' => $params['media_url'] ?? null,
             'language' => $params['language'] ?? null,
             'gender' => $params['gender'] ?? null,
             'dlt_template_id' => $params['dlt_template_id'] ?? null,
             'recipient_format' => $params['recipient_format'] ?? null,
+            'tagged_staff_user_ids' => array_values(array_unique(array_map('intval', (array) ($params['tagged_staff_user_ids'] ?? [])))),
         ], static fn ($value) => $value !== null && $value !== '');
 
         $communicationId = $this->createCommunicationRow($type, $mode, $message, $channelMeta, $scheduleTime);
@@ -666,6 +736,17 @@ class SMSService
                   FROM communications c WHERE 1 = 1";
         $params = [];
 
+        if (($filters['visibility'] ?? 'all') === 'self_or_tagged') {
+            $userId = (int) ($filters['visibility_user_id'] ?? 0);
+            if ($userId < 1) {
+                $sql .= ' AND 1 = 0';
+            } else {
+                $sql .= " AND (c.sender_id = ? OR JSON_CONTAINS(COALESCE(c.channel_meta, JSON_OBJECT()), ?, '$.tagged_staff_user_ids'))";
+                $params[] = $userId;
+                $params[] = (string) $userId;
+            }
+        }
+
         if (!empty($filters['type'])) {
             $sql .= " AND c.type = ?";
             $params[] = $filters['type'];
@@ -695,15 +776,26 @@ class SMSService
         $stmt->execute($params);
         $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $stats = $this->messageStats();
+        $stats = $this->messageStats($filters);
         return ['messages' => $messages, 'stats' => $stats];
     }
 
-    public function messageStats(): array
+    public function messageStats(array $filters = []): array
     {
-        $stmt = $this->db->query(
-            "SELECT type, status, COUNT(*) AS total FROM communications GROUP BY type, status"
-        );
+        $sql = "SELECT c.type, c.status, COUNT(*) AS total FROM communications c";
+        $params = [];
+        if (($filters['visibility'] ?? 'all') === 'self_or_tagged') {
+            $userId = (int) ($filters['visibility_user_id'] ?? 0);
+            if ($userId < 1) {
+                $sql .= ' WHERE 1 = 0';
+            } else {
+                $sql .= " WHERE (c.sender_id = ? OR JSON_CONTAINS(COALESCE(c.channel_meta, JSON_OBJECT()), ?, '$.tagged_staff_user_ids'))";
+                $params = [$userId, (string) $userId];
+            }
+        }
+        $sql .= ' GROUP BY c.type, c.status';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         $byType = [];
         $byStatus = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -778,9 +870,11 @@ class SMSService
     private function createCommunicationRow(string $type, string $mode, string $message, array $channelMeta, ?string $scheduleTime): int
     {
         $status = $scheduleTime !== null ? 'scheduled' : 'queued';
+        $senderId = $this->currentUserId();
+        $channelMeta['delivery_source'] = $senderId === null ? 'system' : 'staff';
         $stmt = $this->db->prepare(
-            "INSERT INTO communications (type, provider, subject, body, channel_meta, status, priority, scheduled_at, sender_id)
-             VALUES (?, ?, ?, ?, ?, ?, 'medium', ?, ?)"
+            "INSERT INTO communications (type, provider, subject, body, channel_meta, status, priority, scheduled_at, sender_id, sender_signature)
+             VALUES (?, ?, ?, ?, ?, ?, 'medium', ?, ?, ?)"
         );
         $stmt->execute([
             $type,
@@ -790,7 +884,8 @@ class SMSService
             $channelMeta ? json_encode($channelMeta, JSON_UNESCAPED_SLASHES) : null,
             $status,
             $scheduleTime,
-            $this->currentUserId(),
+            $senderId,
+            $senderId === null ? 'System' : null,
         ]);
         return (int) $this->db->lastInsertId();
     }
@@ -860,7 +955,8 @@ class SMSService
     {
         switch ($mode) {
             case 'whatsapp':
-                return $this->gateway->sendWhatsApp($address, $message, $params['media_url'] ?? null);
+                $this->whatsappGateway ??= new SMSGateway($this->configService->effectiveWhatsAppConfig());
+                return $this->whatsappGateway->sendWhatsApp($address, $message, $params['media_url'] ?? null);
             case 'voice':
                 return $this->gateway->sendVoice($address, $message, $params['language'] ?? null, $params['gender'] ?? null);
             case 'mms':
@@ -881,9 +977,9 @@ class SMSService
         $providerId = $this->extractUid($result['data'] ?? null);
         $this->db->prepare("INSERT INTO communication_delivery_attempts (endpoint_id, attempt_no, request_status, provider_message_id, provider_status, request_started_at, request_finished_at, raw_response) VALUES (?, 1, 'accepted', ?, ?, NOW(), NOW(), ?)")
             ->execute([$endpoint['id'], $providerId, $result['status'] ?? 'accepted', json_encode($result['data'] ?? null)]);
-        $this->db->prepare("UPDATE communication_recipient_endpoints SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NOW() WHERE id = ?")
+        $this->db->prepare("UPDATE communication_recipient_endpoints SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NULL WHERE id = ?")
             ->execute([$providerId, $result['status'] ?? 'sent', $endpoint['id']]);
-        $this->db->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NOW(), delivery_attempts = delivery_attempts + 1, last_attempt_at = NOW() WHERE id = ?")
+        $this->db->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NULL, delivery_attempts = delivery_attempts + 1, last_attempt_at = NOW() WHERE id = ?")
             ->execute([$endpoint['recipient_id']]);
     }
 

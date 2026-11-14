@@ -5,8 +5,8 @@
  *
  * This is operational inventory UI, not a buyer catalogue.
  */
-$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-if ($appBase === '.') $appBase = '';
+
+
 ?>
 <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/css/pages/product-catalog.css?v=<?= asset_version('css/pages/product-catalog.css') ?>">
 
@@ -93,7 +93,7 @@ if ($appBase === '.') $appBase = '';
     </div>
     <div class="catalog-management-note">
         <div class="p-3 border-top text-muted small d-none ipc-manage-only" id="ipcHelpRow">
-            You can manage this catalogue (create, publish, upload images, and record internal sales) because you hold an inventory management permission.
+            You can manage catalogue products, variants, prices, images, and stock because you hold an inventory management permission.
         </div>
     </div>
 

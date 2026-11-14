@@ -75,6 +75,7 @@ const RoleNavigationConfigController = {
       search: document.getElementById("roleNavigationConfigSearch"),
       count: document.getElementById("roleNavigationConfigCount"),
       body: document.getElementById("roleNavigationConfigTableBody"),
+      tableState: document.getElementById("roleNavigationConfigTableState"),
       rowTemplate: document.getElementById("roleNavigationConfigRowTemplate"),
       exportCsvBtn: document.getElementById("roleNavigationConfigExportCsvBtn"),
       printBtn: document.getElementById("roleNavigationConfigPrintBtn"),
@@ -110,12 +111,13 @@ const RoleNavigationConfigController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="5" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-role-navigation-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -181,10 +183,9 @@ const RoleNavigationConfigController = {
     this.render();
   },
 
-  statusBadge(value) {
+  statusTone(value) {
     const status = String(value ?? "").toLowerCase();
-    const cls = status === "effective" || status === "active" ? "bg-success" : "bg-secondary";
-    return `<span class="badge ${cls}">${this.escapeHtml(value ?? "—")}</span>`;
+    return status === "effective" || status === "active" ? "bg-success" : "bg-secondary";
   },
 
   render() {
@@ -194,17 +195,23 @@ const RoleNavigationConfigController = {
     if (!pageRows.length) {
       this.showTableMessage("No role navigation records found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="role_name"]').textContent = row.role_name ?? "—";
-          fragment.querySelector('[data-fill="section"]').textContent = row.section ?? "—";
-          fragment.querySelector('[data-fill="menu_label"]').textContent = row.menu_label ?? "—";
-          fragment.querySelector('[data-fill="route"]').textContent = row.route ?? "—";
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(row.status);
-          return fragment.querySelector("tr").outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-role-navigation-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="role_name"]').textContent = row.role_name ?? "—";
+        fragment.querySelector('[data-fill="section"]').textContent = row.section ?? "—";
+        fragment.querySelector('[data-fill="menu_label"]').textContent = row.menu_label ?? "—";
+        fragment.querySelector('[data-fill="route"]').textContent = row.route ?? "—";
+        const badge = fragment.querySelector('[data-fill="status"]');
+        badge.textContent = row.status ?? "—";
+        badge.classList.add(this.statusTone(row.status));
+        const tr = fragment.querySelector("tr");
+        tr.dataset.roleNavigationRow = "1";
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

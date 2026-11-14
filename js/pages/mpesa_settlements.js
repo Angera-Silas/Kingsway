@@ -227,7 +227,7 @@
                 transBody.innerHTML = html;
             }
 
-            var modal = new bootstrap.Modal(document.getElementById("settlementDetailsModal"));
+            var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("settlementDetailsModal"));
             modal.show();
         },
 

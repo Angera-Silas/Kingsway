@@ -1,9 +1,6 @@
 <?php
 /** Kingsway System Administrator: Sidebar Menus — effective role navigation preview (teal-accent). */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') { $appBase = ''; }
-}
+
 ?>
 <div class="container-fluid py-4" id="sidebarMenusPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -56,7 +53,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="sidebarMenusTableBody">
-                    <tr>
+                    <tr id="sidebarMenusTableState">
                         <td colspan="5" class="text-center py-5 text-muted">Loading role navigation...</td>
                     </tr>
                 </tbody>

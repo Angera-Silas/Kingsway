@@ -9,7 +9,7 @@
 
 <div class="card shadow">
     <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-        <h2 class="mb-0">👨‍👩‍👧‍👦 Staff Children Management</h2>
+        <h2 class="mb-0">Staff Children Management</h2>
         <button class="btn btn-light" onclick="staffChildrenController.showAddModal()">
             <i class="bi bi-plus-circle"></i> Link Child to Staff
         </button>

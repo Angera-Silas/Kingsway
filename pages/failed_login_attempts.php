@@ -143,7 +143,7 @@
                     </tr>
                 </thead>
                 <tbody id="failedLoginAttemptsTableBody">
-                    <tr>
+                    <tr id="failedLoginAttemptsTableState">
                         <td colspan="6" class="text-center py-5 text-muted">
                             Waiting for authentication...
                         </td>

@@ -1,9 +1,6 @@
 <?php
 /** Kingsway System Administrator: Route Access Rules (role-augmented). */
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') { $appBase = ''; }
-}
+
 ?>
 <div class="container-fluid py-4" id="routeAccessRulesPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -61,7 +58,7 @@ if (!isset($appBase)) {
                     </tr>
                 </thead>
                 <tbody id="routeAccessRulesTableBody">
-                    <tr>
+                    <tr id="routeAccessRulesTableState">
                         <td colspan="7" class="text-center py-5 text-muted">Loading route access rules...</td>
                     </tr>
                 </tbody>

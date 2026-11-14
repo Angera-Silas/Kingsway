@@ -41,6 +41,90 @@ const TOKEN_REFRESH_SKEW_SECONDS = Math.max(
 const CURRENT_TAB_ID =
   Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
 
+// Outcome of the most recent refresh-token exchange:
+//   "ok"          — a new access token was issued.
+//   "rejected"    — the server answered 401/403: the session is gone.
+//   "invalid"     — the server answered but issued no usable token.
+//   "unavailable" — the server could not be reached, or failed temporarily
+//                   (5xx/408/429). The refresh cookie is still valid.
+// Only "rejected" and "invalid" may end a session. A network drop must never
+// log a user out: the session survives on the server and resumes as soon as
+// the connection is back.
+let _lastRefreshOutcome = null;
+// HTTP status of the last refresh attempt, or null when it never connected.
+// Tells ConnectivityManager whether the server answered (and is failing) or
+// could not be reached at all.
+let _lastRefreshHttpStatus = null;
+
+function refreshOutcomeFromStatus(status) {
+  if (status === 401 || status === 403) return "rejected";
+  if (status >= 500 || status === 408 || status === 429) return "unavailable";
+  return "invalid";
+}
+
+// Connectivity hints for ConnectivityManager. They are hints only: the
+// manager confirms with its own probe before telling the user anything.
+let _serverUnreachableHinted = false;
+
+// `answered` is true when the server responded with a temporary failure
+// (5xx/408/429) rather than not responding at all.
+function hintServerUnreachable(source, answered = false) {
+  _serverUnreachableHinted = true;
+  window.__KINGSWAY_SERVER_UNREACHABLE__ = answered ? "server_error" : true;
+  try {
+    window.dispatchEvent(
+      new CustomEvent("kingsway:server-unreachable", {
+        detail: { source, answered },
+      }),
+    );
+  } catch (_) {}
+}
+
+function hintServerReachable() {
+  if (!_serverUnreachableHinted) return;
+  _serverUnreachableHinted = false;
+  window.__KINGSWAY_SERVER_UNREACHABLE__ = false;
+  try {
+    window.dispatchEvent(new CustomEvent("kingsway:server-reachable"));
+  } catch (_) {}
+}
+
+function createConnectionError() {
+  const error = new Error(
+    "Cannot reach the school server. Check your connection and try again.",
+  );
+  error.code = 0;
+  error.state = "offline";
+  error.offline = true;
+  return error;
+}
+
+// Resolve after `ms`, or sooner when the device reconnects, the tab becomes
+// visible again, or the user presses "Try again" on the connection banner.
+function waitForConnectionRetry(ms) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener("online", done);
+      window.removeEventListener("kingsway:retry-connection", done);
+      window.removeEventListener("kingsway:server-reachable", done);
+      document.removeEventListener("visibilitychange", onVisible);
+      resolve();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") done();
+    };
+    const timer = setTimeout(done, ms);
+    window.addEventListener("online", done);
+    window.addEventListener("kingsway:retry-connection", done);
+    window.addEventListener("kingsway:server-reachable", done);
+    document.addEventListener("visibilitychange", onVisible);
+  });
+}
+
 // Notification types
 const NOTIFICATION_TYPES = {
   SUCCESS: "success",
@@ -157,6 +241,20 @@ function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
   setTimeout(removeToast, type === NOTIFICATION_TYPES.ERROR ? 6000 : 3200);
 }
 
+// Endpoints whose failures are themselves delivered as telemetry. Their
+// errors are logged server-side by the ingest endpoint, so echoing them back
+// into the browser logger only amplifies the failure.
+const TELEMETRY_ENDPOINTS = [
+  "/system/client-log",
+  "/telemetry/data",
+  "/telemetry/errors",
+];
+
+function isTelemetryEndpoint(endpoint) {
+  if (!endpoint) return false;
+  return TELEMETRY_ENDPOINTS.some((path) => endpoint.indexOf(path) !== -1);
+}
+
 // Handle API Response
 function handleApiResponse(response, showSuccess = false) {
   const normalized = AppState.normalizeResponse(response);
@@ -182,8 +280,14 @@ function handleApiResponse(response, showSuccess = false) {
 }
 
 // Handle API Error
-function handleApiError(error) {
-  console.error("API Error:", error);
+function handleApiError(error, endpoint) {
+  // Telemetry must never report about itself. A failed POST
+  // /system/client-log arrives here, and console.error would route it back
+  // into AppLogger -> flush -> client-log, re-creating the 429 burst that the
+  // delivery backoff in js/core/frontend_logger.js exists to stop.
+  if (!isTelemetryEndpoint(endpoint)) {
+    console.error("API Error:", error);
+  }
   // Don't show notification here - let caller decide if they want to notify user
   throw error;
 }
@@ -430,18 +534,40 @@ const AuthContext = (() => {
    */
   // One-shot guard: the boot refresh may be triggered both by the module-load
   // initialize() call and by home.php awaiting initialize() — run it only once.
-  let _bootRefreshDone = false;
-  let _bootRefreshResult = null;
+  let _bootRefreshPromise = null;
 
-  async function bootstrapFromRefreshCookie() {
-    if (_bootRefreshDone) return _bootRefreshResult;
-    _bootRefreshDone = true;
+  // Resolves true (session restored) or false (the server rejected it). While
+  // the server cannot be reached it does not resolve at all: it keeps retrying
+  // with backoff, so every page gate awaiting AuthContext.ready() simply waits
+  // and then continues exactly where it was, instead of deciding "logged out".
+  function bootstrapFromRefreshCookie() {
+    if (!_bootRefreshPromise) {
+      _bootRefreshPromise = (async () => {
+        let delayMs = 1000;
+        for (;;) {
+          const outcome = await attemptBootRefresh();
+          _lastRefreshOutcome = outcome;
+          if (outcome !== "unavailable") {
+            if (outcome === "ok") hintServerReachable();
+            return outcome === "ok";
+          }
+          hintServerUnreachable("auth_boot", _lastRefreshHttpStatus !== null);
+          await waitForConnectionRetry(delayMs);
+          delayMs = Math.min(delayMs * 2, 15000);
+        }
+      })();
+    }
+    return _bootRefreshPromise;
+  }
+
+  async function attemptBootRefresh() {
+    let response;
     try {
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin,
       );
-      const response = await fetchWithBrowserFallback(url.toString(), {
+      response = await fetchWithBrowserFallback(url.toString(), {
         method: "POST",
         credentials: "include", // carries the HttpOnly refresh_token cookie
         cache: "no-store",
@@ -452,7 +578,14 @@ const AuthContext = (() => {
         },
         // No body — server reads refresh_token from the HttpOnly cookie
       });
-      if (!response.ok) return false;
+    } catch (e) {
+      console.warn("[AuthContext] Boot refresh could not reach the server:", e);
+      _lastRefreshHttpStatus = null;
+      return "unavailable";
+    }
+    _lastRefreshHttpStatus = response.status;
+    if (!response.ok) return refreshOutcomeFromStatus(response.status);
+    try {
       const result = await readJsonSafely(response, "Token refresh");
       if (
         result &&
@@ -473,14 +606,13 @@ const AuthContext = (() => {
         console.log(
           "[AuthContext] Session restored from refresh cookie on boot",
         );
-        _bootRefreshResult = true;
-        return true;
+        return "ok";
       }
     } catch (e) {
-      console.warn("[AuthContext] Boot refresh failed:", e);
+      console.warn("[AuthContext] Boot refresh returned an unreadable response:", e);
     }
-    _bootRefreshResult = false;
-    return false;
+    // The server answered, but without a usable token.
+    return "invalid";
   }
 
   // SINGLETON BOOT PROMISE.
@@ -527,6 +659,12 @@ const AuthContext = (() => {
         if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
           const refreshed = await refreshAccessToken();
           if (!refreshed && isTokenExpired(0)) {
+            if (_lastRefreshOutcome === "unavailable") {
+              // Unreachable, not rejected: wait for the server like a cold boot.
+              const restored = await bootstrapFromRefreshCookie();
+              if (!restored) clearUser();
+              return restored && isAuthenticated();
+            }
             clearUser();
             return false;
           }
@@ -702,6 +840,11 @@ const AuthContext = (() => {
     roles = [];
     teacherScope = null;
     _csrfToken = null;
+    try {
+      sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    } catch (_) {
+      /* ignore */
+    }
     // Use removeAllUserKeys() which reads the sentinel BEFORE clearing it,
     // so it can compute the correct namespaced keys (kw_<userId>_*) to delete.
     removeAllUserKeys(localStorage);
@@ -1027,6 +1170,8 @@ const AuthContext = (() => {
     // Expose boot promise so apiCall() can wait for bootstrapFromRefreshCookie
     // before treating a null in-memory token as session expiry.
     getBootPromise: () => _bootPromise,
+    // "ok" | "rejected" | "invalid" | "unavailable" — see _lastRefreshOutcome.
+    getRefreshOutcome: () => _lastRefreshOutcome,
     // CSRF setter + parent portal session bridge (see module-scope helpers).
     setCsrfToken,
     getPortalToken,
@@ -1039,6 +1184,78 @@ const AuthContext = (() => {
 
 window.AuthContext = AuthContext;
 startSessionActivityTracking();
+
+/* -------------------------------------------------------------------------
+ * PaymentMethodLabels — parent/staff-safe vocabulary for payment rails.
+ *
+ * Only the System Administrator may see which aggregator carried a payment
+ * (Buni, Daraja, PayHero). Everyone else — parents, finance, inventory,
+ * reconciliation, admission staff — sees only what the payer experienced:
+ * an M-Pesa prompt, a direct deposit, Lipa Karo (KCB mobile app) or
+ * Lipa na M-Pesa (Safaricom app / SIM toolkit). Routed request values keep
+ * their internal codes; this helper only rewrites what is displayed.
+ * ---------------------------------------------------------------------- */
+const PaymentMethodLabels = {
+  // channel / rail / provider code => safe label
+  map: {
+    daraja_mpesa: "M-Pesa",
+    safaricom_daraja: "M-Pesa",
+    mpesa_daraja: "M-Pesa",
+    mpesa_stk: "M-Pesa prompt",
+    safaricom_stk: "M-Pesa prompt",
+    safaricom_c2b: "M-Pesa",
+    buni_mpesa: "KCB Bank",
+    kcb_buni: "KCB Bank",
+    kcb_buni_ipn: "Lipa Karo (KCB mobile app)",
+    payhero: "Online Payment",
+    payhero_mpesa: "Online Payment",
+    payhero_stk: "Online Payment",
+    payhero_africa: "Online Payment",
+    bank_transfer: "Direct deposit",
+    bank_webhook: "Direct deposit",
+    cash: "Cash",
+    cheque: "Cheque",
+    card_pos: "Card",
+    internal_transfer: "Internal transfer",
+  },
+  product: {
+    paybill: "Lipa na M-Pesa (Safaricom app / SIM toolkit)",
+    till: "Lipa na M-Pesa (Safaricom app / SIM toolkit)",
+    buni: "Lipa Karo (KCB mobile app)",
+    bank_collection: "Direct deposit",
+    stk: "M-Pesa prompt",
+  },
+  label(code) {
+    const key = String(code ?? "").trim().toLowerCase();
+    if (!key) return "";
+    if (this.map[key]) return this.map[key];
+    for (const prefix of Object.keys(this.map)) {
+      if (prefix !== "payhero" && key.startsWith(`${prefix}_`)) return this.map[prefix];
+    }
+    return String(code ?? "");
+  },
+  productLabel(product) {
+    const key = String(product ?? "").trim().toLowerCase();
+    return this.product[key] || String(product ?? "");
+  },
+  isInternal(code) {
+    const key = String(code ?? "").trim().toLowerCase();
+    return ["buni", "kcb_buni", "kcb_buni_ipn", "daraja", "mpesa_daraja", "safaricom_daraja", "daraja_mpesa", "payhero", "payhero_mpesa"].includes(key)
+      || key.startsWith("payhero_");
+  },
+  // True when this user is allowed to see proprietary rail names at all.
+  canSeeRails() {
+    return Boolean(
+      window.AuthContext?.hasRole?.("System Administrator") ||
+        window.AuthContext?.hasPermission?.("system.payment_integrations.configure")
+    );
+  },
+  // Convenience: safe label for most users, raw code only for the admin.
+  display(code) {
+    return this.canSeeRails() ? String(code ?? "") : this.label(code);
+  },
+};
+window.PaymentMethodLabels = PaymentMethodLabels;
 
 // Lightweight state refresher registry so mutation calls can auto-refresh linked data
 const APIState = (() => {
@@ -1071,10 +1288,16 @@ const APIState = (() => {
 const APIRealtime = (() => {
   const dependencies = new Set();
   const registered = new Map();
+  const explicitlyRegisteredControllers = new WeakMap();
+  const controllerRoutes = new WeakMap();
   const patches = new Map();
   let refreshTimer = null;
+  let deferredFocusRefreshTimer = null;
+  let refreshDeferredForEditing = false;
   let refreshRunning = false;
   let refreshAgain = false;
+  const scheduledTargets = new Set();
+  const refreshAgainTargets = new Set();
 
   function normalize(value) {
     return String(value || "")
@@ -1102,19 +1325,56 @@ const APIRealtime = (() => {
 
   function register(name, controller, targets = []) {
     if (!controller || typeof controller !== "object") return () => {};
-    registered.set(name, { controller, targets: new Set(targets.map(normalize)) });
-    return () => registered.delete(name);
+    const entry = {
+      controller,
+      targets: new Set(targets.map(normalize)),
+      route: String(window.REQUESTED_ROUTE || ""),
+    };
+    entry.targets.forEach((target) => dependencies.add(target));
+    registered.set(name, entry);
+    explicitlyRegisteredControllers.set(controller, entry.route);
+    if (!controllerRoutes.has(controller)) controllerRoutes.set(controller, entry.route);
+    return () => {
+      if (registered.get(name) === entry) registered.delete(name);
+    };
+  }
+
+  function attachCurrentRouteControllers() {
+    const route = String(window.REQUESTED_ROUTE || "");
+    if (!route) return 0;
+    let attached = 0;
+    for (const name of Object.getOwnPropertyNames(window)) {
+      if (!/controller$/i.test(name)) continue;
+      let controller;
+      try { controller = window[name]; } catch (_) { continue; }
+      if (!controller || typeof controller !== "object") continue;
+      if (!controllerRoutes.has(controller)) {
+        controllerRoutes.set(controller, route);
+        attached += 1;
+      }
+    }
+    return attached;
   }
 
   function discoverControllers() {
     const found = [];
     const seen = new Set();
+    const activeRoute = String(window.REQUESTED_ROUTE || "");
     for (const name of Object.getOwnPropertyNames(window)) {
       if (!/controller$/i.test(name)) continue;
       let controller;
       try { controller = window[name]; } catch (_) { continue; }
       if (!controller || typeof controller !== "object" || seen.has(controller)) continue;
       seen.add(controller);
+      // Auto-discovery used to call every global page controller on any
+      // matching domain event. Bind fallback controllers to the page route
+      // where they were first loaded so a later SSE refresh cannot render into
+      // another route's DOM.
+      if (controllerRoutes.get(controller) !== activeRoute) continue;
+      // A page that explicitly registered its controller owns its refresh
+      // scope. Do not rediscover it as a route-agnostic fallback after the
+      // user has navigated elsewhere.
+      if (explicitlyRegisteredControllers.has(controller)) continue;
       found.push({ name, controller, targets: new Set() });
     }
     return found;
@@ -1167,17 +1427,36 @@ const APIRealtime = (() => {
   async function runRefresh(targets) {
     if (document.visibilityState !== "visible") {
       refreshAgain = true;
+      targets.forEach((target) => refreshAgainTargets.add(normalize(target)));
+      return;
+    }
+    const routeAtStart = String(window.REQUESTED_ROUTE || "");
+    // A reconnect refresh must not replace a page's controls while the user is
+    // actively editing them. Keep the invalidation targets and resume after
+    // focus leaves the editor, allowing the associated save click/submit to run.
+    const active = document.activeElement;
+    const editing = active instanceof HTMLElement
+      && active.matches("input:not([readonly]):not([disabled]), textarea:not([readonly]):not([disabled]), select:not([disabled]), [contenteditable='true']");
+    if (editing) {
+      refreshDeferredForEditing = true;
+      targets.forEach((target) => refreshAgainTargets.add(normalize(target)));
       return;
     }
     if (refreshRunning) {
       refreshAgain = true;
+      targets.forEach((target) => refreshAgainTargets.add(normalize(target)));
       return;
     }
     refreshRunning = true;
     try {
-      const entries = [...registered.values(), ...discoverControllers()];
+      const activeRoute = String(window.REQUESTED_ROUTE || "");
+      const entries = [
+        ...[...registered.values()].filter((entry) => entry.route === activeRoute),
+        ...discoverControllers(),
+      ];
       const invoked = new Set();
       for (const entry of entries) {
+        if (String(window.REQUESTED_ROUTE || "") !== routeAtStart) break;
         if (invoked.has(entry.controller) || !targetMatches(targets, entry.targets)) continue;
         const loader = loaderFor(entry.controller);
         if (!loader) continue;
@@ -1189,16 +1468,53 @@ const APIRealtime = (() => {
       refreshRunning = false;
       if (refreshAgain) {
         refreshAgain = false;
-        schedule(targets);
+        const queuedTargets = [...refreshAgainTargets];
+        refreshAgainTargets.clear();
+        schedule(queuedTargets.length ? queuedTargets : [...dependencies]);
       }
     }
   }
 
+  document.addEventListener("focusout", () => {
+    if (!refreshDeferredForEditing) return;
+    window.clearTimeout(deferredFocusRefreshTimer);
+    deferredFocusRefreshTimer = window.setTimeout(() => {
+      refreshDeferredForEditing = false;
+      const queuedTargets = [...refreshAgainTargets];
+      refreshAgainTargets.clear();
+      if (queuedTargets.length) schedule(queuedTargets);
+    }, 1200);
+  }, true);
+
   function schedule(targets = []) {
-    const normalizedTargets = [...new Set(targets.map(normalize).filter(Boolean))];
+    targets.map(normalize).filter(Boolean).forEach((target) => scheduledTargets.add(target));
     window.clearTimeout(refreshTimer);
-    refreshTimer = window.setTimeout(() => runRefresh(normalizedTargets), 500);
+    refreshTimer = window.setTimeout(() => {
+      const pendingTargets = [...scheduledTargets];
+      scheduledTargets.clear();
+      refreshTimer = null;
+      runRefresh(pendingTargets);
+    }, 500);
   }
+
+  // A soft navigation replaces the page's data dependencies. Keeping old
+  // endpoints and controller registrations made one SSE invalidation refresh
+  // pages the user had already left, often against DOM that no longer existed.
+  window.addEventListener("kingsway:page-will-load", () => {
+    window.clearTimeout(refreshTimer);
+    refreshTimer = null;
+    refreshAgain = false;
+    refreshDeferredForEditing = false;
+    window.clearTimeout(deferredFocusRefreshTimer);
+    scheduledTargets.clear();
+    refreshAgainTargets.clear();
+    dependencies.clear();
+  });
+  window.addEventListener("kingsway:page-loaded", attachCurrentRouteControllers);
+
+  // On a full document load the page controller scripts precede api.js, so
+  // capture their route ownership before the first realtime event can arrive.
+  attachCurrentRouteControllers();
 
   /**
    * Register an incremental row updater.
@@ -1256,12 +1572,15 @@ const APIRealtime = (() => {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && refreshAgain) {
       refreshAgain = false;
-      schedule([...dependencies]);
+      const queuedTargets = [...refreshAgainTargets];
+      refreshAgainTargets.clear();
+      schedule(queuedTargets.length ? queuedTargets : [...dependencies]);
     }
   });
 
   return {
     track, trackTargets, register, schedule, registerPatch, applyPatch,
+    attachCurrentRouteControllers,
     dependencies: () => [...dependencies],
   };
 })();
@@ -1676,6 +1995,11 @@ const ENDPOINT_PERMISSIONS = {
   // Academic
   "/academic/index": "academic_view",
   "/academic/classes-list": "academic_view",
+  "/academic/class-students": "academic_view",
+  "/academic/national-exams": {
+    GET: ["academic_view", "assessments_view", "results_view"],
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
   "/academic/classes/create": "academic_create",
   "/academic/classes/update": "academic_update",
   "/academic/classes/delete": "academic_delete",
@@ -1690,6 +2014,8 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/subjects": "academic_view",
   "/academic/subjects-list": "academic_view",
   "/academic/learning-areas/list": "academic_view",
+  "/academic/learning-outcomes": "academic_view",
+  "/academic/lesson-plans/by-teacher": "academic_view",
   "/academic/learning-areas/get": "academic_view",
   "/academic/learning-areas/create": "academic_create",
   "/academic/learning-areas/update": "academic_update",
@@ -1846,6 +2172,7 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/ai-lesson-plan-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
   "/academic/ai-assessment-draft-queue": { POST: "academic_view" },
   "/academic/ai-coverage-review-queue": { POST: "academic_view" },
+  "/academic/ai-academic-class-options": { GET: "academic_view" },
   "/academic/ai-rubric-draft-queue": { POST: "academic_view" },
   "/academic/ai-learning-gap-review-queue": { POST: "academic_view" },
   "/admission/ai-interview-preparation-queue": { POST: "admission_view" },
@@ -1854,8 +2181,8 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/ai-rubric-draft-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
   "/academic/ai-coverage-review-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
   "/academic/ai-learning-gap-review-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
-  "/students/ai-support-planning-queue": { POST: "student_view" },
-  "/students/ai-support-planning-reviews": { GET: "student_view" },
+  "/students/ai-support-planning-queue": { POST: ["students_view", "students_view_all"] },
+  "/students/ai-support-planning-reviews": { GET: ["students_view", "students_view_all"] },
   "/students/ai-support-planning-approve": { POST: ["students_edit", "students_view_all"] },
   "/academic/ai-assessment-drafts": { GET: "academic_view" },
   "/academic/ai-assessment-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
@@ -1993,6 +2320,16 @@ const ENDPOINT_PERMISSIONS = {
   "/payments/payhero-channels": { GET: "finance_view" },
   "/payments/payhero-bank-paybills": { GET: "finance_view" },
   "/payments/payhero-channel": {
+    POST: [
+      "finance_create",
+      "finance_manage",
+      "payments_manage",
+      "finance.create",
+      "finance.manage",
+      "payments.manage",
+    ],
+  },
+  "/payments/payhero-stk-push": {
     POST: [
       "finance_create",
       "finance_manage",
@@ -2163,6 +2500,15 @@ const ENDPOINT_PERMISSIONS = {
 
   // Communications
   "/communications/index": "communications_view",
+  "/communications/templates": {
+    GET: "communications_view",
+    POST: "communications_create",
+    PUT: "communications_create",
+    DELETE: "communications_manage",
+  },
+  "/communications/templates/sync": {
+    POST: "communications_manage",
+  },
   "/communications/pta": {
     GET: "students_parents_view",
     POST: "students_parents_view",
@@ -2171,6 +2517,18 @@ const ENDPOINT_PERMISSIONS = {
   },
   "/communications/sms": {
     GET: "communications_view",
+    POST: "communications_create",
+  },
+  "/communications/sms-messages": { GET: "communications_view" },
+  "/communications/remote-sms-messages": { GET: "communications_view" },
+  "/communications/staff-tags": { GET: ["communications_create", "communications_manage"] },
+  "/communications/communication": {
+    GET: "communications_view",
+    POST: "communications_create",
+    PUT: "communications_create",
+    DELETE: "communications_manage",
+  },
+  "/communications/dispatch-communication": {
     POST: "communications_create",
   },
   "/communications/audience-options": "communications_view",
@@ -2233,7 +2591,19 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-delete": "schedules_update",
   "/schedules/timetable-check-conflicts": "schedules_view",
   "/schedules/timetable-report-conflict": "schedules_create",
-  "/schedules/timetable-time-slots": "schedules_view",
+  "/schedules/timetable-time-slots": {
+    GET: "schedules_view",
+    // Saving the school day's periods is timetable editing (any of these).
+    PUT: ["schedules_create", "schedules_update", "schedules_manage", "schedules_approve"],
+  },
+  "/schedules/weekly-lessons": {
+    GET: "schedules_view",
+    // Saving weekly lessons is timetable editing (any of these).
+    PUT: ["schedules_create", "schedules_update", "schedules_manage", "schedules_approve"],
+  },
+  "/schedules/teacher-workload": "schedules_view",
+  "/schedules/teaching-load": "schedules_view",
+  "/schedules/timetable-auto-draft": ["schedules_create", "schedules_update", "schedules_manage", "schedules_approve"],
   "/schedules/timetable-drafts": "schedules_view",
   "/schedules/ai-timetable-planning-queue": "schedules_view",
   "/schedules/ai-timetable-planning-session": "schedules_view",
@@ -2278,6 +2648,7 @@ const ENDPOINT_PERMISSIONS = {
 
   // Reports
   "/reports/index": "reports_view",
+  "/reports/communication-logs": ["communications_view", "communications_manage", "reports_view"],
   "/reports/academic": "reports_view",
   "/reports/catalogue": "analytics_catalogue_view",
   "/reports/definition": "analytics_catalogue_view",
@@ -2461,6 +2832,12 @@ function validatePermission(endpoint, method) {
   const hasPermission = [...aliases].some((permissionCode) =>
     AuthContext.hasPermission(permissionCode),
   );
+  const currentUser = AuthContext.getUser?.() || {};
+  const isTestAccount = Number(currentUser.is_test_user || 0) === 1 || currentUser.account_type === "test";
+  const isCommunicationSendRequest =
+    String(method).toUpperCase() === "POST" &&
+    /^\/communications\/(?:communication|dispatch-communication|resend|sms-send|send-sms|send-whatsapp|send-whatsapp-template)(?:\/|$)/.test(normalizedEndpoint);
+  if (!hasPermission && isTestAccount && isCommunicationSendRequest) return;
   const leadershipManagerRole = [
     "school administrator",
     "headteacher",
@@ -2482,6 +2859,41 @@ function validatePermission(endpoint, method) {
     ) && ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(String(method).toUpperCase());
 
   if (!hasPermission && paymentIntegrationManagerRole && isPaymentIntegrationConfigRequest) {
+    return;
+  }
+
+  // Mirror AttendanceController::canApproveAiAttendance so authorized
+  // leadership reviewers are not blocked by this client-side UX check.
+  const attendanceReviewerRole = [
+    "headteacher",
+    "deputy headteacher",
+    "school administrator",
+    "director",
+  ].some((roleName) => AuthContext.hasRole?.(roleName)) ||
+    (currentUser.role_ids || []).some((roleId) => [3, 4, 5, 10].includes(Number(roleId)));
+  const isAttendanceAiApproval =
+    normalizedEndpoint.startsWith("/attendance/ai-exception-summary-approve/") &&
+    String(method).toUpperCase() === "POST";
+
+  if (!hasPermission && attendanceReviewerRole && isAttendanceAiApproval) {
+    return;
+  }
+
+  // BoardingController::canApproveAiBoarding grants these leadership and
+  // boarding-master roles the review action even when legacy permission rows
+  // do not include the newer boarding approval codes.
+  const boardingReviewerRole = [
+    "headteacher",
+    "school administrator",
+    "director",
+    "boarding master",
+  ].some((roleName) => AuthContext.hasRole?.(roleName)) ||
+    (currentUser.role_ids || []).some((roleId) => [3, 4, 5, 10].includes(Number(roleId)));
+  const isBoardingAiApproval =
+    normalizedEndpoint.startsWith("/boarding/ai-exception-summary-approve/") &&
+    String(method).toUpperCase() === "POST";
+
+  if (!hasPermission && boardingReviewerRole && isBoardingAiApproval) {
     return;
   }
 
@@ -2541,6 +2953,7 @@ if (document.readyState === "loading") {
  */
 let _sessionExpiredEmitted = false;
 let _csrfToken = null;
+const CSRF_STORAGE_KEY = "kingsway_csrf_token";
 
 // ---------------------------------------------------------------------------
 // Parent portal session bridge
@@ -2620,6 +3033,18 @@ function renewPortalExpiry(headers) {
  */
 function setCsrfToken(token) {
   _csrfToken = token;
+  // Every authenticated staff session needs its CSRF token to survive a page
+  // reload or a token refresh. Only the parent portal used to persist it,
+  // which silently broke every staff POST (including the assistant) after F5.
+  try {
+    if (token) {
+      sessionStorage.setItem(CSRF_STORAGE_KEY, token);
+    } else {
+      sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    }
+  } catch (_) {
+    /* ignore */
+  }
   // Parent sessions persist their CSRF token in sessionStorage so a page
   // reload (which resets the in-memory copy) can restore it per session.
   if (isParentSourceSession()) {
@@ -2629,6 +3054,21 @@ function setCsrfToken(token) {
       /* ignore */
     }
   }
+}
+
+/**
+ * Return the in-memory CSRF token, restoring it from sessionStorage after a
+ * reload. PHP binds the token to the user id and a one-hour window, so a
+ * refresh always issues a replacement that overwrites this value.
+ */
+function getCsrfToken() {
+  if (_csrfToken) return _csrfToken;
+  try {
+    _csrfToken = sessionStorage.getItem(CSRF_STORAGE_KEY) || null;
+  } catch (_) {
+    _csrfToken = null;
+  }
+  return _csrfToken;
 }
 
 // ---------------------------------------------------------------------------
@@ -2787,6 +3227,18 @@ async function refreshAccessToken() {
 }
 
 async function performRefreshAccessToken() {
+  const outcome = await exchangeRefreshToken();
+  _lastRefreshOutcome = outcome;
+  if (outcome === "unavailable") {
+    hintServerUnreachable("token_refresh", _lastRefreshHttpStatus !== null);
+  } else {
+    hintServerReachable();
+  }
+  return outcome === "ok";
+}
+
+async function exchangeRefreshToken() {
+  _lastRefreshHttpStatus = null;
   try {
     const url = new URL(
       API_BASE_URL + "/auth/refresh-token",
@@ -2804,18 +3256,19 @@ async function performRefreshAccessToken() {
       },
       // No body — server reads refresh_token from the HttpOnly cookie
     });
+    _lastRefreshHttpStatus = response.status;
 
     // Only an explicit authentication rejection proves the refresh session
     // is dead. Do not log users out for rate limits, backend errors or an
     // interrupted network connection.
     if (response.status === 401 || response.status === 403) {
       handleSessionExpired("refresh_rejected_" + response.status);
-      return false;
+      return "rejected";
     }
 
     if (!response.ok) {
       console.warn("[API] Temporary token refresh failure:", response.status);
-      return false;
+      return refreshOutcomeFromStatus(response.status);
     }
 
     const result = await readJsonSafely(response, "Token refresh");
@@ -2826,18 +3279,23 @@ async function performRefreshAccessToken() {
       for (let i = 0; i < 50 && typeof window.requestTFAForSession !== 'function'; i++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      if (typeof window.requestTFAForSession !== 'function') return false;
+      // The MFA modal never loaded: a page-load problem, not a dead session.
+      if (typeof window.requestTFAForSession !== 'function') return "unavailable";
       await window.requestTFAForSession(payload);
-      return true;
+      return "ok";
     }
     const token = payload && (payload.token || payload.access_token);
 
     if (!token) {
       console.warn("[API] Refresh response did not contain an access token.");
-      return false;
+      return "invalid";
     }
 
     AuthContext.setTokens(token);
+
+    if (payload.csrf_token) {
+      setCsrfToken(payload.csrf_token);
+    }
 
     if (payload.user) {
       AuthContext.setUser(payload.user, payload, true);
@@ -2845,10 +3303,10 @@ async function performRefreshAccessToken() {
 
     window.dispatchEvent(new CustomEvent("AUTH_TOKEN_REFRESHED"));
     announceTokenRefresh();
-    return true;
+    return "ok";
   } catch (error) {
     console.warn("[API] Token refresh temporarily unavailable:", error);
-    return false;
+    return "unavailable";
   }
 }
 
@@ -3209,6 +3667,15 @@ async function apiCallDirect(
         console.log("Access token is expiring; refreshing before request...");
         const refreshed = await refreshAccessToken();
         if (!refreshed) {
+          if (
+            tokenAlreadyExpired &&
+            !_sessionExpiredEmitted &&
+            _lastRefreshOutcome === "unavailable"
+          ) {
+            // The server is unreachable, so the refresh never happened. The
+            // session is still valid; fail this request as a connection error.
+            throw createConnectionError();
+          }
           if (tokenAlreadyExpired) {
             handleSessionExpired("expired_token_refresh_failed");
             throw createSessionExpiredError(
@@ -3282,6 +3749,7 @@ async function apiCallDirect(
       credentials:
         options.credentials ||
         (window.location.hostname === "localhost" ? "same-origin" : "include"),
+      ...(options.signal ? { signal: options.signal } : {}),
       headers: {
         "X-Request-ID": requestId,
         "X-Browser-Session-Id": getBrowserSessionId(),
@@ -3295,9 +3763,14 @@ async function apiCallDirect(
         ...(token && {
           Authorization: "Bearer " + token,
         }),
-        ...(_csrfToken &&
+        // The Node subdomain's proxy strips Authorization; the gateway
+        // restores it from this copy. Only sent to the Node gateway.
+        ...(token && options.gatewayAuthFallback && {
+          "X-Kingsway-Authorization": "Bearer " + token,
+        }),
+        ...(getCsrfToken() &&
           (!isAuthFreeEndpoint || isParentCatalogApi) && {
-          "X-CSRF-Token": _csrfToken,
+          "X-CSRF-Token": getCsrfToken(),
         }),
         ...options.headers,
       },
@@ -3328,6 +3801,8 @@ async function apiCallDirect(
     // on every authenticated parent-portal response; persist it so parent pages
     // keep the session alive while the user is active.
     renewPortalExpiry(response.headers);
+    // Any HTTP answer proves the server is reachable again.
+    hintServerReachable();
 
     // Give callers (parent-portal pp_expires renewal, download tracking) a
     // chance to observe response headers exactly once for the response that
@@ -3408,8 +3883,14 @@ async function apiCallDirect(
         }
         console.log("Retrying original request with refreshed token...");
         fetchOptions.headers.Authorization = "Bearer " + newToken;
+        if (fetchOptions.headers["X-Kingsway-Authorization"]) {
+          fetchOptions.headers["X-Kingsway-Authorization"] = "Bearer " + newToken;
+        }
         response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
       } else {
+        if (!_sessionExpiredEmitted && _lastRefreshOutcome === "unavailable") {
+          throw createConnectionError();
+        }
         handleSessionExpired("request_401_refresh_failed");
         throw createSessionExpiredError(
           "Your session has expired. Please sign in again.",
@@ -3495,30 +3976,28 @@ async function apiCallDirect(
       error.message || "",
     );
 
-    if (
-      isNetworkFailure &&
-      isProtectedRequest &&
-      AuthContext.hasSession?.() &&
-      isTokenExpired(0)
-    ) {
-      handleSessionExpired("expired_token_network_failure");
-      throw createSessionExpiredError(
-        "Your session expired. Please sign in again.",
-      );
+    // A failed connection says nothing about the session, even when the access
+    // token has expired: the refresh cookie still restores it on reconnect.
+    if (isNetworkFailure) {
+      hintServerUnreachable("api_request");
     }
 
     if (isNetworkFailure) {
-      console.error("[api.js] Network fetch failed", {
-        endpoint,
-        method,
-        apiBaseUrl: typeof API_BASE_URL !== "undefined" ? API_BASE_URL : null,
-        appBase: window.APP_BASE || "",
-        origin: window.location.origin,
-        href: window.location.href,
-        online: navigator.onLine,
-        serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
-        error: error.message,
-      });
+      // Same rule as handleApiError: a telemetry endpoint's own failure must
+      // not be re-routed into the telemetry logger.
+      if (!isTelemetryEndpoint(endpoint)) {
+        console.error("[api.js] Network fetch failed", {
+          endpoint,
+          method,
+          apiBaseUrl: typeof API_BASE_URL !== "undefined" ? API_BASE_URL : null,
+          appBase: window.APP_BASE || "",
+          origin: window.location.origin,
+          href: window.location.href,
+          online: navigator.onLine,
+          serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
+          error: error.message,
+        });
+      }
     }
 
     // For permission denied errors, log to console instead of showing popup
@@ -3560,7 +4039,7 @@ async function apiCallDirect(
       }
     }
 
-    return handleApiError(error);
+    return handleApiError(error, endpoint);
   }
 }
 
@@ -3716,6 +4195,23 @@ async function infoDialog(title, message, options = {}) {
     confirmText: options.confirmText || "OK",
     danger: options.danger || false,
   });
+}
+
+// Node Agent Gateway origin (from RealtimeGatewayPublisher::browserStreamBase).
+// Without it the browser falls back to the PHP dashboard agent endpoints.
+function agentGatewayOrigin() {
+  return String(window.KINGSWAY_REALTIME_ORIGIN || "").replace(/\/+$/, "");
+}
+
+function hasAgentGateway() {
+  if (window.AI_FEATURES && window.AI_FEATURES.useNodeGateway === false) {
+    return false;
+  }
+  return agentGatewayOrigin() !== "";
+}
+
+function agentGatewayCall(path, method = "POST", data = null) {
+  return apiCall(agentGatewayOrigin() + path, method, data, {}, { coalesce: false, gatewayAuthFallback: true });
 }
 
 //attach API to window for global access
@@ -4358,13 +4854,6 @@ window.API = {
       id
         ? apiCall(`/students/medical-get/${id}`, "GET")
         : apiCall("/students/medical-get", "GET"),
-    addMedical: async (studentId, data) =>
-      apiCall("/students/medical-add", "POST", {
-        student_id: studentId,
-        ...data,
-      }),
-    updateMedical: async (medicalId, data) =>
-      apiCall(`/students/medical-update/${medicalId}`, "PUT", data),
 
     // Discipline
     getDiscipline: async (id = null) =>
@@ -4384,22 +4873,6 @@ window.API = {
         ...data,
       }),
 
-    // Documents
-    getDocuments: async (id = null) =>
-      id
-        ? apiCall(`/students/documents-get/${id}`, "GET")
-        : apiCall("/students/documents-get", "GET"),
-    uploadDocument: async (formData) =>
-      apiCall(
-        "/students/documents-upload",
-        "POST",
-        formData,
-        {},
-        { isFile: true },
-      ),
-    deleteDocument: async (documentId) =>
-      apiCall(`/students/documents-delete/${documentId}`, "DELETE"),
-
     // By class/stream
     getByClass: async (id = null) =>
       id
@@ -4413,16 +4886,6 @@ window.API = {
       id
         ? apiCall(`/students/roster-get/${id}`, "GET")
         : apiCall("/students/roster-get", "GET"),
-
-    // Attendance
-    markAttendance: async (data) =>
-      apiCall("/students/attendance-mark", "POST", data),
-
-    // Import
-    importAddExisting: async (data) =>
-      apiCall("/students/import-add-existing", "POST", data),
-    importAddMultiple: async (data) =>
-      apiCall("/students/import-add-multiple", "POST", data),
 
     // Academic Year
     getCurrentAcademicYear: async () =>
@@ -4464,19 +4927,8 @@ window.API = {
       apiCall("/students/enrollment-current", "GET"),
 
     // Family Groups / Parents Management
-    getFamilyGroups: async (filters = {}) =>
-      apiCall("/students/family-groups/list", "GET", null, filters),
-    searchFamilyGroups: async (searchTerm, limit = 50, offset = 0) =>
-      apiCall(
-        `/students/family-groups/search?q=${encodeURIComponent(
-          searchTerm,
-        )}&limit=${limit}&offset=${offset}`,
-        "GET",
-      ),
     getFamilyGroupStats: async () =>
       apiCall("/students/family-groups/stats", "GET"),
-    getFamilyGroupsView: async (filters = {}) =>
-      apiCall("/students/family-groups/view", "GET", null, filters),
     getParentsList: async (filters = {}) =>
       apiCall("/students/parents/list", "GET", null, filters),
     getParentDetails: async (parentId) =>
@@ -4510,6 +4962,12 @@ window.API = {
       ),
     getStudentsWithoutParents: async () =>
       apiCall("/students/without-parents", "GET"),
+    queueAiSupportPlanning: async (data = {}) =>
+      apiCall("/students/ai-support-planning-queue", "POST", data),
+    getAiSupportPlanningReviews: async (scope = "own") =>
+      apiCall(`/students/ai-support-planning-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiSupportPlanning: async (id) =>
+      apiCall(`/students/ai-support-planning-approve/${Number(id)}`, "POST", {}),
   },
 
   // Academic endpoints
@@ -4636,8 +5094,6 @@ window.API = {
       apiCall("/academic/reports-distribute", "POST", data),
 
     // Library workflow
-    startLibraryWorkflow: async (data) =>
-      apiCall("/academic/library-start-workflow", "POST", data),
     reviewRequest: async (data) =>
       apiCall("/academic/library-review-request", "POST", data),
     catalogResources: async (data) =>
@@ -4658,8 +5114,11 @@ window.API = {
     // Year transition workflow
     startYearTransition: async (data) =>
       apiCall("/academic/year-transition-start-workflow", "POST", data),
-    archiveData: async (data) =>
-      apiCall("/academic/year-transition-archive-data", "POST", data),
+    // Closing the outgoing year only. There is deliberately no archiving
+    // action here: archiving is a separate system-admin-only operation and is
+    // never part of a year transition.
+    closeYear: async (data) =>
+      apiCall("/academic/year-transition-close-year", "POST", data),
     executeYearPromotions: async (data) =>
       apiCall("/academic/year-transition-execute-promotions", "POST", data),
     setupNewYear: async (data) =>
@@ -4750,6 +5209,8 @@ window.API = {
     // Learning Areas (Subjects)
     listLearningAreas: async (params) =>
       apiCall("/academic/learning-areas/list", "GET", null, params),
+    getLearningOutcomes: async (params = {}) =>
+      apiCall("/academic/learning-outcomes", "GET", null, params),
     listSubjects: async (params) =>
       apiCall("/academic/learning-areas/list", "GET", null, params),
     getLearningArea: async (id) =>
@@ -4872,17 +5333,12 @@ window.API = {
     approveAiAssessmentDraft: async (id) =>
       apiCall(`/academic/ai-assessment-draft-approve/${Number(id)}`, "POST", {}),
     queueAiCoverageReview: async (data = {}) => apiCall("/academic/ai-coverage-review-queue", "POST", data),
+    getAiAcademicClassOptions: async () => apiCall("/academic/ai-academic-class-options", "GET"),
     queueAiRubricDraft: async (data = {}) => apiCall("/academic/ai-rubric-draft-queue", "POST", data),
     queueAiLearningGapReview: async (data = {}) => apiCall("/academic/ai-learning-gap-review-queue", "POST", data),
-    queueAiInterviewPreparation: async (data = {}) => apiCall("/admission/ai-interview-preparation-queue", "POST", data),
-    queueAiPlacementReview: async (data = {}) => apiCall("/admission/ai-placement-review-queue", "POST", data),
-    queueAiLatenessPattern: async (data = {}) => apiCall("/attendance/ai-lateness-pattern-queue", "POST", data),
     approveAiRubricDraft: async (id) => apiCall(`/academic/ai-rubric-draft-approve/${Number(id)}`, "POST", {}),
     approveAiCoverageReview: async (id) => apiCall(`/academic/ai-coverage-review-approve/${Number(id)}`, "POST", {}),
     approveAiLearningGapReview: async (id) => apiCall(`/academic/ai-learning-gap-review-approve/${Number(id)}`, "POST", {}),
-    queueAiSupportPlanning: async (data = {}) => apiCall("/students/ai-support-planning-queue", "POST", data),
-    getAiSupportPlanningReviews: async (scope = "own") => apiCall(`/students/ai-support-planning-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
-    approveAiSupportPlanning: async (id) => apiCall(`/students/ai-support-planning-approve/${Number(id)}`, "POST", {}),
     getLessonPlanningContext: async (schemeId) =>
       apiCall(`/academic/lesson-planning-context/${schemeId}`, "GET"),
     saveLessonPlanLearnerEvidence: async (lessonPlanId, data) =>
@@ -4915,12 +5371,16 @@ window.API = {
       apiCall("/academic/syllabus", "GET", null, params),
     getMySyllabus: async (params = {}) =>
       apiCall("/academic/my-syllabus", "GET", null, params),
-    getYearCalendar: async () => apiCall("/academic/year-calendar", "GET"),
+    // One academic year's calendar; omit yearId for the current year.
+    getYearCalendar: async (yearId) => apiCall("/academic/year-calendar", "GET", null,
+      yearId ? { academic_year_id: yearId } : {}),
     getCalendarDays: async (yearId) => apiCall(`/academic/calendar/days/${yearId}`, "GET"),
     updateCalendarDay: async (dayId, payload) => apiCall(`/academic/calendar/day/${dayId}`, "PUT", payload),
     getYearHistory: async () => apiCall("/academic/year-history", "GET"),
     getLessonPlansByClass: async (params = {}) =>
       apiCall("/academic/lesson-plans/by-class", "GET", null, params),
+    getLessonPlansByTeacher: async (params = {}) =>
+      apiCall("/academic/lesson-plans/by-teacher", "GET", null, params),
     getLessonPlansByClassDetail: async (classId) =>
       apiCall(`/academic/lesson-plans/by-class/${classId}`, "GET"),
 
@@ -5152,8 +5612,6 @@ window.API = {
       apiCall(`/activities/resources/update/${id}`, "PUT", data),
     deleteResource: async (id) =>
       apiCall(`/activities/resources/delete/${id}`, "DELETE"),
-    getActivityResources: async (activityId) =>
-      apiCall(`/activities/resources/activity/${activityId}`, "GET"),
 
     // Schedules
     listSchedules: async (params = {}) =>
@@ -5165,17 +5623,6 @@ window.API = {
     deleteSchedule: async (id) =>
       apiCall(`/activities/schedules/delete/${id}`, "DELETE"),
 
-    // Workflows
-    startRegistrationWorkflow: async (data) =>
-      apiCall("/activities/workflow/registration/start", "POST", data),
-    startPlanningWorkflow: async (data) =>
-      apiCall("/activities/workflow/planning/start", "POST", data),
-    startCompetitionWorkflow: async (data) =>
-      apiCall("/activities/workflow/competition/start", "POST", data),
-    startEvaluationWorkflow: async (data) =>
-      apiCall("/activities/workflow/evaluation/start", "POST", data),
-    getWorkflowStatus: async (workflowId) =>
-      apiCall(`/activities/workflow/status/${workflowId}`, "GET"),
     // Sports
     sports: {
       // Teams
@@ -5266,6 +5713,13 @@ window.API = {
     getStats: async () => apiCall("/admission/stats", "GET"),
     // Get role-based notifications for dashboards
     getNotifications: async () => apiCall("/admission/notifications", "GET"),
+    queueAiFollowupDraft: async (data = {}) => apiCall("/admission/ai-followup-draft-queue", "POST", data),
+    queueAiInterviewPreparation: async (data = {}) => apiCall("/admission/ai-interview-preparation-queue", "POST", data),
+    queueAiPlacementReview: async (data = {}) => apiCall("/admission/ai-placement-review-queue", "POST", data),
+    getAiDrafts: async (scope = "own", applicationId) => apiCall(`/admission/ai-drafts?scope=${encodeURIComponent(scope)}&application_id=${Number(applicationId) || 0}`, "GET"),
+    approveAiFollowupDraft: async (id) => apiCall(`/admission/ai-followup-draft-approve/${Number(id)}`, "POST", {}),
+    approveAiInterviewPreparation: async (id) => apiCall(`/admission/ai-interview-preparation-approve/${Number(id)}`, "POST", {}),
+    approveAiPlacementReview: async (id) => apiCall(`/admission/ai-placement-review-approve/${Number(id)}`, "POST", {}),
     // Get classes for placement offer assignment
     getPlacementClasses: async () =>
       apiCall("/admission/placement-classes", "GET"),
@@ -5378,22 +5832,24 @@ window.API = {
   // Communications endpoints
   communications: {
     index: async () => apiCall("/communications/index", "GET"),
+    searchStaffTags: async (q = "") => apiCall("/communications/staff-tags", "GET", null, { q }),
     getSmsBalance: async () => apiCall("/communications/sms-balance", "GET"),
 
     // School-domain mailboxes (role-scoped IMAP/SMTP mailboxes)
     getMailboxes: async () => apiCall("/communications/mailboxes", "GET"),
-    getMailboxMembers: async (profileId) =>
-      apiCall(`/communications/mailboxes/${profileId}/members`, "GET"),
+    getMailboxMembers: async (profileId, params = {}) =>
+      apiCall(`/communications/mailboxes/${profileId}/members`, "GET", null, params),
     setMailboxMembers: async (profileId, members) =>
       apiCall(`/communications/mailboxes/${profileId}/members`, "PUT", { members }),
     getMailboxFolders: async (profileId) =>
       apiCall(`/communications/mailboxes/${profileId}/folders`, "GET"),
-    getMailboxMessages: async (profileId, params = {}) =>
+    getMailboxMessages: async (profileId, params = {}, options = {}) =>
       apiCall(
         `/communications/mailboxes/${profileId}/messages`,
         "GET",
         null,
         params,
+        options,
       ),
     getMailboxMessage: async (profileId, params = {}) =>
       apiCall(
@@ -5610,10 +6066,13 @@ window.API = {
       id
         ? apiCall(`/communications/recipient/${id}`, "GET")
         : apiCall("/communications/recipient", "GET"),
+    getRecipients: async (communicationId) =>
+      apiCall("/communications/recipient", "GET", null, { communication_id: communicationId }),
     createRecipient: async (data) =>
       apiCall("/communications/recipient", "POST", data),
     deleteRecipient: async (id) =>
       apiCall(`/communications/recipient/${id}`, "DELETE"),
+    getOptOuts: async () => apiCall("/communications/opt-outs", "GET"),
 
     // Template
     getTemplate: async (id = null) =>
@@ -5692,6 +6151,46 @@ window.API = {
       apiCall(`/communications/conversations/${id}`, "POST", data),
     searchMessageRecipients: async (q = "") =>
       apiCall("/communications/recipients", "GET", null, { q }),
+
+    // Message template catalog (catalog -> versions -> channel variants)
+    getTemplates: async (params = {}) =>
+      apiCall("/communications/templates", "GET", null, params),
+    getTemplate: async (id) =>
+      apiCall(`/communications/templates/${id}`, "GET"),
+    createTemplate: async (data) =>
+      apiCall("/communications/templates", "POST", data),
+    updateTemplate: async (id, data) =>
+      apiCall(`/communications/templates/${id}`, "PUT", data),
+    deleteTemplate: async (id) =>
+      apiCall(`/communications/templates/${id}`, "DELETE"),
+    createTemplateVersion: async (id, data) =>
+      apiCall(`/communications/templates/${id}/versions`, "POST", data),
+    approveTemplateVersion: async (versionId) =>
+      apiCall(
+        `/communications/templates/versions/${versionId}/approve`,
+        "POST",
+        {},
+      ),
+    updateTemplateChannel: async (channelId, data) =>
+      apiCall(`/communications/templates/channels/${channelId}`, "PUT", data),
+    previewTemplate: async (data) =>
+      apiCall("/communications/templates/preview", "POST", data),
+    validateTemplateVariables: async (data) =>
+      apiCall(
+        "/communications/templates/validate-variables",
+        "POST",
+        data,
+      ),
+    estimateTemplateSmsCost: async (data) =>
+      apiCall("/communications/templates/estimate-sms-cost", "POST", data),
+    // Reconcile the catalog with its legacy JSON seed source and repair the
+    // legacy school brand inside existing channel rows.
+    syncTemplates: async (categories = null) =>
+      apiCall(
+        "/communications/templates/sync",
+        "POST",
+        categories ? { categories } : {},
+      ),
   },
 
   // Finance endpoints
@@ -5745,6 +6244,14 @@ window.API = {
       apiCall(`/finance/financial-accounts/${id}/permissions`, "POST", { permissions }),
     getFinancialAccountPermissions: async (id) =>
       apiCall(`/finance/financial-accounts/${id}/permissions`, "GET"),
+    // The settings page wires Delete / Activate / Deactivate buttons; these
+    // were called but never registered, so every click raised a TypeError.
+    deleteFinancialAccount: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}`, "DELETE"),
+    activateFinancialAccount: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}/status`, "PUT", { status: "active" }),
+    deactivateFinancialAccount: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}/status`, "PUT", { status: "suspended" }),
     getPaymentPosTerminals: async () =>
       apiCall("/finance/payment-pos-terminals", "GET"),
     createPaymentPosTerminal: async (data) =>
@@ -5819,8 +6326,6 @@ window.API = {
       apiCall("/finance/payrolls-recalculate", "POST", data),
     verifyPayroll: async (data) =>
       apiCall("/finance/payrolls-verify", "POST", data),
-    approvePayroll: async (data) =>
-      apiCall("/finance/payrolls-approve", "POST", data),
     rejectPayroll: async (data) =>
       apiCall("/finance/payrolls-reject", "POST", data),
     processPayroll: async (data) =>
@@ -5865,11 +6370,20 @@ window.API = {
       apiCall(`/finance/payroll-stats?month=${month}&year=${year}`, "GET"),
     getPayrollList: async (filters) =>
       apiCall("/finance/payroll-list", "GET", null, filters),
-    approvePayroll: async (payrollId, approvedBy = null) =>
-      apiCall("/finance/approve-payroll", "POST", {
-        payroll_id: payrollId,
-        approved_by: approvedBy,
-      }),
+    // Accepts either approvePayroll(id, userId) or an object payload
+    // ({payroll_id, user_id, comments}). Both shapes were in use, and passing
+    // an object to the scalar signature bound an array to `WHERE id = ?`.
+    approvePayroll: async (payrollId, approvedBy = null) => {
+      const isObject = payrollId !== null && typeof payrollId === "object";
+      const id = isObject ? (payrollId.payroll_id ?? payrollId.id) : payrollId;
+      const approver =
+        approvedBy ?? (isObject ? (payrollId.user_id ?? payrollId.approved_by) : null);
+      return apiCall("/finance/approve-payroll", "POST", {
+        payroll_id: id,
+        approved_by: approver,
+        comments: isObject ? (payrollId.comments ?? null) : null,
+      });
+    },
     markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank", sourceFinancialAccountId = null, payslipIds = []) =>
       apiCall("/finance/mark-payroll-paid", "POST", {
         payroll_id: payrollId,
@@ -6526,9 +7040,13 @@ window.API = {
         `/staff/payroll-detailed-payslip?staff_id=${staffId}&month=${month}&year=${year}`,
         "GET",
       ),
+    // There is no /payroll-download-detailed-payslip handler. The router's
+    // fallback resolved that path to StaffController::getStaff, so the "download
+    // payslip" button silently delivered the staff *list* JSON instead.
+    // getPayrollDownloadPayslip already honours staff_id, month and year.
     downloadDetailedPayslip: async (staffId, month, year) =>
       apiCall(
-        `/staff/payroll-download-detailed-payslip?staff_id=${staffId}&month=${month}&year=${year}`,
+        `/staff/payroll-download-payslip?staff_id=${staffId}&month=${month}&year=${year}`,
         "GET",
         null,
         {},
@@ -6837,6 +7355,11 @@ window.API = {
     },
     getDriverManifest: async (params = {}) =>
       apiCall("/transport/driver-manifest", "GET", null, params),
+    verifyBoardingScan: async (data) =>
+      apiCall("/scan/verify", "POST", data, {}, {
+        checkPermission: false,
+        showSuccess: false,
+      }),
     getStudentSummary: async (studentId) =>
       apiCall(`/transport/student-summary?student_id=${studentId}`, "GET"),
     getRouteSummary: async (routeId) =>
@@ -6866,12 +7389,18 @@ window.API = {
         : apiCall("/transport/drivers-get", "GET"),
     assignDriverToRoute: async (data) =>
       apiCall("/transport/drivers-assign", "POST", data),
+    queueAiOperationsSummary: async () =>
+      apiCall("/transport/ai-operations-summary-queue", "POST", {}),
+    getAiOperationsSummaries: async (scope = "own") =>
+      apiCall(`/transport/ai-operations-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiOperationsSummary: async (id) =>
+      apiCall(`/transport/ai-operations-summary-approve/${Number(id)}`, "POST", {}),
   },
 
-  // Boarding/Dormitory endpoints
+  // Chapel services now live on the chaplaincy controller.
   chapel: {
     getServices: async (params = {}) =>
-      apiCall("/chapel/services", "GET", null, params),
+      apiCall("/chaplaincy/services", "GET", null, params),
   },
 
   // Chaplaincy Department endpoints (owned by ChaplaincyController)
@@ -6944,7 +7473,7 @@ window.API = {
   },
 
   boarding: {
-    queueAiExceptionSummary: async (date) => apiCall("/boarding/ai-exception-summary-queue", "POST", { date }),
+    queueAiExceptionSummary: async (dateFrom, dateTo) => apiCall("/boarding/ai-exception-summary-queue", "POST", { date_from: dateFrom, date_to: dateTo }),
     getAiExceptionSummaries: async (scope = "own") => apiCall(`/boarding/ai-exception-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
     approveAiExceptionSummary: async (id) => apiCall(`/boarding/ai-exception-summary-approve/${Number(id)}`, "POST", {}),
     // Dormitories
@@ -6979,20 +7508,9 @@ window.API = {
     rejectExeat: async (id, reason) =>
       apiCall(`/boarding/exeats/reject/${id}`, "PUT", { reason }),
 
-    // Menu Planning
-    getMenus: async (params = {}) =>
-      apiCall("/boarding/menus", "GET", null, params),
-    createMenu: async (data) => apiCall("/boarding/menus", "POST", data),
-
     // Statistics
     getStats: async () => apiCall("/boarding/stats", "GET"),
     getOccupancy: async () => apiCall("/boarding/occupancy", "GET"),
-  },
-
-  transport: {
-    queueAiOperationsSummary: async () => apiCall("/transport/ai-operations-summary-queue", "POST", {}),
-    getAiOperationsSummaries: async (scope = "own") => apiCall(`/transport/ai-operations-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
-    approveAiOperationsSummary: async (id) => apiCall(`/transport/ai-operations-summary-approve/${Number(id)}`, "POST", {}),
   },
 
   // Schedules endpoints
@@ -7025,6 +7543,20 @@ window.API = {
     reportTimetableConflict: async (data) =>
       apiCall("/schedules/timetable-report-conflict", "POST", data),
     getTimeSlots: async () => apiCall("/schedules/timetable-time-slots", "GET"),
+    // Replace the school day's periods (lessons, breaks, lunch, assembly, games).
+    saveTimeSlots: async (slots) => apiCall("/schedules/timetable-time-slots", "PUT", { slots }),
+    // Lessons per week for each learning area of each class in one year.
+    getWeeklyLessons: async (academicYearId) =>
+      apiCall(`/schedules/weekly-lessons?academic_year_id=${encodeURIComponent(academicYearId)}`, "GET"),
+    saveWeeklyLessons: async (academicYearId, changes) =>
+      apiCall("/schedules/weekly-lessons", "PUT", { academic_year_id: academicYearId, changes }),
+    // Weekly lessons per teacher, and every stream's lessons with its teacher.
+    getTeacherWorkload: async (params = {}) =>
+      apiCall(`/schedules/teacher-workload?${new URLSearchParams(params).toString()}`, "GET"),
+    getTeachingLoad: async (params = {}) =>
+      apiCall(`/schedules/teaching-load?${new URLSearchParams(params).toString()}`, "GET"),
+    // Generate a class timetable draft from allocations, weekly lessons and periods.
+    autoDraftTimetable: async (data) => apiCall("/schedules/timetable-auto-draft", "POST", data),
     listTimetableDrafts: async (params = {}) => {
       const qs = new URLSearchParams(params).toString();
       return apiCall(qs ? `/schedules/timetable-drafts?${qs}` : "/schedules/timetable-drafts", "GET");
@@ -7102,8 +7634,6 @@ window.API = {
       apiCall(`/schedules/staff-duty-schedule?staff_id=${staffId}`, "GET"),
     getMasterSchedule: async (params) =>
       apiCall("/schedules/master-schedule", "GET", null, params),
-    getAnalytics: async (params) =>
-      apiCall("/schedules/analytics", "GET", null, params),
     getStudentSchedules: async (studentId) =>
       apiCall(`/schedules/student-schedules?student_id=${studentId}`, "GET"),
     getStaffSchedules: async (staffId) =>
@@ -7515,6 +8045,10 @@ window.API = {
       apiCall("/payments/payhero-bank-paybills", "GET"),
     registerPayheroChannel: async (data) =>
       apiCall("/payments/payhero-channel", "POST", data),
+    payheroStkPush: async (data) =>
+      apiCall("/payments/payhero-stk-push", "POST", data),
+    initiateCollection: async (data) =>
+      apiCall("/payments/initiate-collection", "POST", data),
   },
 
   // Accounts endpoints (bank accounts, transactions)
@@ -7691,12 +8225,13 @@ window.API = {
     deleteWidget: async (id) => apiCall("/system/widgets", "DELETE", { id }),
 
     // Policies Management (System Admin)
+    // Policies live on SystemConfigController (/system-config/policies).
     getPolicies: async (params) =>
-      apiCall("/system/policies", "GET", null, params),
-    createPolicy: async (data) => apiCall("/system/policies", "POST", data),
+      apiCall("/system-config/policies", "GET", null, params),
+    createPolicy: async (data) => apiCall("/system-config/policies", "POST", data),
     updatePolicy: async (id, data) =>
-      apiCall("/system/policies", "PUT", { id, ...data }),
-    deletePolicy: async (id) => apiCall("/system/policies", "DELETE", { id }),
+      apiCall(`/system-config/policies/${id}`, "PUT", data),
+    deletePolicy: async (id) => apiCall(`/system-config/policies/${id}`, "DELETE"),
     getAccountStatuses: async (params = {}) => apiCall("/system/account-status", "GET", null, params),
     updateAccountStatus: async (userId, data) => apiCall("/system/account-status", "PUT", { user_id: userId, ...data }),
     getAuthenticationLogs: async (params = {}) => apiCall("/system/authentication-logs", "GET", null, params),
@@ -7742,6 +8277,8 @@ window.API = {
     runMigration: async (data) => apiCall("/system/migrations", "POST", data),
     getFeatureFlags: async () => apiCall("/system/feature-flags", "GET"),
     updateFeatureFlags: async (data) => apiCall("/system/feature-flags", "PUT", data),
+    updateFeatureFlag: async (key, data) =>
+      apiCall(`/system/feature-flags/${encodeURIComponent(key)}`, "PUT", data),
     getOperatingMode: async () => apiCall("/system/operating-mode", "GET"),
     updateOperatingMode: async (data) => apiCall("/system/operating-mode", "PUT", data),
     getEnvironmentPhase: async () => apiCall("/system/environment-phase", "GET"),
@@ -7934,22 +8471,36 @@ window.API = {
   dashboard: {
     // Governed multi-agent staff assistant (triage -> allowlisted tools ->
     // structured answer). Server owns routing and per-tool authorization.
-    agentAssist: async (question, route = "", module = "dashboard") =>
-      apiCall("/dashboard/agent-assist", "POST", { question, route, module }),
+    agentAssist: async (question, route = "", module = "dashboard", options = {}) =>
+      apiCall("/dashboard/agent-assist", "POST", { question, route, module, ...options }),
+
+    /**
+     * Page-aware nudge for an idle workspace. Deterministic on the server (no
+     * model call, no figures), permission-filtered, and capped at three. An
+     * empty list is a normal answer when the engine is unavailable.
+     */
+    agentSuggest: async (route = "", module = "dashboard", pageContext = {}) =>
+      apiCall("/dashboard/agent-suggest", "POST", {
+        route,
+        module,
+        ...pageContext,
+      }),
 
     /**
      * Streamed assistant answer. Returns an object exposing `promise`,
      * `cancel()`, and an `onDelta`/`onStatus` callback pair, so the caller can
      * render words as they arrive instead of waiting for the whole answer.
      *
-     * Falls back automatically to the buffered endpoint when the browser has
-     * no ReadableStream support or the relay returns a non-event response, so
-     * every caller keeps working.
+     * Uses Node as the live browser transport when configured. PHP supplies
+     * the server-derived identity and permission envelope; Python streams the
+     * answer and routes governed data tools back through PHP. Direct-PHP SSE
+     * remains the compatibility path when the Node gateway is disabled.
      */
     agentAssistStream: (question, route = "", module = "dashboard", handlers = {}) => {
       const controller = new AbortController();
       const state = {
         cancelled: false,
+        timedOut: false,
         controller,
         onDelta: handlers.onDelta || (() => {}),
         onStatus: handlers.onStatus || (() => {}),
@@ -7957,20 +8508,61 @@ window.API = {
         onError: handlers.onError || (() => {}),
       };
 
-      const promise = (async () => {
-        const token = AuthContext.getToken?.();
-        if (!token || typeof fetch !== "function" || !window.ReadableStream) {
+      const {session_id, ...options} = handlers;
+      const requestOptions = session_id ? {session_id, ...options} : options;
+      const getBufferedFallback = async () => {
+        const fallbackController = new AbortController();
+        state.onStatus("I’m checking that again…");
+        const fallbackTimer = setTimeout(() => fallbackController.abort(), 45000);
+        try {
           const fallback = await apiCall(
             "/dashboard/agent-assist",
             "POST",
-            { question, route, module },
+            { question, route, module, ...requestOptions },
+            {},
+            { signal: fallbackController.signal },
           );
-          state.onFinal(fallback?.data ?? fallback);
           return fallback?.data ?? fallback;
+        } catch {
+          return {
+            status: "unavailable",
+            answer: { body: "I couldn’t complete that check just now. Please try again." },
+          };
+        } finally {
+          clearTimeout(fallbackTimer);
+        }
+      };
+
+      // Bound a single stream attempt. A gateway failure is shown as a retry
+      // state instead of launching duplicate provider/tool work via PHP.
+      const STREAM_TIMEOUT_MS = 65000;
+      let timeoutTimer = null;
+
+      const promise = (async () => {
+        // Access tokens rotate on refresh and the PHP edge invalidates the
+        // previous hash immediately. The stream bypasses apiCall(), so make
+        // sure it never starts with a token that is about to expire mid-handshake.
+        if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+          await refreshAccessToken();
+        }
+        const token = AuthContext.getToken?.();
+        if (!token || typeof fetch !== "function" || !window.ReadableStream) {
+          const fallback = await getBufferedFallback();
+          state.onFinal(fallback);
+          return fallback;
         }
 
         try {
-          const response = await fetch("/Kingsway/api/dashboard/agent-assist-stream", {
+          timeoutTimer = setTimeout(() => {
+            state.timedOut = true;
+            state.onError("I couldn’t finish checking that just now. Please try again.");
+            controller.abort();
+          }, STREAM_TIMEOUT_MS);
+
+          const streamUrl = hasAgentGateway()
+            ? agentGatewayOrigin() + "/api/agents/stream"
+            : API_BASE_URL + "/dashboard/agent-assist-stream";
+          const response = await fetch(streamUrl, {
             method: "POST",
             credentials:
               window.location.hostname === "localhost" ? "same-origin" : "include",
@@ -7979,12 +8571,15 @@ window.API = {
               "Content-Type": "application/json",
               Accept: "text/event-stream",
               Authorization: "Bearer " + token,
-              ...(_csrfToken ? { "X-CSRF-Token": _csrfToken } : {}),
+              ...(hasAgentGateway()
+                ? { "X-Kingsway-Authorization": "Bearer " + token }
+                : {}),
+              ...(getCsrfToken() ? { "X-CSRF-Token": getCsrfToken() } : {}),
               "X-Request-ID": crypto.randomUUID
                 ? crypto.randomUUID()
                 : String(Date.now()),
             },
-            body: JSON.stringify({ question, route, module }),
+            body: JSON.stringify({ question, route, module, ...requestOptions }),
           });
 
           if (!response.ok || !response.body) {
@@ -7995,6 +8590,8 @@ window.API = {
           const decoder = new TextDecoder();
           let buffer = "";
           let final = null;
+          let terminalError = "";
+          let receivedStreamEvent = false;
 
           // Parse SSE frames: "event: <name>" then one or more "data:" lines.
           const consume = (frame) => {
@@ -8006,6 +8603,7 @@ window.API = {
               .join("");
             if (!nameLine || !dataLine) return;
             const name = nameLine.slice(6).trim();
+            receivedStreamEvent = true;
             let payload;
             try {
               payload = JSON.parse(dataLine);
@@ -8015,19 +8613,32 @@ window.API = {
             if (name === "delta") {
               state.onDelta(payload.text || "");
             } else if (name === "start") {
-              state.onStatus("streaming");
+              state.onStatus("Preparing your answer…");
             } else if (name === "status") {
               state.onStatus(payload.text || "working");
             } else if (name === "final") {
-              final = payload;
+              // The Node gateway wraps the PHP event payload in `result`.
+              // Accept both gateway and direct-PHP event envelopes.
+              final = payload.result && typeof payload.result === "object"
+                ? payload.result
+                : payload;
             } else if (name === "error") {
-              state.onError(payload.message || "The response was interrupted");
+              terminalError = payload.message || "I couldn’t complete that answer. Please try again.";
+              state.onError(terminalError);
             }
           };
 
           for (;;) {
             const { value, done } = await reader.read();
             if (done) break;
+            // Keep the deadline tied to actual stream activity, not the time
+            // spent since the user first sent the question.
+            clearTimeout(timeoutTimer);
+            timeoutTimer = setTimeout(() => {
+              state.timedOut = true;
+              state.onError("I couldn’t finish checking that just now. Please try again.");
+              controller.abort();
+            }, STREAM_TIMEOUT_MS);
             buffer += decoder.decode(value, { stream: true });
             const frames = buffer.split("\n\n");
             buffer = frames.pop() || "";
@@ -8036,30 +8647,64 @@ window.API = {
           if (buffer.trim()) consume(buffer);
 
           if (final) {
+            clearTimeout(timeoutTimer);
+            timeoutTimer = null;
             state.onFinal(final);
             return final;
           }
+          if (terminalError || receivedStreamEvent) {
+            clearTimeout(timeoutTimer);
+            timeoutTimer = null;
+            const message = terminalError || "The response was interrupted. Please try again.";
+            const data = { status: "unavailable", answer: { body: message } };
+            state.onFinal(data);
+            return data;
+          }
           // Stream ended without a final frame: fetch the authoritative answer
           // rather than showing a half-rendered bubble.
-          const fallback = await apiCall(
-            "/dashboard/agent-assist",
-            "POST",
-            { question, route, module },
-          );
-          const data = fallback?.data ?? fallback;
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+          const data = await getBufferedFallback();
           state.onFinal(data);
           return data;
         } catch (error) {
-          if (state.cancelled || error?.name === "AbortError") return null;
-          state.onError(error?.message || "The assistant could not answer");
-          const fallback = await apiCall(
-            "/dashboard/agent-assist",
-            "POST",
-            { question, route, module },
-          ).catch(() => null);
-          const data = fallback?.data ?? fallback;
-          if (data) state.onFinal(data);
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+          if (state.cancelled && !state.timedOut) {
+            // A user stop is a stop: do not unexpectedly launch a second
+            // request after the user has cancelled generation.
+            return null;
+          }
+          if (state.timedOut || error?.name === "AbortError") {
+            // Do not launch a second copy of the same slow request after a
+            // timeout. Return a visible terminal response so the UI can stop
+            // its spinner and let the user retry deliberately.
+            const data = {
+              status: "unavailable",
+              answer: { body: "I couldn’t finish checking that just now. Please try again." },
+            };
+            state.onFinal(data);
+            return data;
+          }
+          if (hasAgentGateway()) {
+            // Do not silently repeat a failed Node stream through the slower
+            // PHP buffered path. A single user retry is explicit and avoids
+            // duplicate provider/tool work after a gateway interruption.
+            const data = {
+              status: "unavailable",
+              answer: { body: "The assistant connection was interrupted. Please try again." },
+            };
+            state.onError(data.answer.body);
+            state.onFinal(data);
+            return data;
+          }
+          state.onError("I’m having trouble connecting. I’ll try another way…");
+          const data = await getBufferedFallback();
+          state.onFinal(data);
           return data;
+        } finally {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
         }
       })();
 
@@ -8079,7 +8724,90 @@ window.API = {
     // Proactive workspace co-worker: cached scan findings for the current
     // route; "generating" means a background job is preparing them.
     getWorkspaceBriefing: async (route = "dashboard") =>
-      apiCall("/dashboard/workspace-briefing", "GET", { route }),
+      apiCall("/dashboard/workspace-briefing", "GET", null, { route }),
+
+    // Assistant session management. Each method accepts either its scalar
+    // arguments or a pre-built params object, because both call styles exist.
+    getAssistantSessions: async (limit = 30) => {
+      const params = limit && typeof limit === "object" ? limit : { limit };
+      return apiCall("/dashboard/assistant-sessions", "GET", null, params);
+    },
+    getAssistantSession: async (sessionId, limit = 200) => {
+      const params = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId, limit };
+      return apiCall("/dashboard/assistant-session", "GET", null, params);
+    },
+    postAssistantSession: async (route = "", title = "") => {
+      const payload = route && typeof route === "object" ? route : { route, title };
+      return apiCall("/dashboard/assistant-session", "POST", payload);
+    },
+    deleteAssistantSession: async (sessionId) => {
+      const payload = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId };
+      return apiCall("/dashboard/assistant-session", "DELETE", payload);
+    },
+    patchAssistantSession: async (sessionId, title) => {
+      const payload = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId, title };
+      return apiCall("/dashboard/assistant-session", "PATCH", payload);
+    },
+    clearAssistantSessionMessages: async (sessionId) =>
+      apiCall("/dashboard/assistant-session-clear", "POST", { session_id: sessionId }),
+    postAssistantSessionsClear: async () =>
+      apiCall("/dashboard/assistant-sessions/clear", "POST"),
+    getAssistantPreferences: async () =>
+      apiCall("/dashboard/assistant-preferences", "GET"),
+    postAssistantPreferences: async (preferences = {}) =>
+      apiCall("/dashboard/assistant-preferences", "POST", { preferences }),
+
+    // Node Agent Gateway: direct agent tool calls with background tracking
+    agentCall: async (tool, question, route = "dashboard", module = "dashboard", options = {}) => {
+      if (!hasAgentGateway()) {
+        return apiCall("/dashboard/agent-assist", "POST", { question, route, module, ...options });
+      }
+      return agentGatewayCall("/api/agents/call", "POST", { tool, question, route, module, ...options });
+    },
+    agentStream: async (_tool, question, route = "dashboard", module = "dashboard", handlers = {}) =>
+      window.API.dashboard.agentAssistStream(question, route, module, handlers),
+
+    // Background agent tasks with progress tracking. The panel passes one
+    // object; keep positional arguments for older callers.
+    agentTaskCreate: async (tool, question, route = "dashboard", module = "dashboard", options = {}) => {
+      const payload = tool && typeof tool === "object"
+        ? { ...tool, tool: tool.tool || "assistant" }
+        : { tool: tool || "assistant", question, route, module, ...options };
+      if (!hasAgentGateway()) {
+        return apiCall("/dashboard/agent-task-create", "POST", payload);
+      }
+      return agentGatewayCall("/api/agents/tasks", "POST", payload);
+    },
+    agentTaskGet: async (taskId) => {
+      if (!hasAgentGateway()) {
+        return apiCall(`/dashboard/agent-task/${encodeURIComponent(taskId)}`, "GET");
+      }
+      return agentGatewayCall(`/api/agents/tasks/${encodeURIComponent(taskId)}`, "GET");
+    },
+    agentTaskList: async () => {
+      if (!hasAgentGateway()) {
+        return apiCall("/dashboard/agent-tasks", "GET");
+      }
+      return agentGatewayCall("/api/agents/tasks", "GET");
+    },
+    agentTaskCancel: async (taskId) => {
+      if (!hasAgentGateway()) {
+        return apiCall(`/dashboard/agent-task-cancel/${encodeURIComponent(taskId)}`, "DELETE");
+      }
+      return agentGatewayCall(`/api/agents/tasks/${encodeURIComponent(taskId)}`, "DELETE");
+    },
+    agentCapabilities: async () => {
+      if (!hasAgentGateway()) {
+        return { success: true, data: { tools: [] } };
+      }
+      return agentGatewayCall("/api/agents/capabilities", "GET");
+    },
 
     // System Administrator (role 2): infrastructure only, no School Domain data.
     getAuthEvents: async () =>
@@ -8107,20 +8835,6 @@ window.API = {
     getActivities: async () => apiCall("/activities/list", "GET"),
     getPendingAdmissions: async () =>
       apiCall("/admissions/pending", "GET"),
-    getMyClassAttendance: async () =>
-      apiCall("/attendance/my-class", "GET"),
-    getFeeStatusByStudent: async () =>
-      apiCall("/payments/fee-status", "GET"),
-    getMonthlyFinancialReport: async () =>
-      apiCall("/finance/monthly-report", "GET"),
-    getPayrollStatus: async () =>
-      apiCall("/finance/payroll-status", "GET"),
-    getInventoryStockStatus: async () =>
-      apiCall("/inventory/stock-status", "GET"),
-    getLowStockAlerts: async () =>
-      apiCall("/inventory/low-stock-alerts", "GET"),
-    getPendingRequisitions: async () =>
-      apiCall("/inventory/requisitions-pending", "GET"),
 
     getDirectorSummary: async () => {
       return await apiCall("/dashboard/director/summary", "GET");
@@ -8489,20 +9203,6 @@ window.API = {
       return await apiCall("/dashboard/subject-teacher/classes", "GET");
     },
 
-    /**
-     * Get subject teacher assessments
-     */
-    getSubjectTeacherAssessments: async () => {
-      return await apiCall("/dashboard/subject-teacher/assessments", "GET");
-    },
-
-    /**
-     * Get subject teacher students
-     */
-    getSubjectTeacherStudents: async () => {
-      return await apiCall("/dashboard/subject-teacher/students", "GET");
-    },
-
     // ============= INTERN TEACHER DASHBOARD (ROLE 9) =============
 
     /**
@@ -8787,6 +9487,149 @@ window.API = {
 
 // Expose apiCall globally as callAPI — many page controllers use this name
 window.callAPI = apiCall;
+
+// ---------------------------------------------------------------------------
+// Modal lifecycle helpers — shared, page-agnostic, safe for injected templates.
+//
+// Two defects produced "modals open but never close / stay on the page":
+//
+//  1. Controllers called `new bootstrap.Modal(el)` on every open. Bootstrap 5
+//     caches one Modal instance per element; constructing a second one leaves
+//     the first still marked `_isShown`, so a later `.hide()` acts on a stale
+//     object and the DOM keeps `.show` plus its backdrop.
+//  2. Nothing ever reconciled the backdrop/body lock, so each stacked modal
+//     added another `.modal-backdrop` and left `body.modal-open` (and
+//     `overflow: hidden`) behind. After closing what they can see, the page
+//     still looked frozen with a dark overlay over it.
+//
+// Every open below goes through getOrCreateInstance, and one delegated
+// `hidden.bs.modal` listener reconciles the leftovers for ALL modals,
+// including the ones PageShell injects after load.
+(function initModalLifecycle() {
+  if (typeof document === "undefined" || typeof window.bootstrap === "undefined") return;
+  if (window.__kwModalLifecycleReady) return;
+  window.__kwModalLifecycleReady = true;
+
+  function openModals() {
+    return Array.from(document.querySelectorAll(".modal.show"));
+  }
+
+  // A modal mid-fade-out still has `display: block` but lost `show`; sweeping
+  // while one exists can remove a backdrop that is being added for another
+  // modal, so wait for it instead.
+  function isModalTransitioning() {
+    return Array.from(document.querySelectorAll(".modal")).some(
+      (m) => !m.classList.contains("show") && getComputedStyle(m).display !== "none",
+    );
+  }
+
+  // Reconcile the backdrop list and the body scroll-lock with what is actually
+  // visible. Bootstrap removes `body.modal-open` when the dialog it was hiding
+  // closes, even if a parent modal is still open, so the inverse is applied
+  // here too: the lock must always match the visible modals.
+  function sweepBackdrops() {
+    const showing = openModals();
+    const backdrops = Array.from(document.querySelectorAll(".modal-backdrop"));
+    for (let i = showing.length; i < backdrops.length; i++) {
+      backdrops[i].remove();
+    }
+    if (showing.length > 0) {
+      if (!document.body.classList.contains("modal-open")) document.body.classList.add("modal-open");
+      if (!document.body.style.overflow) document.body.style.overflow = "hidden";
+      return;
+    }
+    document.body.classList.remove("modal-open");
+    document.body.style.removeProperty("overflow");
+    document.body.style.removeProperty("padding-right");
+  }
+
+  // `hidden.bs.modal` does not bubble, so listen in the capture phase; that
+  // also catches modals appended to the DOM after this script ran.
+  document.addEventListener(
+    "hidden.bs.modal",
+    () => {
+      if (isModalTransitioning()) {
+        // One is still fading out; re-check once it has settled.
+        requestAnimationFrame(() => setTimeout(sweepBackdrops, 400));
+        return;
+      }
+      // Bootstrap clears body.modal-open in the transition callback that runs
+      // AFTER this event, so an immediate reconciliation just gets undone.
+      // Re-check once the transition window has elapsed.
+      requestAnimationFrame(() => setTimeout(sweepBackdrops, 350));
+    },
+    true,
+  );
+
+  // Opening a second content modal stacked it on top of the first: two
+  // backdrops, two locks, and closing the visible one left the other still
+  // showing — the "modal will not close" report. A row action replaces the
+  // modal already open. Confirm/alert dialogs are exempt so a confirmation can
+  // still sit above the form that triggered it.
+  const isDialog = (el) =>
+    !!el && (el.id === "appDialogModal" || el.hasAttribute("data-kw-dialog")
+      || el.classList.contains("kw-dialog"));
+
+  document.addEventListener(
+    "show.bs.modal",
+    (event) => {
+      const shown = event.target;
+      if (isDialog(shown)) return;
+      openModals().forEach((open) => {
+        if (open !== shown && !isDialog(open)) {
+          NativeModal.getInstance(open)?.hide();
+        }
+      });
+    },
+    true,
+  );
+
+  // Guard: `new bootstrap.Modal()` on an element that already has an instance
+  // silently creates a competing one. Warn once so callers can be migrated.
+  const NativeModal = window.bootstrap.Modal;
+  if (typeof NativeModal === "function") {
+    window.bootstrap.Modal = function KwModal(element, config) {
+      if (element && NativeModal.getInstance(element)) {
+        console.warn(
+          "[kw-modal] new bootstrap.Modal() called on an element that already has an " +
+          "instance — use bootstrap.Modal.getOrCreateInstance() so close works. Id: " +
+          (element.id || "(none)"),
+        );
+      }
+      return new NativeModal(element, config);
+    };
+    window.bootstrap.Modal.prototype = NativeModal.prototype;
+    window.bootstrap.Modal.getOrCreateInstance = NativeModal.getOrCreateInstance.bind(NativeModal);
+    window.bootstrap.Modal.getInstance = NativeModal.getInstance.bind(NativeModal);
+  }
+
+  /**
+   * Show a modal safely: reuse the cached instance, and close anything else
+   * that is already open so actions cannot stack modals (and backdrops).
+   * @param {string|Element} target modal id or element
+   * @param {Object} [options] forwarded to getOrCreateInstance
+   * @returns {Object|null} the Modal instance
+   */
+  window.showKwModal = function showKwModal(target, options) {
+    const el = typeof target === "string" ? document.getElementById(target) : target;
+    if (!el || typeof NativeModal === "undefined") return null;
+    openModals().forEach((open) => {
+      if (open !== el) NativeModal.getInstance(open)?.hide();
+    });
+    return NativeModal.getOrCreateInstance(el, options).show();
+  };
+
+  /**
+   * Close a modal and reconcile any leftover backdrop/body lock.
+   * @param {string|Element} target modal id or element
+   */
+  window.hideKwModal = function hideKwModal(target) {
+    const el = typeof target === "string" ? document.getElementById(target) : target;
+    if (!el) return;
+    NativeModal.getInstance(el)?.hide();
+    setTimeout(sweepBackdrops, 0);
+  };
+})();
 
 // Global dialog helpers — native alert()/confirm()/prompt() replacements
 window.confirmAction = confirmAction;

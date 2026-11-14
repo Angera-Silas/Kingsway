@@ -22,16 +22,22 @@ final class TimetablePlanningConversationService
     public function appendUserMessage(int $sessionId, int $ownerId, string $message, array $constraints=[]): void
     {
         $session=$this->ownedSession($sessionId,$ownerId);
+        // Candidate tuples affect which teacher/stream assignments the model
+        // may propose. They are authorization evidence and must never come
+        // from browser input or be persisted as user constraints.
+        if (array_key_exists('assignment_candidates', $constraints)) {
+            throw new RuntimeException('Timetable assignment candidates must be resolved by the server.', 422);
+        }
         $message=trim($message);
         if ($message === '' || mb_strlen($message)>2000) throw new RuntimeException('A planning message between 1 and 2,000 characters is required',422);
         $startedTransaction = !$this->db->inTransaction();
         if ($startedTransaction) $this->db->beginTransaction();
         try {
             $this->db->prepare("INSERT INTO ai_timetable_planning_messages (session_id,actor_type,actor_user_id,message_text) VALUES (?, 'user', ?, ?)")->execute([$sessionId,$ownerId,$message]);
-            $allowed=['class_band','class_count','learning_areas','candidate_counts','assignment_candidates','period_count','availability_constraints','workload_constraints','room_constraints','double_periods','user_constraints'];
+            $allowed=['class_band','class_count','learning_areas','candidate_counts','period_count','availability_constraints','workload_constraints','room_constraints','double_periods','user_constraints'];
             foreach($constraints as $key=>$value){
                 if(!in_array($key,$allowed,true)) continue;
-                $encoded=is_array($value)?json_encode(array_slice($value,0,$key === 'assignment_candidates' ? 60 : 20),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES):substr(trim((string)$value),0,2000);
+                $encoded=is_array($value)?json_encode(array_slice($value,0,20),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES):substr(trim((string)$value),0,2000);
                 if($encoded==='') continue;
                 $exists=$this->db->prepare('SELECT 1 FROM ai_timetable_planning_constraints WHERE session_id=? AND constraint_key=? LIMIT 1');
                 $exists->execute([$sessionId,$key]);
@@ -45,11 +51,14 @@ final class TimetablePlanningConversationService
         } catch(\Throwable $e){if ($startedTransaction && $this->db->inTransaction()) $this->db->rollBack();throw $e;}
     }
 
-    public function input(int $sessionId,int $ownerId,string $message): array
+    public function input(int $sessionId,int $ownerId,string $message,array $serverAuthorizedCandidates=[]): array
     {
+        if (count($serverAuthorizedCandidates) > 60) {
+            throw new RuntimeException('Server-authorized timetable candidates exceed the safe limit.', 422);
+        }
         $session=$this->ownedSession($sessionId,$ownerId);
         $rows=$this->db->prepare('SELECT constraint_key,constraint_value FROM ai_timetable_planning_constraints WHERE session_id=? ORDER BY constraint_key');$rows->execute([$sessionId]);
-        $input=['class_band'=>(string)$session['scope'],'class_count'=>'0','learning_areas'=>[],'period_count'=>'0','user_constraints'=>[$message]];
+        $input=['class_band'=>(string)$session['scope'],'class_count'=>'0','learning_areas'=>[],'period_count'=>'0','user_constraints'=>[$message], 'assignment_candidates'=>array_values($serverAuthorizedCandidates)];
         foreach($rows->fetchAll(PDO::FETCH_ASSOC) as $row){
             $v=json_decode($row['constraint_value'],true);
             $v=json_last_error()===JSON_ERROR_NONE?$v:$row['constraint_value'];

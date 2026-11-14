@@ -216,7 +216,7 @@ const FamilyGroupsController = {
     this.state.selectedFamilyId = parentId;
 
     if (typeof bootstrap !== "undefined" && this.ui.modal) {
-      const modalInstance = new bootstrap.Modal(this.ui.modal);
+      const modalInstance = bootstrap.Modal.getOrCreateInstance(this.ui.modal);
       modalInstance.show();
     }
 

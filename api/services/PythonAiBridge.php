@@ -1,0 +1,740 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\API\Services;
+
+use App\API\Includes\FileLogger;
+use App\Config\Config;
+use PDO;
+use Throwable;
+
+/**
+ * Service-to-service bridge from the PHP edge to the Python AI platform.
+ *
+ * Architecture (the "Python is the AI engine" model):
+ *   - PHP keeps ONLY authentication, RBAC, row scope, queues and the
+ *     governed data tools; it relays the already-authorized operator
+ *     envelope to Python and returns the structured answer verbatim.
+ *   - Python (ai_platform/, Passenger WSGI app) owns all agent logic:
+ *     provider calls, triage, tool loops, prompts, behaviour study and
+ *     digest automations. Every data tool Python needs is executed back
+ *     through POST /api/dashboard/agent-tool, which re-authorizes the
+ *     recorded operator inside PHP - the model never touches school data.
+ *   - The PHP-native AgentAssistant remains as the offline/resilience
+ *     path when the Python platform is not configured or is redeploying.
+ *
+ * Transport is curl (shared-hosting verified), bearer-authenticated with
+ * the shared AI_PYTHON_SECRET, bounded timeouts, and never logs payloads.
+ */
+final class PythonAiBridge implements AgentEngineClient
+{
+    public const ENDPOINT_ASSIST = '/api/agents/assist';
+    public const ENDPOINT_DIGEST = '/api/agents/digest';
+    public const ENDPOINT_BRIEFING = '/api/agents/briefing';
+    public const ENDPOINT_TOOL = '/api/dashboard/agent-tool';
+
+    /** @var callable|null Injectable transport for hermetic tests: fn(string $url, string $method, array $headers, string $body, int $timeout): array{0:string|false,1:int,2:string} */
+    private $transport;
+
+    /** @var InterServiceClient */
+    private $client;
+
+    public function __construct(?callable $transport = null)
+    {
+        $this->transport = $transport;
+        $this->client = new InterServiceClient($transport);
+    }
+
+    public function available(): bool
+    {
+        return $this->client->isConfigured('python_ai');
+    }
+
+    /**
+     * Removed: a governed tool must never be relayed back out to the engine.
+     *
+     * This method posted to /api/dashboard/agent-tool, which the Python
+     * platform does not serve, so every governed tool failed with "the Python
+     * AI platform rejected the request" and AgentAssistant -> PythonAiBridge
+     * -> AgentAssistant became an unbounded cycle. Governed tools now execute
+     * inside PHP through AgentToolExecutor, which re-authorizes the recorded
+     * operator and reads through the governed services.
+     */
+
+    /**
+     * PHP never narrows a prompt. Field allowlists, character budgets and
+     * data minimization are engine-owned (python_platform/app/policy.py), so
+     * this seam hands the caller's envelope through unchanged and lets the
+     * engine reject anything outside the workflow's approved field set.
+     *
+     * Accepts both the legacy ($workflowId, $input) form and a bare input
+     * array so existing call sites need no surgery.
+     *
+     * @param array<string,mixed>|string $workflowIdOrInput
+     * @param array<string,mixed>|null $input
+     * @return array<string,mixed>
+     */
+    public static function minimize($workflowIdOrInput, ?array $input = null): array
+    {
+        if (is_array($workflowIdOrInput)) {
+            return $workflowIdOrInput;
+        }
+        return $input ?? [];
+    }
+
+    /**
+     * Prompt templates are engine-owned. Callers must not build prompts in
+     * PHP; this seam exists only so legacy call sites fail loudly instead of
+     * silently composing a second, divergent prompt.
+     *
+     * @return array{content:string}
+     */
+    public function resolve(string $workflowId): array
+    {
+        throw new \RuntimeException(
+            'Prompt templates are owned by the Python AI platform; PHP must not resolve them.'
+        );
+    }
+
+    /** Which link carried the last call: internal loopback or public HTTPS. */
+    private function linkInUse(): string
+    {
+        return $this->client->linkInUse('python_ai');
+    }
+
+    /**
+     * Full governed agent run in the Python platform. Returns the same
+     * answer contract as AgentAssistant::assist so controllers and the
+     * frontend never know which engine ran.
+     *
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public function assist(array $context, string $question): array
+    {
+        $ctx = [
+            'user_id' => (int) ($context['user_id'] ?? 0),
+            'permissions' => array_values(array_unique(array_map('strval', (array) (
+                $context['effective_permissions'] ?? $context['permissions'] ?? []
+            )))),
+            'audience' => 'staff',
+            'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
+            'module' => mb_substr((string) ($context['module'] ?? 'dashboard'), 0, 60),
+            'request_id' => mb_substr((string) ($context['request_id'] ?? 'ai-python-bridge'), 0, 100),
+            'system_admin' => !empty($context['system_admin']),
+            'assistant_domain' => in_array((string) ($context['assistant_domain'] ?? ''), ['staff', 'system_admin'], true)
+                ? (string) $context['assistant_domain']
+                : 'staff',
+        ];
+        $roleNames = [];
+        foreach ((array) ($context['roles'] ?? $context['role_names'] ?? []) as $role) {
+            if (is_array($role)) {
+                $role = $role['name'] ?? $role['role_name'] ?? $role['label'] ?? $role['slug'] ?? $role['code'] ?? '';
+            } elseif (is_object($role)) {
+                $role = $role->name ?? $role->role_name ?? $role->label ?? $role->slug ?? $role->code ?? '';
+            }
+            if (is_string($role) || is_int($role)) {
+                $name = mb_substr(trim((string) $role), 0, 80);
+                if ($name !== '') {
+                    $roleNames[] = $name;
+                }
+            }
+        }
+        if ($roleNames !== []) {
+            $ctx['roles'] = array_values(array_unique(array_slice($roleNames, 0, 10)));
+        }
+        if (!empty($context['session_id'])) {
+            $ctx['session_id'] = mb_substr((string) $context['session_id'], 0, 64);
+        }
+        // Pass conversation history for context-aware responses
+        if (!empty($context['history']) && is_array($context['history'])) {
+            $ctx['history'] = array_slice($context['history'], -20);
+        }
+        // Pass sidebar state so the AI can guide navigation
+        if (!empty($context['topics']) && is_array($context['topics'])) {
+            $ctx['topics'] = array_slice($context['topics'], 0, 12);
+        }
+        if (!empty($context['sidebar_state']) && is_array($context['sidebar_state'])) {
+            $ctx['sidebar_state'] = $context['sidebar_state'];
+        }
+        // Pass user preferences so the AI can adapt tone/detail
+        if (!empty($context['preferences']) && is_array($context['preferences'])) {
+            $ctx['preferences'] = $context['preferences'];
+        }
+        return $this->call(self::ENDPOINT_ASSIST, [
+            'context' => $ctx,
+            'question' => $question,
+        ]);
+    }
+
+    /**
+     * @param array<int,int|string> $permissions
+     * @return array<string,mixed>
+     */
+    public function digest(int $userId, array $permissions, string $cadence = 'daily', string $requestId = 'ai-python-bridge', bool $broadcast = false): array
+    {
+        return $this->call(self::ENDPOINT_DIGEST, [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', $permissions)),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => mb_substr($requestId, 0, 100),
+            ],
+            'cadence' => $cadence,
+            'broadcast' => $broadcast,
+        ]);
+    }
+
+    /**
+     * Proactive workspace briefing generated by the Python engine: the
+     * governed scan plus the LLM narrative (findings, root causes,
+     * suggested actions). Same page-load caching contract as the insight
+     * brief: fresh cache serves immediately, stale enqueues regeneration.
+     */
+    public function briefing(int $userId, array $permissions, string $route, string $requestId = 'ai-python-briefing'): array
+    {
+        return $this->call(self::ENDPOINT_BRIEFING, [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', $permissions)),
+                'audience' => 'staff',
+                'route' => mb_substr($route, 0, 120),
+                'module' => 'dashboard',
+                'request_id' => mb_substr($requestId, 0, 100),
+            ],
+            'route' => mb_substr($route, 0, 120),
+        ]);
+    }
+
+    /**
+     * Execute an ai.agent.run queue job through the Python platform and
+     * cache the result under the shared insight key so page loads and the
+     * PHP-native engine observe one consistent contract.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function runJob(array $payload, PDO $pdo): array
+    {
+        $userId = (int) ($payload['user_id'] ?? 0);
+        if ($userId < 1) {
+            throw new \DomainException('Background agent payload is incomplete.', 422);
+        }
+        // Queue hints can be stale after a role change. Resolve permissions
+        // and persona from current server state at execution time, matching
+        // the PHP fallback and the governed tool authorization boundary.
+        //
+        // Resolved through UserPermissionManager rather than AgentAssistant:
+        // instantiating the agent assistant from here made the AI layer
+        // circular (AgentAssistant -> PythonAiBridge -> AgentAssistant), and a
+        // background job must be able to resolve scope without that loop.
+        $permissionManager = new \App\API\Modules\users\UserPermissionManager($pdo);
+        $permissions = array_values(array_map(
+            'strval',
+            (array) ($permissionManager->effectivePermissionsByUser([$userId])[$userId] ?? [])
+        ));
+        if ($permissions === []) {
+            throw new \DomainException('The task owner has no currently resolved permissions.', 403);
+        }
+        $roleNames = $permissionManager->activeRoleNames($userId);
+        $requestId = mb_substr((string) ($payload['request_id'] ?? 'ai-agent-run'), 0, 100);
+        $mode = (string) ($payload['mode'] ?? 'digest');
+        if ($mode === 'assist') {
+            $result = $this->assist([
+                'user_id' => $userId,
+                'roles' => $roleNames,
+                'role_names' => $roleNames,
+                'permissions' => $permissions,
+                'effective_permissions' => $permissions,
+                'request_id' => $requestId,
+                'audience' => 'staff',
+                'route' => (string) ($payload['route'] ?? ''),
+                'module' => (string) ($payload['module'] ?? 'dashboard'),
+            ], (string) ($payload['question'] ?? ''));
+        } elseif ($mode === 'briefing') {
+            $route = mb_substr((string) ($payload['route'] ?? ''), 0, 120);
+            $result = $this->briefing($userId, $permissions, $route, $requestId);
+            if ($userId > 0) {
+                $this->cacheBriefingResult($userId, $route, $result);
+            }
+            return $result;
+        } else {
+            $result = $this->digest($userId, $permissions, (string) ($payload['cadence'] ?? 'daily'), $requestId, !empty($payload['broadcast']));
+        }
+        if ($userId > 0) {
+            try {
+                (new SharedCache())->set(AgentAssistant::CACHE_PREFIX . $userId, $result, InsightScheduler::BRIEF_TTL);
+            } catch (Throwable $e) {
+                FileLogger::write('ai_generation', [
+                    'type' => 'agent_cache_failed',
+                    'mode' => $mode,
+                    'error_class' => get_class($e),
+                    'message' => mb_substr($e->getMessage(), 0, 160),
+                ]);
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Publish the generated briefing for page-load serving. The write is
+     * best-effort but journaled: a silent cache failure would otherwise make
+     * every panel open regenerate.
+     *
+     * @param array<string,mixed> $briefing
+     */
+    private function cacheBriefingResult(int $userId, string $route, array $briefing): void
+    {
+        try {
+            $written = (new SharedCache())->set(
+                AgentAssistant::briefingCacheKey($userId, $route),
+                $briefing,
+                AgentAssistant::BRIEFING_TTL
+            );
+            FileLogger::write('ai_generation', [
+                'type' => 'agent_briefing_cached',
+                'operator_id' => $userId,
+                'route' => $route,
+                'engine' => (string) ($briefing['engine'] ?? ''),
+                'written' => (bool) $written,
+            ]);
+        } catch (Throwable $e) {
+            FileLogger::write('ai_generation', [
+                'type' => 'agent_briefing_cache_failed',
+                'operator_id' => $userId,
+                'route' => $route,
+                'error_class' => get_class($e),
+                'message' => mb_substr($e->getMessage(), 0, 160),
+            ]);
+        }
+    }
+
+    /**
+     * @return array<string,mixed>
+     * @param int|null $timeout Seconds; null uses the configured default.
+     */
+    public function call(string $endpoint, array $payload, string $method = 'POST', array $query = [], ?int $timeout = null): array
+    {
+        $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
+        if (!$this->client->isConfigured('python_ai') || $secret === '') {
+            throw new \RuntimeException('The Python AI platform is not configured.');
+        }
+        $method = strtoupper(trim($method));
+        if ($method === '') {
+            $method = 'POST';
+        }
+        $path = $endpoint;
+        $body = null;
+        if ($timeout === null) {
+            $timeout = min(60, max(5, (int) Config::get('AI_PYTHON_TIMEOUT', 45)));
+        }
+        if ($method === 'GET') {
+            // Python's read endpoints authenticate with the bearer secret and
+            // take the governed operator id as a query parameter; there is no
+            // JSON body to carry the context envelope.
+            $context = isset($payload['context']) && is_array($payload['context'])
+                ? $payload['context']
+                : [];
+            $params = $query;
+            if (!isset($params['user_id']) && !empty($context['user_id'])) {
+                $params['user_id'] = (int) $context['user_id'];
+            }
+            if (!isset($params['assistant_domain']) && in_array(($context['assistant_domain'] ?? ''), ['staff', 'system_admin'], true)) {
+                $params['assistant_domain'] = (string) $context['assistant_domain'];
+            }
+            if ($params !== []) {
+                $path .= (str_contains($path, '?') ? '&' : '?') . http_build_query($params);
+            }
+        } else {
+            $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($body === false) {
+                throw new \RuntimeException('The AI relay request could not be encoded.');
+            }
+        }
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Bearer ' . $secret,
+        ];
+        $started = microtime(true);
+
+        [$raw, $status, $error] = $this->client->request('python_ai', $method, $path, $headers, $body, $timeout);
+
+        FileLogger::write('ai_generation', [
+            'type' => 'python_bridge_call',
+            'endpoint' => $endpoint,
+            'http_method' => $method,
+            'http_status' => (int) $status,
+            'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+            'link' => $this->linkInUse(),
+        ]);
+
+        if ($raw === false || $error !== '') {
+            throw new \RuntimeException('The Python AI platform did not respond.');
+        }
+        $decoded = json_decode((string) $raw, true);
+        if (!is_array($decoded) || (int) $status < 200 || (int) $status >= 300 || (($decoded['success'] ?? null) === false)) {
+            throw new \RuntimeException('The Python AI platform rejected the request.');
+        }
+        $data = $decoded['data'] ?? [];
+        if (!is_array($data)) {
+            throw new \RuntimeException('The Python AI platform returned an unusable response.');
+        }
+
+        // The Python platform already applies its own output guard
+        // (python_platform/app/output_guard.py) before responding, so PHP
+        // returns the engine's envelope verbatim and never re-filters here.
+        return $data;
+    }
+
+    /**
+     * Open the assistant stream and hand each raw chunk to $onChunk as it
+     * arrives, instead of waiting for the whole body.
+     *
+     * The caller must have already flushed its own response headers; this
+     * exists purely so the browser sees the answer being written rather than
+     * receiving one JSON body at the end (which is what made long answers feel
+     * like a frozen page).
+     *
+     * @param callable(string): void $onChunk
+     * @return array{0:bool,1:int} [completed, httpStatus]
+     */
+    public function streamAssist(array $context, string $question, callable $onChunk, int $timeout = 0): array
+    {
+        $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
+        if (!$this->client->isConfigured('python_ai') || $secret === '') {
+            throw new \RuntimeException('The Python AI platform is not configured.');
+        }
+        $ctx = $context;
+        // Build the context with session_id if present
+        $streamContext = [
+            'user_id' => (int) ($ctx['user_id'] ?? 0),
+            'permissions' => array_values(array_unique(array_map('strval', (array) ($ctx['effective_permissions'] ?? $ctx['permissions'] ?? [])))),
+            'audience' => 'staff',
+            'route' => mb_substr((string) ($ctx['route'] ?? ''), 0, 120),
+            'module' => mb_substr((string) ($ctx['module'] ?? 'dashboard'), 0, 60),
+            'request_id' => mb_substr((string) ($ctx['request_id'] ?? 'ai-python-bridge'), 0, 100),
+            'system_admin' => !empty($ctx['system_admin']),
+            'assistant_domain' => in_array((string) ($ctx['assistant_domain'] ?? ''), ['staff', 'system_admin'], true)
+                ? (string) $ctx['assistant_domain']
+                : 'staff',
+        ];
+        if (!empty($ctx['session_id'])) {
+            $streamContext['session_id'] = mb_substr((string) $ctx['session_id'], 0, 64);
+        }
+        // Pass conversation history for context-aware responses
+        if (!empty($ctx['history']) && is_array($ctx['history'])) {
+            $streamContext['history'] = array_slice($ctx['history'], -20);
+        }
+        // Pass sidebar state so the AI can guide navigation
+        if (!empty($ctx['topics']) && is_array($ctx['topics'])) {
+            $streamContext['topics'] = array_slice($ctx['topics'], 0, 12);
+        }
+        if (!empty($ctx['sidebar_state']) && is_array($ctx['sidebar_state'])) {
+            $streamContext['sidebar_state'] = $ctx['sidebar_state'];
+        }
+        // Pass user preferences so the AI can adapt tone/detail
+        if (!empty($ctx['preferences']) && is_array($ctx['preferences'])) {
+            $streamContext['preferences'] = $ctx['preferences'];
+        }
+        $body = json_encode(
+            ['context' => $streamContext, 'question' => $question],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        if ($body === false) {
+            throw new \RuntimeException('The AI relay request could not be encoded.');
+        }
+
+        $timeout = $timeout > 0 ? $timeout : (int) Config::get('AI_PYTHON_TIMEOUT', 45);
+        // Shared hosting caps a request with max_execution_time; detect it at
+        // runtime instead of assuming any particular host configuration. The
+        // stream must finish inside the host limit, never rely on editing
+        // php.ini.
+        $executionLimit = (int) ini_get('max_execution_time');
+        if ($executionLimit > 0) {
+            $timeout = min($timeout, max(10, $executionLimit - 5));
+        }
+        $link = $this->client->resolve('python_ai');
+        $url = rtrim($link['base'], '/') . '/api/agents/assist/stream';
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: text/event-stream',
+            'Authorization: Bearer ' . $secret,
+            'Cache-Control: no-cache',
+        ];
+        if ($link['host'] !== null) {
+            $headers[] = 'Host: ' . $link['host'];
+        }
+
+        $started = microtime(true);
+        $completed = false;
+        $status = 0;
+        $streamBuffer = '';
+
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $body,
+                CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_RETURNTRANSFER => false,
+                CURLOPT_WRITEFUNCTION => function ($handle, string $chunk) use ($onChunk, &$streamBuffer): int {
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
+                    return strlen($chunk);
+                },
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT => max(10, min(180, $timeout + 15)),
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_NOSIGNAL => true,
+            ]);
+            $completed = curl_exec($ch) !== false;
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
+        } else {
+            // The Apache runtime may not load the cURL extension (extensions
+            // are runtime capabilities, never Composer packages), but the
+            // buffered relay already proves plain PHP streams reach the
+            // platform. fopen() + fread() streams incrementally, so the
+            // browser still sees words as they are produced.
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => implode("\r\n", $headers),
+                    'content' => $body,
+                    'timeout' => max(10, min(180, $timeout + 15)),
+                    'ignore_errors' => true,
+                    'protocol_version' => 1.1,
+                ],
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                    'allow_self_signed' => false,
+                ],
+            ]);
+            $stream = @fopen($url, 'rb', false, $context);
+            if ($stream === false) {
+                throw new \RuntimeException('The Python AI platform did not respond.');
+            }
+            try {
+                while (!feof($stream)) {
+                    $chunk = fread($stream, 8192);
+                    if ($chunk === false || $chunk === '') {
+                        continue;
+                    }
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
+                }
+                $completed = true;
+                foreach ((stream_get_meta_data($stream)['wrapper_data'] ?? []) as $responseHeader) {
+                    if (preg_match('/^HTTP\/\S+\s+(\d{3})/', (string) $responseHeader, $match)) {
+                        $status = (int) $match[1];
+                        break;
+                    }
+                }
+            } finally {
+                fclose($stream);
+            }
+        }
+
+        $this->flushStreamChunk($streamBuffer, $onChunk);
+
+        FileLogger::write('ai_generation', [
+            'type' => 'python_bridge_stream',
+            'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+            'http_status' => $status,
+            'completed' => $completed,
+            'http_client' => function_exists('curl_init') ? 'curl' : 'stream',
+            'link' => $link['transport'],
+        ]);
+
+        return [$completed, $status];
+    }
+
+    /**
+     * Stream task progress via SSE.
+     *
+     * @param callable(string): void $onChunk
+     * @return array{0:bool,1:int} [completed, httpStatus]
+     */
+    public function streamTask(array $context, string $taskId, callable $onChunk, int $timeout = 0): array
+    {
+        $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
+        if (!$this->client->isConfigured('python_ai') || $secret === '') {
+            throw new \RuntimeException('The Python AI platform is not configured.');
+        }
+        $streamContext = [
+            'user_id' => (int) ($context['user_id'] ?? 0),
+            'permissions' => array_values(array_unique(array_map('strval', (array) ($context['effective_permissions'] ?? $context['permissions'] ?? [])))),
+            'audience' => 'staff',
+            'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
+            'module' => mb_substr((string) ($context['module'] ?? 'dashboard'), 0, 60),
+            'request_id' => mb_substr((string) ($context['request_id'] ?? 'ai-python-bridge'), 0, 100),
+        ];
+        $body = json_encode(
+            ['context' => $streamContext, 'task_id' => $taskId],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        if ($body === false) {
+            throw new \RuntimeException('The AI relay request could not be encoded.');
+        }
+
+        $timeout = $timeout > 0 ? $timeout : (int) Config::get('AI_PYTHON_TIMEOUT', 45);
+        $executionLimit = (int) ini_get('max_execution_time');
+        if ($executionLimit > 0) {
+            $timeout = min($timeout, max(10, $executionLimit - 5));
+        }
+        $link = $this->client->resolve('python_ai');
+        $url = rtrim($link['base'], '/') . '/api/agents/tasks/' . $taskId . '/stream';
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: text/event-stream',
+            'Authorization: Bearer ' . $secret,
+            'Cache-Control: no-cache',
+        ];
+        if ($link['host'] !== null) {
+            $headers[] = 'Host: ' . $link['host'];
+        }
+
+        $started = microtime(true);
+        $completed = false;
+        $status = 0;
+        $streamBuffer = '';
+
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $body,
+                CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_RETURNTRANSFER => false,
+                CURLOPT_WRITEFUNCTION => function ($handle, string $chunk) use ($onChunk, &$streamBuffer): int {
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
+                    return strlen($chunk);
+                },
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT => max(10, min(180, $timeout + 15)),
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_NOSIGNAL => true,
+            ]);
+            $completed = curl_exec($ch) !== false;
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
+        } else {
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => implode("\r\n", $headers),
+                    'content' => $body,
+                    'timeout' => max(10, min(180, $timeout + 15)),
+                    'ignore_errors' => true,
+                    'protocol_version' => 1.1,
+                ],
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                    'allow_self_signed' => false,
+                ],
+            ]);
+            $stream = @fopen($url, 'rb', false, $context);
+            if ($stream === false) {
+                throw new \RuntimeException('The Python AI platform did not respond.');
+            }
+            try {
+                while (!feof($stream)) {
+                    $chunk = fread($stream, 8192);
+                    if ($chunk === false || $chunk === '') {
+                        continue;
+                    }
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
+                }
+                $completed = true;
+                foreach ((stream_get_meta_data($stream)['wrapper_data'] ?? []) as $responseHeader) {
+                    if (preg_match('/^HTTP\/\S+\s+(\d{3})/', (string) $responseHeader, $match)) {
+                        $status = (int) $match[1];
+                        break;
+                    }
+                }
+            } finally {
+                fclose($stream);
+            }
+        }
+
+        $this->flushStreamChunk($streamBuffer, $onChunk);
+
+        FileLogger::write('ai_generation', [
+            'type' => 'python_bridge_task_stream',
+            'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+            'http_status' => $status,
+            'completed' => $completed,
+            'http_client' => function_exists('curl_init') ? 'curl' : 'stream',
+            'link' => $link['transport'],
+        ]);
+
+        return [$completed, $status];
+    }
+
+    /**
+     * Streamed assistant text reaches the browser without passing through the
+     * buffered relay, so the output guard has to run here as well. Events are
+     * filtered line by line: a partial line is held back until its newline
+     * arrives, which keeps the SSE framing valid while still streaming.
+     */
+    private function pushStreamChunk(string &$buffer, string $chunk, callable $onChunk): void
+    {
+        $buffer .= $chunk;
+        while (($position = strpos($buffer, "\n")) !== false) {
+            $line = substr($buffer, 0, $position);
+            $buffer = substr($buffer, $position + 1);
+            $onChunk($this->scrubStreamLine($line) . "\n");
+        }
+    }
+
+    /** Emit any final line that arrived without a trailing newline. */
+    private function flushStreamChunk(string &$buffer, callable $onChunk): void
+    {
+        if ($buffer === '') {
+            return;
+        }
+        $onChunk($this->scrubStreamLine($buffer) . "\n");
+        $buffer = '';
+    }
+
+    /**
+     * Scrub one SSE line. Framing (comments, event names, [DONE]) is passed
+     * through untouched; only the data payload is filtered, so the client can
+     * still parse the event.
+     */
+    private function scrubStreamLine(string $line): string
+    {
+        $carriageReturn = '';
+        if (str_ends_with($line, "\r")) {
+            $line = substr($line, 0, -1);
+            $carriageReturn = "\r";
+        }
+
+        if ($line === '' || str_starts_with($line, ':') || str_starts_with($line, 'event:')) {
+            return $line . $carriageReturn;
+        }
+        if (!str_starts_with($line, 'data:')) {
+            return $line . $carriageReturn;
+        }
+
+        $payload = ltrim(substr($line, 5));
+        if ($payload === '' || $payload === '[DONE]') {
+            return $line . $carriageReturn;
+        }
+
+        $decoded = json_decode($payload, true);
+        if (is_array($decoded)) {
+            $encoded = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return 'data: ' . ($encoded === false ? '[redacted]' : $encoded) . $carriageReturn;
+        }
+
+        return 'data: ' . $payload . $carriageReturn;
+    }
+
+}

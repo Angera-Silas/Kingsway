@@ -93,7 +93,7 @@ class SystemReportManager extends BaseAPI
                         u.username,
                         bd.created_at AS blocked_at,
                         bd.reason
-                    FROM " . ReadReplicaService::qualifiedRef("blocked_devices") . "
+                    FROM " . ReadReplicaService::qualifiedRef("blocked_devices") . " bd
                     LEFT JOIN users u ON u.id = bd.created_by
                     ORDER BY bd.created_at DESC
                     LIMIT 100";

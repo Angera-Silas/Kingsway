@@ -112,7 +112,7 @@ window.GradingScalesCtrl = {
         document.getElementById("bfSystemId").value = systemId;
         const sys = this.state.systems.find(s => s.id === systemId);
         document.getElementById("bfSort").value = sys ? (sys.bands || []).length + 1 : 1;
-        new bootstrap.Modal(document.getElementById("bandModal")).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById("bandModal")).show();
     },
 
     editBand(systemId, bandId) {
@@ -131,7 +131,7 @@ window.GradingScalesCtrl = {
         document.getElementById("bfPerformance").value = b.performance_level || "";
         document.getElementById("bfDescription").value = b.description || "";
         document.getElementById("bfSort").value = b.sort_order;
-        new bootstrap.Modal(document.getElementById("bandModal")).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById("bandModal")).show();
     },
 
     async saveBand(ev) {

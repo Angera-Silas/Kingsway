@@ -236,7 +236,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             // Verify all payments are successful (3NF: payslips.payment_status)
             $failedCount = $this->db->fetchColumn(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("payslips") . "
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
                  JOIN " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr ON pr.id = ?
                  WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
                    AND ps.data_scope = pr.data_scope
@@ -488,7 +488,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
         [$prScope, $prParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
         $totals = $this->db->fetchOne(
             "SELECT COALESCE(SUM(ps.net_salary), 0) AS total_net
-             FROM " . ReadReplicaService::qualifiedRef("payslips") . "
+             FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
              JOIN " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr ON pr.id = ?
              WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
                AND $prScope AND ps.data_scope = pr.data_scope",

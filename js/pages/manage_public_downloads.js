@@ -67,7 +67,7 @@ const managePublicDownloadsController = {
         document.getElementById('dlType').value     = item.file_type || 'PDF';
       }
     }
-    new bootstrap.Modal(document.getElementById('wsDownloadModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsDownloadModal')).show();
   },
 
   async save() {

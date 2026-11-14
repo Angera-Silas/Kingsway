@@ -5,6 +5,7 @@ import { getMetrics } from '../metrics/index.js';
 import { getBus } from './bus.js';
 
 let sseCache = null;
+let sweepTimer = null;
 
 const CHANNEL_TYPES = {
   USER: 'user',
@@ -14,6 +15,33 @@ const CHANNEL_TYPES = {
 };
 const MAX_PRESENCE_ENTRIES = 10000;
 const MAX_PRESENCE_KEYS_PER_USER = 50;
+
+/**
+ * The stream capability travels in the Authorization header only. A token in
+ * the query string would be written to every proxy and access log on the way
+ * here, so `?token=` is deliberately ignored.
+ */
+const TOKEN_PATTERN = /^[A-Za-z0-9._~+/=-]+$/;
+
+/** Longest a single stream stays open (default 20 min, below common 30 min proxy limits). */
+const MAX_STREAM_MS = Math.max(60_000, Math.min(
+  25 * 60_000,
+  (Number(process.env.NODE_REALTIME_MAX_STREAM_MINUTES) || 20) * 60_000,
+));
+
+/**
+ * The stream capability from the Authorization header, or from
+ * X-Kingsway-SSE-Token when a front proxy strips Authorization (Apache and
+ * LiteSpeed under Passenger do this by default; production then answered
+ * every stream with 401 "Missing token"). Never from the URL.
+ */
+export function bearerToken(req) {
+  const header = String(req?.headers?.authorization || '');
+  const match = /^Bearer\s+([A-Za-z0-9._~+/=-]+)$/.exec(header);
+  if (match) return match[1];
+  const fallback = String(req?.headers?.['x-kingsway-sse-token'] || '').trim();
+  return TOKEN_PATTERN.test(fallback) ? fallback : '';
+}
 
 export function createSSE() {
   if (sseCache) return sseCache;
@@ -27,6 +55,27 @@ export function createSSE() {
   const userConnections = new Map();
   const presence = new Map();
   const presenceKeysByUser = new Map();
+
+  // Belt-and-braces ghost cleanup: if both req.raw and reply.raw close/error
+  // listeners are missed (proxy half-open sockets, exotic disconnects), this
+  // sweep reclaims the connection slot so the user is never locked out by
+  // orphans hitting userMaxConnections. unref() keeps it from holding the
+  // event loop open in tests/shutdown.
+  sweepTimer = setInterval(() => {
+    for (const [connId, conn] of connections) {
+      if (conn.closed) {
+        closeConnection(connId);
+        continue;
+      }
+      const responseGone = conn.raw?.destroyed || conn.raw?.writableEnded;
+      const requestGone = conn.reqRaw?.destroyed;
+      if (responseGone || requestGone) {
+        logger.debug({ connId, responseGone, requestGone }, 'sweeping dead SSE connection');
+        closeConnection(connId);
+      }
+    }
+  }, 30000);
+  sweepTimer.unref?.();
 
   function deletePresence(key) {
     const record = presence.get(key);
@@ -68,7 +117,7 @@ export function createSSE() {
   }
 
   async function handleConnection(req, reply) {
-    const token = req.query.token;
+    const token = bearerToken(req);
     if (!token) return reply.code(401).send({ error: 'Missing token' });
 
     const decoded = verifyCapability(token);
@@ -94,12 +143,25 @@ export function createSSE() {
     }
     const authorizedChannels = Array.from(new Set(channels));
 
-    const userConnCount = (userConnections.get(userId) || new Set()).size;
-    if (userConnCount >= config.sse.userMaxConnections) {
-      return reply.code(429).send({ error: 'Too many connections for user' });
+    // A browser must never be locked out of its own realtime stream. The
+    // per-user ceiling is a memory-safety soft cap, not a user quota: when a
+    // user is at or over it, evict their oldest connections (last-connection-
+    // wins) until there is room, then accept the new one. Abuse control
+    // belongs at capability minting (PHP), never as a 429 here.
+    const userConns = userConnections.get(userId);
+    if (userConns && userConns.size >= config.sse.userMaxConnections) {
+      const byAge = Array.from(userConns)
+        .map((id) => connections.get(id))
+        .filter(Boolean)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      const toEvict = byAge.slice(0, userConns.size - config.sse.userMaxConnections + 1);
+      for (const victim of toEvict) {
+        logger.warn({ userId, evicted: victim.id }, 'evicting oldest SSE connection (per-user soft cap, last-connection-wins)');
+        closeConnection(victim.id, true);
+      }
     }
     if (connections.size >= config.sse.maxConnections) {
-      return reply.code(503).send({ error: 'Realtime connection capacity reached' });
+      return reply.header('Retry-After', '30').code(503).send({ error: 'Realtime connection capacity reached' });
     }
 
     const headers = {
@@ -135,6 +197,7 @@ export function createSSE() {
       channels: new Set(authorizedChannels),
       queue,
       raw: reply.raw,
+      reqRaw: req.raw,
       lastEventId: req.headers['last-event-id'],
       createdAt: Date.now(),
       unsubscribers,
@@ -176,12 +239,27 @@ export function createSSE() {
 
     writeEvent(connId, 'connected', { connectionId: connId, channels: Array.from(connection.channels) });
     connection.heartbeat = startHeartbeat(connId);
+    // End the stream ourselves before the front proxy's idle/total limit
+    // (production cut streams at exactly 30 min with a 504 that carries no
+    // CORS header). A clean end lets the client reconnect with a new token.
+    connection.lifetimeTimer = setTimeout(() => closeConnection(connId, true), MAX_STREAM_MS);
 
-    // IncomingMessage `close` can fire when the GET request body is complete,
-    // which is immediately for SSE. Track the response socket instead so the
-    // subscription lives until the client disconnects.
-    reply.raw.on('close', () => closeConnection(connId));
-    reply.raw.on('error', () => closeConnection(connId));
+    // Cleanup must survive proxy environments (LiteSpeed/cPanel): a dropped
+    // upstream socket can surface on either req.raw or reply.raw, and some
+    // proxies vanish without a clean FIN so neither 'close' fires at all.
+    // Both listeners guard on socket destruction: IncomingMessage 'close' also
+    // fires when the GET request body completes (immediately for SSE) without
+    // the socket being destroyed, and closing on that would kill a live stream.
+    const onSocketGone = () => {
+      if (req.raw.destroyed || reply.raw.destroyed || reply.raw.writableEnded) {
+        closeConnection(connId);
+      }
+    };
+    reply.raw.on('close', onSocketGone);
+    reply.raw.on('error', () => closeConnection(connId, true));
+    req.raw.on('close', onSocketGone);
+    req.raw.on('error', () => closeConnection(connId, true));
+    req.raw.on('aborted', () => closeConnection(connId, true));
   }
 
   function writeEvent(connId, event, data) {
@@ -226,6 +304,17 @@ export function createSSE() {
         clearInterval(interval);
         return;
       }
+      // A raw SSE comment keeps reverse proxies (LiteSpeed on shared hosting)
+      // from treating the stream as idle and severing it between app-level
+      // heartbeat events. Comments are spec-compliant no-ops for EventSource.
+      try {
+        if (conn.raw && !conn.raw.destroyed && !conn.raw.writableEnded) {
+          conn.raw.write(': keepalive\n\n');
+        }
+      } catch {
+        closeConnection(connId, true);
+        return;
+      }
       writeEvent(connId, 'heartbeat', { timestamp: Date.now() });
     }, config.sse.heartbeatMs);
     return interval;
@@ -237,6 +326,7 @@ export function createSSE() {
     conn.closed = true;
     if (conn.heartbeat) clearInterval(conn.heartbeat);
     if (conn.slowClientTimer) clearTimeout(conn.slowClientTimer);
+    if (conn.lifetimeTimer) clearTimeout(conn.lifetimeTimer);
     for (const unsubscribe of conn.unsubscribers) {
       try { unsubscribe(); } catch {}
     }
@@ -345,5 +435,9 @@ export function getSSE() {
 }
 
 export function resetSSE() {
+  if (sweepTimer) {
+    clearInterval(sweepTimer);
+    sweepTimer = null;
+  }
   sseCache = null;
 }

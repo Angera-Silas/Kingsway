@@ -174,6 +174,7 @@ viewSpecs.set('academic/manager-overview', {
     { key: 'classes', endpoint: '/api/academic/classes-list' },
     { key: 'learningAreas', endpoint: '/api/academic/learning-areas/list' },
     { key: 'years', endpoint: '/api/academic/years/list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
   ],
   aggregations: {},
 });
@@ -412,6 +413,7 @@ viewSpecs.set('academic/academic-reports-references', {
   permissions: [],
   queries: [
     { key: 'years', endpoint: '/api/academic/years-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
     { key: 'classes', endpoint: '/api/academic/classes-list' },
     { key: 'learningAreas', endpoint: '/api/academic/learning-areas/list' },
   ],
@@ -525,7 +527,6 @@ viewSpecs.set('students/management-reference-data', {
   service: 'php',
   permissions: [],
   queries: [
-    { key: 'importContext', endpoint: '/api/students/import-context' },
     { key: 'classes', endpoint: '/api/academic/classes-list' },
     { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
     { key: 'streams', endpoint: '/api/academic/streams-list' },
@@ -543,6 +544,51 @@ viewSpecs.set('finance/fee-structure-viewer-references', {
   queries: [
     { key: 'years', endpoint: '/api/academic/years/list' },
     { key: 'levels', endpoint: '/api/academic/levels-list' },
+    { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
+  ],
+  aggregations: {},
+});
+
+// Fee Structure Admin: static reference data for year/level/type/term/class.
+// The paginated structure table, approvals, and canonical matrix stay direct.
+viewSpecs.set('finance/fee-structure-admin-references', {
+  view: 'finance/fee-structure-admin-references',
+  service: 'php',
+  permissions: [],
+  queries: [
+    { key: 'years', endpoint: '/api/academic/years/list' },
+    { key: 'levels', endpoint: '/api/academic/levels-list' },
+    { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
+    { key: 'classes', endpoint: '/api/academic/classes-list' },
+  ],
+  aggregations: {},
+});
+
+// Fee Structure Accountant: static reference data for year/level/type/term/class.
+viewSpecs.set('finance/fee-structure-accountant-references', {
+  view: 'finance/fee-structure-accountant-references',
+  service: 'php',
+  permissions: [],
+  queries: [
+    { key: 'years', endpoint: '/api/academic/years/list' },
+    { key: 'levels', endpoint: '/api/academic/levels-list' },
+    { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
+    { key: 'classes', endpoint: '/api/academic/classes-list' },
+  ],
+  aggregations: {},
+});
+
+// Draft Fee Structure: static reference data for class/year/type/term.
+viewSpecs.set('finance/draft-fee-structure-references', {
+  view: 'finance/draft-fee-structure-references',
+  service: 'php',
+  permissions: [],
+  queries: [
+    { key: 'classes', endpoint: '/api/academic/classes-list' },
+    { key: 'years', endpoint: '/api/academic/years/list' },
     { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
     { key: 'terms', endpoint: '/api/academic/terms-list' },
   ],
@@ -584,7 +630,7 @@ viewSpecs.set('finance/payment-reconciliation-references', {
   queries: [
     { key: 'students', endpoint: '/api/students/get-all', staticParams: { limit: '1000', status: 'active' } },
     { key: 'fundSources', endpoint: '/api/finance/student-fund-sources' },
-    { key: 'uniformSales', endpoint: '/api/inventory/list-uniform-sales', staticParams: { limit: '1000' } },
+    { key: 'uniformSales', endpoint: '/api/inventory/uniform-sales-list', staticParams: { limit: '1000' } },
   ],
   aggregations: {},
 });
@@ -673,7 +719,7 @@ viewSpecs.set('inventory/requisitions-references', {
   service: 'php',
   permissions: [],
   queries: [
-    { key: 'requisitions', endpoint: '/api/inventory/requisitions' },
+    { key: 'requisitions', endpoint: '/api/inventory/requisitions-list' },
   ],
   aggregations: {},
 });
@@ -685,7 +731,7 @@ viewSpecs.set('inventory/stock-references', {
   permissions: [],
   queries: [
     { key: 'items', endpoint: '/api/inventory/assets' },
-    { key: 'movements', endpoint: '/api/inventory/stock' },
+    { key: 'movements', endpoint: '/api/inventory/movements-list' },
   ],
   aggregations: {},
 });
@@ -1573,6 +1619,29 @@ viewSpecs.set('dashboards/school-counselor-chaplain-references', {
   permissions: [],
   queries: [
     { key: 'summary', endpoint: '/api/counseling/summary' },
+  ],
+  aggregations: {},
+});
+
+viewSpecs.set('finance/fee_structures', {
+  view: 'finance/fee_structures',
+  service: 'php',
+  permissions: ['finance_view', 'fee_structure_view', 'fee_structure_manage'],
+  queries: [
+    {
+      key: 'list',
+      endpoint: '/api/finance/fee-structures/list',
+      pagination: {
+        collection: 'fee_structures',
+        pageParam: 'page',
+        limitParam: 'limit',
+        pageSize: 20,
+        maxPages: 100,
+      },
+    },
+    { key: 'detail', endpoint: '/api/finance/fee-structures' },
+    { key: 'extra_charges', endpoint: '/api/finance/extra-charges' },
+    { key: 'bundles', endpoint: '/api/finance/fees-bundle-list' },
   ],
   aggregations: {},
 });

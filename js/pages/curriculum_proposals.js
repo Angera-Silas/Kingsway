@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const state = { context: null, proposals: [], history: [], strands: [], subStrands: [], admin: false };
+  const state = { context: null, proposals: [], history: [], strands: [], subStrands: [], admin: false, sharedYearFilter: false };
   const el = id => document.getElementById(id);
   const esc = value => { const node=document.createElement('span'); node.textContent=value??''; return node.innerHTML; };
   const rows = value => Array.isArray(value) ? value : (value?.data || []);
@@ -14,13 +14,23 @@
     });
     document.querySelectorAll('.admin-source').forEach(node => node.classList.toggle('d-none', !state.admin));
     bind();
-    await loadContext();
+    // Year: the shared filter (current year by default, kept in the URL),
+    // which loads the year's scope, proposals and history now and on change.
+    const mounted = window.AcademicYearFilter && el('yearFilter')
+      ? await window.AcademicYearFilter.mount(el('yearFilter'), { onChange: (yearId) => { loadYear(yearId); } })
+      : null;
+    state.sharedYearFilter = Boolean(mounted);
+    if (!mounted) await loadYear(0);
+  }
+
+  async function loadYear(yearId) {
+    await loadContext(yearId);
     await Promise.all([loadProposals(), loadHistory()]);
   }
 
   function bind() {
     el('newProposalBtn')?.addEventListener('click', openProposal);
-    el('yearFilter')?.addEventListener('change', async () => { await loadContext(Number(el('yearFilter').value)); await Promise.all([loadProposals(),loadHistory()]); });
+    el('yearFilter')?.addEventListener('change', () => { if (!state.sharedYearFilter) loadYear(Number(el('yearFilter').value)); });
     ['statusFilter','entityFilter'].forEach(id => el(id)?.addEventListener('change',loadProposals));
     ['historyArea','historyEntity'].forEach(id => el(id)?.addEventListener('change',loadHistory));
     ['proposalEntity','proposalAction','proposalArea','proposalGrade'].forEach(id => el(id)?.addEventListener('change', refreshFormChoices));
@@ -36,7 +46,7 @@
     state.context=await api(`curriculum-proposal-context${suffix}`);
     const c=state.context?.data||state.context;
     const scope=c.scope||{};
-    el('yearFilter').innerHTML=(c.years||[]).map(y=>`<option value="${y.id}" ${Number(y.id)===Number(scope.academic_year_id)?'selected':''}>${esc(y.year_name)}${y.is_current?' (Current)':''}</option>`).join('');
+    if (!state.sharedYearFilter) el('yearFilter').innerHTML=(c.years||[]).map(y=>`<option value="${y.id}" ${Number(y.id)===Number(scope.academic_year_id)?'selected':''}>${esc(y.year_name)}${y.is_current?' (Current)':''}</option>`).join('');
     el('proposalTerm').innerHTML='<option value="">Whole academic year</option>'+(c.terms||[]).map(t=>`<option value="${t.id}">${esc(t.term_name)}</option>`).join('');
     fillAreaSelects(c.learning_areas||[]);
     if (scope.restricted) {

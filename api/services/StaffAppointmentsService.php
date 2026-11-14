@@ -131,9 +131,7 @@ final class StaffAppointmentsService
         }
 
         $staff = $this->db->query(
-            "SELECT s.*, sda.department_id
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-             WHERE s.id = ?",
+            'SELECT * FROM staff_appointments WHERE id = ?',
             [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$staff) {

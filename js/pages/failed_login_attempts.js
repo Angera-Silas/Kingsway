@@ -123,6 +123,7 @@ const FailedLoginAttemptsController = {
         "refreshFailedLoginAttemptsBtn",
       ),
       tableBody: document.getElementById("failedLoginAttemptsTableBody"),
+      tableState: document.getElementById("failedLoginAttemptsTableState"),
       count: document.getElementById("failedLoginAttemptsCount"),
       previousButton: document.getElementById(
         "failedLoginAttemptsPreviousPage",
@@ -434,10 +435,13 @@ const FailedLoginAttemptsController = {
     }
 
     const template = document.getElementById("failedLoginAttemptsRowTemplate");
-    const rows = this.state.attempts.map((attempt) =>
-      this.buildAttemptRow(template, attempt),
-    );
-    this.elements.tableBody.replaceChildren(...rows);
+    this.elements.tableBody.querySelectorAll("[data-failed-login-row]").forEach((row) => row.remove());
+    if (this.elements.tableState) this.elements.tableState.hidden = true;
+    const rows = this.state.attempts.map((attempt) => this.buildAttemptRow(template, attempt));
+    rows.forEach((row) => {
+      row.dataset.failedLoginRow = "1";
+      this.elements.tableBody.insertBefore(row, this.elements.tableState || null);
+    });
   },
 
   buildAttemptRow(template, attempt) {
@@ -588,22 +592,15 @@ const FailedLoginAttemptsController = {
   },
 
   showTableLoading() {
-    this.showTableMessage(
-      '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading failed login attempts...',
-      "text-primary",
-      true,
-    );
+    this.showTableMessage("Loading failed login attempts...", "text-primary");
   },
 
-  showTableMessage(message, className = "text-muted", allowMarkup = false) {
+  showTableMessage(message, className = "text-muted") {
     if (!this.elements.tableBody) return;
-    const content = allowMarkup ? message : this.escapeHtml(message);
-    this.elements.tableBody.innerHTML = `
-      <tr>
-        <td colspan="6" class="text-center py-5 ${className}">
-          ${content}
-        </td>
-      </tr>`;
+    this.elements.tableBody.querySelectorAll("[data-failed-login-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) { cell.className = "text-center py-5 " + className; cell.textContent = message; }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   showState(message, type = "info") {

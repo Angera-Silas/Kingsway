@@ -5,13 +5,7 @@
  * Embedded in app_layout.php
  */
 
-// Ensure $appBase is available for script loading
-if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.' || $appBase === '/') {
-        $appBase = '';
-    }
-}
+$appBase = app_base_path();
 ?>
 
 <div class="container-fluid py-4" id="studentHealthPage">
@@ -32,6 +26,9 @@ if (!isset($appBase)) {
                     </button>
                     <button class="btn btn-outline-light btn-sm" id="exportBtn">
                         <i class="bi bi-download"></i> Export
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="printBtn" type="button">
+                        <i class="bi bi-printer"></i> Print
                     </button>
                     <button class="btn btn-light btn-sm" id="addRecordBtn">
                         <i class="bi bi-plus-circle"></i> Add Record
@@ -263,10 +260,11 @@ if (!isset($appBase)) {
                             </tr>
                         </thead>
                         <tbody id="recordsTableBody">
-                            <tr>
-                                <td class="text-center text-muted">Loading...</td>
+                            <tr id="recordsTableState">
+                                <td colspan="12" class="text-center text-muted py-4">Loading...</td>
                             </tr>
                         </tbody>
+                        <template id="healthRecordRowTemplate"><tr data-health-record-row><td data-fill="id"></td><td class="fw-semibold" data-fill="student"></td><td data-fill="admission"></td><td data-fill="class"></td><td data-fill="stream"></td><td data-fill="category"></td><td data-fill="alert"></td><td><span class="badge" data-fill="severity"></span></td><td data-fill="status"></td><td data-fill="last-visit"></td><td data-fill="next-review"></td><td><button class="btn btn-sm btn-outline-danger" type="button" data-health-record>View</button></td></tr></template>
                     </table>
                 </div>
             </div>

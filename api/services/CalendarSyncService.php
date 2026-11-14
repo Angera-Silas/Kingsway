@@ -293,15 +293,36 @@ class CalendarSyncService
      * read-only calendar view passes false because it never mutates anything
      * and the per-day reconciliation is expensive (hundreds of queries).
      */
-    public function getUnifiedEvents(bool $sync = true): array
+    public function getUnifiedEvents(bool $sync = true, ?int $yearId = null): array
     {
         $this->normalizeStatuses();
         if ($sync) {
             $this->syncAcademicYear(null);
         }
 
+        // No year: the current year's terms plus every unlinked day and free
+        // event (the long-standing behaviour other callers rely on). With a
+        // year: that year's terms, and unlinked days / free events dated in
+        // its calendar years (school years run January to December).
+        $yearWhere = '(aterm.is_current_year = 1 OR d.academic_year_calendar_id = 0)';
+        $freeWhere = '';
+        $yearBind = [];
+        $freeBind = [];
+        if ($yearId !== null) {
+            $span = $this->db->prepare("SELECT YEAR(start_date) AS y0, YEAR(end_date) AS y1 FROM academic_years WHERE id = ?");
+            $span->execute([$yearId]);
+            $years = $span->fetch(PDO::FETCH_ASSOC);
+            if (!$years) {
+                return [];
+            }
+            $yearWhere = '(aterm.academic_year_id = ? OR (d.academic_year_calendar_id = 0 AND YEAR(d.date) BETWEEN ? AND ?))';
+            $yearBind = [$yearId, (int) $years['y0'], (int) $years['y1']];
+            $freeWhere = ' AND YEAR(start_at) BETWEEN ? AND ?';
+            $freeBind = [(int) $years['y0'], (int) $years['y1']];
+        }
+
         $rows = [];
-        $stmt = $this->db->query(
+        $stmt = $this->db->prepare(
             "SELECT
                 d.id AS calendar_day_id,
                 d.date,
@@ -311,6 +332,8 @@ class CalendarSyncService
                 d.is_manual,
                 ac.week_number,
                 aterm.term_id,
+                aterm.academic_year_term_id,
+                aterm.academic_year_id,
                 aterm.term_name AS term_name,
                 ev.id AS event_id,
                 ev.title AS event_title,
@@ -326,23 +349,25 @@ class CalendarSyncService
              LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_term") . " aterm ON aterm.academic_year_term_id = ac.academic_year_term_id
              LEFT JOIN school_events ev ON ev.calendar_day_id = d.id AND ev.status <> 'cancelled'
-             WHERE (aterm.is_current_year = 1 OR d.academic_year_calendar_id = 0)
+             WHERE {$yearWhere}
                AND (COALESCE(cdt.code, '') NOT IN ('school_day', 'weekend')
                     OR (COALESCE(cdt.code, '') = 'school_day'
                         AND d.title IS NOT NULL AND d.title <> '')
                     OR ev.id IS NOT NULL)
              ORDER BY d.date, d.id"
         );
+        $stmt->execute($yearBind);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $rows[] = $this->buildEventRow($r);
         }
 
-        $free = $this->db->query(
+        $free = $this->db->prepare(
             "SELECT id, title, description, type, location, start_at, end_at, status, source
              FROM school_events
-             WHERE calendar_day_id IS NULL AND status <> 'cancelled'
+             WHERE calendar_day_id IS NULL AND status <> 'cancelled'{$freeWhere}
              ORDER BY start_at"
         );
+        $free->execute($freeBind);
         foreach ($free->fetchAll(PDO::FETCH_ASSOC) as $f) {
             $rows[] = $this->buildFreeFormRow($f);
         }
@@ -390,7 +415,7 @@ class CalendarSyncService
         // half-term breaks) stay separate because their term differs.
         $merged = [];
         foreach ($grouped as $row) {
-            $key = ($row['title'] ?? '') . '|' . ($row['type'] ?? '') . '|' . ($row['day_type'] ?? '') . '|' . ($row['term_id'] ?? '');
+            $key = ($row['title'] ?? '') . '|' . ($row['type'] ?? '') . '|' . ($row['day_type'] ?? '') . '|' . ($row['academic_year_term_id'] ?? '');
             if (isset($merged[$key])) {
                 $m = &$merged[$key];
                 if ($row['start_date'] < $m['start_date']) {
@@ -615,7 +640,7 @@ class CalendarSyncService
 
         if ($date !== $day['date']) {
             $week = $this->db->prepare(
-                "SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
+                "SELECT ac.id FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
                  WHERE ayt.academic_year_id = (
                      SELECT ay.id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt2
@@ -686,6 +711,10 @@ class CalendarSyncService
             'source' => $r['event_source'] ?: 'calendar',
             'is_manual' => (bool) $r['is_manual'],
             'term_id' => $r['term_id'] !== null ? (int) $r['term_id'] : null,
+            // term_id is the term number (1-3); filters use this, the
+            // academic_year_terms id that is unique across years.
+            'academic_year_term_id' => $r['academic_year_term_id'] !== null ? (int) $r['academic_year_term_id'] : null,
+            'academic_year_id' => $r['academic_year_id'] !== null ? (int) $r['academic_year_id'] : null,
             'term_name' => $r['term_name'],
             'week_number' => $r['week_number'] !== null ? (int) $r['week_number'] : null,
         ];
@@ -718,6 +747,8 @@ class CalendarSyncService
             'source' => $f['source'],
             'is_manual' => true,
             'term_id' => null,
+            'academic_year_term_id' => null,
+            'academic_year_id' => null,
             'term_name' => null,
             'week_number' => null,
         ];

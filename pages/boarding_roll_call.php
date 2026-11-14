@@ -115,6 +115,8 @@
         </div>
     </section>
 
+    <div id="rollCallError" class="alert alert-danger d-none" role="alert"></div>
+
     <!-- Selection Controls -->
     <div class="card shadow-sm mb-4">
         <div class="card-body">
@@ -241,8 +243,9 @@
                     </tr>
                 </thead>
                 <tbody id="studentsTableBody">
-                    <!-- Students rendered here -->
+                    <tr id="studentsTableState"><td colspan="7" class="text-center text-muted py-4">Select a dormitory and session.</td></tr>
                 </tbody>
+                <template id="boardingRollCallRowTemplate"><tr class="student-row" data-boarding-student-row><td data-fill="number"></td><td data-fill="admission"></td><td class="fw-semibold" data-fill="name"></td><td data-fill="class"></td><td data-fill="bed"></td><td data-fill="permission"></td><td><select class="form-select form-select-sm" data-student-status aria-label="Attendance status"><option value="unknown">Not marked</option><option value="present">Present</option><option value="absent">Absent</option><option value="permission">On permission</option><option value="sick_bay">Sick bay</option></select></td></tr></template>
             </table>
         </div>
     </div>

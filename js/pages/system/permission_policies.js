@@ -71,6 +71,7 @@ const PermissionPoliciesController = {
       search: document.getElementById("permissionPoliciesSearch"),
       count: document.getElementById("permissionPoliciesCount"),
       body: document.getElementById("permissionPoliciesTableBody"),
+      tableState: document.getElementById("permissionPoliciesTableState"),
       rowTemplate: document.getElementById("permissionPoliciesRowTemplate"),
       exportCsvBtn: document.getElementById("permissionPoliciesExportCsvBtn"),
       printBtn: document.getElementById("permissionPoliciesPrintBtn"),
@@ -113,12 +114,13 @@ const PermissionPoliciesController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="7" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-permission-policy-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -196,16 +198,9 @@ const PermissionPoliciesController = {
     this.render();
   },
 
-  statusBadge(status) {
+  statusTone(status) {
     const map = { active: "bg-success", enabled: "bg-success", inactive: "bg-secondary", disabled: "bg-secondary" };
-    return `<span class="badge ${map[String(status).toLowerCase()] || "bg-secondary"}">${this.escapeHtml(status || "—")}</span>`;
-  },
-
-  formatRules(rules) {
-    if (rules === undefined || rules === null || rules === "") return "—";
-    let text = rules;
-    if (typeof rules === "object") text = JSON.stringify(rules);
-    return String(text).length > 60 ? text.slice(0, 60) + "…" : String(text);
+    return map[String(status).toLowerCase()] || "bg-secondary";
   },
 
   render() {
@@ -215,20 +210,25 @@ const PermissionPoliciesController = {
     if (!pageRows.length) {
       this.showTableMessage("No policies found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
-          fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
-          fragment.querySelector('[data-fill="description"]').textContent = row.description ?? "—";
-          fragment.querySelector('[data-fill="rules"]').textContent = this.formatRules(row.rules);
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(row.status);
-          fragment.querySelector('[data-fill="updated_at"]').textContent = row.updated_at ?? "—";
-          const tr = fragment.querySelector("tr");
-          tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-permission-policy-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
+        fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
+        fragment.querySelector('[data-fill="description"]').textContent = row.description ?? "—";
+        fragment.querySelector('[data-fill="rules"]').textContent = this.formatRules(row.rules);
+        const badge = fragment.querySelector('[data-fill="status"]');
+        badge.textContent = row.status ?? "—";
+        this.statusTone(row.status).split(" ").forEach((name) => badge.classList.add(name));
+        fragment.querySelector('[data-fill="updated_at"]').textContent = row.updated_at ?? "—";
+        const tr = fragment.querySelector("tr");
+        tr.dataset.permissionPolicyRow = "1";
+        tr.dataset.id = row.id;
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

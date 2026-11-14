@@ -42,7 +42,7 @@ class MenuBuilderService
     public function getAllMenuItems(bool $activeOnly = true): array
     {
         $sql = "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain
-                FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+                FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " mi
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id";
         if ($activeOnly) {
             $sql .= " WHERE mi.is_active = 1";
@@ -60,7 +60,7 @@ class MenuBuilderService
     {
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " mi
              LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id
              WHERE mi.id = ?",
             [$id]
@@ -75,7 +75,7 @@ class MenuBuilderService
     {
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " mi
              LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id
              WHERE mi.parent_id = ? AND mi.is_active = 1
              ORDER BY mi.display_order",
@@ -382,12 +382,13 @@ class MenuBuilderService
         // ensure they get the canonical teacher dashboard/menu even if their role mapping
         // does not include it. This makes teachers teaching Grade <=3 behave as class teachers.
         try {
-            $stmt = $this->db->query("SELECT id FROM staff WHERE user_id = ? LIMIT 1", [$userId]);
+            $stmt = $this->db->query("SELECT id FROM routes_registry WHERE name = ? LIMIT 1", [$userId]);
             $staffRow = $stmt->fetch();
             if ($staffRow) {
                 $staffId = (int) $staffRow['id'];
+                $assignments = ReadReplicaService::masterRef('vw_current_staff_assignments');
                 $stmt2 = $this->db->query(
-                    "SELECT DISTINCT c.level_id, c.name FROM " . ReadReplicaService::qualifiedRef("vw_current_staff_assignments") . " JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON v.class_id = c.id WHERE v.staff_id = ?",
+                    "SELECT DISTINCT c.level_id, c.name FROM {$assignments} v JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON v.class_id = c.id WHERE v.staff_id = ?",
                     [$staffId]
                 );
                 $levels = $stmt2->fetchAll();

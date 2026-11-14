@@ -69,14 +69,34 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Date</th><th scope="col">Day</th><th scope="col">Time</th><th scope="col">Theme/Topic</th><th scope="col">Speaker</th><th scope="col">Class Responsible</th><th scope="col">Type</th><th scope="col">Actions</th></tr></thead>
-                    <tbody><tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="assemblyTableBody">
+                        <tr id="assemblyTableState" data-state="empty">
+                            <td colspan="9" class="text-center text-muted py-4">Loading assemblies...</td>
+                        </tr>
+                    </tbody>
                 </table>
+                <template id="assemblyRowTemplate">
+                    <tr data-assembly-row>
+                        <td data-field="number"></td>
+                        <td data-field="date"></td>
+                        <td data-field="day"></td>
+                        <td data-field="time"></td>
+                        <td><strong data-field="theme"></strong></td>
+                        <td data-field="speaker"></td>
+                        <td data-field="class"></td>
+                        <td><span class="badge" data-field="type"></span></td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit"><i class="fas fa-edit"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                </template>
             </div>
         </div>
     </div>
 </div>
 <div class="modal fade" id="formModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-megaphone me-2"></i>Add Record</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-megaphone me-2"></i><span data-modal-title>Schedule Assembly</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body"><form id="recordForm"><input type="hidden" id="recordId">
         <div class="mb-3"><label class="form-label">Name <span class="text-danger">*</span></label><input type="text" class="form-control" id="recordName" required></div>
         <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" id="recordDescription" rows="3"></textarea></div>

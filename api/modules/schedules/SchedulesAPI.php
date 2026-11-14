@@ -798,6 +798,93 @@ class SchedulesAPI extends BaseAPI {
         }
     }
 
+    /** The school day's period types (time_slots.slot_type). */
+    public const SLOT_TYPES = ['lesson', 'break', 'lunch', 'assembly', 'games'];
+
+    /**
+     * Replace the school day's periods with the submitted list.
+     *
+     * Periods are numbered 1..n by start time on save. A period that is
+     * removed is deactivated, never deleted: timetable entries reference slots
+     * by id, so an existing timetable keeps pointing at real rows. Removed
+     * rows keep a negative number, so they never clash with the active 1..n
+     * under the unique (period_number, start_time) key. Rows are matched by
+     * id, or by start time + name for a re-added period.
+     *
+     * @param array<int,array{id?:int,label:string,slot_type:string,start_time:string,end_time:string}> $slots
+     */
+    public function saveTimeSlots(array $slots) {
+        try {
+            $clean = [];
+            foreach ($slots as $index => $slot) {
+                $label = trim((string) ($slot['label'] ?? ''));
+                $type = (string) ($slot['slot_type'] ?? '');
+                $start = (string) ($slot['start_time'] ?? '');
+                $end = (string) ($slot['end_time'] ?? '');
+                $row = $index + 1;
+                if ($label === '' || mb_strlen($label) > 50) return errorResponse("Period {$row}: give it a name of up to 50 characters.", 422);
+                if (!in_array($type, self::SLOT_TYPES, true)) return errorResponse("Period {$row}: choose lesson, break, lunch, assembly or games.", 422);
+                if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/', $start) || !preg_match('/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/', $end)) {
+                    return errorResponse("{$label}: enter start and end times as HH:MM.", 422);
+                }
+                $start = substr($start, 0, 5) . ':00';
+                $end = substr($end, 0, 5) . ':00';
+                if ($end <= $start) return errorResponse("{$label}: the end time must be after the start time.", 422);
+                $clean[] = ['id' => (int) ($slot['id'] ?? 0), 'label' => $label, 'slot_type' => $type, 'start_time' => $start, 'end_time' => $end];
+            }
+            if ($clean === []) return errorResponse('Add at least one period.', 422);
+            usort($clean, static fn (array $a, array $b): int => strcmp($a['start_time'], $b['start_time']));
+            for ($i = 1; $i < count($clean); $i++) {
+                if ($clean[$i]['start_time'] < $clean[$i - 1]['end_time']) {
+                    return errorResponse("{$clean[$i]['label']} starts before {$clean[$i - 1]['label']} ends.", 422);
+                }
+            }
+            if (!array_filter($clean, static fn (array $s): bool => $s['slot_type'] === 'lesson')) {
+                return errorResponse('The school day needs at least one lesson period.', 422);
+            }
+
+            $this->db->beginTransaction();
+            // Give every row a temporary negative number unique to it (the
+            // column is a signed TINYINT), so renumbering the active periods
+            // to 1..n can never collide with another row mid-update.
+            $ids = $this->db->query('SELECT id FROM time_slots ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+            if (count($ids) > 128) {
+                $this->db->rollBack();
+                return errorResponse('Too many stored periods to renumber safely; contact the system administrator.', 409);
+            }
+            $park = $this->db->prepare('UPDATE time_slots SET period_number = ?, is_active = 0 WHERE id = ?');
+            foreach ($ids as $i => $rowId) $park->execute([-($i + 1), (int) $rowId]);
+            $byId = $this->db->prepare('SELECT id FROM time_slots WHERE id = ?');
+            $byKey = $this->db->prepare('SELECT id FROM time_slots WHERE is_active = 0 AND start_time = ? AND label = ? LIMIT 1');
+            $update = $this->db->prepare(
+                'UPDATE time_slots SET period_number = ?, start_time = ?, end_time = ?, slot_type = ?, label = ?, is_active = 1 WHERE id = ?'
+            );
+            $insert = $this->db->prepare(
+                'INSERT INTO time_slots (period_number, start_time, end_time, slot_type, label, is_active) VALUES (?, ?, ?, ?, ?, 1)'
+            );
+            foreach ($clean as $i => $slot) {
+                $number = $i + 1;
+                $id = 0;
+                if ($slot['id'] > 0) {
+                    $byId->execute([$slot['id']]);
+                    $id = (int) ($byId->fetchColumn() ?: 0);
+                }
+                if (!$id) {
+                    $byKey->execute([$slot['start_time'], $slot['label']]);
+                    $id = (int) ($byKey->fetchColumn() ?: 0);
+                }
+                $values = [$number, $slot['start_time'], $slot['end_time'], $slot['slot_type'], $slot['label']];
+                if ($id) $update->execute([...$values, $id]);
+                else $insert->execute($values);
+            }
+            $this->db->commit();
+            return $this->getTimeSlots();
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return $this->handleException($e);
+        }
+    }
+
     public function getExamSchedule($params = []) {
         try {
             $conditions = [];
@@ -1426,7 +1513,7 @@ class SchedulesAPI extends BaseAPI {
                     a.start_time,
                     a.end_time,
                     a.venue
-                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " a
                 JOIN activities ac ON a.activity_id = ac.id
                 ORDER BY a.schedule_date, a.start_time
             ";
@@ -1635,7 +1722,7 @@ class SchedulesAPI extends BaseAPI {
     {
         $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
         if ($yearId <= 0) {
-            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
         }
         return $yearId;
     }
@@ -1724,7 +1811,7 @@ class SchedulesAPI extends BaseAPI {
     public function listTimetableDrafts(array $filters = []): array
     {
         $sql = "SELECT d.*, COUNT(e.id) AS entry_count
-                FROM " . ReadReplicaService::qualifiedRef("timetable_drafts") . "
+                FROM " . ReadReplicaService::qualifiedRef("timetable_drafts") . " d
                 LEFT JOIN timetable_draft_entries e ON e.draft_id = d.id
                 WHERE 1=1";
         $params = [];
@@ -1807,7 +1894,7 @@ class SchedulesAPI extends BaseAPI {
         }catch(Exception $e){if($this->db->inTransaction())$this->db->rollBack();return errorResponse($e->getMessage(),400);}
     }
 
-    public function listDutyRosterDrafts(array $filters=[]): array { $q=$this->db->prepare("SELECT d.*,COUNT(e.id) entry_count FROM " . ReadReplicaService::qualifiedRef("duty_roster_drafts") . " LEFT JOIN duty_roster_draft_entries e ON e.draft_id=d.id GROUP BY d.id ORDER BY d.updated_at DESC");$q->execute();return successResponse($q->fetchAll(PDO::FETCH_ASSOC)); }
+    public function listDutyRosterDrafts(array $filters=[]): array { $q=$this->db->prepare("SELECT d.*,COUNT(e.id) entry_count FROM " . ReadReplicaService::qualifiedRef("duty_roster_drafts") . " d LEFT JOIN duty_roster_draft_entries e ON e.draft_id=d.id GROUP BY d.id ORDER BY d.updated_at DESC");$q->execute();return successResponse($q->fetchAll(PDO::FETCH_ASSOC)); }
     public function getDutyRosterDraft($id): array { $q=$this->db->prepare("SELECT * FROM duty_roster_drafts WHERE id=?");$q->execute([(int)$id]);$d=$q->fetch(PDO::FETCH_ASSOC);if(!$d)return errorResponse('Duty roster draft not found',404);$q=$this->db->prepare("SELECT * FROM duty_roster_draft_entries WHERE draft_id=? ORDER BY date,start_time");$q->execute([(int)$id]);$d['entries']=$q->fetchAll(PDO::FETCH_ASSOC);return successResponse($d); }
 
     public function saveExamTimetableDraft(array $data): array
@@ -2242,12 +2329,207 @@ class SchedulesAPI extends BaseAPI {
           catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); \App\API\Services\Logger::legacyError('[SchedulesAPI] timetable draft save failed: ' . $e->getMessage()); return errorResponse('Timetable draft could not be saved', 400); }
     }
 
+    /**
+     * Build a class timetable draft with the deterministic solver.
+     *
+     * Inputs come from the school's own setup, never the browser: the term's
+     * subject-teacher allocations and each class's weekly lessons
+     * (TeachingLoadResolver) and the active lesson periods. Lessons that
+     * cannot be timetabled as set up (no weekly lessons, no teacher, more than
+     * one teacher, a teacher without the required qualification) are left out
+     * and reported. The result is saved as a new draft through the normal
+     * validated save, so nothing reaches the live timetable until it is
+     * submitted, approved by someone else and published.
+     *
+     * @param array{academic_year_id:int, academic_year_term_id:int, scope?:string, created_by:int} $data
+     */
+    public function autoDraftTimetable(array $data): array
+    {
+        $yearId = (int) ($data['academic_year_id'] ?? 0);
+        $termId = (int) ($data['academic_year_term_id'] ?? 0);
+        $scope = (string) ($data['scope'] ?? 'whole_school');
+        if (!in_array($scope, ['lower_primary', 'upper_primary', 'whole_school'], true)) return errorResponse('Invalid timetable scope', 400);
+        try {
+            $resolver = new \App\API\Services\TeachingLoadResolver($this->db);
+            $load = $resolver->resolve($yearId, $termId);
+        } catch (\DomainException $e) {
+            return errorResponse($e->getMessage(), (int) $e->getCode() ?: 422);
+        }
+        if (!$load['lessons_ready']) {
+            return errorResponse('Weekly lessons are not available yet: the lessons-per-week database update has not been applied.', 409);
+        }
+
+        $inScope = static function (string $className) use ($scope): bool {
+            if ($scope === 'whole_school') return true;
+            $rank = \App\API\Services\ClassLessonLoadService::classOrder($className)[0];
+            return $scope === 'lower_primary' ? $rank <= 5 : ($rank >= 6 && $rank < 100);
+        };
+        $streams = [];
+        foreach ($load['streams'] as $stream) {
+            if ($inScope($stream['class_name'])) $streams[$stream['academic_year_class_stream_id']] = $stream;
+        }
+        if (!$streams) return errorResponse('No class streams are set up for this academic year in the chosen scope.', 422);
+
+        $periods = $this->db->query(
+            "SELECT id FROM time_slots WHERE is_active = 1 AND slot_type = 'lesson' ORDER BY start_time"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        if (!$periods) return errorResponse('Set up the lesson periods of the school day first.', 422);
+
+        $requirements = [];
+        $problems = [];
+        $eligible = [];
+        foreach ($load['lessons'] as $lesson) {
+            $streamId = (int) $lesson['academic_year_class_stream_id'];
+            if (!isset($streams[$streamId]) || (int) $lesson['lessons_per_week'] === 0 && $lesson['problem'] === null) continue;
+            if ($lesson['problem'] !== null) {
+                $problems[] = ['type' => $lesson['problem'], 'lesson' => $lesson];
+                continue;
+            }
+            $areaId = (int) $lesson['learning_area_id'];
+            $key = $areaId . ':' . $streamId;
+            $eligible[$key] ??= array_map(
+                static fn($row) => (int) ($row['teacher_id'] ?? 0),
+                $this->teacherSpecializations->eligibleTeachers($areaId, null, $streamId)
+            );
+            if (!in_array((int) $lesson['teacher_id'], $eligible[$key], true)) {
+                $problems[] = ['type' => 'not_qualified', 'lesson' => $lesson];
+                continue;
+            }
+            $requirements[] = ['stream' => $streamId, 'area' => $areaId, 'teacher' => (int) $lesson['teacher_id'], 'count' => (int) $lesson['lessons_per_week']];
+        }
+        if (!$requirements) {
+            return successResponse([
+                'draft_id' => null,
+                'placed' => 0,
+                'unplaced' => [],
+                'problems' => $this->describeDraftProblems($problems, $streams, $resolver),
+            ], 'Nothing could be timetabled yet: fix the setup problems listed.');
+        }
+
+        $result = (new \App\API\Services\TimetableDraftSolver())->solve($requirements, [1, 2, 3, 4, 5], array_map('intval', $periods));
+        $entries = array_map(static fn($e) => [
+            'academic_year_class_stream_id' => $e['stream'],
+            'day_of_week' => $e['day'],
+            'time_slot_id' => $e['period'],
+            'learning_area_id' => $e['area'],
+            'teacher_id' => $e['teacher'],
+        ], $result['entries']);
+
+        $termStmt = $this->db->prepare("SELECT CONCAT('Term ', term_id) FROM academic_year_terms WHERE id = ?");
+        $termStmt->execute([$termId]);
+        $termName = (string) ($termStmt->fetchColumn() ?: 'Term');
+        $scopeName = ['whole_school' => 'Whole school', 'lower_primary' => 'Playgroup to Grade 3', 'upper_primary' => 'Grades 4 to 9'][$scope];
+        $saved = $this->saveTimetableDraft([
+            'academic_year_id' => $yearId,
+            'academic_year_term_id' => $termId,
+            'scope' => $scope,
+            'title' => mb_substr("$scopeName, $termName — generated " . date('j M Y H:i'), 0, 150),
+            'created_by' => (int) ($data['created_by'] ?? 0),
+            'entries' => $entries,
+            '_academic_leadership_mode' => true,
+        ]);
+        if (($saved['status'] ?? '') !== 'success') return $saved;
+
+        $unplaced = [];
+        foreach ($result['unplaced'] as $u) {
+            $stream = $streams[$u['stream']] ?? [];
+            $unplaced[] = [
+                'class_stream' => trim(($stream['class_name'] ?? '') . ' ' . ($stream['stream_name'] ?? '')),
+                'learning_area' => $this->lessonAreaName($load['lessons'], $u['stream'], $u['area']),
+                'teacher_id' => $u['teacher'],
+                'missing' => $u['missing'],
+            ];
+        }
+        $names = $resolver->teacherRecords(array_column($unplaced, 'teacher_id'));
+        foreach ($unplaced as &$row) {
+            $t = $names[$row['teacher_id']] ?? [];
+            $row['teacher'] = trim(($t['first_name'] ?? '') . ' ' . ($t['last_name'] ?? '')) ?: 'Staff #' . $row['teacher_id'];
+        }
+        unset($row);
+
+        \App\API\Includes\FileLogger::write('audit', [
+            'event' => 'timetable_auto_drafted',
+            'user_id' => (int) ($data['created_by'] ?? 0),
+            'draft_id' => (int) ($saved['data']['id'] ?? 0),
+            'academic_year_term_id' => $termId,
+            'scope' => $scope,
+            'placed' => count($entries),
+            'unplaced' => array_sum(array_column($result['unplaced'], 'missing')),
+            'problems' => count($problems),
+        ]);
+        return successResponse([
+            'draft_id' => (int) ($saved['data']['id'] ?? 0),
+            'placed' => count($entries),
+            'streams' => count($streams),
+            'unplaced' => $unplaced,
+            'problems' => $this->describeDraftProblems($problems, $streams, $resolver),
+        ], 'Timetable draft generated');
+    }
+
+    private function lessonAreaName(array $lessons, int $streamId, int $areaId): string
+    {
+        foreach ($lessons as $l) {
+            if ((int) $l['academic_year_class_stream_id'] === $streamId && (int) $l['learning_area_id'] === $areaId) return (string) $l['learning_area_name'];
+        }
+        return '';
+    }
+
+    /** Group set-up problems into readable lines: one per problem type and learning area. */
+    private function describeDraftProblems(array $problems, array $streams, \App\API\Services\TeachingLoadResolver $resolver): array
+    {
+        $labels = [
+            'lessons_not_set' => 'No weekly lessons set',
+            'no_teacher' => 'No subject teacher allocated',
+            'several_teachers' => 'More than one subject teacher allocated',
+            'not_qualified' => 'Allocated teacher lacks the approved qualification',
+        ];
+        $teacherIds = [];
+        foreach ($problems as $p) foreach ((array) ($p['lesson']['teacher_ids'] ?? []) as $id) $teacherIds[] = (int) $id;
+        $names = $resolver->teacherRecords($teacherIds);
+        $grouped = [];
+        foreach ($problems as $p) {
+            $lesson = $p['lesson'];
+            $stream = $streams[(int) $lesson['academic_year_class_stream_id']] ?? [];
+            $key = $p['type'] . '|' . $lesson['learning_area_name'];
+            $grouped[$key] ??= ['type' => $p['type'], 'label' => $labels[$p['type']] ?? $p['type'], 'learning_area' => $lesson['learning_area_name'], 'class_streams' => [], 'teachers' => []];
+            $grouped[$key]['class_streams'][] = trim(($stream['class_name'] ?? '') . ' ' . ($stream['stream_name'] ?? ''));
+            if (in_array($p['type'], ['several_teachers', 'not_qualified'], true)) {
+                foreach ((array) $lesson['teacher_ids'] as $id) {
+                    $t = $names[(int) $id] ?? [];
+                    $grouped[$key]['teachers'][(int) $id] = trim(($t['first_name'] ?? '') . ' ' . ($t['last_name'] ?? '')) ?: 'Staff #' . (int) $id;
+                }
+            }
+        }
+        foreach ($grouped as &$g) {
+            $g['class_streams'] = array_values(array_unique($g['class_streams']));
+            $g['teachers'] = array_values($g['teachers']);
+        }
+        unset($g);
+        return array_values($grouped);
+    }
+
     public function getTimetableDraft($id): array
     {
         $stmt = $this->db->prepare("SELECT * FROM timetable_drafts WHERE id = ?"); $stmt->execute([(int)$id]); $draft = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$draft) return errorResponse('Timetable draft not found', 404);
         $stmt = $this->db->prepare("SELECT * FROM timetable_draft_entries WHERE draft_id = ? ORDER BY day_of_week, time_slot_id, academic_year_class_stream_id"); $stmt->execute([(int)$id]);
         $draft['entries'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Names for showing the draft: streams and learning areas of its year
+        // and term, and the teachers it uses.
+        $draft['names'] = ['streams' => [], 'learning_areas' => [], 'teachers' => []];
+        try {
+            $resolver = new \App\API\Services\TeachingLoadResolver($this->db);
+            $load = $resolver->resolve((int) $draft['academic_year_id'], (int) $draft['academic_year_term_id']);
+            foreach ($load['streams'] as $st) {
+                $draft['names']['streams'][$st['academic_year_class_stream_id']] = trim($st['class_name'] . ' ' . $st['stream_name']);
+            }
+            foreach ($load['lessons'] as $l) $draft['names']['learning_areas'][$l['learning_area_id']] = $l['learning_area_name'];
+            foreach ($resolver->teacherRecords(array_column($draft['entries'], 'teacher_id')) as $tid => $t) {
+                $draft['names']['teachers'][$tid] = trim(($t['first_name'] ?? '') . ' ' . ($t['last_name'] ?? ''));
+            }
+        } catch (\Throwable $e) {
+            // Names are a convenience; the draft itself is still returned.
+        }
         return successResponse($draft);
     }
 

@@ -190,7 +190,7 @@ const SupervisionRosterController = (() => {
         document.getElementById('supNotes').value = entry?.notes || '';
         fillExamScheduleFields(entry || {});
         document.getElementById('supervisionModalLabel').textContent = entry ? 'Edit Supervision Slot' : 'Add Supervision Slot';
-        new bootstrap.Modal(document.getElementById('supervisionModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('supervisionModal')).show();
     }
 
     async function save() {

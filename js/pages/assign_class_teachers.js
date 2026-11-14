@@ -2,23 +2,20 @@ document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAcce
 /**
  * Assign Class Teachers Controller
  * Page: assign_class_teachers.php
- * Dedicated page for assigning teachers to classes as class teachers
- * Integrates with AcademicContext for academic year awareness
+ *
+ * Lists every open stream of the chosen academic year with its class teacher,
+ * so streams still waiting for one stand out. A row's Assign/Change button
+ * sets the teacher for that stream; Remove clears it. The year comes from the
+ * page's AcademicYearFilter, so next year's class teachers can be set before
+ * it opens.
  */
 const AssignClassTeachersController = {
   state: {
-    assignments: [],
-    classes: [],
-    streams: [],
+    rows: [],
     teachers: [],
-    academicYears: [],
-    currentAcademicYear: null,
-    stats: {
-      totalClasses: 0,
-      assignedTeachers: 0,
-      unassignedClasses: 0,
-      totalTeachers: 0
-    }
+    yearId: null,
+    yearLabel: '',
+    editingRow: null,
   },
 
   async init() {
@@ -27,397 +24,266 @@ const AssignClassTeachersController = {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
-    
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadAssignments();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-    }
-    
+
     this.bindEvents();
-    await this.loadReferenceDataComposed();
-    await this.loadAssignments();
+    // The stream list needs only the year; teachers (for the Assign dialog and
+    // the count) load alongside and must not hold the list back.
+    const teachers = this.loadTeachers().then(() => this.updateStats(this.state.rows));
+    await this.mountYearFilter();
+    await Promise.all([this.loadAssignments(), teachers]);
     window.APIRealtime?.register?.(
       "assign_class_teachers",
-      { refresh: async () => { await this.loadReferenceDataComposed(); await this.loadAssignments(); } },
+      { refresh: async () => { await this.loadAssignments(); } },
       ["academic"],
     );
   },
 
-  bindEvents() {
-    // Search input
-    const searchInput = document.getElementById('searchAssignments');
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        this.filterAssignments(e.target.value);
-      });
-    }
-
-    // Grade level filter
-    const gradeFilter = document.getElementById('gradeLevelFilter');
-    if (gradeFilter) {
-      gradeFilter.addEventListener('change', () => {
-        this.applyFilters();
-      });
-    }
-
-    // Assignment status filter
-    const statusFilter = document.getElementById('assignmentStatusFilter');
-    if (statusFilter) {
-      statusFilter.addEventListener('change', () => {
-        this.applyFilters();
-      });
-    }
+  async mountYearFilter() {
+    const select = document.getElementById('academicYearFilter');
+    if (!window.AcademicYearFilter || !select) return;
+    let mounted = false;
+    await window.AcademicYearFilter.mount(select, {
+      onChange: (yearId, year) => {
+        this.state.yearId = yearId;
+        this.state.yearLabel = year?.year_name || year?.year_code || '';
+        if (mounted) this.loadAssignments();
+      },
+    });
+    mounted = true;
   },
 
-  // Composed startup read: one authorized Node view supplies the class,
-  // teacher and academic-year references; assignment rows stay a context read.
-  async loadReferenceDataComposed() {
+  /** A stream has a class teacher only when that teacher is still on staff. */
+  hasTeacher(row) {
+    return !!row.teacher_id && !row.teacher_missing;
+  },
+
+  bindEvents() {
+    document.getElementById('searchAssignments')?.addEventListener('input', () => this.render());
+    document.getElementById('gradeLevelFilter')?.addEventListener('change', () => this.render());
+    document.getElementById('assignmentStatusFilter')?.addEventListener('change', () => this.render());
+  },
+
+  async loadTeachers() {
     try {
       const response = await window.API.nodeViews.resolve("academic", "class-teacher-references");
       const sources = response?.data?.sources || response?.sources || {};
-      const toArray = (value) => (Array.isArray(value) ? value : (Array.isArray(value?.data) ? value.data : []));
-      this.state.classes = toArray(sources.classes);
-      this.state.teachers = toArray(sources.teachers);
-      this.state.academicYears = toArray(sources.years);
-      this.populateDropdowns();
+      const teachers = Array.isArray(sources.teachers) ? sources.teachers : (sources.teachers?.data || []);
+      this.state.teachers = Array.isArray(teachers) ? teachers : [];
     } catch (error) {
-      console.error('Class teacher reference Node view failed; falling back to direct reads:', error);
-      await this.loadReferenceData();
+      console.warn('Class teacher references view failed; reading teachers directly:', error);
+      const teachers = await window.API.apiCall('/staff/teachers', 'GET').catch(() => []);
+      this.state.teachers = Array.isArray(teachers) ? teachers : (teachers?.data || []);
     }
-  },
-
-  async loadReferenceData() {
-    try {
-      // Load classes
-      this.state.classes = await window.API.apiCall('/academic/classes-list', 'GET') || [];
-
-      // Load teachers
-      this.state.teachers = await window.API.apiCall('/staff/teachers', 'GET') || [];
-
-      // Load academic years
-      this.state.academicYears = await window.API.academic.listYears() || [];
-
-      // Populate dropdowns
-      this.populateDropdowns();
-    } catch (error) {
-      console.error('Error loading reference data:', error);
-    }
-  },
-
-  populateDropdowns() {
-    // Populate class dropdown
-    const classSelect = document.getElementById('assignmentClassId');
-    if (classSelect) {
-      classSelect.innerHTML = '<option value="">Select Class</option>' + 
-        this.state.classes.map(cls => `<option value="${cls.id}">${cls.name}</option>`).join('');
-    }
-
-    // Populate teacher dropdown
-    const teacherSelect = document.getElementById('assignmentTeacherId');
-    if (teacherSelect) {
-      teacherSelect.innerHTML = '<option value="">Select Teacher</option>' + 
-        this.state.teachers.map(teacher => 
-          `<option value="${teacher.id}">${teacher.first_name} ${teacher.last_name}</option>`
-        ).join('');
-    }
-
-    // Populate academic year dropdown
-    const yearSelect = document.getElementById('assignmentAcademicYearId');
-    if (yearSelect) {
-      yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-        this.state.academicYears.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-      
-      // Set current academic year if available
-      if (this.state.currentAcademicYear) {
-        yearSelect.value = this.state.currentAcademicYear;
-      }
+    const select = document.getElementById('assignmentTeacherId');
+    if (select) {
+      select.innerHTML = '<option value="">Select Teacher</option>' + this.state.teachers
+        .map((t) => `<option value="${Number(t.id)}">${this.escapeHtml(`${t.first_name || ''} ${t.last_name || ''}`.trim())}</option>`)
+        .join('');
     }
   },
 
   async loadAssignments() {
+    const tbody = document.querySelector('#assignmentsTable tbody');
     try {
-      const academicYearId = this.state.currentAcademicYear;
-      const params = academicYearId ? { academic_year_id: academicYearId } : {};
-      
-      this.state.assignments = await window.API.apiCall('/academic/class-teachers', 'GET', params) || [];
-      this.renderAssignmentsTable();
-      this.updateStats();
+      const params = this.state.yearId ? { academic_year_id: this.state.yearId } : {};
+      const rows = await window.API.apiCall('/academic/class-teachers', 'GET', params);
+      this.state.rows = Array.isArray(rows) ? rows : (rows?.data || []);
+      this.populateClassFilter();
+      this.render();
     } catch (error) {
-      console.error('Error loading assignments:', error);
-      this.showNotification('Failed to load assignments', 'error');
+      console.error('Error loading class teachers:', error);
+      this.state.rows = [];
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Could not load class teachers.</td></tr>';
+      this.updateStats([]);
     }
   },
 
-  renderAssignmentsTable() {
+  populateClassFilter() {
+    const select = document.getElementById('gradeLevelFilter');
+    if (!select) return;
+    const previous = select.value;
+    const seen = new Map();
+    this.state.rows.forEach((r) => { if (r.class_id && !seen.has(String(r.class_id))) seen.set(String(r.class_id), r.class_name); });
+    select.innerHTML = '<option value="">All classes</option>' + [...seen]
+      .map(([id, name]) => `<option value="${this.escapeHtml(id)}">${this.escapeHtml(name)}</option>`).join('');
+    select.value = seen.has(previous) ? previous : '';
+  },
+
+  filteredRows() {
+    const classId = document.getElementById('gradeLevelFilter')?.value || '';
+    const status = document.getElementById('assignmentStatusFilter')?.value || '';
+    const q = (document.getElementById('searchAssignments')?.value || '').trim().toLowerCase();
+    return this.state.rows.filter((r) => {
+      if (classId && String(r.class_id) !== classId) return false;
+      if (status === 'assigned' && !this.hasTeacher(r)) return false;
+      if (status === 'unassigned' && this.hasTeacher(r)) return false;
+      if (q && ![r.class_name, r.stream_name, r.teacher_name].some((v) => String(v || '').toLowerCase().includes(q))) return false;
+      return true;
+    });
+  },
+
+  render() {
     const tbody = document.querySelector('#assignmentsTable tbody');
     if (!tbody) return;
+    const rows = this.filteredRows();
+    this.updateStats(this.state.rows);
 
-    if (this.state.assignments.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No assignments found</td></tr>`;
+    if (!this.state.rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">No streams are set up for ${this.escapeHtml(this.state.yearLabel || 'this year')}.</td></tr>`;
+      return;
+    }
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No streams match your filters.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = this.state.assignments.map((assignment, index) => {
-      const statusBadge = assignment.teacher_id 
-        ? '<span class="badge bg-success">Assigned</span>' 
-        : '<span class="badge bg-warning">Unassigned</span>';
-
+    tbody.innerHTML = rows.map((r, index) => {
+      const assigned = this.hasTeacher(r);
+      const badge = assigned
+        ? '<span class="badge bg-success">Assigned</span>'
+        : (r.teacher_missing
+          ? '<span class="badge bg-danger" title="The recorded class teacher is no longer on the staff list">Teacher not on staff</span>'
+          : '<span class="badge bg-warning text-dark">Still to assign</span>');
+      const id = Number(r.id);
       return `
         <tr>
           <td>${index + 1}</td>
-          <td><strong>${this.escapeHtml(assignment.class_name || '--')}</strong></td>
-          <td>${this.escapeHtml(assignment.stream_name || '--')}</td>
-          <td>${this.escapeHtml(assignment.teacher_name || 'Not assigned')}</td>
-          <td>${this.escapeHtml(assignment.teacher_email || '--')}</td>
-          <td>${assignment.assigned_date || '--'}</td>
-          <td>${statusBadge}</td>
-          <td>
+          <td><strong>${this.escapeHtml(r.class_name || '--')}</strong></td>
+          <td>${this.escapeHtml(r.stream_name || '--')}</td>
+          <td>${assigned ? this.escapeHtml(r.teacher_name || '--') : '<span class="text-muted">Not assigned</span>'}</td>
+          <td>${this.escapeHtml(r.teacher_email || '--')}</td>
+          <td>${badge}</td>
+          <td class="d-print-none">
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="AssignClassTeachersController.editAssignment(${assignment.id})" title="Edit">
-                <i class="bi bi-pencil"></i>
+              <button class="btn btn-outline-primary" onclick="AssignClassTeachersController.openAssign(${id})">
+                <i class="bi bi-${assigned ? 'pencil' : 'person-plus'}"></i> ${assigned ? 'Change' : 'Assign'}
               </button>
-              <button class="btn btn-outline-danger" onclick="AssignClassTeachersController.removeAssignment(${assignment.id})" title="Remove">
+              ${r.teacher_id ? `<button class="btn btn-outline-danger" onclick="AssignClassTeachersController.removeAssignment(${id})" title="Remove class teacher" aria-label="Remove class teacher">
                 <i class="bi bi-trash"></i>
-              </button>
+              </button>` : ''}
             </div>
           </td>
-        </tr>
-      `;
+        </tr>`;
     }).join('');
   },
 
-  updateStats() {
-    document.getElementById('totalClassesCount').textContent = this.state.classes.length;
-    document.getElementById('assignedTeachersCount').textContent = this.state.assignments.filter(a => a.teacher_id).length;
-    document.getElementById('unassignedClassesCount').textContent = this.state.classes.length - this.state.assignments.filter(a => a.teacher_id).length;
-    document.getElementById('totalTeachersCount').textContent = this.state.teachers.length;
+  updateStats(rows) {
+    const assigned = rows.filter((r) => this.hasTeacher(r)).length;
+    const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    set('totalClassesCount', rows.length);
+    set('assignedTeachersCount', assigned);
+    set('unassignedClassesCount', rows.length - assigned);
+    set('totalTeachersCount', this.state.teachers.length);
   },
 
-  showAssignModal() {
-    const modal = document.getElementById('assignTeacherModal');
-    if (modal) {
-      const form = document.getElementById('assignTeacherForm');
-      if (form) {
-        form.reset();
-        delete form.dataset.editId;
-        
-        // Set current academic year if available
-        if (this.state.currentAcademicYear) {
-          const yearSelect = document.getElementById('assignmentAcademicYearId');
-          if (yearSelect) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
-        }
-      }
-      new bootstrap.Modal(modal).show();
+  /** Teachers already leading another stream this year, keyed by teacher id. */
+  otherStreamsByTeacher(exceptRowId) {
+    const map = new Map();
+    this.state.rows.forEach((r) => {
+      if (!this.hasTeacher(r) || Number(r.id) === Number(exceptRowId)) return;
+      map.set(String(r.teacher_id), `${r.class_name}${r.stream_name ? ' ' + r.stream_name : ''}`);
+    });
+    return map;
+  },
+
+  openAssign(rowId) {
+    const row = this.state.rows.find((r) => Number(r.id) === Number(rowId));
+    if (!row) return;
+    this.state.editingRow = row;
+    const label = document.getElementById('assignmentStreamLabel');
+    if (label) label.textContent = `${row.class_name}${row.stream_name ? ' — ' + row.stream_name : ''} (${this.state.yearLabel || row.academic_year || ''})`;
+    const select = document.getElementById('assignmentTeacherId');
+    const hint = document.getElementById('assignmentTeacherHint');
+    if (select) {
+      select.value = this.hasTeacher(row) ? String(row.teacher_id) : '';
+      const busy = this.otherStreamsByTeacher(row.id);
+      const showHint = () => {
+        const other = busy.get(select.value);
+        if (hint) hint.textContent = other ? `Already class teacher of ${other} this year.` : '';
+      };
+      select.onchange = showHint;
+      showHint();
     }
+    const modal = document.getElementById('assignTeacherModal');
+    if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 
   async saveAssignment() {
-    const form = document.getElementById('assignTeacherForm');
-    if (!form) return;
-
-    const data = {
-      class_id: document.getElementById('assignmentClassId').value,
-      stream_id: document.getElementById('assignmentStreamId').value || null,
-      teacher_id: document.getElementById('assignmentTeacherId').value,
-      academic_year_id: document.getElementById('assignmentAcademicYearId').value
-    };
-
-    if (!data.class_id || !data.teacher_id || !data.academic_year_id) {
-      this.showNotification('Please fill all required fields', 'error');
+    const row = this.state.editingRow;
+    const teacherId = document.getElementById('assignmentTeacherId')?.value;
+    if (!row) return;
+    if (!teacherId) {
+      this.showNotification('Choose a teacher', 'warning');
       return;
     }
-
     try {
-      const editId = form.dataset.editId;
-      let res;
-      if (editId) {
-        res = await window.API.apiCall(`/academic/class-teachers/${editId}`, 'PUT', data);
-      } else {
-        res = await window.API.apiCall('/academic/class-teachers', 'POST', data);
-      }
-
-      this.showNotification(editId ? 'Assignment updated' : 'Assignment created', 'success');
-      const modal = bootstrap.Modal.getInstance(document.getElementById('assignTeacherModal'));
-      if (modal) modal.hide();
-      form.reset();
-      delete form.dataset.editId;
+      await window.API.apiCall(`/academic/class-teachers/${Number(row.id)}`, 'PUT', {
+        teacher_id: teacherId,
+        class_id: row.class_id,
+        stream_id: row.stream_id,
+        academic_year_id: row.academic_year_id,
+      });
+      bootstrap.Modal.getInstance(document.getElementById('assignTeacherModal'))?.hide();
+      this.showNotification('Class teacher saved', 'success');
+      this.state.editingRow = null;
       await this.loadAssignments();
     } catch (error) {
-      console.error('Error saving assignment:', error);
-      this.showNotification('Failed to save assignment', 'error');
+      this.showNotification(error?.message || 'Failed to save the class teacher', 'error');
     }
   },
 
-  async editAssignment(assignmentId) {
+  async removeAssignment(rowId) {
+    const row = this.state.rows.find((r) => Number(r.id) === Number(rowId));
+    const what = row ? `${row.class_name}${row.stream_name ? ' ' + row.stream_name : ''}` : 'this stream';
+    if (!(await window.confirmAction('Remove class teacher', `Remove the class teacher from ${what}?`, { confirmText: 'Remove', danger: true }))) return;
     try {
-      const assignment = await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'GET');
-      const form = document.getElementById('assignTeacherForm');
-      if (form) {
-        form.dataset.editId = assignmentId;
-        document.getElementById('assignmentClassId').value = assignment.class_id || '';
-        document.getElementById('assignmentStreamId').value = assignment.stream_id || '';
-        document.getElementById('assignmentTeacherId').value = assignment.teacher_id || '';
-        document.getElementById('assignmentAcademicYearId').value = assignment.academic_year_id || '';
-
-        const modal = new bootstrap.Modal(document.getElementById('assignTeacherModal'));
-        modal.show();
-      }
-    } catch (error) {
-      console.error('Error loading assignment for edit:', error);
-    }
-  },
-
-  async removeAssignment(assignmentId) {
-    if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to remove this class teacher assignment?', { confirmText: 'Delete', danger: true }))) return;
-    try {
-      await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'DELETE');
-      this.showNotification('Assignment removed', 'success');
+      await window.API.apiCall(`/academic/class-teachers/${Number(rowId)}`, 'DELETE');
+      this.showNotification('Class teacher removed', 'success');
       await this.loadAssignments();
     } catch (error) {
-      console.error('Error removing assignment:', error);
-      this.showNotification('Failed to remove assignment', 'error');
+      this.showNotification(error?.message || 'Failed to remove the class teacher', 'error');
     }
   },
 
-  filterAssignments(searchTerm) {
-    const filtered = this.state.assignments.filter(assignment => {
-      const searchLower = searchTerm.toLowerCase();
-      return (assignment.class_name && assignment.class_name.toLowerCase().includes(searchLower)) ||
-             (assignment.stream_name && assignment.stream_name.toLowerCase().includes(searchLower)) ||
-             (assignment.teacher_name && assignment.teacher_name.toLowerCase().includes(searchLower));
-    });
-    
-    this.renderFilteredAssignments(filtered);
-  },
-
-  applyFilters() {
-    const gradeLevel = document.getElementById('gradeLevelFilter')?.value || '';
-    const status = document.getElementById('assignmentStatusFilter')?.value || '';
-    
-    let filtered = [...this.state.assignments];
-    
-    if (gradeLevel) {
-      filtered = filtered.filter(a => a.grade_level === gradeLevel);
-    }
-    
-    if (status === 'assigned') {
-      filtered = filtered.filter(a => a.teacher_id);
-    } else if (status === 'unassigned') {
-      filtered = filtered.filter(a => !a.teacher_id);
-    }
-    
-    this.renderFilteredAssignments(filtered);
-  },
-
-  renderFilteredAssignments(filtered) {
-    const tbody = document.querySelector('#assignmentsTable tbody');
-    if (!tbody) return;
-
-    if (filtered.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No assignments match your filters</td></tr>`;
+  async exportAssignments() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('academic')) {
+      this.showNotification('You do not have permission to export', 'warning');
       return;
     }
-
-    tbody.innerHTML = filtered.map((assignment, index) => {
-      const statusBadge = assignment.teacher_id 
-        ? '<span class="badge bg-success">Assigned</span>' 
-        : '<span class="badge bg-warning">Unassigned</span>';
-
-      return `
-        <tr>
-          <td>${index + 1}</td>
-          <td><strong>${this.escapeHtml(assignment.class_name || '--')}</strong></td>
-          <td>${this.escapeHtml(assignment.stream_name || '--')}</td>
-          <td>${this.escapeHtml(assignment.teacher_name || 'Not assigned')}</td>
-          <td>${this.escapeHtml(assignment.teacher_email || '--')}</td>
-          <td>${assignment.assigned_date || '--'}</td>
-          <td>${statusBadge}</td>
-          <td>
-            <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="AssignClassTeachersController.editAssignment(${assignment.id})" title="Edit">
-                <i class="bi bi-pencil"></i>
-              </button>
-              <button class="btn btn-outline-danger" onclick="AssignClassTeachersController.removeAssignment(${assignment.id})" title="Remove">
-                <i class="bi bi-trash"></i>
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
+    const rows = this.filteredRows();
+    if (!rows.length) {
+      this.showNotification('Nothing to export', 'info');
+      return;
+    }
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [['Academic year', 'Class', 'Stream', 'Class teacher', 'Teacher email', 'Status'].map(cell).join(',')];
+    rows.forEach((r) => lines.push([
+      this.state.yearLabel || r.academic_year, r.class_name, r.stream_name,
+      this.hasTeacher(r) ? r.teacher_name : '', this.hasTeacher(r) ? (r.teacher_email || '') : '',
+      this.hasTeacher(r) ? 'Assigned' : (r.teacher_missing ? 'Teacher not on staff' : 'Still to assign'),
+    ].map(cell).join(',')));
+    const safeYear = String(this.state.yearLabel || 'year').replace(/[^0-9A-Za-z-]+/g, '-');
+    await window.KingswayFileLifecycle.exportText('﻿' + lines.join('\r\n'), `class_teachers_${safeYear}.csv`, 'text/csv;charset=utf-8');
   },
 
-  exportAssignments() {
-    if (!this.state.assignments.length) return;
-    
-    const headers = ['#', 'Class', 'Stream', 'Class Teacher', 'Teacher Email', 'Assigned Date', 'Status'];
-    const rows = this.state.assignments.map((assignment, i) => [
-      i + 1,
-      assignment.class_name || '--',
-      assignment.stream_name || '--',
-      assignment.teacher_name || 'Not assigned',
-      assignment.teacher_email || '--',
-      assignment.assigned_date || '--',
-      assignment.teacher_id ? 'Assigned' : 'Unassigned'
-    ]);
-    
-    if (window.PrintManager) {
-      window.PrintManager.exportToCSV({
-        headers,
-        rows
-      }, 'class_teacher_assignments');
-    } else {
-      // Fallback
-      let csv = headers.join(',') + '\n' + 
-        rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
-      
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      a.download = 'class_teacher_assignments.csv';
-      a.click();
+  printAssignments() {
+    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('academic')) {
+      this.showNotification('You do not have permission to print', 'warning');
+      return;
     }
+    window.print();
   },
 
   async refresh() {
-    await this.loadReferenceData();
     await this.loadAssignments();
   },
 
   escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   },
 
   showNotification(message, type = 'info') {
-    if (typeof showNotification === 'function') {
-      showNotification(message, type);
-    } else {
-      // Fallback notification
-      const container = document.querySelector('.container-fluid') || document.body;
-      const alert = document.createElement('div');
-      alert.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-      alert.style.zIndex = '9999';
-      alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-      container.appendChild(alert);
-      setTimeout(() => alert.remove(), 4000);
-    }
+    if (typeof window.showNotification === 'function') window.showNotification(message, type);
   }
 };
 

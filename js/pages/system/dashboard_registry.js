@@ -77,6 +77,7 @@ const DashboardRegistryController = {
       search: document.getElementById("dashboardRegistrySearch"),
       count: document.getElementById("dashboardRegistryCount"),
       body: document.getElementById("dashboardRegistryTableBody"),
+      tableState: document.getElementById("dashboardRegistryTableState"),
       rowTemplate: document.getElementById("dashboardRegistryRowTemplate"),
       exportCsvBtn: document.getElementById("dashboardRegistryExportCsvBtn"),
       printBtn: document.getElementById("dashboardRegistryPrintBtn"),
@@ -122,12 +123,13 @@ const DashboardRegistryController = {
   },
 
   showTableMessage(message, className) {
-    this.elements.body.innerHTML =
-      '<tr><td colspan="6" class="text-center py-5 ' +
-      this.escapeHtml(className || "text-muted") +
-      '">' +
-      this.escapeHtml(message) +
-      "</td></tr>";
+    this.elements.body.querySelectorAll("[data-dashboard-row]").forEach((row) => row.remove());
+    const cell = this.elements.tableState?.querySelector("td");
+    if (cell) {
+      cell.className = "text-center py-5 " + (className || "text-muted");
+      cell.textContent = message;
+    }
+    if (this.elements.tableState) this.elements.tableState.hidden = false;
   },
 
   bindEvents() {
@@ -225,19 +227,26 @@ const DashboardRegistryController = {
     if (!pageRows.length) {
       this.showTableMessage("No dashboards found." + (this.state.search ? " Adjust your search." : ""));
     } else {
-      this.elements.body.innerHTML = pageRows
-        .map((row) => {
-          const fragment = this.elements.rowTemplate.content.cloneNode(true);
-          fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
-          fragment.querySelector('[data-fill="key"]').textContent = row.key ?? "—";
-          fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
-          fragment.querySelector('[data-fill="domain"]').outerHTML = this.domainBadge(row.domain);
-          fragment.querySelector('[data-fill="status"]').outerHTML = this.statusBadge(row.status);
-          const tr = fragment.querySelector("tr");
-          tr.dataset.id = row.id;
-          return tr.outerHTML;
-        })
-        .join("");
+      this.elements.body.querySelectorAll("[data-dashboard-row]").forEach((row) => row.remove());
+      if (this.elements.tableState) this.elements.tableState.hidden = true;
+      const rows = document.createDocumentFragment();
+      pageRows.forEach((row) => {
+        const fragment = this.elements.rowTemplate.content.cloneNode(true);
+        fragment.querySelector('[data-fill="id"]').textContent = row.id ?? "—";
+        fragment.querySelector('[data-fill="key"]').textContent = row.key ?? "—";
+        fragment.querySelector('[data-fill="name"]').textContent = row.name ?? "—";
+        const domain = fragment.querySelector('[data-fill="domain"]');
+        domain.textContent = row.domain ?? "—";
+        domain.classList.add(({ SCHOOL: "bg-dark", SYSTEM: "bg-info" })[row.domain] || "bg-secondary");
+        const status = fragment.querySelector('[data-fill="status"]');
+        status.textContent = row.status ?? "—";
+        status.classList.add(({ active: "bg-success", inactive: "bg-secondary" })[row.status] || "bg-secondary");
+        const tr = fragment.querySelector("tr");
+        tr.dataset.dashboardRow = "1";
+        tr.dataset.id = row.id;
+        rows.appendChild(fragment);
+      });
+      this.elements.body.insertBefore(rows, this.elements.tableState || null);
     }
 
     const total = this.state.filtered.length;

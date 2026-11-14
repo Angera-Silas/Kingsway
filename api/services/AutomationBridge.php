@@ -9,7 +9,7 @@ use App\Config\Config;
 /**
  * Bridges governed, non-AI automations to the Python engine.
  *
- * Identical transport contract to AiPythonBridge but for queue-driven business
+ * Identical transport contract to PythonAiBridge but for queue-driven business
  * automations rather than the staff assistant: bearer identification, internal
  * loopback preferred via InterServiceClient, bounded payload, output guard
  * applied (an automation answer is still an untrusted second side).
@@ -53,16 +53,16 @@ final class AutomationBridge
     {
         $automation = AutomationRegistry::resolve($automationId);
         if ($automation === null) {
-            throw new AiProviderException('Unknown automation requested.');
+            throw new \RuntimeException('Unknown automation requested.');
         }
         $permissions = array_values(array_map('strval', (array) ($operator['permissions'] ?? [])));
         if (!AutomationRegistry::isPermitted($permissions, $automationId)) {
-            throw new AiProviderException('The operator is not permitted to run this automation.');
+            throw new \RuntimeException('The operator is not permitted to run this automation.');
         }
 
         $secret = trim((string) call_user_func($this->secretProvider));
         if (!$this->available()) {
-            throw new AiProviderException('The automation engine is not configured.');
+            throw new \RuntimeException('The automation engine is not configured.');
         }
 
         $body = json_encode([
@@ -75,7 +75,7 @@ final class AutomationBridge
             'payload' => $payload,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($body === false) {
-            throw new AiProviderException('The automation request could not be encoded.');
+            throw new \RuntimeException('The automation request could not be encoded.');
         }
 
         $headers = [
@@ -86,14 +86,14 @@ final class AutomationBridge
         [$raw, $status, $error] = $this->client->post('python_ai', self::ENDPOINT_RUN, $headers, $body, 120);
 
         if ($raw === false || (int) $status < 200 || (int) $status >= 300) {
-            throw new AiProviderException('The automation engine did not complete the request.');
+            throw new \RuntimeException('The automation engine did not complete the request.');
         }
         $decoded = json_decode((string) $raw, true);
         if (!is_array($decoded) || !($decoded['success'] ?? false) || !is_array($decoded['data'] ?? null)) {
-            throw new AiProviderException('The automation engine rejected the request.');
+            throw new \RuntimeException('The automation engine rejected the request.');
         }
 
-        // Artifacts are data products, not model prose. AiOutputGuard's
+	// Artifacts are data products sanitized by the Python output guard.
         // conversational string limits intentionally truncate long text and
         // would corrupt CSV/JSON payloads. Validate the artifact envelope and
         // preserve the bounded content bytes so PHP can checksum them.
@@ -102,7 +102,7 @@ final class AutomationBridge
         $format = strtolower((string)($data['format'] ?? ''));
         if (!is_string($content) || $content === '' || strlen($content) > AutomationRegistry::MAX_RESULT_BYTES
             || !in_array($format, ['csv', 'json'], true)) {
-            throw new AiProviderException('The automation engine returned an invalid artifact.');
+            throw new \RuntimeException('The automation engine returned an invalid artifact.');
         }
         return [
             'content' => $content,

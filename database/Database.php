@@ -13,6 +13,22 @@ class Database
 
     private function __construct()
     {
+        // Persistent connections are the difference between "one connection
+        // per PHP worker, reused for every request it serves" and "one
+        // connection per request". Without this, a burst of concurrent
+        // requests (the every-5-minute cron wave alone is ~57 simultaneous
+        // PHP processes) needs one MySQL connection each, which is what
+        // exhausted max_user_connections.
+        //
+        // With this, the worker count is the ceiling: 12 lsphp/FPM workers
+        // hold 12 MySQL connections total and serve unlimited requests
+        // through them.
+        //
+        // Safe here because ConnectionManager::run() always restores the
+        // previous schema in a finally block, and PHP rolls back (and then
+        // discards) any persistent connection left inside a transaction.
+        $persistent = filter_var(Config::get('DB_PERSISTENT', true), FILTER_VALIDATE_BOOLEAN);
+
         try {
             $this->connection = new PDO(
                 "mysql:host=" . Config::get('DB_HOST') .
@@ -25,6 +41,7 @@ class Database
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                     PDO::ATTR_EMULATE_PREPARES => false,
+                    PDO::ATTR_PERSISTENT => $persistent,
                 )
             );
         } catch (PDOException $e) {
@@ -42,7 +59,12 @@ class Database
         throw new Exception("Cloning of " . __CLASS__ . " is not allowed.");
     }
 
-    public function __wakeup()
+    public function __serialize(): array
+    {
+        throw new Exception('Cannot serialize singleton');
+    }
+
+    public function __unserialize(array $data): void
     {
         throw new Exception("Cannot unserialize singleton");
     }

@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace App\API\Controllers;
 
 use App\API\Modules\reports\MealReportManager;
-use App\API\Services\AiDraftService;
-use App\API\Services\AiWorkflowService;
+use App\API\Services\DraftRepository;
+use App\API\Services\WorkflowAuthorization;
 use DomainException;
 use InvalidArgumentException;
 use Throwable;
@@ -96,7 +96,7 @@ class CateringController extends BaseController
                 'waste_rate' => (string) ($used > 0 ? round(($waste / $used) * 100, 2) : 0),
                 'follow_up_intent' => 'Prepare catering variance review; staff must verify records, food safety, nutrition, and purchasing decisions.',
             ];
-            $queued = $this->contract(AiDraftService::class)->queue(
+            $queued = $this->contract(DraftRepository::class)->queue(
                 'catering.consumption_review', $this->aiCateringContext(), $input,
                 ['subject_type' => 'catering_consumption_review', 'scope' => 'authorized_catering_aggregate']
             );
@@ -112,7 +112,7 @@ class CateringController extends BaseController
     {
         $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
         if ($review && !$this->canApproveAiCatering()) return $this->forbidden('Catering review permission is required');
-        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'catering'), 'scope' => $review ? 'review' : 'own'], 'Catering AI reviews retrieved');
+        return $this->success(['drafts' => $this->contract(DraftRepository::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'catering'), 'scope' => $review ? 'review' : 'own'], 'Catering AI reviews retrieved');
     }
 
     public function postAiConsumptionReviewApprove($id = null, $data = [], $segments = [])
@@ -121,7 +121,7 @@ class CateringController extends BaseController
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'catering.consumption_review');
+            $approved = $this->contract(DraftRepository::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'catering.consumption_review');
             return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Catering review approved for staff guidance');
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
@@ -130,11 +130,11 @@ class CateringController extends BaseController
 
     private function aiCateringContext(): array
     {
-        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique((array) ($this->user['effective_permissions'] ?? $this->user['permissions'] ?? []))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
     }
     private function canUseAiCatering(): bool
     {
-        try { $this->contract(AiWorkflowService::class)->authorize('catering.consumption_review', $this->aiCateringContext()); return true; } catch (DomainException $e) { return false; }
+        try { $this->contract(WorkflowAuthorization::class)->authorize('catering.consumption_review', $this->aiCateringContext()); return true; } catch (DomainException $e) { return false; }
     }
     private function canApproveAiCatering(): bool
     {

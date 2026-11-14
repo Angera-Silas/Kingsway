@@ -190,7 +190,7 @@ const manageArticlesController = {
         this.previewNewsImg(a.image_url);
       }
     }
-    new bootstrap.Modal(document.getElementById('wsNewsModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('wsNewsModal')).show();
   },
 
   async save() {

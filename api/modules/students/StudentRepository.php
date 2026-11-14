@@ -257,7 +257,7 @@ class StudentRepository
     {
         $stmt = $this->db->prepare("
             SELECT sae.id AS enrollment_id, sae.academic_year_class_stream_id
-            FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+            FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id
             WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
             ORDER BY ay.is_current DESC, sae.id DESC

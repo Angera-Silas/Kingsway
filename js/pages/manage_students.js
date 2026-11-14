@@ -208,14 +208,17 @@ window.studentsManagementController = window.studentsManagementController || {
     try {
       const response = await window.API.nodeViews.resolve("students", "management-reference-data");
       sources = response?.data?.sources || response?.sources || null;
-      if (!sources || !["importContext", "classes", "studentTypes", "streams", "parents"].every(key => Object.hasOwn(sources, key))) {
+      if (!sources || !["classes", "studentTypes", "streams", "parents"].every(key => Object.hasOwn(sources, key))) {
         throw new Error("Node returned incomplete student management reference data");
       }
     } catch (error) {
       console.warn("Student reference composition unavailable; loading through PHP APIs:", error);
     }
 
-    const importContextResp = sources?.importContext ?? await load("existing-student fee context", () =>
+    // Existing-student financial context is separately permission-gated for
+    // student creation. Keep it out of the shared read-only Node view so one
+    // 403 cannot fail the otherwise viewable class/stream/parent references.
+    const importContextResp = await load("existing-student fee context", () =>
       window.API.students.getImportContext()
     );
     const importContext = importContextResp?.data?.data || importContextResp?.data || importContextResp;
@@ -918,12 +921,14 @@ window.studentsManagementController = window.studentsManagementController || {
     this.resetForm();
     this.editingStudentTransport = Boolean(student?.transport_arrangements?.length);
 
-    // These controls are dependent dropdowns. Finish loading their options
-    // before setting saved values so an edit cannot race the form population.
-    if (student?.class_id) await this.loadStreamsForClass(student.class_id);
-    if (student?.transport_arrangements?.length) await this.loadTransportOptions();
-
-    const modal = new bootstrap.Modal(document.getElementById("studentModal"));
+    // Show the shell BEFORE the dependent-dropdown fetches. Those two calls are
+    // slow enough that a second click on the row action opens another modal,
+    // and the pair then stack - backdrop over backdrop - which is what made a
+    // closed modal appear to stay on the page. A visible, populated form is a
+    // better answer than a modal that arrives 3s later.
+    const modal = bootstrap.Modal.getOrCreateInstance(
+      document.getElementById("studentModal"),
+    );
     const title = document.getElementById("studentModalLabel");
 
     if (student) {
@@ -937,6 +942,11 @@ window.studentsManagementController = window.studentsManagementController || {
     }
 
     modal.show();
+
+    // These controls are dependent dropdowns. Finish loading their options
+    // before setting saved values so an edit cannot race the form population.
+    if (student?.class_id) await this.loadStreamsForClass(student.class_id);
+    if (student?.transport_arrangements?.length) await this.loadTransportOptions();
   },
 
   resetForm: function () {
@@ -1417,11 +1427,20 @@ window.studentsManagementController = window.studentsManagementController || {
   },
 
   editStudent: async function (id) {
+    // Open the modal first and fill it when the record arrives. The record
+    // fetch is a slow round-trip; awaiting it before showing anything makes the
+    // row action look dead and invites a second click that stacks another
+    // modal on top of the first one.
+    await this.showStudentModal(null);
+    const title = document.getElementById("studentModalLabel");
+    if (title) title.textContent = "Loading student…";
     try {
       const resp = await window.API.students.get(id);
       const payload = this.unwrapPayload(resp);
       if (payload) {
         await this.showStudentModal(payload);
+      } else {
+        this.showError("Student record could not be loaded");
       }
     } catch (error) {
       this.showError("Failed to load student details");
@@ -1433,7 +1452,7 @@ window.studentsManagementController = window.studentsManagementController || {
       const content = document.getElementById("viewStudentContent");
       content.innerHTML =
         '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2">Loading student details...</p></div>';
-      const modal = new bootstrap.Modal(
+      const modal = bootstrap.Modal.getOrCreateInstance(
         document.getElementById("viewStudentModal"),
       );
       modal.show();
@@ -2067,7 +2086,7 @@ window.studentsManagementController = window.studentsManagementController || {
 
     document.getElementById("transferStudentModal")?.remove();
     document.body.insertAdjacentHTML("beforeend", modalHtml);
-    new bootstrap.Modal(document.getElementById("transferStudentModal")).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("transferStudentModal")).show();
   },
 
   loadTransferStreams: async function (classId) {
@@ -2151,7 +2170,7 @@ window.studentsManagementController = window.studentsManagementController || {
 
   // Bulk import
   showBulkImportModal: function () {
-    const modal = new bootstrap.Modal(
+    const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById("bulkImportModal"),
     );
     const results = document.getElementById("bulkImportResults");
@@ -2601,7 +2620,7 @@ window.studentsManagementController = window.studentsManagementController || {
     document.body.appendChild(modalEl);
 
     return new Promise((resolve) => {
-      const modal = new bootstrap.Modal(modalEl);
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
       let resolved = false;
 
       const finish = (value) => {

@@ -6,5 +6,10 @@
 //   → GET /api/website/calendar-download?year=…
 $base = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
 if ($base === '.') $base = '';
-header('Location: ' . $base . '/api/website/calendar-download', true, 308);
+// Keep the query (?year=…) so the chosen academic year survives the redirect.
+// The facade rewrite adds route=…; that must not reach the API router.
+$params = $_GET;
+unset($params['route']);
+$query = http_build_query($params);
+header('Location: ' . $base . '/api/website/calendar-download' . ($query !== '' ? '?' . $query : ''), true, 308);
 exit;

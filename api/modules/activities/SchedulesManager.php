@@ -425,7 +425,7 @@ class SchedulesManager extends BaseAPI
                 SELECT 
                     as_tbl.*,
                     a.title as activity_title
-                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " as_tbl
                 JOIN activities a ON as_tbl.activity_id = a.id
                 WHERE as_tbl.venue = ?
                 AND as_tbl.day_of_week = ?
@@ -551,7 +551,7 @@ class SchedulesManager extends BaseAPI
                     a.title as activity_title,
                     as_tbl.start_time,
                     as_tbl.end_time
-                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " as_tbl
                 JOIN activities a ON as_tbl.activity_id = a.id
                 WHERE as_tbl.day_of_week = ?
                 AND a.status IN ('planned', 'ongoing')
