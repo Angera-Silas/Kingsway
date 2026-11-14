@@ -806,7 +806,13 @@ jobs:
   kind: http
   endpoint: /api/communications/sync-sms-contacts
   secret_env: [COMMUNICATION_WORKER_SECRET]
-  payload: {}
+  # Bounded so it finishes well inside the bridge's 90 s timeout (a provider
+  # call may take 30 s); an unfinished run reports complete=false and the next
+  # tick continues. Rejected contacts are retried after 6 h, not every run.
+  payload:
+    limit: 100
+    max_seconds: 40
+    retry_errors_after_minutes: 360
   interval: 120
 - name: extra_charge_obligations
   kind: http

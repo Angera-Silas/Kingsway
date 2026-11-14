@@ -55,7 +55,11 @@ from .tools import ToolBridge
 from .read_models import ReadModelError, ReadModelRefresher, PolarsReadModelRefresher
 from .scheduler import Scheduler
 from .queue_worker import PythonQueueWorker
-from .sms_provider import SmsProviderError, execute as sms_provider_execute
+from .sms_provider import (
+    SmsProviderError,
+    execute as sms_provider_execute,
+    journal_summary as sms_journal_summary,
+)
 from .payhero_provider import PayheroProviderError, execute as payhero_provider_execute
 from .payment_gateway import PaymentGatewayError, execute as payment_gateway_execute
 from .email_provider import send_email as smtp_send_email
@@ -318,12 +322,7 @@ def create_app(config: Config | None = None) -> Flask:
             ), 502
         journal.write(
             "communications",
-            {
-                "type": "sms_execute",
-                "action": action,
-                "ok": bool(outcome.get("ok")),
-                "http": int(outcome.get("http") or 0),
-            },
+            {"type": "sms_execute", **sms_journal_summary(action, params, outcome)},
         )
         return jsonify({"success": True, "data": {"outcome": outcome}})
 
