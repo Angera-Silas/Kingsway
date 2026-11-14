@@ -19,6 +19,7 @@ real cost and reaches real phones.
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -430,6 +431,43 @@ class SmsProvider:
 
 
 # -- execute dispatcher ----------------------------------------------------
+
+
+_LONG_DIGITS = re.compile(r"\+?\d[\d\s-]{5,}\d")
+_EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
+
+
+def _redact(text: str) -> str:
+    """Mask phone numbers and email addresses (contacts are personal data)."""
+    return _EMAIL.sub("[email]", _LONG_DIGITS.sub("[number]", text))
+
+
+def journal_summary(
+    action: str, params: dict[str, Any] | None, outcome: dict[str, Any]
+) -> dict[str, Any]:
+    """What the communications journal records for one provider call.
+
+    Enough to explain a rejection (the provider's own status and message,
+    and which endpoint answered) without storing any recipient: phone
+    numbers and emails are masked, and no request body is kept.
+    """
+    summary: dict[str, Any] = {
+        "action": action,
+        "ok": bool(outcome.get("ok")),
+        "http": int(outcome.get("http") or 0),
+    }
+    if action == "raw" and isinstance(params, dict):
+        method = str(params.get("method") or "GET").upper()[:8]
+        path = _redact(str(params.get("path") or ""))[:120]
+        summary["endpoint"] = f"{method} {path}".strip()
+    status = str(outcome.get("status") or "").strip()
+    if status:
+        summary["provider_status"] = _redact(status)[:40]
+    if not summary["ok"]:
+        message = str(outcome.get("message") or "").strip()
+        if message:
+            summary["provider_message"] = _redact(message)[:200]
+    return summary
 
 
 def execute(
