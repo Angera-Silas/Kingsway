@@ -3763,6 +3763,11 @@ async function apiCallDirect(
         ...(token && {
           Authorization: "Bearer " + token,
         }),
+        // The Node subdomain's proxy strips Authorization; the gateway
+        // restores it from this copy. Only sent to the Node gateway.
+        ...(token && options.gatewayAuthFallback && {
+          "X-Kingsway-Authorization": "Bearer " + token,
+        }),
         ...(getCsrfToken() &&
           (!isAuthFreeEndpoint || isParentCatalogApi) && {
           "X-CSRF-Token": getCsrfToken(),
@@ -3878,6 +3883,9 @@ async function apiCallDirect(
         }
         console.log("Retrying original request with refreshed token...");
         fetchOptions.headers.Authorization = "Bearer " + newToken;
+        if (fetchOptions.headers["X-Kingsway-Authorization"]) {
+          fetchOptions.headers["X-Kingsway-Authorization"] = "Bearer " + newToken;
+        }
         response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
       } else {
         if (!_sessionExpiredEmitted && _lastRefreshOutcome === "unavailable") {
@@ -4203,7 +4211,7 @@ function hasAgentGateway() {
 }
 
 function agentGatewayCall(path, method = "POST", data = null) {
-  return apiCall(agentGatewayOrigin() + path, method, data, {}, { coalesce: false });
+  return apiCall(agentGatewayOrigin() + path, method, data, {}, { coalesce: false, gatewayAuthFallback: true });
 }
 
 //attach API to window for global access
@@ -8563,6 +8571,9 @@ window.API = {
               "Content-Type": "application/json",
               Accept: "text/event-stream",
               Authorization: "Bearer " + token,
+              ...(hasAgentGateway()
+                ? { "X-Kingsway-Authorization": "Bearer " + token }
+                : {}),
               ...(getCsrfToken() ? { "X-CSRF-Token": getCsrfToken() } : {}),
               "X-Request-ID": crypto.randomUUID
                 ? crypto.randomUUID()
