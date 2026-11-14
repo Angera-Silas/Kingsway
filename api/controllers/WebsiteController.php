@@ -290,6 +290,7 @@ class WebsiteController extends BaseController
                     'year_code' => (string) ($year['year_code'] ?? ''),
                     'year_name' => (string) ($year['year_name'] ?? ''),
                     'status' => (string) ($year['status'] ?? ''),
+                    'is_current' => (int) ($year['is_current'] ?? 0),
                 ];
             }, $years ?: []);
 
@@ -339,6 +340,7 @@ class WebsiteController extends BaseController
                     'year_code' => (string) ($year['year_code'] ?? ''),
                     'year_name' => (string) ($year['year_name'] ?? ''),
                     'status' => (string) ($year['status'] ?? ''),
+                    'is_current' => (int) ($year['is_current'] ?? 0),
                 ];
             }, $years);
             $selectedYear = $this->resolvePrintableYear(
@@ -390,8 +392,10 @@ class WebsiteController extends BaseController
             return null;
         }
 
+        // Default to the year now running. Every visible year is "active"
+        // (status only separates active from archived), so status cannot pick it.
         foreach ($years as $year) {
-            if (strtolower($year['status']) === 'active') return $year;
+            if ((int) ($year['is_current'] ?? 0) === 1) return $year;
         }
         return $years[0] ?? null;
     }

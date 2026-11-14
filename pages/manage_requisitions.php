@@ -1,7 +1,7 @@
 <?php
 /**
  * Manage Requisitions Page
- * HTML structure only - logic will be in js/pages/requisitions.js
+ * HTML structure only - logic is in js/pages/manage_requisitions.js
  * Embedded in app_layout.php
  */
 ?>

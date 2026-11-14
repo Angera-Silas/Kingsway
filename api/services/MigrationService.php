@@ -257,4 +257,147 @@ class MigrationService
 
         return $results;
     }
+
+    /**
+     * Evidence that a file's effects are already in the live schema: every
+     * table/view it creates exists (or a later file drops it) and every column
+     * it adds with ALTER TABLE ... ADD [COLUMN] exists.
+     *
+     * @return list<string> what is missing; empty means the evidence holds
+     */
+    public function missingEffects(string $basename): array
+    {
+        $path = $this->migrationsDir . '/' . basename($basename);
+        if (!is_file($path)) {
+            return ['file not found'];
+        }
+        $sql = (string) file_get_contents($path);
+        $schema = strtolower((string) $this->db->query('SELECT DATABASE()')->fetchColumn());
+        $missing = [];
+        $checked = 0;
+
+        $tables = [];
+        foreach ($this->db->query('SELECT LOWER(table_schema), LOWER(table_name) FROM information_schema.tables')->fetchAll(PDO::FETCH_NUM) as [$sc, $t]) {
+            $tables[$sc . '.' . $t] = true;
+        }
+        $dropped = [];
+        foreach (glob($this->migrationsDir . '/*.sql') ?: [] as $file) {
+            foreach (self::objectNames((string) file_get_contents($file), '/\bDROP\s+(?:TABLE|VIEW)\s+(?:IF\s+EXISTS\s+)?((?:`?\w+`?\.)?`?\w+`?(?:\s*,\s*(?:`?\w+`?\.)?`?\w+`?)*)/i', $schema) as $n) {
+                $dropped[$n] = true;
+            }
+        }
+        foreach (self::objectNames($sql, '/\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:ALGORITHM\s*=\s*\w+\s+)?(?:DEFINER\s*=\s*\S+\s+)?(?:SQL\s+SECURITY\s+\w+\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:`?\w+`?\.)?`?\w+`?)/i', $schema) as $n) {
+            $checked++;
+            if (!isset($tables[$n]) && !isset($dropped[$n])) {
+                $missing[] = $n;
+            }
+        }
+        // Tables/views this file drops must be gone (unless re-created by it).
+        $createdHere = array_flip(self::objectNames($sql, '/\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:ALGORITHM\s*=\s*\w+\s+)?(?:DEFINER\s*=\s*\S+\s+)?(?:SQL\s+SECURITY\s+\w+\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:`?\w+`?\.)?`?\w+`?)/i', $schema));
+        foreach (self::objectNames($sql, '/\bDROP\s+(?:TABLE|VIEW)\s+(?:IF\s+EXISTS\s+)?((?:`?\w+`?\.)?`?\w+`?(?:\s*,\s*(?:`?\w+`?\.)?`?\w+`?)*)/i', $schema) as $n) {
+            if (isset($createdHere[$n])) {
+                continue;
+            }
+            $checked++;
+            if (isset($tables[$n])) {
+                $missing[] = "still present: {$n}";
+            }
+        }
+
+        $clean = preg_replace(['~/\*.*?\*/~s', '~^\s*(--|#).*$~m'], '', $sql) ?? $sql;
+        if (preg_match_all('/\bALTER\s+TABLE\s+((?:`?\w+`?\.)?`?\w+`?)\s+(.*?);/is', $clean, $alters, PREG_SET_ORDER)) {
+            $colStmt = $this->db->prepare(
+                'SELECT COUNT(*) FROM information_schema.columns WHERE LOWER(table_schema) = ? AND LOWER(table_name) = ? AND LOWER(column_name) = ?'
+            );
+            foreach ($alters as [, $tableRef, $body]) {
+                $ref = strtolower(str_replace('`', '', $tableRef));
+                [$sc, $table] = str_contains($ref, '.') ? explode('.', $ref, 2) : [$schema, $ref];
+                if (isset($dropped[$sc . '.' . $table])) {
+                    continue;
+                }
+                if (!preg_match_all('/\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?\s+(?!KEY\b|INDEX\b|UNIQUE\b|CONSTRAINT\b|PRIMARY\b|FOREIGN\b|FULLTEXT\b|SPATIAL\b)\w/i', $body, $cols)) {
+                    continue;
+                }
+                foreach ($cols[1] as $col) {
+                    $c = strtolower($col);
+                    if (in_array($c, ['key', 'index', 'unique', 'constraint', 'primary', 'foreign', 'fulltext', 'spatial', 'partition'], true)) {
+                        continue;
+                    }
+                    $checked++;
+                    $colStmt->execute([$sc, $table, $c]);
+                    if ((int) $colStmt->fetchColumn() === 0) {
+                        $missing[] = "{$sc}.{$table}.{$c}";
+                    }
+                }
+            }
+        }
+        if ($checked === 0) {
+            // Routine bodies, data fixes and index changes leave nothing this
+            // check can see; such a file needs a person to confirm it.
+            $missing[] = 'nothing checkable (routines/data/indexes only): confirm by hand';
+        }
+        return array_values(array_unique($missing));
+    }
+
+    /**
+     * Record files as already applied WITHOUT running them. Refused for any
+     * file whose effects are not present (see missingEffects) or that is
+     * already recorded. duration_ms = -1 marks a baselined row.
+     *
+     * @return list<array{filename:string,status:string,error?:string}>
+     */
+    public function baselineFiles(array $filenames, bool $confirmed = false): array
+    {
+        $ledger = $this->db->query('SELECT filename, checksum FROM migrations')->fetchAll(PDO::FETCH_KEY_PAIR);
+        $results = [];
+        $insert = $this->db->prepare('INSERT INTO migrations (filename, checksum, applied_at, duration_ms) VALUES (?, ?, NOW(), -1)');
+        foreach ($filenames as $filename) {
+            $basename = basename((string) $filename);
+            if (isset($ledger[$basename])) {
+                $results[] = ['filename' => $basename, 'status' => 'skipped', 'error' => 'already recorded'];
+                continue;
+            }
+            $missing = $this->missingEffects($basename);
+            if ($confirmed) {
+                // A person checked the data/routine effects; real gaps still refuse.
+                $missing = array_values(array_filter($missing, static fn(string $m): bool => !str_starts_with($m, 'nothing checkable')));
+            }
+            if ($missing) {
+                $results[] = ['filename' => $basename, 'status' => 'refused', 'error' => 'not in schema: ' . implode(', ', array_slice($missing, 0, 6))];
+                continue;
+            }
+            $insert->execute([$basename, md5_file($this->migrationsDir . '/' . $basename)]);
+            $results[] = ['filename' => $basename, 'status' => 'baselined'];
+        }
+        return $results;
+    }
+
+    /**
+     * Re-record the checksum of an applied file that was edited afterwards.
+     * Only for recorded files whose effects are present; it never runs SQL.
+     *
+     * @return list<array{filename:string,status:string,error?:string}>
+     */
+    public function acceptDrift(array $filenames): array
+    {
+        $ledger = $this->db->query('SELECT filename, checksum FROM migrations')->fetchAll(PDO::FETCH_KEY_PAIR);
+        $update = $this->db->prepare('UPDATE migrations SET checksum = ? WHERE filename = ?');
+        $results = [];
+        foreach ($filenames as $filename) {
+            $basename = basename((string) $filename);
+            $path = $this->migrationsDir . '/' . $basename;
+            if (!isset($ledger[$basename]) || !is_file($path)) {
+                $results[] = ['filename' => $basename, 'status' => 'refused', 'error' => 'not recorded or file missing'];
+                continue;
+            }
+            $missing = $this->missingEffects($basename);
+            if ($missing) {
+                $results[] = ['filename' => $basename, 'status' => 'refused', 'error' => 'not in schema: ' . implode(', ', array_slice($missing, 0, 6))];
+                continue;
+            }
+            $update->execute([md5_file($path), $basename]);
+            $results[] = ['filename' => $basename, 'status' => 'accepted'];
+        }
+        return $results;
+    }
 }

@@ -630,7 +630,7 @@ class AcademicContextService
     public function yearsNewestFirst(): array
     {
         return $this->db->query(
-            "SELECT id, year_code, year_name, status FROM academic_years
+            "SELECT id, year_code, year_name, status, is_current FROM academic_years
              WHERE " . AcademicYearLifecycleService::visibleSql() . "
              ORDER BY id DESC"
         )->fetchAll(PDO::FETCH_ASSOC) ?: [];

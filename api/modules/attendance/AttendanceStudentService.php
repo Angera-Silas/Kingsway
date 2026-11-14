@@ -21,14 +21,12 @@ class AttendanceStudentService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentSummary($id, $data, $segments, BaseController $controller) {
         $studentId = $id ?? ($data['studentId'] ?? null);
         $result = $this->api->getStudentAttendanceSummary($studentId);
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getClassAttendance($id, $data, $segments, BaseController $controller) {
         $classId = $id;
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
@@ -37,7 +35,6 @@ class AttendanceStudentService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentPercentage($id, $data, $segments, BaseController $controller) {
         $studentId = $id;
         try {
@@ -57,7 +54,6 @@ class AttendanceStudentService
         }
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getChronicStudentAbsentees($id, $data, $segments, BaseController $controller) {
         $classId = $id;
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
@@ -67,7 +63,6 @@ class AttendanceStudentService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentsByClass($id, $data, $segments, BaseController $controller) {
         try {
             $streamId = $id ?? $data['stream_id'] ?? $_GET['stream_id'] ?? null;
@@ -85,7 +80,6 @@ class AttendanceStudentService
         }
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function postMarkBulk($id, $data, $segments, BaseController $controller) {
         try {
             $streamId = $data['stream_id'] ?? null;
@@ -191,7 +185,6 @@ class AttendanceStudentService
         }
     }
 
-    // TODO: Delegate to AttendanceStudentService
     public function getStudentHistoryByYear($id, $data, $segments, BaseController $controller) {
         $studentId = $id ?? ($segments[0] ?? null);
         if (!$studentId) { return $controller->badRequest('Student ID is required'); }

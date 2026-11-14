@@ -103,6 +103,10 @@ class RealtimeController extends BaseAPI
             return $this->errorResponse('Invalid worker credential', 403);
         }
 
+        // Claimed jobs (an AI draft can take over a minute) must finish and
+        // record their outcome even if the ticker's HTTP call gives up first.
+        ignore_user_abort(true);
+
         $limit = max(1, min(50, (int) ($data['limit'] ?? 10)));
         $pythonTypes = $this->activePythonJobTypes();
         JobQueue::recoverStale(15, $pythonTypes);

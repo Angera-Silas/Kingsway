@@ -13,17 +13,9 @@ const reportCardsController = {
       (window.AuthContext?.hasPermission && (AuthContext.hasPermission('academic_manage') || AuthContext.hasPermission('academics_manage') || AuthContext.hasPermission('academic_approve')));
     this.state.canManage = canManage;
     const generateButton = document.getElementById('generateAllBtn'); if (generateButton) generateButton.hidden = !canManage;
-    const [yearsResponse, classesResponse] = await Promise.all([
-      this.API('GET', '/api/academic/years/list'), this.API('GET', '/api/academic/classes-list')
-    ]);
-    this.state.years = this.rows(yearsResponse); this.state.classes = this.rows(classesResponse);
-    this.fill('yearFilter', this.state.years, 'All Years', (row) => row.year_name || row.name || row.year_code);
+    this.state.classes = this.rows(await this.API('GET', '/api/academic/classes-list'));
     this.fill('classFilter', this.state.classes, 'All Classes', (row) => row.name || row.class_name);
-    const currentYear = this.state.years.find((row) => row.is_current || row.status === 'current');
-    if (currentYear) document.getElementById('yearFilter').value = String(currentYear.id);
-    await this.loadTerms(); await this.loadStreams();
-    document.getElementById('yearFilter')?.addEventListener('change', async () => { await this.loadTerms(); await this.load(); });
-    document.getElementById('termFilter')?.addEventListener('change', () => this.load());
+    await this.loadStreams();
     document.getElementById('classFilter')?.addEventListener('change', async () => { await this.loadStreams(); await this.load(); });
     document.getElementById('streamFilter')?.addEventListener('change', () => this.load());
     document.getElementById('reportResultMode')?.addEventListener('change', () => this.load());
@@ -56,19 +48,19 @@ const reportCardsController = {
       const link = event.target.closest('[data-page]'); if (!link) return;
       event.preventDefault(); this.state.page = Number(link.dataset.page); this.render();
     });
-    await this.load();
+    // Year and term: the shared filter (current year and running term by
+    // default, kept in the URL). It loads the list now and on every change.
+    const yearSelect = document.getElementById('yearFilter');
+    const termSelect = document.getElementById('termFilter');
+    const mounted = window.AcademicYearFilter && yearSelect
+      ? await window.AcademicYearFilter.mount(yearSelect, { termSelect, onChange: () => this.load() })
+      : null;
+    if (!mounted) await this.load();
     window.APIRealtime?.register?.('report_cards', { refresh: () => this.load() }, ['academic','reports']);
   },
   fill(id, items, first, label) {
     const select = document.getElementById(id); if (!select) return;
     select.innerHTML = `<option value="">${this.esc(first)}</option>` + items.map((item) => `<option value="${Number(item.id)}">${this.esc(label(item))}</option>`).join('');
-  },
-  async loadTerms() {
-    const yearId = document.getElementById('yearFilter')?.value || '';
-    const response = await this.API('GET', '/api/academic/terms', null, yearId ? { academic_year_id: yearId } : {});
-    this.state.terms = this.rows(response); this.fill('termFilter', this.state.terms, 'All Terms', (row) => `${row.name || row.term_name || 'Term'} · ${row.year_name || ''}`);
-    const current = this.state.terms.find((row) => row.is_current || row.status === 'current');
-    if (current) document.getElementById('termFilter').value = String(current.id);
   },
   async loadStreams() {
     const classId = document.getElementById('classFilter')?.value || '';
@@ -195,11 +187,13 @@ const reportCardsController = {
     if (window.AuthContext?.canExport && !window.AuthContext.canExport('reports')) return this.notify('You do not have permission to export reports.', 'error');
     const cols = ['student_name','admission_no','class_name','stream_name','overall_percentage','class_position','status','term_name','generated_at'];
     const csv = [cols, ...this.state.visible.map((row) => cols.map((key) => row[key] ?? ''))].map((row) => row.map((value) => `"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n');
-    window.KingswayFileLifecycle?.exportText?.(csv, 'report-card-releases.csv', 'text/csv;charset=utf-8;');
+    const yearLabel = (document.getElementById('yearFilter')?.selectedOptions?.[0]?.textContent || '').replace(/\s*\(.*\)$/, '').replace(/[^0-9A-Za-z-]+/g, '-');
+    window.KingswayFileLifecycle?.exportText?.(csv, `report-card-releases${yearLabel ? '_' + yearLabel : ''}.csv`, 'text/csv;charset=utf-8;');
   },
   clearFilters() {
-    ['yearFilter','termFilter','classFilter','streamFilter','searchBox'].forEach((id) => { const element = document.getElementById(id); if (element) element.value = ''; });
-    this.loadTerms().then(() => this.loadStreams()).then(() => this.load());
+    // Year and term stay: they set the context, they are not narrowing filters.
+    ['classFilter','streamFilter','searchBox'].forEach((id) => { const element = document.getElementById(id); if (element) element.value = ''; });
+    this.loadStreams().then(() => this.load());
   },
   notify(message, type = 'info') { window.showNotification?.(message, type); },
 };

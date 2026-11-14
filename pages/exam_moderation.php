@@ -13,7 +13,15 @@
     </div>
 
     <div class="row g-2 mb-3">
-        <div class="col-md-3">
+        <div class="col-md-2">
+            <select class="form-select form-select-sm" id="modYearFilter" aria-label="Academic year"></select>
+        </div>
+        <div class="col-md-2">
+            <select class="form-select form-select-sm" id="modTermFilter" aria-label="Term">
+                <option value="">All Terms</option>
+            </select>
+        </div>
+        <div class="col-md-2">
             <select class="form-select form-select-sm" id="modClassFilter">
                 <option value="">All Classes</option>
             </select>
@@ -21,11 +29,6 @@
         <div class="col-md-3">
             <select class="form-select form-select-sm" id="modSubjectFilter">
                 <option value="">All Subjects</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <select class="form-select form-select-sm" id="modTermFilter">
-                <option value="">All Terms</option>
             </select>
         </div>
         <div class="col-md-3">

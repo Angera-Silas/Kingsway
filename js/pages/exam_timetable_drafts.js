@@ -26,15 +26,38 @@ const ExamTimetableDraftsController = {
     if (this.initialized) return;
     await window.AuthContext?.ready?.();
     if (!window.AuthContext?.isAuthenticated?.()) return;
-    if (window.AcademicContext && !AcademicContext.isLoaded()) await AcademicContext.init();
-    this.state.yearId = Number(window.AcademicContext?.getAcademicYearId?.() || 0);
-    this.state.termId = Number(window.AcademicContext?.getTermId?.() || 0);
     this.bindEvents();
+    // Year and term come from the page's selectors, so any term can be
+    // prepared, including next term while the school is on holiday.
+    await this.mountScope();
     await this.loadReferencesComposed();
     await this.loadReferences();
     await this.loadDrafts();
+    this.scopeReady = true;
     window.APIRealtime?.register?.("exam_timetable_drafts", { refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await Promise.all([this.loadReferences(), this.loadDrafts()]); } }, ["academic", "schedules"]);
     this.initialized = true;
+  },
+
+  async mountScope() {
+    const yearSelect = document.getElementById("examDraftYear");
+    if (!window.AcademicYearFilter || !yearSelect) {
+      if (window.AcademicContext && !AcademicContext.isLoaded()) await AcademicContext.init();
+      this.state.yearId = Number(window.AcademicContext?.getAcademicYearId?.() || 0);
+      this.state.termId = Number(window.AcademicContext?.getTermId?.() || 0);
+      return;
+    }
+    await window.AcademicYearFilter.mount(yearSelect, {
+      termSelect: document.getElementById("examDraftTerm"),
+      onChange: async (yearId, _year, termId) => {
+        const yearChanged = this.state.yearId !== Number(yearId || 0);
+        this.state.yearId = Number(yearId || 0);
+        this.state.termId = Number(termId || 0);
+        document.getElementById("newExamDraft").disabled = !this.state.termId;
+        if (!this.scopeReady) return;
+        if (yearChanged) await this.loadReferences();
+        this.renderDrafts();
+      },
+    });
   },
 
   bindEvents() {
@@ -75,7 +98,8 @@ const ExamTimetableDraftsController = {
   renderDrafts() {
     const tbody = document.getElementById("examDraftRows");
     if (!tbody) return;
-    tbody.innerHTML = this.state.drafts.map((draft) => {
+    const inTerm = (draft) => !this.state.termId || Number(draft.academic_year_term_id || 0) === this.state.termId;
+    tbody.innerHTML = this.state.drafts.filter(inTerm).map((draft) => {
       const actions = [`<button class="btn btn-sm btn-outline-secondary" onclick="ExamTimetableDraftsController.open(${Number(draft.id)})">${["draft", "changes_requested"].includes(draft.status) ? "Edit" : "View"}</button>`];
       if (draft.status === "draft" || draft.status === "changes_requested") actions.push(this.actionButton(draft.id, "submit", "Submit", "primary"));
       if (draft.status === "submitted") {
@@ -87,7 +111,7 @@ const ExamTimetableDraftsController = {
       return `<tr><td><strong>${this.escape(draft.title)}</strong></td><td>${Number(draft.entry_count || 0)}</td>
         <td><span class="badge bg-${colour}">${this.escape(String(draft.status).replaceAll("_", " "))}</span></td>
         <td>${this.escape(draft.updated_at || "—")}</td><td><div class="d-flex flex-wrap gap-1">${actions.join("")}</div></td></tr>`;
-    }).join("") || '<tr><td colspan="5" class="text-center text-muted py-4">No exam timetable drafts in this academic context.</td></tr>';
+    }).join("") || '<tr><td colspan="5" class="text-center text-muted py-4">No exam timetable drafts for the selected term.</td></tr>';
   },
 
   actionButton(id, action, label, colour) {

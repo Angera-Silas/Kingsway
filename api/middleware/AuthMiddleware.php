@@ -148,12 +148,15 @@ class AuthMiddleware
             'communications/sms-opt-out-callback',
             'communications/sms-subscription-callback',
             'communications/process-outbox',
+            // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
+            'communications/sync-sms-contacts',
             'staff-migration/process-invitation-email',
             'attendance/gate-event',
             // Protected by ATTENDANCE_WORKER_SECRET rather than staff JWT.
             'attendance/process-register-reminders',
             // Protected by KCB_RECONCILIATION_WORKER_SECRET rather than staff JWT.
             'finance/kcb-reconciliation-worker',
+            'finance/extra-charge-obligations-worker',
             // Protected by PAYMENT_SWEEP_WORKER_SECRET rather than staff JWT.
             'payments/stk-sweep-worker',
             // Date-driven academic year/term activation; worker-secret guarded

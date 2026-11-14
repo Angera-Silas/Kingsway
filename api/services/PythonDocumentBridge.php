@@ -1316,18 +1316,6 @@ final class PythonDocumentBridge
         $data = (json_decode($raw, true)['data'] ?? []);
         return ['extracted_rows' => (int)($data['extracted_rows'] ?? 0), 'conflicts' => $data['conflicts'] ?? [], 'proposed_rows' => (int)($data['proposed_rows'] ?? 0)];
     }
-    public function proposeScheduleRows(string $jobId, int $academicYearId, int $termId, array $constraints): array
-    {
-        if (!$this->available()) throw new RuntimeException('Python service not configured.');
-        $body = json_encode(['job_id' => $jobId, 'academic_year_id' => $academicYearId, 'term_id' => $termId, 'constraints' => $constraints], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $headers = ['Content-Type: application/json', 'Accept: application/json', 'Authorization: Bearer ' . (string) Config::get('AI_PYTHON_SECRET', '')];
-        $started = microtime(true);
-        [$raw, $status, $te] = $this->client->post('python_ai', '/api/schedules/propose-rows', $headers, $body, 300);
-        $this->log('python_schedules_propose_rows', compact('jobId', 'academicYearId', 'termId', 'status', 'te', 'started'));
-        if (!is_string($raw) || $status < 200 || $status >= 300) throw new RuntimeException('Python schedule propose rows failed.');
-        $data = (json_decode($raw, true)['data'] ?? []);
-        return ['proposed_rows' => (int)($data['proposed_rows'] ?? 0), 'conflicts' => $data['conflicts'] ?? [], 'coverage' => (float)($data['coverage'] ?? 0)];
-    }
 
     // Staff
     public function importStaffData(string $jobId, int $fileId, string $importType): array

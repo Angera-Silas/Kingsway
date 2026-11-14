@@ -643,6 +643,13 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                            AND learning_area_id NOT IN ($marks) AND status <> 'skipped'"
                     )->execute(array_merge([$yearId], $knownAreaIds));
                 }
+                // Weekly lessons follow the class into the new year: links
+                // added here take last year's value for the same class and
+                // learning area (values already set are kept).
+                $sourceYearId = $this->resolveYearIdFromCode($workflowData['from_year_code'] ?? $workflowData['from_year'] ?? '');
+                if ($sourceYearId) {
+                    (new \App\API\Services\ClassLessonLoadService($this->db))->carryForward($sourceYearId, $yearId);
+                }
             } elseif ($phase === 'staff_continuity') {
                 $continuity = is_array($workflowData['staff_continuity'] ?? null) ? $workflowData['staff_continuity'] : [];
                 foreach ($rows as $row) {
@@ -2306,6 +2313,50 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         }
     }
 
+    /**
+     * Make every stream learners are being promoted into carry all of its
+     * class's learning areas, and refuse a class that has none.
+     *
+     * @throws \DomainException naming the classes that still need learning areas
+     * @return int stream learning-area links added
+     */
+    private function prepareTargetStreamLearningAreas(int $toYearId, array $assignments): int
+    {
+        $streamIds = [];
+        foreach ($assignments as $assignment) {
+            $decision = strtolower(trim((string) ($assignment['decision'] ?? 'promote')));
+            $streamId = (int) ($assignment['target_stream_id'] ?? $assignment['target_aycs_id'] ?? 0);
+            if ($decision !== 'graduate' && $streamId > 0) $streamIds[$streamId] = true;
+        }
+        if ($streamIds === []) return 0;
+
+        // Single-table reads: the target streams' classes, kept to the target year.
+        $in = implode(',', array_fill(0, count($streamIds), '?'));
+        $streamClasses = $this->db->prepare(
+            "SELECT DISTINCT academic_year_class_id FROM academic_year_class_streams WHERE id IN ({$in})"
+        );
+        $streamClasses->execute(array_map('intval', array_keys($streamIds)));
+        $classIds = array_map('intval', $streamClasses->fetchAll(PDO::FETCH_COLUMN));
+        if ($classIds === []) return 0;
+        $in = implode(',', array_fill(0, count($classIds), '?'));
+        $inYear = $this->db->prepare(
+            "SELECT id FROM academic_year_classes WHERE id IN ({$in}) AND academic_year_id = ?"
+        );
+        $inYear->execute([...$classIds, $toYearId]);
+        $classIds = array_map('intval', $inYear->fetchAll(PDO::FETCH_COLUMN));
+
+        $learningAreas = new LearningAreaSetupService($this->db);
+        $missing = $learningAreas->classesWithoutLearningAreas($classIds);
+        if ($missing !== []) {
+            throw new \DomainException(
+                'Set up learning areas for ' . implode(', ', $missing)
+                . ' in the new academic year before promoting learners into '
+                . (count($missing) === 1 ? 'it.' : 'them.')
+            );
+        }
+        return $learningAreas->syncStreamsForClasses($classIds);
+    }
+
     public function assignPromotionStreams(int $instance_id, array $assignments): array
     {
         $instance = $this->getWorkflowInstance($instance_id);
@@ -2340,6 +2391,14 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // status is 'active', so a draft structure would silently leave the
             // promoted learner with no target-year balance.
             $this->approveTargetYearFeeStructures($toYearId);
+
+            // Learning areas follow the same rule as fees: settle them BEFORE
+            // any learner is enrolled. A learner's learning areas come from
+            // the stream they are placed in, so every target stream must carry
+            // all of its class's learning areas, and a class with none cannot
+            // receive learners (they would have nothing to be taught or
+            // assessed in).
+            $learningAreaLinksAdded = $this->prepareTargetStreamLearningAreas($toYearId, $assignments);
 
             $saved = 0;
             $billed = [];
@@ -2380,12 +2439,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $studentId = (int) ($assignment['student_id'] ?? 0);
                 $targetAycsId = (int) ($assignment['target_stream_id'] ?? $assignment['target_aycs_id'] ?? 0);
                 $decision = strtolower(trim((string) ($assignment['decision'] ?? 'promote')));
-                if (!in_array($decision, ['promote', 'retain', 'graduate'], true)) throw new Exception('Choose promote, retain or graduate for each learner');
-                if (!$studentId || ($decision !== 'graduate' && !$targetAycsId)) throw new Exception('Student and target-year stream are required');
+                if (!in_array($decision, ['promote', 'retain', 'graduate'], true)) throw new \DomainException('Choose promote, retain or graduate for each learner');
+                if (!$studentId || ($decision !== 'graduate' && !$targetAycsId)) throw new \DomainException('Student and target-year stream are required');
 
                 $source->execute([$studentId, $fromYearId, $toYearId]);
                 $sourceRow = $source->fetch(PDO::FETCH_ASSOC);
-                if (!$sourceRow) throw new Exception('Learner is not an active learner in the source year');
+                if (!$sourceRow) throw new \DomainException('Learner is not an active learner in the source year');
 
                 if ($decision === 'graduate') {
                     $hasNextClass = $this->db->prepare(
@@ -2393,7 +2452,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     );
                     $hasNextClass->execute([(int) $sourceRow['class_id']]);
                     if ((int) $hasNextClass->fetchColumn() > 0) {
-                        throw new Exception('Only a class with no configured next class can be graduated.');
+                        throw new \DomainException('Only a class with no configured next class can be graduated.');
                     }
                     $this->db->prepare("UPDATE student_academic_enrollments SET enrollment_status = 'graduated' WHERE id = ?")
                         ->execute([(int) $sourceRow['id']]);
@@ -2426,7 +2485,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
                 $target->execute([$targetAycsId, $toYearId]);
                 $targetRow = $target->fetch(PDO::FETCH_ASSOC);
-                if (!$targetRow) throw new Exception('Selected stream does not belong to the target academic year');
+                if (!$targetRow) throw new \DomainException('Selected stream does not belong to the target academic year');
 
                 $studentType->execute([$studentId]);
                 if (!$learnerTypeAvailability->isAvailable(
@@ -2441,9 +2500,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
                 if ($decision === 'promote') {
                     $progression->execute([(int) $sourceRow['class_id'], (int) $targetRow['class_id']]);
-                    if (!(int) $progression->fetchColumn()) throw new Exception('Selected stream is not a valid next class for this learner');
+                    if (!(int) $progression->fetchColumn()) throw new \DomainException('Selected stream is not a valid next class for this learner');
                 } elseif ((int) $sourceRow['class_id'] !== (int) $targetRow['class_id']) {
-                    throw new Exception('A retained learner must be placed in the same class in the target year');
+                    throw new \DomainException('A retained learner must be placed in the same class in the target year');
                 }
 
                 $existing = $this->db->prepare(
@@ -2506,6 +2565,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 // What the promotion save actually billed/carried, so the page
                 // can show it instead of a bare "saved".
                 'learners_billed' => count($billed),
+                // Stream learning-area links added so every promoted learner
+                // receives all of the new class's learning areas.
+                'learning_area_links_added' => $learningAreaLinksAdded,
                 'obligations_backfilled' => (int) array_sum(array_map(
                     static fn(array $row): int => (int) ($row['obligations_backfilled'] ?? 0), $billed
                 )),
@@ -2553,6 +2615,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             return formatResponse(true, $summary, $unavailablePlacements > 0
                 ? 'Some placements need administrator adjustment because the selected class does not offer that learner type.'
                 : ($unassigned === 0 ? 'All promotion assignments saved' : 'Promotion assignments saved; you may continue later'));
+        } catch (\DomainException $e) {
+            // A decision the administrator can fix (wrong stream, missing
+            // learning areas, ...): return the reason instead of letting the
+            // router turn it into a generic internal error.
+            $this->db->rollBack();
+            return formatResponse(false, null, $e->getMessage());
         } catch (Exception $e) {
             $this->db->rollBack();
             return $this->handleException($e);
@@ -2992,6 +3060,14 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             }
         }
 
+        // The name-matched copy above only reaches target streams that existed
+        // last year. A stream that is new this year (e.g. a third Grade 1
+        // stream) or a learning area added to a class after the copy would be
+        // left without links, and every learner placed there would silently
+        // miss those learning areas. Apply the rule to every target stream.
+        (new LearningAreaSetupService($this->db))->syncStreamsForYear($toYearId);
+        (new \App\API\Services\ClassLessonLoadService($this->db))->carryForward($fromYearId, $toYearId);
+
         // Teaching assignments and timetables are term context. Keep their
         // target-year slots available for term-by-term setup without treating
         // outgoing-term records as annual configuration.
@@ -3421,10 +3497,37 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 ];
             }
 
-            // Check 7: Promotion stage was run.
+            // Check 7: Promotions ran. Judged from the enrollments themselves:
+            // the promotion board places learners without writing
+            // promotion_summary, so the summary alone failed finished rollovers.
+            $unresolvedLearners = null;
+            $placedLearners = 0;
+            if (!empty($sourceYearId)) {
+                // Master, not a projection: this gate must see writes made seconds ago
+                // (same query as reconcilePromotionCompletion).
+                $unresolvedStmt = $this->db->prepare(
+                    "SELECT COUNT(*) FROM student_academic_enrollments sae
+                     JOIN students s ON s.id = sae.student_id AND s.status = 'active'
+                     WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('pending','active')
+                       AND NOT EXISTS (SELECT 1 FROM student_transitions st
+                                       WHERE st.from_student_academic_enrollment_id = sae.id
+                                         AND st.academic_year_id = ?)"
+                );
+                $unresolvedStmt->execute([$sourceYearId, $yearId]);
+                $unresolvedLearners = (int) $unresolvedStmt->fetchColumn();
+            }
+            $placedStmt = $this->db->prepare(
+                "SELECT COUNT(*) FROM student_academic_enrollments
+                 WHERE academic_year_id = ? AND enrollment_status IN ('pending','active')"
+            );
+            $placedStmt->execute([$yearId]);
+            $placedLearners = (int) $placedStmt->fetchColumn();
+            $promotionsDone = $unresolvedLearners === 0 && $placedLearners > 0;
             $validationResults['promotions_executed'] = [
-                'status' => !empty($data['promotion_summary']) ? 'pass' : 'fail',
+                'status' => ($promotionsDone || !empty($data['promotion_summary'])) ? 'pass' : 'fail',
                 'summary' => $data['promotion_summary'] ?? null,
+                'learners_without_decision' => $unresolvedLearners,
+                'learners_placed_in_target_year' => $placedLearners,
             ];
 
             // Check 8: No unresolved pending promotion transitions for the target year.
@@ -3603,7 +3706,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             return formatResponse(true, [
                 'from_year' => $data['from_year'] ?? null,
                 'to_year' => $data['to_year'] ?? null,
-                'current_stage' => $instance['current_stage_code'] ?? 'pending',
+                'current_stage' => $instance['current_stage_code'] ?? $instance['current_stage'] ?? 'pending',
                 'workflow_status' => $instance['status'] ?? 'pending',
                 'promotion_summary' => $data['promotion_summary'] ?? null,
                 'classes_created' => count($data['new_classes'] ?? []),

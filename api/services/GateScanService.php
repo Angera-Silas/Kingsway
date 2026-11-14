@@ -427,44 +427,6 @@ final class GateScanService
             if ($a['status'] === 'present' && $a['check_in_time']) { $checkedIn = true; break; }
         }
 
-        // Query 2: parents + transport balance (combined)
-        $stmt = $this->pdo->prepare(
-            "SELECT 'parent' AS row_type,
-                    CONCAT(p.first_name, ' ', p.last_name) AS name,
-                    p.phone_primary AS phone, p.phone_secondary AS phone_alt,
-                    par.relationship_to_student AS relationship,
-                    NULL AS balance
-             FROM parent_student ps
-             JOIN " . ReadReplicaService::qualifiedRef("parents") . " par ON par.id = ps.parent_id
-             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = par.person_id
-             WHERE ps.student_id = ? ORDER BY par.is_primary DESC LIMIT 3
-
-             UNION ALL
-
-             SELECT 'transport' AS row_type,
-                    NULL AS name, NULL AS phone, NULL AS phone_alt, NULL AS relationship,
-                    tmb.amount_due - COALESCE(SUM(tbp.amount), 0) AS balance
-             FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " tmb
-             LEFT JOIN transport_bill_payments tbp ON tbp.bill_id = tmb.id
-             WHERE tmb.student_id = ? AND tmb.billing_month = ?-01
-             GROUP BY tmb.id LIMIT 1"
-        );
-        $stmt->execute([$studentId, $studentId, date('Y-m')]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $parents = [];
-        $transportBalance = 0;
-        foreach ($rows as $r) {
-            if ($r['row_type'] === 'parent') {
-                $parents[] = [
-                    'name' => $r['name'] ?? '', 'phone' => $r['phone'] ?? '',
-                    'phone_alt' => $r['phone_alt'] ?? '', 'relationship' => $r['relationship'] ?? '',
-                ];
-            } else {
-                $transportBalance = (float)$r['balance'];
-            }
-        }
-
         return [
             'eligible' => true, 'status' => 'authorized',
             'message'  => 'Student authorized for entry',

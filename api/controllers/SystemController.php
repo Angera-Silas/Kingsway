@@ -2319,11 +2319,6 @@ class SystemController extends BaseController
         return $this->handleApiResponse($this->systemAdminManager->getSidebarMenus());
     }
 
-    public function getMenus($id = null, $data = [], $segments = [])
-    {
-        return $this->getSidebarMenus($id, $data, $segments);
-    }
-
     // GET /api/system/role-sidebar-assignments
     public function getRoleSidebarAssignments($id = null, $data = [], $segments = [])
     {

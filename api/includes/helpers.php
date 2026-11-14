@@ -577,3 +577,24 @@ function view(string $path, array $data = []): string
 {
     return \App\API\Services\View::make($path, $data)->render();
 }
+
+if (!function_exists(__NAMESPACE__ . '\\searchParamsFromQuery')) {
+    /**
+     * [search, sort, order] from the query string, shared by BaseAPI and
+     * BaseController. $sort is interpolated into ORDER BY by callers, so it
+     * must be a bare identifier; htmlspecialchars() would not stop
+     * "id,(SELECT SLEEP(5))".
+     *
+     * @return array{0:string,1:string,2:string}
+     */
+    function searchParamsFromQuery(array $query): array
+    {
+        $search = isset($query['search']) && is_string($query['search']) ? sanitizeInput($query['search']) : '';
+        $sort = isset($query['sort']) && is_string($query['sort']) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,63}$/', $query['sort'])
+            ? $query['sort']
+            : 'id';
+        $order = isset($query['order']) && is_string($query['order']) ? strtoupper(trim($query['order'])) : 'ASC';
+        $order = in_array($order, ['ASC', 'DESC'], true) ? $order : 'ASC';
+        return [$search, $sort, $order];
+    }
+}

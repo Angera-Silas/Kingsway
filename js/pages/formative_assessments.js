@@ -26,33 +26,23 @@ const fAssCtrl = {
       return;
     }
     await GradingScale.preload();
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload assessments when academic year or term changes
-          this.loadAll();
-          this._loadSummary();
-        }
+    // Year and term filters: the year list defaults to the current year and
+    // the term list holds only that year's terms (AcademicYearFilter).
+    const yearSelect = document.getElementById('faYearFilter');
+    if (window.AcademicYearFilter && yearSelect) {
+      let ready = false;
+      await window.AcademicYearFilter.mount(yearSelect, {
+        termSelect: document.getElementById('faTermFilter'),
+        allTermsLabel: 'All Terms',
+        onChange: (yearId, _year, termId) => {
+          this._currentAcademicYear = Number(yearId || 0);
+          this._currentTerm = Number(termId || 0);
+          if (ready) { this.loadAll(); this._loadSummary(); }
+        },
       });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this._currentTerm = window.AcademicContext.getTermId();
-      
-      // Update term filter to use current context
-      if (this._currentTerm) {
-        const termFilter = document.getElementById('faTermFilter');
-        if (termFilter) termFilter.value = this._currentTerm;
-      }
+      ready = true;
     }
-    
+
     await Promise.all([
       this._loadReferencesComposed(),
       this._loadClasses(),
@@ -97,7 +87,7 @@ const fAssCtrl = {
         sel.innerHTML = `<option value="">${placeholder}</option>`;
         rows.forEach(t => sel.insertAdjacentHTML('beforeend', `<option value="${t.id}">${this._esc(t.name)}</option>`));
       });
-      fill(['faTermFilter', 'faTerm'], this._terms);
+      fill(['faTerm'], this._terms);
       fill(['faSubjectFilter', 'faSubject'], this._subjects);
       fill(['faTypeFilter', 'faType'], this._types);
     } catch (e) {
@@ -110,7 +100,7 @@ const fAssCtrl = {
     try {
       const r = await callAPI('/academic/terms-list', 'GET');
       this._terms = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      ['faTermFilter', 'faTerm'].forEach(id => {
+      ['faTerm'].forEach(id => {
         const sel = document.getElementById(id);
         if (!sel) return;
         const placeholder = sel.options[0].textContent;
@@ -313,6 +303,7 @@ const fAssCtrl = {
       const subject = document.getElementById('faSubjectFilter')?.value;
       const type    = document.getElementById('faTypeFilter')?.value;
       if (term)    params.set('term_id',    term);
+      if (this._currentAcademicYear) params.set('year_id', this._currentAcademicYear);
       if (cls)     params.set('class_id',   cls);
       if (subject) params.set('subject_id', subject);
       if (type)    params.set('type_id',    type);

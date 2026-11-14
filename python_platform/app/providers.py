@@ -40,6 +40,16 @@ class Provider:
         self._fast_chain = (
             self._build_chain(fast=True) if getattr(config, "fast_model", "") else []
         )
+        # With no configured fallbacks a slow or failing primary used to fail
+        # the request outright. The fast model is already provisioned, so it is
+        # the last resort for every task (a shorter answer beats no answer).
+        if self._fast_chain:
+            fast = self._fast_chain[0]
+            if not any(
+                entry["model"] == fast["model"] and entry["base_url"] == fast["base_url"]
+                for entry in self._chain
+            ):
+                self._chain.append(dict(fast, name=f"{fast['name']}-fallback"))
 
     # Task classes that only need cheap, fast classification work (agent
     # routing, short extraction). They may use AI_FAST_MODEL when configured
@@ -64,7 +74,10 @@ class Provider:
         "briefing": (520, 14),
         "chat": (500, 14),
         "answer": (500, 14),
-        "draft": (1200, 32),
+        # Governed drafts (schemes, lesson plans, messages) run in the queue
+        # worker, so they can wait longer than an interactive answer; the
+        # primary attempt plus the fast fallback still fit the worker call.
+        "draft": (3000, 45),
     }
     DEFAULT_MAX_TOKENS = 600
     DEFAULT_TIMEOUT = 20
@@ -110,7 +123,17 @@ class Provider:
                         "name": str(fallback.get("name") or f"fallback_{len(chain)}"),
                         "base_url": base_url.rstrip("/"),
                         "model": model,
-                        "api_key": str(fallback.get("api_key") or ""),
+                        # A fallback model on the primary's own host may
+                        # omit its key: it reuses the primary's, so the
+                        # secret is not duplicated into AI_PROVIDER_FALLBACKS.
+                        "api_key": str(
+                            fallback.get("api_key")
+                            or (
+                                self.config.api_key
+                                if base_url.rstrip("/") == (self.config.provider_base_url or "").rstrip("/")
+                                else ""
+                            )
+                        ),
                         "provider_kind": str(
                             fallback.get("provider_kind") or "generic"
                         ),

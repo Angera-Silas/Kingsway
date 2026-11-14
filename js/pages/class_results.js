@@ -1,22 +1,17 @@
 /** Class-teacher results view using the server-enforced class-teacher scope. */
 const classResultsController = {
-  state: { rows: [], request: 0, years: [], terms: [], classes: [] },
+  state: { rows: [], request: 0, classes: [] },
   api(method, endpoint, data, params) { return window.callAPI(endpoint, method, data, params); },
   esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); },
   data(response) { return response?.data?.data ?? response?.data ?? response; },
   list(response) { const data = this.data(response); return Array.isArray(data) ? data : []; },
   async loadFilters() {
-    const [yearsResponse, termsResponse, classesResponse] = await Promise.all([
-      this.api('GET', '/api/academic/years-list'), this.api('GET', '/api/academic/terms-list'), this.api('GET', '/api/academic/classes-list'),
-    ]);
-    this.state.years = this.list(yearsResponse); this.state.terms = this.list(termsResponse); this.state.classes = this.list(classesResponse);
+    this.state.classes = this.list(await this.api('GET', '/api/academic/classes-list'));
     const fill = (id, items, label, current) => {
       const select = document.getElementById(id); if (!select) return;
       const first = select.options[0]?.outerHTML || '<option value="">All</option>';
       select.innerHTML = first + items.map((x) => `<option value="${Number(x.id)}" ${current(x) ? 'selected' : ''}>${this.esc(label(x))}</option>`).join('');
     };
-    fill('yearFilter', this.state.years, (x) => x.year_name || x.year_code || x.name, (x) => Boolean(x.is_current));
-    fill('termFilter', this.state.terms, (x) => `${x.name || x.term_name || 'Term'}${x.year_name ? ` (${x.year_name})` : ''}`, (x) => x.status === 'current');
     fill('classFilter', this.state.classes, (x) => x.name || x.class_name, () => false);
   },
   async load() {
@@ -57,17 +52,24 @@ const classResultsController = {
     if (window.AuthContext?.canExport && !window.AuthContext.canExport('results')) return window.showNotification?.('You do not have permission to export results.', 'error');
     const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = [['Student', 'Admission No', 'Class', 'Term', 'Average %', 'Grade', 'Remarks'], ...this.state.rows.map((r) => [r.full_name || r.student_name, r.admission_no, r.class_name, r.term_name, r.average_score, r.grade, r.teacher_comment || r.remarks])];
-    window.KingswayFileLifecycle?.exportText?.(rows.map((r) => r.map(quote).join(',')).join('\r\n'), 'class-results.csv', 'text/csv;charset=utf-8');
+    window.KingswayFileLifecycle?.exportText?.(rows.map((r) => r.map(quote).join(',')).join('\r\n'), `class-results_${(document.getElementById('yearFilter')?.selectedOptions?.[0]?.textContent || '').replace(/\s*\(.*\)$/, '').replace(/[^0-9A-Za-z-]+/g, '-')}.csv`, 'text/csv;charset=utf-8');
   },
   print() { if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('results')) return window.showNotification?.('You do not have permission to print results.', 'error'); window.print(); },
   init() {
     document.getElementById('loadResultsBtn')?.remove();
     document.getElementById('exportBtn')?.addEventListener('click', () => this.exportCSV()); document.getElementById('printBtn')?.addEventListener('click', () => this.print());
-    ['yearFilter', 'termFilter', 'classFilter'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.load()));
+    document.getElementById('classFilter')?.addEventListener('change', () => this.load());
     document.getElementById('subjectFilter')?.closest('.col-md-3')?.classList.add('d-none');
-    this.loadFilters().then(() => this.load()).catch((error) => {
-      console.error('Class results filters failed:', error); this.load();
-    });
+    // Year and term: the shared filter (current year, running term), which
+    // loads the results now and on every change.
+    const mountYear = async () => {
+      const yearSelect = document.getElementById('yearFilter');
+      const mounted = window.AcademicYearFilter && yearSelect
+        ? await window.AcademicYearFilter.mount(yearSelect, { termSelect: document.getElementById('termFilter'), onChange: () => this.load() })
+        : null;
+      if (!mounted) await this.load();
+    };
+    this.loadFilters().catch((error) => console.error('Class results filters failed:', error)).then(mountYear);
     window.APIRealtime?.register?.('class_results', { refresh: () => this.load() }, ['academic', 'reports']);
   },
 };

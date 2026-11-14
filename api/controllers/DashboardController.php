@@ -72,7 +72,7 @@ class DashboardController extends BaseController
             }
             return $this->success(['authorities' => $summary, 'results' => $results], 'Assessment policy watch completed.');
         } catch (Throwable $error) {
-            error_log('[DashboardController] assessment policy watch failed: ' . $error->getMessage());
+            \App\API\Includes\FileLogger::error('dashboard', ['action' => 'assessment_policy_watch', 'error' => $error->getMessage()]);
             return $this->serverError('The assessment policy watch could not run.');
         }
     }

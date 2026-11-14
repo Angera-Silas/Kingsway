@@ -2591,7 +2591,19 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-delete": "schedules_update",
   "/schedules/timetable-check-conflicts": "schedules_view",
   "/schedules/timetable-report-conflict": "schedules_create",
-  "/schedules/timetable-time-slots": "schedules_view",
+  "/schedules/timetable-time-slots": {
+    GET: "schedules_view",
+    // Saving the school day's periods is timetable editing (any of these).
+    PUT: ["schedules_create", "schedules_update", "schedules_manage", "schedules_approve"],
+  },
+  "/schedules/weekly-lessons": {
+    GET: "schedules_view",
+    // Saving weekly lessons is timetable editing (any of these).
+    PUT: ["schedules_create", "schedules_update", "schedules_manage", "schedules_approve"],
+  },
+  "/schedules/teacher-workload": "schedules_view",
+  "/schedules/teaching-load": "schedules_view",
+  "/schedules/timetable-auto-draft": ["schedules_create", "schedules_update", "schedules_manage", "schedules_approve"],
   "/schedules/timetable-drafts": "schedules_view",
   "/schedules/ai-timetable-planning-queue": "schedules_view",
   "/schedules/ai-timetable-planning-session": "schedules_view",
@@ -7377,10 +7389,10 @@ window.API = {
       apiCall(`/transport/ai-operations-summary-approve/${Number(id)}`, "POST", {}),
   },
 
-  // Boarding/Dormitory endpoints
+  // Chapel services now live on the chaplaincy controller.
   chapel: {
     getServices: async (params = {}) =>
-      apiCall("/chapel/services", "GET", null, params),
+      apiCall("/chaplaincy/services", "GET", null, params),
   },
 
   // Chaplaincy Department endpoints (owned by ChaplaincyController)
@@ -7523,6 +7535,20 @@ window.API = {
     reportTimetableConflict: async (data) =>
       apiCall("/schedules/timetable-report-conflict", "POST", data),
     getTimeSlots: async () => apiCall("/schedules/timetable-time-slots", "GET"),
+    // Replace the school day's periods (lessons, breaks, lunch, assembly, games).
+    saveTimeSlots: async (slots) => apiCall("/schedules/timetable-time-slots", "PUT", { slots }),
+    // Lessons per week for each learning area of each class in one year.
+    getWeeklyLessons: async (academicYearId) =>
+      apiCall(`/schedules/weekly-lessons?academic_year_id=${encodeURIComponent(academicYearId)}`, "GET"),
+    saveWeeklyLessons: async (academicYearId, changes) =>
+      apiCall("/schedules/weekly-lessons", "PUT", { academic_year_id: academicYearId, changes }),
+    // Weekly lessons per teacher, and every stream's lessons with its teacher.
+    getTeacherWorkload: async (params = {}) =>
+      apiCall(`/schedules/teacher-workload?${new URLSearchParams(params).toString()}`, "GET"),
+    getTeachingLoad: async (params = {}) =>
+      apiCall(`/schedules/teaching-load?${new URLSearchParams(params).toString()}`, "GET"),
+    // Generate a class timetable draft from allocations, weekly lessons and periods.
+    autoDraftTimetable: async (data) => apiCall("/schedules/timetable-auto-draft", "POST", data),
     listTimetableDrafts: async (params = {}) => {
       const qs = new URLSearchParams(params).toString();
       return apiCall(qs ? `/schedules/timetable-drafts?${qs}` : "/schedules/timetable-drafts", "GET");

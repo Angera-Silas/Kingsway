@@ -21,10 +21,26 @@ const MAX_PRESENCE_KEYS_PER_USER = 50;
  * the query string would be written to every proxy and access log on the way
  * here, so `?token=` is deliberately ignored.
  */
+const TOKEN_PATTERN = /^[A-Za-z0-9._~+/=-]+$/;
+
+/** Longest a single stream stays open (default 20 min, below common 30 min proxy limits). */
+const MAX_STREAM_MS = Math.max(60_000, Math.min(
+  25 * 60_000,
+  (Number(process.env.NODE_REALTIME_MAX_STREAM_MINUTES) || 20) * 60_000,
+));
+
+/**
+ * The stream capability from the Authorization header, or from
+ * X-Kingsway-SSE-Token when a front proxy strips Authorization (Apache and
+ * LiteSpeed under Passenger do this by default; production then answered
+ * every stream with 401 "Missing token"). Never from the URL.
+ */
 export function bearerToken(req) {
   const header = String(req?.headers?.authorization || '');
   const match = /^Bearer\s+([A-Za-z0-9._~+/=-]+)$/.exec(header);
-  return match ? match[1] : '';
+  if (match) return match[1];
+  const fallback = String(req?.headers?.['x-kingsway-sse-token'] || '').trim();
+  return TOKEN_PATTERN.test(fallback) ? fallback : '';
 }
 
 export function createSSE() {
@@ -223,6 +239,10 @@ export function createSSE() {
 
     writeEvent(connId, 'connected', { connectionId: connId, channels: Array.from(connection.channels) });
     connection.heartbeat = startHeartbeat(connId);
+    // End the stream ourselves before the front proxy's idle/total limit
+    // (production cut streams at exactly 30 min with a 504 that carries no
+    // CORS header). A clean end lets the client reconnect with a new token.
+    connection.lifetimeTimer = setTimeout(() => closeConnection(connId, true), MAX_STREAM_MS);
 
     // Cleanup must survive proxy environments (LiteSpeed/cPanel): a dropped
     // upstream socket can surface on either req.raw or reply.raw, and some
@@ -306,6 +326,7 @@ export function createSSE() {
     conn.closed = true;
     if (conn.heartbeat) clearInterval(conn.heartbeat);
     if (conn.slowClientTimer) clearTimeout(conn.slowClientTimer);
+    if (conn.lifetimeTimer) clearTimeout(conn.lifetimeTimer);
     for (const unsubscribe of conn.unsubscribers) {
       try { unsubscribe(); } catch {}
     }

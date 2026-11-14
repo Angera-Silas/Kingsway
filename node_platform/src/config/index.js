@@ -195,6 +195,10 @@ export function loadConfig(overrides = {}) {
     security: {
       ...yamlConfig.security,
       jwtSecret: mergedEnv.JWT_SECRET || yamlConfig.security?.jwtSecret || '',
+      // Must equal PHP's JWT_ISSUER / JWT_AUDIENCE, which sign the stream
+      // capability; the env wins so both apps can share one value.
+      jwtIssuer: mergedEnv.JWT_ISSUER || yamlConfig.security?.jwtIssuer || '',
+      jwtAudience: mergedEnv.JWT_AUDIENCE || yamlConfig.security?.jwtAudience || '',
       workerSecret: mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.workerSecret || '',
       webOrigins: (mergedEnv.NODE_REALTIME_WEB_ORIGIN || yamlConfig.security?.webOrigins?.join(',') || '')
         .split(',')

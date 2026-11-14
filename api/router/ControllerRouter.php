@@ -268,12 +268,12 @@ class ControllerRouter
         if ($controllerMap === null) {
             // Route map is disk-cached: the per-request glob() over the
             // controllers directory is a real cost at ~1000 concurrent users
-            // (every request globs once). A short TTL (120s) lets newly added
+            // (every request globs once). A short TTL lets newly added
             // controllers appear within two minutes while removing the scan
             // from the concurrent hot path almost entirely.
             $controllerMap = \App\API\Services\FileCache::remember(
                 'router.controller_map',
-                2,
+                2, // minutes (FileCache TTLs are in minutes): 120 s
                 function () {
                     $map = [];
                     $controllersDir = dirname(__DIR__) . '/controllers';

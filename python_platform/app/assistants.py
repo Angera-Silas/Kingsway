@@ -80,6 +80,27 @@ def _bounded_corpus(corpus: Any) -> list[dict]:
     return safe
 
 
+_WORD = __import__("re").compile(r"[a-z0-9]{3,}")
+
+
+def _rank_by_relevance(question: str, items: list[dict]) -> list[dict]:
+    """Most relevant first, by shared words with the question (stable).
+
+    The prompt policy trims a grounding list from the end to fit its byte
+    budget, so the order decides which sources the model actually sees.
+    """
+    wanted = set(_WORD.findall(question.lower()))
+    if not wanted:
+        return items
+
+    def score(item: dict) -> int:
+        title = set(_WORD.findall(str(item.get("title") or "").lower()))
+        body = set(_WORD.findall(str(item.get("content") or "").lower()))
+        return 3 * len(wanted & title) + len(wanted & body)
+
+    return sorted(items, key=score, reverse=True)
+
+
 def _bounded_conversation(conversation: Any) -> list[dict]:
     safe: list[dict] = []
     if not isinstance(conversation, list):
@@ -242,7 +263,9 @@ class PublicAssistantSkill:
             {
                 "question": question,
                 "audience": "public_visitor",
-                "corpus": json.dumps(safe_corpus, ensure_ascii=False),
+                "corpus": json.dumps(
+                    _rank_by_relevance(question, safe_corpus), ensure_ascii=False
+                ),
                 "conversation": json.dumps(
                     _bounded_conversation(conversation), ensure_ascii=False
                 ),
@@ -437,7 +460,9 @@ class ResearchAssistantSkill:
             {
                 "question": question,
                 "audience": "authorized_staff",
-                "sources": json.dumps(safe, ensure_ascii=False),
+                "sources": json.dumps(
+                    _rank_by_relevance(question, safe), ensure_ascii=False
+                ),
             },
         )
         from .agents import PROMPT_TEMPLATES

@@ -761,7 +761,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/create-schedule - Create exam schedule
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsCreateSchedule($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -779,7 +778,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/submit-questions - Submit question papers
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsSubmitQuestions($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -798,7 +796,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/prepare-logistics - Prepare exam logistics
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsPrepareLogistics($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -812,7 +809,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/conduct - Conduct examination
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsConduct($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -826,7 +822,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/assign-marking - Assign exam marking
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsAssignMarking($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -844,7 +839,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/record-marks - Record exam marks
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsRecordMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -862,7 +856,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/verify-marks - Verify exam marks
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsVerifyMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -876,7 +869,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/moderate-marks - Moderate exam marks
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsModerateMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -894,7 +886,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/exams/compile-results - Compile exam results
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsCompileResults($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -909,7 +900,6 @@ return $this->serverError('An internal error occurred.');
      * POST /api/academic/exams/approve-results - Approve exam results (Director/academic_approve)
      * Body: { instance_id, approved (bool, default true), comments }
      */
-    // TODO: Delegate to AcademicExamService
     public function postExamsApproveResults($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -1882,7 +1872,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/compile-data - Compile report data
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsCompileData($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1896,7 +1885,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/generate-student-reports - Generate student reports
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsGenerateStudentReports($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1941,7 +1929,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/review-and-approve - Review and approve reports
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsReviewAndApprove($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1963,7 +1950,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/reports/distribute - Distribute reports
      */
-    // TODO: Delegate to AcademicReportService
     public function postReportsDistribute($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -2076,7 +2062,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/curriculum/map-outcomes - Map curriculum outcomes
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumMapOutcomes($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
@@ -2090,7 +2075,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/curriculum/create-scheme - Create curriculum scheme
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumCreateScheme($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
@@ -2106,7 +2090,6 @@ return $this->serverError('An internal error occurred.');
      * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum (Director only)
      * Body: { instance_id, action (approve|reject), comments }
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumReviewAndApprove($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -2187,7 +2170,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/year-transition/execute-promotions - Execute year promotions
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionExecutePromotions($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) {
@@ -2250,7 +2232,6 @@ return $this->serverError('An internal error occurred.');
      * POST /api/academic/year-transition/setup-new-year - Setup new academic year (Director only)
      * Body: { instance_id, year_id (optional), class_structures[], clone_subjects, clone_staff_assignments }
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionSetupNewYear($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -2270,7 +2251,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/year-transition/migrate-competency-baselines - Migrate competency baselines
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionMigrateCompetencyBaselines($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
@@ -2290,7 +2270,6 @@ return $this->serverError('An internal error occurred.');
      * summary; without it any authenticated user could switch the system to a
      * new academic year.
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearTransitionValidateReadiness($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
@@ -2545,7 +2524,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/years/list - Get all academic years
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearsList($id = null, $data = [], $segments = [])
     {
         return $this->yearService->getYearsList($id, $data, $segments, $this);
@@ -2554,7 +2532,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/years/current - Get current academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearsCurrent($id = null, $data = [], $segments = [])
     {
         return $this->yearService->getYearsCurrent($id, $data, $segments, $this);
@@ -2563,7 +2540,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/years/get/{id} - Get academic year by ID
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearsGet($id = null, $data = [], $segments = [])
     {
         return $this->yearService->getYearsGet($id, $data, $segments, $this);
@@ -2572,7 +2548,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/years/create - Create academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearsCreate($id = null, $data = [], $segments = [])
     {
         return $this->yearService->postYearsCreate($id, $data, $segments, $this);
@@ -2581,7 +2556,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * PUT /api/academic/years/update/{id} - Update academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function putYearsUpdate($id = null, $data = [], $segments = [])
     {
         return $this->yearService->putYearsUpdate($id, $data, $segments, $this);
@@ -2590,7 +2564,6 @@ return $this->serverError('An internal error occurred.');
     /**
      * DELETE /api/academic/years/delete/{id} - Delete academic year
      */
-    // TODO: Delegate to AcademicYearService
     public function deleteYearsDelete($id = null, $data = [], $segments = [])
     {
         return $this->yearService->deleteYearsDelete($id, $data, $segments, $this);
@@ -2600,7 +2573,6 @@ return $this->serverError('An internal error occurred.');
      * PUT /api/academic/years/set-current - Set year as current (Director/System Admin only)
      * Accepts year_id from URL segment (/set-current/5) or from request body (year_id or id)
      */
-    // TODO: Delegate to AcademicYearService
     public function putYearsSetCurrent($id = null, $data = [], $segments = [])
     {
         // Only Director (role_id=3) or System Admin (role_id=1) may change the current year
@@ -3145,25 +3117,21 @@ return $this->serverError('An internal error occurred.');
     /**
      * POST /api/academic/curriculum-units/create - Create curriculum unit
      */
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumUnitsCreate($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->postCurriculumUnitsCreate($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->postCurriculumUnitsCreate($id, $data, $segments);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnitsList($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->getCurriculumUnitsList($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnits($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
@@ -3173,31 +3141,26 @@ return $this->serverError('An internal error occurred.');
         return $this->getCurriculumUnitsList($id, $data, $segments);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnitsGet($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->getCurriculumUnitsGet($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function putCurriculumUnitsUpdate($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->putCurriculumUnitsUpdate($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function putCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->putCurriculumUnitsUpdate($id, $data, $segments);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function deleteCurriculumUnitsDelete($id = null, $data = [], $segments = [])
     {
         return $this->curriculumService->deleteCurriculumUnitsDelete($id, $data, $segments, $this);
     }
 
-    // TODO: Delegate to AcademicCurriculumService
     public function deleteCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->deleteCurriculumUnitsDelete($id, $data, $segments);
@@ -4478,7 +4441,6 @@ return $this->serverError('An internal error occurred.');
      * GET /api/academic/year-rollover-status
      * Returns the current state of the rollover checklist.
      */
-    // TODO: Delegate to AcademicYearService
     public function getYearRolloverStatus($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->academicManager->getYearRolloverStatus());
@@ -4489,7 +4451,6 @@ return $this->serverError('An internal error occurred.');
      * Executes one step of the year-end rollover process.
      * Body: { step: 'fee_carryover' | 'staff_reassignment' | 'create_new_year' | ... }
      */
-    // TODO: Delegate to AcademicYearService
     public function postYearRollover($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
@@ -4553,9 +4514,7 @@ return $this->serverError('An internal error occurred.');
                 return $row ? $this->success($row) : $this->notFound('Class teacher assignment not found');
             }
             return $this->success($this->teachingAssignments->listClassTeachers(array_merge($_GET, $data)));
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
-            return $this->serverError('Failed to load class teacher assignments', 'An internal error occurred.');
-        }
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     /** POST /api/academic/class-teachers */
@@ -4566,9 +4525,7 @@ return $this->serverError('An internal error occurred.');
             $newId = $this->teachingAssignments->saveClassTeacher($data, null, $this->staffAccess->userId());
             $this->staffAccess->audit('create_class_teacher_assignment', 'staff_class_assignment', $newId, null, $data);
             return $this->created(['id'=>$newId], 'Class teacher assigned');
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
-            return $this->serverError('Failed to assign class teacher', 'An internal error occurred.');
-        }
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     /** PUT /api/academic/class-teachers/{id} */
@@ -4581,7 +4538,7 @@ return $this->serverError('An internal error occurred.');
             $this->teachingAssignments->saveClassTeacher($data, (int)$id, $this->staffAccess->userId());
             $this->staffAccess->audit('update_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, $data);
             return $this->success(['id'=>(int)$id], 'Class teacher assignment updated');
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     /** DELETE /api/academic/class-teachers/{id} */
@@ -4589,10 +4546,12 @@ return $this->serverError('An internal error occurred.');
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         if (!$id) return $this->badRequest('Assignment ID is required');
-        $before = $this->teachingAssignments->getClassTeacher((int)$id);
-        $this->teachingAssignments->removeClassTeacher((int)$id);
-        $this->staffAccess->audit('remove_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, ['status'=>'completed']);
-        return $this->success(null, 'Class teacher assignment removed');
+        try {
+            $before = $this->teachingAssignments->getClassTeacher((int)$id);
+            $this->teachingAssignments->removeClassTeacher((int)$id);
+            $this->staffAccess->audit('remove_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, ['status'=>'completed']);
+            return $this->success(null, 'Class teacher assignment removed');
+        } catch (\Throwable $e) { return $this->subjectAssignmentFailure($e); }
     }
 
     /** Assignment scope ('class' | 'stream') from the query string or body; ids are unique per scope. */

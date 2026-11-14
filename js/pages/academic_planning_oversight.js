@@ -3,14 +3,34 @@ const academicPlanningOversight = {
   esc(v) { const d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; },
   setHTML(selector, html) { const target = document.querySelector(selector); if (target) target.innerHTML = html; },
   setText(id, value) { const target = document.getElementById(id); if (target) target.textContent = String(value); },
-  rows(items, cols, text = 'No records found for the current academic context.') { return items.length ? items : [{ __empty: true, __text: text, __cols: cols }]; },
+  rows(items, cols, text = 'No records found for the selected year and term.') { return items.length ? items : [{ __empty: true, __text: text, __cols: cols }]; },
   status(v) { const s = String(v || 'not_started').toLowerCase(); const cls = s === 'approved' ? 'success' : (s === 'submitted' || s === 'pending') ? 'warning text-dark' : s === 'rejected' ? 'danger' : 'secondary'; return `<span class="badge bg-${cls}">${this.esc(s.replace(/_/g, ' '))}</span>`; },
   emptyRow(x) { return x.__empty ? `<tr><td colspan="${x.__cols}" class="text-center text-muted apo-empty">${this.esc(x.__text)}</td></tr>` : ''; },
-  getContext() { return { academic_year_id: window.AcademicContext?.getAcademicYearId?.() || '', term_id: window.AcademicContext?.getTermId?.() || '' }; },
+  scope: { yearId: 0, termId: 0, label: '' },
+  getContext() { return { academic_year_id: this.scope.yearId || '', term_id: this.scope.termId || '' }; },
+  async mountScope() {
+    const yearEl = document.getElementById('apoYear');
+    if (!window.AcademicYearFilter || !yearEl) {
+      try { await window.AcademicContext?.init?.(); } catch (_) {}
+      this.scope.yearId = Number(window.AcademicContext?.getAcademicYearId?.() || 0);
+      this.scope.termId = Number(window.AcademicContext?.getTermId?.() || 0);
+      return;
+    }
+    let ready = false;
+    await window.AcademicYearFilter.mount(yearEl, {
+      termSelect: document.getElementById('apoTerm'),
+      allTermsLabel: 'All terms',
+      onChange: (yearId, year, termId, term) => {
+        this.scope = { yearId: Number(yearId || 0), termId: Number(termId || 0), label: [year?.year_name || year?.year_code, term?.name].filter(Boolean).join(' · ') };
+        if (ready) this.load().catch((e) => window.showNotification?.(e.message || 'Unable to load', 'danger'));
+      },
+    });
+    ready = true;
+  },
   async load() {
     const context = this.getContext();
     const params = { ...context, limit: 100 };
-    this.setText('apoContext', context.academic_year_id ? 'Current academic year and term · filters supplied automatically' : 'Current academic context');
+    this.setText('apoContext', this.scope.label ? `Showing ${this.scope.label}${this.scope.termId ? '' : ' (all terms)'}` : 'All academic years');
     const results = await Promise.allSettled([
       window.API.apiCall('/academic/scheme-of-work-get', 'GET', null, params),
       window.API.academic.listLessonPlans(params),
@@ -135,7 +155,7 @@ const academicPlanningOversight = {
   renderApproval() { const statuses = [...this.schemeGroups.map(x=>this.groupStatus(x)), ...this.lessonGroups.map(x=>this.lessonGroupStatus(x))].reduce((a,s)=>{s=String(s||'not_started');a[s]=(a[s]||0)+1;return a;},{}); this.setHTML('#apoApprovalCards', Object.entries(statuses).map(([s,n])=>`<div class="col-6 col-md-3"><div class="border rounded p-3"><strong>${n}</strong><br><small>${this.esc(s.replace(/_/g,' '))}</small></div></div>`).join('') || '<div class="col-12 text-muted">No planning records available.</div>'); const grouped={}; this.reconciliation.forEach(x=>{const key=[x.content_type||'unknown',x.status||'unknown',x.reason||'No reason recorded'].join('|');(grouped[key] ||= {type:x.content_type||'unknown',status:x.status||'unknown',reason:x.reason||'No reason recorded',items:[]}).items.push(x);}); const groups=Object.values(grouped); this.setHTML('#apoReconciliationTable tbody', this.rows(groups,5,'No unresolved academic-content reconciliation items.').map((x,i)=>this.emptyRow(x)||`<tr><td>${this.esc(x.type)}</td><td>${this.status(x.status)}</td><td>${this.esc(x.reason)}</td><td><span class="badge bg-light text-dark border">${x.items.length}</span></td><td><button type="button" class="btn btn-sm btn-outline-secondary" onclick="academicPlanningOversight.viewReconciliation(${i})">View</button></td></tr>`).join('')); this.reconciliationGroups=groups; },
   reconciliationGroups: [],
   viewReconciliation(index) { const group=this.reconciliationGroups[index]; if(!group)return; document.getElementById('apoSchemeModalTitle').textContent=`${group.type} reconciliation`; document.getElementById('apoSchemeModalMeta').textContent=`${group.items.length} records · ${group.status}`; document.getElementById('apoSchemeModalBody').innerHTML=`<div class="alert alert-warning small">These records are preserved for controlled reconciliation and are not part of current teacher workflows.</div><div class="table-responsive"><table class="table table-hover apo-table"><thead><tr><th>Record</th><th>Title</th><th>Reason</th><th>Status</th></tr></thead><tbody>${group.items.map(x=>`<tr><td>#${this.esc(x.content_id)}</td><td>${this.esc(x.title||'—')}</td><td>${this.esc(x.reason||'—')}</td><td>${this.status(x.status)}</td></tr>`).join('')}</tbody></table></div>`; bootstrap.Modal.getOrCreateInstance(document.getElementById('apoSchemeModal')).show(); },
-  async init() { document.getElementById('apoRefresh')?.addEventListener('click',()=>this.load().catch(e=>window.showNotification?.(e.message||'Unable to refresh','danger'))); document.getElementById('apoSchemeSearch')?.addEventListener('input',()=>this.renderSchemes()); document.getElementById('apoLessonStatus')?.addEventListener('change',()=>this.renderLessons()); try { await window.AcademicContext?.init?.(); } catch (e) { console.warn('Academic context unavailable; loading unfiltered oversight data.', e); } await this.load(); }
+  async init() { document.getElementById('apoRefresh')?.addEventListener('click',()=>this.load().catch(e=>window.showNotification?.(e.message||'Unable to refresh','danger'))); document.getElementById('apoSchemeSearch')?.addEventListener('input',()=>this.renderSchemes()); document.getElementById('apoLessonStatus')?.addEventListener('change',()=>this.renderLessons()); await this.mountScope(); await this.load(); }
 };
 window.academicPlanningOversight = academicPlanningOversight;
 document.addEventListener('DOMContentLoaded', () => academicPlanningOversight.init().catch(e=>window.showNotification?.(e.message||'Unable to load academic planning oversight','danger')));

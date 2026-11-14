@@ -73,6 +73,7 @@
             <div class="d-flex gap-2 no-print">
                 <button class="btn btn-sm btn-outline-success" onclick="YearCalendarController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export CSV</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="YearCalendarController.print()"><i class="bi bi-printer me-1"></i> Print</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="YearCalendarController.downloadPdf()" title="The official academic calendar for the selected year"><i class="bi bi-file-earmark-pdf me-1"></i> Calendar PDF</button>
             </div>
         </div>
         <div class="card-body p-0">
