@@ -689,7 +689,7 @@ class CommunicationsController extends BaseController
         }
 
         try {
-            $result = $this->smsService()->syncAll();
+            $result = $this->smsService()->syncAll(is_array($data) ? $data : []);
         } catch (\Throwable $e) {
             return $this->badRequest('Contact sync failed: ' . $e->getMessage());
         }

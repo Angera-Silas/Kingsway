@@ -18,6 +18,9 @@ use App\API\Services\SystemCommsConfigService;
  */
 class SMSService
 {
+    /** MariaDB advisory lock: at most one scheduled contact sync at a time. */
+    private const SYNC_LOCK_NAME = 'kingsway:sms_contact_sync';
+
     private PDO $db;
     private SMSGateway $gateway;
     private ?SMSGateway $whatsappGateway = null;
@@ -239,43 +242,79 @@ class SMSService
     }
 
     /**
-     * One-shot reconciliation: pull provider groups, create any missing local
+     * Scheduled reconciliation: pull provider groups, create any missing local
      * groups at the provider, then push unlinked contacts for every group.
+     *
+     * Bounded so the ticker never times out: one provider call may take up to
+     * PROVIDER_TIMEOUT_SECONDS, so a run stops starting new calls after
+     * `max_seconds` or `limit` pushes and reports `complete: false`; the next
+     * tick carries on. Contacts the provider rejected are retried only after
+     * `retry_errors_after_minutes`, and a lock stops a run that outlived its
+     * caller from overlapping the next one (which could store a contact twice).
      */
-    public function syncAll(): array
+    public function syncAll(array $options = []): array
     {
-        $groups = $this->syncGroups();
-        $provisioned = $this->provisionGroups();
+        $maxSeconds = max(5, min(75, (int) ($options['max_seconds'] ?? 40)));
+        $limit = max(1, min(500, (int) ($options['limit'] ?? 100)));
+        $retryAfter = max(1, min(10080, (int) ($options['retry_errors_after_minutes'] ?? 360)));
+        $deadline = microtime(true) + $maxSeconds;
 
-        $pushed = 0;
-        $failed = 0;
-        $imported = ['added' => 0, 'updated' => 0, 'removed' => 0];
-        $stmt = $this->db->prepare("SELECT id, entity_type FROM communication_groups WHERE provider = ? ORDER BY id");
-        $stmt->execute([$this->providerName()]);
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $group) {
-            try {
-                if (in_array((string) $group['entity_type'], ['parents', 'staff', 'students', 'vendors'], true)) {
-                    $refresh = $this->importAudience((int) $group['id']);
-                    foreach (array_keys($imported) as $key) $imported[$key] += (int) ($refresh[$key] ?? 0);
-                    $this->db->prepare("UPDATE communication_groups SET last_error = NULL WHERE id = ?")->execute([(int) $group['id']]);
-                }
-                $result = $this->syncContacts((int) $group['id']);
-                $pushed += (int) ($result['pushed'] ?? 0);
-                $failed += (int) ($result['failed'] ?? 0);
-            } catch (\Throwable $e) {
-                $failed++;
-                $this->db->prepare("UPDATE communication_groups SET sync_status = 'error', last_error = ? WHERE id = ?")
-                    ->execute([substr($e->getMessage(), 0, 500), (int) $group['id']]);
-            }
+        $lock = $this->db->prepare('SELECT GET_LOCK(?, 0)');
+        $lock->execute([self::SYNC_LOCK_NAME]);
+        if ((int) $lock->fetchColumn() !== 1) {
+            return ['skipped' => true, 'reason' => 'already_running', 'complete' => false];
         }
 
-        return [
-            'groups' => $groups,
-            'provisioned' => $provisioned,
-            'directory_contacts' => $imported,
-            'contacts_pushed' => $pushed,
-            'contacts_failed' => $failed,
-        ];
+        try {
+            $groups = $this->syncGroups();
+            $provisioned = microtime(true) < $deadline ? $this->provisionGroups() : ['provisioned' => 0];
+
+            $pushed = 0;
+            $failed = 0;
+            $complete = true;
+            $imported = ['added' => 0, 'updated' => 0, 'removed' => 0];
+            $stmt = $this->db->prepare("SELECT id, entity_type FROM communication_groups WHERE provider = ? ORDER BY id");
+            $stmt->execute([$this->providerName()]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $group) {
+                $remaining = $limit - $pushed - $failed;
+                if ($remaining < 1 || microtime(true) >= $deadline) {
+                    $complete = false;
+                    break;
+                }
+                try {
+                    if (in_array((string) $group['entity_type'], ['parents', 'staff', 'students', 'vendors'], true)) {
+                        $refresh = $this->importAudience((int) $group['id']);
+                        foreach (array_keys($imported) as $key) $imported[$key] += (int) ($refresh[$key] ?? 0);
+                        $this->db->prepare("UPDATE communication_groups SET last_error = NULL WHERE id = ?")->execute([(int) $group['id']]);
+                    }
+                    $result = $this->syncContacts((int) $group['id'], [
+                        'deadline' => $deadline,
+                        'limit' => $remaining,
+                        'retry_errors_after_minutes' => $retryAfter,
+                    ]);
+                    $pushed += (int) ($result['pushed'] ?? 0);
+                    $failed += (int) ($result['failed'] ?? 0);
+                    if (($result['complete'] ?? true) !== true) {
+                        $complete = false;
+                    }
+                } catch (\Throwable $e) {
+                    $failed++;
+                    $this->db->prepare("UPDATE communication_groups SET sync_status = 'error', last_error = ? WHERE id = ?")
+                        ->execute([substr($e->getMessage(), 0, 500), (int) $group['id']]);
+                }
+            }
+
+            return [
+                'groups' => $groups,
+                'provisioned' => $provisioned,
+                'directory_contacts' => $imported,
+                'contacts_pushed' => $pushed,
+                'contacts_failed' => $failed,
+                'complete' => $complete,
+            ];
+        } finally {
+            $this->db->prepare('SELECT RELEASE_LOCK(?)')->execute([self::SYNC_LOCK_NAME]);
+        }
     }
 
     private function normalizeGroupAudience(string $entityType): string
@@ -385,8 +424,19 @@ class SMSService
     /**
      * Push local contacts for a group to the provider (our DB is source of truth).
      */
-    public function syncContacts(int $groupId): array
+    /**
+     * Push this group's unlinked contacts to the provider. Options (used by
+     * the scheduled syncAll; a manual sync passes none and pushes everything):
+     * `deadline` (microtime) and `limit` stop starting new provider calls, and
+     * `retry_errors_after_minutes` skips contacts the provider rejected
+     * recently instead of re-sending them on every run.
+     */
+    public function syncContacts(int $groupId, array $options = []): array
     {
+        $deadline = isset($options['deadline']) ? (float) $options['deadline'] : null;
+        $limit = isset($options['limit']) ? max(0, (int) $options['limit']) : null;
+        $retryAfter = max(0, (int) ($options['retry_errors_after_minutes'] ?? 0));
+
         $group = $this->findGroup($groupId);
         if (empty($group['provider_group_id'])) {
             $provision = $this->gateway->createGroup($group['name']);
@@ -399,26 +449,40 @@ class SMSService
             $group['provider_group_id'] = $uid;
         }
 
-        $stmt = $this->db->prepare("SELECT id, name, email, phone, provider_contact_uid FROM contact_directory WHERE group_id = ?");
-        $stmt->execute([$groupId]);
+        $stmt = $this->db->prepare(
+            "SELECT id, name, email, phone, provider_contact_uid,
+                    (sync_status = 'error' AND last_synced_at > NOW() - INTERVAL ? MINUTE) AS cooling_down
+               FROM contact_directory WHERE group_id = ?"
+        );
+        $stmt->execute([$retryAfter, $groupId]);
         $contacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $pushed = 0;
         $failed = 0;
+        $complete = true;
+        $markError = $this->db->prepare("UPDATE contact_directory SET sync_status = 'error', last_synced_at = NOW() WHERE id = ?");
         foreach ($contacts as $contact) {
+            if (!empty($contact['provider_contact_uid'])) {
+                continue;
+            }
+            if ($retryAfter > 0 && (int) ($contact['cooling_down'] ?? 0) === 1) {
+                continue;
+            }
+            $phone = $this->normalizePhone((string) $contact['phone']);
+            if ($phone === '') {
+                continue;
+            }
+            if (($limit !== null && $pushed + $failed >= $limit)
+                || ($deadline !== null && microtime(true) >= $deadline)) {
+                $complete = false;
+                break;
+            }
             try {
-                if (!empty($contact['provider_contact_uid'])) {
-                    continue;
-                }
-                $phone = $this->normalizePhone((string) $contact['phone']);
-                if ($phone === '') {
-                    continue;
-                }
                 $parts = explode(' ', trim((string) $contact['name']), 2);
                 $result = $this->gateway->storeContact($group['provider_group_id'], $phone, $parts[0] ?? '', $parts[1] ?? '');
                 if (!($result['ok'] ?? false)) {
                     $failed++;
-                    $this->db->prepare("UPDATE contact_directory SET sync_status = 'error' WHERE id = ?")->execute([(int) $contact['id']]);
+                    $markError->execute([(int) $contact['id']]);
                     continue;
                 }
                 $uid = $this->extractUid($result['data'] ?? null);
@@ -427,15 +491,16 @@ class SMSService
                 $pushed++;
             } catch (\Throwable $e) {
                 $failed++;
+                $markError->execute([(int) $contact['id']]);
             }
         }
 
         $countStmt = $this->db->prepare("SELECT COUNT(*) FROM contact_directory WHERE group_id = ?");
         $countStmt->execute([$groupId]);
         $this->db->prepare("UPDATE communication_groups SET contact_count = ?, sync_status = ?, last_synced_at = NOW() WHERE id = ?")
-            ->execute([(int) $countStmt->fetchColumn(), $failed > 0 ? 'partial' : 'synced', $groupId]);
+            ->execute([(int) $countStmt->fetchColumn(), ($failed > 0 || !$complete) ? 'partial' : 'synced', $groupId]);
 
-        return ['group_id' => $groupId, 'pushed' => $pushed, 'failed' => $failed, 'total' => count($contacts)];
+        return ['group_id' => $groupId, 'pushed' => $pushed, 'failed' => $failed, 'total' => count($contacts), 'complete' => $complete];
     }
 
     /**
