@@ -242,6 +242,7 @@ $files = [
     'js/core/ui_state_manager.js',
     'js/utils/file_lifecycle.js',
     'js/utils/print_manager.js',
+    'js/components/table_toolbar.js',
     'js/utils/academic_context.js',
     'js/components/academic_year_filter.js',
     'js/utils/form-validation.js',
@@ -311,38 +312,8 @@ foreach ($files as $file) {
             return;
         }
 
-        try {
-            // Wait for auth to be fully initialized before checking route access.
-            // Without this, the check runs before AuthContext.initialize() completes
-            // so isAuthenticated() returns false and every route is denied.
-            if (window.AuthContext?.ready) {
-                await window.AuthContext.ready();
-            } else if (window.KingswayBootstrap?.initialize) {
-                await window.KingswayBootstrap.initialize();
-            }
-
-            const auth = await window.AppRouteAccess?.authorizeRouteAccess?.(route);
-            if (auth && !auth.authorized) {
-                const seg = document.getElementById('main-content-segment');
-                if (seg) {
-                    seg.innerHTML =
-                        '<div class="alert alert-danger border-0 shadow-sm mt-3">' +
-                        '<i class="bi bi-shield-lock me-2"></i>' +
-                        '<strong>Access denied.</strong> ' +
-                        'You do not have permission to view this page.' +
-                        '</div>';
-                }
-                window.showNotification?.(
-                    'You are not allowed to open that page.',
-                    'warning'
-                );
-                setTimeout(function () {
-                    window.AppRouteAccess.redirectToAllowedRoute?.(route);
-                }, 2000);
-            }
-        } catch (e) {
-            console.warn('Route authorization check failed:', e);
-        }
+        // Route access for a named route is checked once, in app_bootstrap.js
+        // (AppRouteAccess.authorizeRoute against the role's sidebar).
     })();
 </script>
 <?php endif; ?>

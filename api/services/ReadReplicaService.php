@@ -1148,7 +1148,6 @@ final class ReadReplicaService
         $replicaSchema = ConnectionManager::schemaFor(ConnectionManager::NS_READS);
         $masterSchema = ConnectionManager::schemaFor(ConnectionManager::NS_MASTER);
         $view = self::table($projection);
-        $source = self::sourceFor($projection);
 
         $exists = false;
         $published = false;
@@ -1176,7 +1175,8 @@ final class ReadReplicaService
             self::$refCache[$projection] = "`{$replicaSchema}`.`{$view}`";
             self::$refState[$projection] = 'materialized_fresh';
         } else {
-            self::$refCache[$projection] = "`{$masterSchema}`.`{$source}`";
+            // sourceFor() is already "schema.object"; quote each part, not the pair.
+            self::$refCache[$projection] = "`{$masterSchema}`.`" . self::PROJECTIONS[$projection] . "`";
             self::$refState[$projection] = 'source_view_fallback';
         }
 

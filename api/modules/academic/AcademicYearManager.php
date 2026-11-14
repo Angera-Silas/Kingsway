@@ -471,6 +471,31 @@ class AcademicYearManager
     }
 
     /**
+     * Dates for the year after one that runs $start..$end.
+     *
+     * The school year follows the calendar year (January to December), so the
+     * next one is the same span one calendar year later. It never starts on or
+     * before the current year's last day; when the shifted start would, it
+     * starts the day after the current year ends.
+     *
+     * @return array{0: \DateTimeImmutable, 1: \DateTimeImmutable}
+     */
+    public static function nextYearDates(string $start, string $end): array
+    {
+        $currentStart = new \DateTimeImmutable($start);
+        $currentEnd = new \DateTimeImmutable($end);
+        $nextStart = $currentStart->modify('+1 year');
+        $nextEnd = $currentEnd->modify('+1 year');
+        if ($nextStart <= $currentEnd) {
+            $nextStart = $currentEnd->modify('+1 day');
+        }
+        if ($nextEnd <= $nextStart) {
+            $nextEnd = $nextStart->modify('+1 year -1 day');
+        }
+        return [$nextStart, $nextEnd];
+    }
+
+    /**
      * Create next academic year based on current one
      */
     public function createNextYear(int $userId): array
@@ -482,10 +507,7 @@ class AcademicYearManager
 
         $nextYearCode = $this->getNextYearCode($currentYear['year_code']);
 
-        // Calculate dates (start from January of next year)
-        $currentEnd = new \DateTime($currentYear['end_date']);
-        $nextStart = (clone $currentEnd)->add(new \DateInterval('P45D')); // 45 days after current year ends
-        $nextEnd = (clone $nextStart)->add(new \DateInterval('P320D')); // ~320 days (11 months)
+        [$nextStart, $nextEnd] = self::nextYearDates($currentYear['start_date'], $currentYear['end_date']);
 
         return $this->createAcademicYear([
             'year_code' => $nextYearCode,

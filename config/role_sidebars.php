@@ -556,6 +556,7 @@ return [
                 ['label' => 'Subject Teachers', 'url' => 'assign_subjects_to_teachers'],
                 ['label' => 'Class Teachers', 'url' => 'assign_class_teachers'],
                 ['label' => 'Teacher Workload', 'url' => 'teacher_workload'],
+                ['label' => 'Lesson Periods', 'url' => 'lesson_periods'],
                 ['label' => 'Draft & Publish Timetable', 'url' => 'manage_timetable'],
             ]
         ],

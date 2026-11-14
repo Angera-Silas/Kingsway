@@ -55,8 +55,24 @@ const ExamResultsController = {
     await window.AuthContext?.ready?.();
     if (!window.AuthContext?.isAuthenticated?.()) return;
     await window.GradingScale?.preload?.();
-    if (window.AcademicContext && !AcademicContext.isLoaded()) await AcademicContext.init();
     this.initialized = true;
+    this.scope = { yearId: 0, termId: 0 };
+    const yearEl = document.getElementById("eerYear");
+    if (window.AcademicYearFilter && yearEl) {
+      let ready = false;
+      await window.AcademicYearFilter.mount(yearEl, {
+        termSelect: document.getElementById("eerTerm"),
+        allTermsLabel: "All terms",
+        onChange: (yearId, _year, termId) => {
+          this.scope = { yearId: Number(yearId || 0), termId: Number(termId || 0) };
+          if (ready) this.loadExams();
+        },
+      });
+      ready = true;
+    } else if (window.AcademicContext) {
+      if (!AcademicContext.isLoaded()) await AcademicContext.init();
+      this.scope = { yearId: Number(AcademicContext.getAcademicYearId() || 0), termId: Number(AcademicContext.getTermId() || 0) };
+    }
     if (window.AuthContext?.canExport && !window.AuthContext.canExport('academic')) document.getElementById('examRegisterCsv')?.classList.add('d-none');
     if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('academic')) document.getElementById('examRegisterPrint')?.classList.add('d-none');
     this.setupEventListeners();
@@ -89,16 +105,13 @@ const ExamResultsController = {
       this.updateProgress();
       this.persistLocalDraft();
     });
-    window.AcademicContext?.subscribe?.((_context, event) => {
-      if (["yearChanged", "termChanged", "initialized", "refreshed"].includes(event)) this.loadExams();
-    });
   },
 
   async loadExams() {
     try {
       const params = { limit: 1000 };
-      const yearId = window.AcademicContext?.getAcademicYearId?.();
-      const termId = window.AcademicContext?.getTermId?.();
+      const yearId = this.scope?.yearId;
+      const termId = this.scope?.termId;
       if (yearId) params.academic_year_id = yearId;
       if (termId) params.term_id = termId;
       const payload = this.unwrap(await window.API.academic.listExamSchedules(params)) || {};

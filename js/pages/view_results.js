@@ -1153,15 +1153,30 @@
     if (lastFocused?.focus) lastFocused.focus();
   }
 
+  /** Rebuild everything that depends on the year or term, then the view. */
+  async function onYearOrTermChange() {
+    const cSel = $('vrClassSelect');
+    const previousClass = cSel?.value || '';
+    populateClassSelect();
+    if (cSel) {
+      if (previousClass && [...cSel.options].some((o) => o.value === previousClass)) cSel.value = previousClass;
+      else {
+        const grade9 = [...cSel.options].find((o) => o.textContent.trim().startsWith('Grade 9'));
+        if (grade9) cSel.value = grade9.value;
+      }
+    }
+    populateExamPeriodSelect();
+    await populateStreams();
+    await loadClassAreas();
+    populateAreaSelect();
+    await refresh();
+  }
+
   // ── Bindings + init ──────────────────────────────────────────────────────
   let searchTimer = null;
   function bindControls() {
     document.querySelectorAll('.vr-tab').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
 
-    $('vrYearSelect')?.addEventListener('change', () => {
-      populateTermSelect(); populateClassSelect(); populateStreams(); refresh();
-    });
-    $('vrTermSelect')?.addEventListener('change', () => { populateExamPeriodSelect(); populateStreams(); loadClassAreas().then(populateAreaSelect); refresh(); });
     $('vrClassSelect')?.addEventListener('change', () => { populateStreams(); loadClassAreas().then(() => { populateAreaSelect(); loadStrandsForArea(state.selectedAreaId); }); refresh(); });
     $('vrStreamSelect')?.addEventListener('change', refresh);
     $('vrCategorySelect')?.addEventListener('change', () => { populateExamPeriodSelect(); refresh(); });
@@ -1193,15 +1208,25 @@
     renderKpis([]);
     $('vrView').innerHTML = loading('Preparing Results Studio');
     await loadReferences();
-    populateBaseSelectors();
-    applyDefaults();
     renderGradingToggle();
-    populateExamPeriodSelect();
-    await populateStreams();
-    await loadClassAreas();
-    populateAreaSelect();
-    await refresh();
-    window.APIRealtime?.register?.('view_results', { refresh: async () => { await loadReferences(); populateBaseSelectors(); renderGradingToggle(); populateExamPeriodSelect(); await populateStreams(); await loadClassAreas(); populateAreaSelect(); await refresh(); } }, ['academic']);
+    populateCategorySelect();
+    // Year and term: the shared filter (current year and running term by
+    // default, "All terms" still offered, kept in the URL). It rebuilds the
+    // year-dependent selectors and the view now and on every change.
+    const mounted = window.AcademicYearFilter && $('vrYearSelect')
+      ? await window.AcademicYearFilter.mount($('vrYearSelect'), {
+          termSelect: $('vrTermSelect'),
+          allTermsLabel: 'All terms',
+          allTermsDefault: false,
+          onChange: () => { onYearOrTermChange(); },
+        })
+      : null;
+    if (!mounted) {
+      populateBaseSelectors();
+      applyDefaults();
+      await onYearOrTermChange();
+    }
+    window.APIRealtime?.register?.('view_results', { refresh: async () => { await loadReferences(); renderGradingToggle(); populateExamPeriodSelect(); await populateStreams(); await loadClassAreas(); populateAreaSelect(); await refresh(); } }, ['academic']);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });

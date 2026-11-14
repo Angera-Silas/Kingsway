@@ -15,11 +15,11 @@
                 <i class="bi bi-person-badge"></i> Assign Class Teachers
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="AssignClassTeachersController.showAssignModal()" data-permission="academic_create">
-                    <i class="bi bi-plus-circle"></i> Assign Teacher
-                </button>
                 <button class="btn btn-outline-light btn-sm" onclick="AssignClassTeachersController.exportAssignments()">
                     <i class="bi bi-download"></i> Export
+                </button>
+                <button class="btn btn-outline-light btn-sm" onclick="AssignClassTeachersController.printAssignments()">
+                    <i class="bi bi-printer"></i> Print
                 </button>
             </div>
         </div>
@@ -31,7 +31,7 @@
             <div class="col-md-3">
                 <div class="card border-primary">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Classes</h6>
+                        <h6 class="text-muted mb-2">Streams</h6>
                         <h3 class="text-primary mb-0" id="totalClassesCount">0</h3>
                     </div>
                 </div>
@@ -39,7 +39,7 @@
             <div class="col-md-3">
                 <div class="card border-success">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Assigned Teachers</h6>
+                        <h6 class="text-muted mb-2">With a class teacher</h6>
                         <h3 class="text-success mb-0" id="assignedTeachersCount">0</h3>
                     </div>
                 </div>
@@ -47,7 +47,7 @@
             <div class="col-md-3">
                 <div class="card border-warning">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Unassigned Classes</h6>
+                        <h6 class="text-muted mb-2">Still to assign</h6>
                         <h3 class="text-warning mb-0" id="unassignedClassesCount">0</h3>
                     </div>
                 </div>
@@ -55,7 +55,7 @@
             <div class="col-md-3">
                 <div class="card border-info">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Teachers</h6>
+                        <h6 class="text-muted mb-2">Teachers available</h6>
                         <h3 class="text-info mb-0" id="totalTeachersCount">0</h3>
                     </div>
                 </div>
@@ -63,40 +63,28 @@
         </div>
 
         <!-- Filters -->
-        <div class="row mb-3">
-            <div class="col-md-4">
-                <div class="input-group">
-                    <span class="input-group-text"><i class="bi bi-search"></i></span>
-                    <input type="text" id="searchAssignments" class="form-control" 
-                           placeholder="Search assignments...">
-                </div>
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1" for="academicYearFilter">Academic year</label>
+                <select id="academicYearFilter" class="form-select" aria-label="Academic year"></select>
             </div>
-            <div class="col-md-3">
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1" for="gradeLevelFilter">Class</label>
                 <select id="gradeLevelFilter" class="form-select">
-                    <option value="">All Grade Levels</option>
-                    <option value="grade_1">Grade 1</option>
-                    <option value="grade_2">Grade 2</option>
-                    <option value="grade_3">Grade 3</option>
-                    <option value="grade_4">Grade 4</option>
-                    <option value="grade_5">Grade 5</option>
-                    <option value="grade_6">Grade 6</option>
-                    <option value="form_1">Form 1</option>
-                    <option value="form_2">Form 2</option>
-                    <option value="form_3">Form 3</option>
-                    <option value="form_4">Form 4</option>
+                    <option value="">All classes</option>
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1" for="assignmentStatusFilter">Status</label>
                 <select id="assignmentStatusFilter" class="form-select">
-                    <option value="">All Status</option>
-                    <option value="assigned">Assigned</option>
-                    <option value="unassigned">Unassigned</option>
+                    <option value="">All streams</option>
+                    <option value="assigned">With a class teacher</option>
+                    <option value="unassigned">Still to assign</option>
                 </select>
             </div>
-            <div class="col-md-2">
-                <button class="btn btn-outline-secondary w-100" onclick="AssignClassTeachersController.refresh()">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                </button>
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1" for="searchAssignments">Search</label>
+                <input type="search" id="searchAssignments" class="form-control" placeholder="Class, stream or teacher">
             </div>
         </div>
 
@@ -110,14 +98,13 @@
                         <th scope="col">Stream</th>
                         <th scope="col">Class Teacher</th>
                         <th scope="col">Teacher Email</th>
-                        <th scope="col">Assigned Date</th>
                         <th scope="col">Status</th>
-                        <th scope="col">Actions</th>
+                        <th scope="col" class="d-print-none">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td colspan="8" class="text-center py-4">
+                        <td colspan="7" class="text-center py-4">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>
@@ -140,31 +127,14 @@
             </div>
             <div class="modal-body">
                 <form id="assignTeacherForm">
-                    <input type="hidden" id="assignmentId">
-                    <div class="mb-3">
-                        <label class="form-label">Class *</label>
-                        <select class="form-select" id="assignmentClassId" required>
-                            <option value="">Select Class</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Stream</label>
-                        <select class="form-select" id="assignmentStreamId">
-                            <option value="">All Streams</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Teacher *</label>
+                    <p class="mb-3"><span class="text-muted">Stream:</span> <strong id="assignmentStreamLabel">—</strong></p>
+                    <div class="mb-1">
+                        <label class="form-label" for="assignmentTeacherId">Class teacher *</label>
                         <select class="form-select" id="assignmentTeacherId" required>
                             <option value="">Select Teacher</option>
                         </select>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Academic Year *</label>
-                        <select class="form-select" id="assignmentAcademicYearId" required>
-                            <option value="">Select Academic Year</option>
-                        </select>
-                    </div>
+                    <p class="small text-muted mb-0" id="assignmentTeacherHint"></p>
                 </form>
             </div>
             <div class="modal-footer">

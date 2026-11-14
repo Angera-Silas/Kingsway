@@ -27,6 +27,7 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -71,6 +72,105 @@ def _render_document_html(html: str) -> bytes:
         raise ValueError("external document resources are not allowed")
 
     return HTML(string=html, url_fetcher=safe_url_fetcher).write_pdf()
+
+
+_PLACEHOLDER = re.compile(r"\[([A-Za-z][A-Za-z /'&-]{1,40})\](?!\()")
+_MARKDOWN_LINE = re.compile(r"^\s{0,3}(#{1,6}\s+|[-*+]\s+|>\s+)", re.MULTILINE)
+# Channels whose text reaches a phone as plain characters.
+_PLAIN_CHANNELS = {"sms": 320, "whatsapp": 1000}
+
+
+# Extra instructions for workflows whose draft is a conversation turn rather
+# than a document.
+_WORKFLOW_GUIDANCE = {
+    "academics.timetable_planning": (
+        "You are the timetable planning assistant. The class timetable itself "
+        "is placed by the school's scheduling engine from allocations, weekly "
+        "lessons and lesson periods; you never place lessons and never return "
+        "'assignments'. Answer the planner's 'question' from the supplied "
+        "facts (period_count, stream_loads, setup_gaps, teacher_load, saved "
+        "constraints): what is ready, what blocks a complete draft, and the "
+        "next concrete step in the system (Lesson Periods for weekly lessons, "
+        "Subject Teachers for allocations, then Generate). 'body' is a short "
+        "plain answer to the question. Put follow-up questions for the planner "
+        "in 'questions', ideas in 'suggestions', and anything the facts cannot "
+        "settle in 'unresolved_constraints'. Never invent numbers that are not "
+        "in the facts."
+    ),
+}
+
+
+def _draft_school_facts(raw: Any) -> dict[str, str]:
+    """Public school facts PHP supplies with every draft (bounded strings)."""
+    facts = raw if isinstance(raw, dict) else {}
+    return {
+        key: str(facts.get(key) or "").strip()[:160]
+        for key in ("name", "location", "today", "academic_year", "term", "term_dates")
+    }
+
+
+def _draft_fact_lines(school: dict[str, str]) -> str:
+    lines = []
+    if school.get("name"):
+        lines.append(f"The school is {school['name']}" + (f", {school['location']}" if school.get("location") else "") + ".")
+    if school.get("today"):
+        lines.append(f"Today is {school['today']} (Kenya time); work out every date and year from it.")
+    if school.get("academic_year"):
+        term = f", {school['term']}" if school.get("term") else ""
+        dates = f" ({school['term_dates']})" if school.get("term_dates") else ""
+        lines.append(f"The current academic year is {school['academic_year']}{term}{dates}.")
+    lines.append(
+        "Write for school staff in plain words: never quote input field names, "
+        "keys or code formatting (no backticks). "
+        "State no fact that is not in the input or in these school facts: no "
+        "times, fees, dates, venues, requirements or contacts of your own. "
+        "Use the school's real name, never a placeholder such as [School Name]. "
+        "Where a detail is genuinely unknown, write it in square brackets, e.g. "
+        "[venue], and list it in 'next_steps' for the reviewer to fill in."
+    )
+    return " ".join(lines) + " "
+
+
+def _draft_channel_rule(channel: str) -> str:
+    limit = _PLAIN_CHANNELS.get(channel)
+    if not limit:
+        return ""
+    return (
+        f"This message is sent by {channel.upper() if channel == 'sms' else 'WhatsApp'}: "
+        f"'body' is plain text only - no markdown, headings, bullets, bold or emoji - "
+        f"and at most {limit} characters. Sign it from the school by name."
+    )
+
+
+def _finish_draft(draft: dict, school: dict[str, str], channel: str) -> None:
+    """Make the model's draft safe to hand a reviewer.
+
+    - A leftover [School Name] is filled from the school facts.
+    - Every other [placeholder] is listed in next_steps, so it cannot be
+      approved and sent unnoticed.
+    - Phone channels get plain text within their length limit.
+    """
+    body = draft.get("body")
+    if not isinstance(body, str):
+        return
+    name = school.get("name") or ""
+    if name:
+        body = re.sub(r"\[(?:the )?school(?:'s)? name\]", name, body, flags=re.IGNORECASE)
+    limit = _PLAIN_CHANNELS.get(channel)
+    if limit:
+        body = _MARKDOWN_LINE.sub("", body)
+        body = re.sub(r"(\*\*|__|\*|`)", "", body)
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    steps = draft.get("next_steps") if isinstance(draft.get("next_steps"), list) else []
+    gaps = sorted({match.group(0) for match in _PLACEHOLDER.finditer(body)})
+    for gap in gaps:
+        note = f"Fill in {gap} before approving."
+        if note not in steps:
+            steps.append(note)
+    if limit and len(body) > limit:
+        steps.append(f"Shorten the message: {len(body)} characters, the {channel} limit is {limit}.")
+    draft["body"] = body
+    draft["next_steps"] = steps
 
 
 def create_app(config: Config | None = None) -> Flask:
@@ -561,7 +661,9 @@ def create_app(config: Config | None = None) -> Flask:
             )
             return jsonify({"success": False, "message": str(error)}), 422
 
-        prompt_version = "wf-1"
+        prompt_version = "wf-2"
+        school = _draft_school_facts(context.get("school"))
+        channel = str(raw_input.get("channel") or metadata.get("channel") or "").strip().lower()
         system_prompt = (
             "You are a governed drafting assistant for a Kenyan CBC school. "
             "Produce an editable DRAFT for a member of staff to review and approve; "
@@ -575,7 +677,10 @@ def create_app(config: Config | None = None) -> Flask:
             "'next_steps' (list of what a human must check), "
             "and any of 'criteria', 'items', 'questions', 'suggestions', "
             "'unresolved_constraints', 'assignments' the workflow asked for. "
-            f"Workflow: {workflow_id}."
+            f"Workflow: {workflow_id}. "
+            + _draft_fact_lines(school)
+            + _draft_channel_rule(channel)
+            + _WORKFLOW_GUIDANCE.get(workflow_id, "")
         )
 
         try:
@@ -598,6 +703,11 @@ def create_app(config: Config | None = None) -> Flask:
                     "response_format": "json_object",
                     "temperature": 0.3,
                     "max_tokens": 3000,
+                    # Drafts are long answers generated in the background:
+                    # they get the draft budget, and a timed-out primary goes
+                    # straight to the fallback instead of being retried.
+                    "task": "draft",
+                    "_retries": 0,
                 },
             )
         except ProviderError as error:
@@ -629,6 +739,7 @@ def create_app(config: Config | None = None) -> Flask:
         for field in ("title", "body", "next_steps"):
             if field not in draft:
                 draft[field] = [] if field == "next_steps" else ""
+        _finish_draft(draft, school, channel)
 
         journal.write(
             "ai_generation",
@@ -4995,61 +5106,6 @@ def create_app(config: Config | None = None) -> Flask:
             )
             return jsonify(
                 {"success": False, "message": "schedule extract failed"}
-            ), 503
-
-    @app.post("/api/schedules/propose-rows")
-    def schedules_propose_rows():
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        job_id = str(payload.get("job_id") or "")
-        academic_year_id = int(payload.get("academic_year_id") or 0)
-        term_id = int(payload.get("term_id") or 0)
-        constraints = payload.get("constraints") or []
-        if not job_id or academic_year_id <= 0 or term_id <= 0:
-            return jsonify(
-                {
-                    "success": False,
-                    "message": "job_id, academic_year_id, term_id required",
-                }
-            ), 422
-        started = time.monotonic()
-        try:
-            proposed_rows, conflicts, coverage = 200, [], 0.95
-            journal.write(
-                "document_generation",
-                {
-                    "type": "schedules_propose_rows_completed",
-                    "job_id": job_id,
-                    "academic_year_id": academic_year_id,
-                    "term_id": term_id,
-                    "proposed_rows": proposed_rows,
-                    "coverage": coverage,
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "proposed_rows": proposed_rows,
-                        "conflicts": conflicts,
-                        "coverage": coverage,
-                    },
-                }
-            )
-        except Exception as e:
-            journal.write(
-                "document_generation",
-                {
-                    "type": "schedules_propose_rows_failed",
-                    "job_id": job_id,
-                    "error": str(e),
-                },
-            )
-            return jsonify(
-                {"success": False, "message": "schedule propose rows failed"}
             ), 503
 
     @app.post("/api/staff/import")

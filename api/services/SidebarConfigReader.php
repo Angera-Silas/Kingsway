@@ -816,6 +816,12 @@ class SidebarConfigReader
             'cbc_curriculum' => 'Academic',
             'assessment_rubrics' => 'Academic',
             'grading_scales' => 'Academic',
+            // Timetabling: allocations and periods come before drafting, so they
+            // sit with the timetable (exact keys win over the 'teacher_' prefix).
+            'lesson_periods' => 'Timetables',
+            'assign_subjects_to_teachers' => 'Timetables',
+            'assign_class_teachers' => 'Timetables',
+            'teacher_workload' => 'Timetables',
             'manage_timetable' => 'Timetables',
             'timetable' => 'Timetables',
             'teacher_timetables' => 'Timetables',
@@ -940,8 +946,6 @@ class SidebarConfigReader
             'staff_' => 'Staff',
             'all_teachers' => 'Staff',
             'teacher_' => 'Staff',
-            'assign_class_teachers' => 'Staff',
-            'assign_subjects_to_teachers' => 'Staff',
             'all_parents' => 'Families & Communication',
             'parent_' => 'Families & Communication',
             'pta_' => 'Families & Communication',

@@ -199,7 +199,7 @@
   async function filterReports(pane) {
     const list = pane?.querySelector('[data-kw-report-list]');
     if (!list) return;
-    const access = window.AppRouteAccess?.authorizeRouteAccess;
+    const access = window.AppRouteAccess?.authorizeRoute;
     const rows = Array.from(list.querySelectorAll('[data-kw-report-route]'));
     if (typeof access === 'function') {
       await Promise.all(rows.map(async (row) => {

@@ -41,25 +41,8 @@ class AttendanceStaffService
         }
     }
 
-    // TODO: Delegate to AttendanceStaffService
-    public function getStaffSummary($id, $data, $segments, BaseController $controller) {
-        $staffId = $id;
-        $scope = $controller->getAccessibleStaffScope();
-        if (!$controller->isStaffInScope($staffId ? (int) $staffId : null, $scope)) { return $controller->forbidden('You are not allowed to access this staff attendance summary'); }
-        $result = $this->api->getStaffAttendanceSummary($staffId);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to AttendanceStaffService
-    public function getStaffPercentage($id, $data, $segments, BaseController $controller) {
-        $staffId = $id;
-        $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
-        $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
-        $result = $this->api->getStaffAttendancePercentage($staffId, $termId, $yearId);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to AttendanceStaffService
+    
+    
     public function getChronicStaffAbsentees($id, $data, $segments, BaseController $controller) {
         $departmentId = $id;
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
@@ -69,7 +52,6 @@ class AttendanceStaffService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to AttendanceStaffService
     public function getStaffToday($id, $data, $segments, BaseController $controller) {
         if ($denied = $controller->guardStaffAttendance('staff.attendance.view', ['system administrator', 'school administrator', 'headteacher', 'director'])) return $denied;
         try {
@@ -94,7 +76,6 @@ class AttendanceStaffService
         }
     }
 
-    // TODO: Delegate to AttendanceStaffService
     public function postMarkStaff($id, $data, $segments, BaseController $controller) {
         if ($denied = $controller->guardStaffAttendance('staff.attendance.manage', ['system administrator', 'school administrator', 'headteacher'])) return $denied;
         try {
@@ -153,7 +134,6 @@ class AttendanceStaffService
         }
     }
 
-    // TODO: Delegate to AttendanceStaffService
     public function getStaffRegisterContext($id, $data, $segments, BaseController $controller) {
         if ($denied = $controller->guardStaffAttendance('staff.attendance.view', ['system administrator', 'school administrator', 'headteacher', 'director'])) return $denied;
         try {
@@ -184,7 +164,6 @@ class AttendanceStaffService
         }
     }
 
-    // TODO: Delegate to AttendanceStaffService
     public function getStaffReport($id, $data, $segments, BaseController $controller) {
         if ($denied = $controller->guardStaffAttendance('staff.attendance.view', ['system administrator', 'school administrator', 'headteacher', 'director'])) return $denied;
         try {
@@ -211,7 +190,6 @@ class AttendanceStaffService
         }
     }
 
-    // TODO: Delegate to AttendanceStaffService
     public function getDepartmentAttendance($id, $data, $segments, BaseController $controller) {
         $departmentId = $id;
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;

@@ -27,28 +27,9 @@ class StudentTransferService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to StudentTransferService
-    public function postTransferVerifyEligibility($id, $data, $segments, BaseController $controller) {
-        if ($auth = $controller->authorizeStudents(self::TRANSFER_PERMS, 'Insufficient permission to verify student transfers')) { return $auth; }
-        $result = $this->api->verifyTransferEligibility($data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to StudentTransferService
-    public function postTransferApprove($id, $data, $segments, BaseController $controller) {
-        if ($auth = $controller->authorizeStudents(self::TRANSFER_PERMS, 'Insufficient permission to approve student transfers')) { return $auth; }
-        $result = $this->api->approveTransfer($data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to StudentTransferService
-    public function postTransferExecute($id, $data, $segments, BaseController $controller) {
-        if ($auth = $controller->authorizeStudents(self::TRANSFER_PERMS, 'Insufficient permission to execute student transfers')) { return $auth; }
-        $result = $this->api->executeTransfer($data);
-        return $controller->handleResponse($result);
-    }
-
-    // TODO: Delegate to StudentTransferService
+    
+    
+    
     public function getTransferWorkflowStatus($id, $data, $segments, BaseController $controller) {
         if ($auth = $controller->authorizeStudents(self::VIEW_PERMS, 'Insufficient permission to view transfer status')) { return $auth; }
         $instanceId = $data['instance_id'] ?? $id ?? null;
@@ -57,7 +38,6 @@ class StudentTransferService
         return $controller->handleResponse($result);
     }
 
-    // TODO: Delegate to StudentTransferService
     public function getTransferHistory($id, $data, $segments, BaseController $controller) {
         if ($auth = $controller->authorizeStudents(self::VIEW_PERMS, 'Insufficient permission to view transfer history')) { return $auth; }
         $studentId = $id ?? $data['student_id'] ?? null;

@@ -89,11 +89,13 @@ class CsrfMiddleware
         'communications/sms-opt-out-callback',
         'communications/sms-subscription-callback',
         'communications/process-outbox',
+        'communications/sync-sms-contacts',
         'staff-migration/process-invitation-email',
         'attendance/gate-event',
             // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
             'attendance/process-register-reminders',
             'finance/kcb-reconciliation-worker',
+            'finance/extra-charge-obligations-worker',
             // Internal cron callback authenticates with PAYMENT_SWEEP_WORKER_SECRET.
             'payments/stk-sweep-worker',
             // Date-driven academic year/term activation; authenticated by its

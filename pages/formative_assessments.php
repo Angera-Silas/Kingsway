@@ -48,8 +48,12 @@
     <div class="card-body py-3">
       <div class="row g-2 align-items-end">
         <div class="col-md-2">
-          <label class="form-label small fw-semibold mb-1">Term</label>
-          <select id="faTermFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll(); fAssCtrl._loadSummary()">
+          <label class="form-label small fw-semibold mb-1" for="faYearFilter">Academic year</label>
+          <select id="faYearFilter" class="form-select form-select-sm"></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold mb-1" for="faTermFilter">Term</label>
+          <select id="faTermFilter" class="form-select form-select-sm">
             <option value="">All Terms</option>
           </select>
         </div>

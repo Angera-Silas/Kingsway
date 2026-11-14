@@ -30,7 +30,7 @@ final class FileRateLimiter
         if (!is_dir($root)) {
             if (!@mkdir($root, 02770, true) && !is_dir($root)) {
                 self::$dir = '';
-                error_log('FileRateLimiter: cannot create ' . $root);
+                FileLogger::warning('security', ['action' => 'rate_limiter_dir_unavailable', 'path' => self::DIR_NAME]);
                 return null;
             }
         }
@@ -68,7 +68,7 @@ final class FileRateLimiter
         $written = @file_put_contents($path, $line, LOCK_EX | FILE_APPEND);
         if ($written === false) {
             @chmod($path, 0660);
-            error_log('FileRateLimiter: failed to write ' . $path);
+            FileLogger::warning('security', ['action' => 'rate_limiter_write_failed', 'file' => basename($path)]);
             return true; // fail open: never block a sign-in on a logging fault
         }
         @chmod($path, 0660);

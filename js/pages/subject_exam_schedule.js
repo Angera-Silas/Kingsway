@@ -1,14 +1,12 @@
 /** Teacher-scoped exam schedule viewer using the canonical exam-schedules API. */
 const subjectExamScheduleController = {
-  state: { years: [], terms: [], subjects: [], exams: [], summary: {} },
+  state: { subjects: [], exams: [], summary: {} },
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
   esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]); },
   payload(response) { return response?.data?.data ?? response?.data ?? response ?? {}; },
   list(response) { const value = this.payload(response); return Array.isArray(value) ? value : (Array.isArray(value.data) ? value.data : []); },
   async init() {
     await window.AuthContext?.ready?.();
-    document.getElementById('yearFilter')?.addEventListener('change', () => this.loadTerms().then(() => this.loadExams()));
-    document.getElementById('termFilter')?.addEventListener('change', () => this.loadExams());
     document.getElementById('subjectFilter')?.addEventListener('change', () => this.loadExams());
     document.getElementById('refreshBtn')?.addEventListener('click', () => this.loadExams());
     document.getElementById('exportBtn')?.addEventListener('click', () => this.exportCSV());
@@ -16,40 +14,24 @@ const subjectExamScheduleController = {
     if (table) table.id = 'scheduleTableBody';
     document.getElementById('schedulePrint')?.addEventListener('click', () => { if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('academic')) window.print(); });
     await this.loadReferences();
-    await this.loadExams();
+    // Year and term: the shared filter (current year, running term), which
+    // loads the schedule now and on every change.
+    const yearSelect = document.getElementById('yearFilter');
+    const mounted = window.AcademicYearFilter && yearSelect
+      ? await window.AcademicYearFilter.mount(yearSelect, { termSelect: document.getElementById('termFilter'), onChange: () => this.loadExams() })
+      : null;
+    if (!mounted) await this.loadExams();
   },
   async loadReferences() {
     this.setLoading(true);
     const error = document.getElementById('scheduleError'); error?.classList.add('d-none');
     try {
-      const [yearsResponse, subjectsResponse] = await Promise.all([
-        this.API('GET', '/api/academic/years/list'), this.API('GET', '/api/academic/learning-areas/list')
-      ]);
-      this.state.years = this.list(yearsResponse); this.state.subjects = this.list(subjectsResponse);
-      const year = document.getElementById('yearFilter');
+      this.state.subjects = this.list(await this.API('GET', '/api/academic/learning-areas/list'));
       const subject = document.getElementById('subjectFilter');
-      if (year) {
-        year.innerHTML = '<option value="">All Years</option>' + this.state.years.map((row) => `<option value="${Number(row.id)}">${this.esc(row.year_name || row.year_code)}</option>`).join('');
-        const current = this.state.years.find((row) => Number(row.is_current) === 1 || row.is_current === true);
-        const contextYear = window.AcademicContext?.getAcademicYearId?.();
-        year.value = String(contextYear || current?.id || '');
-      }
       if (subject) subject.innerHTML = '<option value="">All Subjects</option>' + this.state.subjects.map((row) => `<option value="${Number(row.id)}">${this.esc(row.name)}</option>`).join('');
-      await this.loadTerms();
     } catch (exception) {
       this.showError(exception?.message || 'Could not load academic filters.');
     }
-  },
-  async loadTerms() {
-    const yearId = document.getElementById('yearFilter')?.value || '';
-    const params = yearId ? { academic_year_id: yearId, year_id: yearId } : {};
-    const response = await this.API('GET', '/api/academic/terms/list', null, params);
-    this.state.terms = this.list(response);
-    const term = document.getElementById('termFilter');
-    if (!term) return;
-    term.innerHTML = '<option value="">All Terms</option>' + this.state.terms.map((row) => `<option value="${Number(row.id)}">${this.esc(row.name || row.term_name)}</option>`).join('');
-    const current = this.state.terms.find((row) => String(row.status || '').toLowerCase() === 'current');
-    if (current) term.value = String(current.id);
   },
   async loadExams() {
     this.setLoading(true);

@@ -176,13 +176,25 @@ FIELDS: dict[str, list[str]] = {
         "gap_bands",
         "assessment_count",
     ],
+    # Built by SchedulesController::postAiTimetablePlanningQueue from the
+    # planner's message, saved constraints and TimetablePlanningFacts (the
+    # same aggregate teaching load the draft solver uses). The old list named
+    # keys PHP never sent, so even the planner's question was stripped.
     "academics.timetable_planning": [
-        "assignment_candidates",
-        "constraints",
-        "specialist_count",
+        "class_band",
         "period_count",
-        "instructional_weeks",
-        "unresolved_constraints",
+        "lessons_ready",
+        "stream_count",
+        "lessons_to_place",
+        "stream_loads",
+        "setup_gaps",
+        "teacher_load",
+        "availability_constraints",
+        "workload_constraints",
+        "room_constraints",
+        "double_periods",
+        "user_constraints",
+        "question",
     ],
     "academics.exam_timetable_planning": [
         "exam_window",
@@ -344,14 +356,21 @@ FIELDS: dict[str, list[str]] = {
         "question",
         "context",
     ],
+    # The approved corpus and the bounded prior turns ARE the grounding: with
+    # only the question allowed, the model never saw the corpus, could cite
+    # nothing, and every public question was escalated.
     "public.faq_assistant": [
-        "question",
+        "audience",
+        "corpus",
+        "conversation",
         "context",
+        "question",
     ],
     "research.external_knowledge": [
-        "question",
+        "audience",
         "sources",
         "context",
+        "question",
     ],
     "reports.kpi_brief": [
         "kpi_count",
@@ -447,6 +466,10 @@ FIELD_CAPS: dict[str, int] = {
     "behavior_hints": 2000,
     "conversation": 4000,
     "page_context": 4000,
+    # Grounding corpora (public FAQ, research sources). Callers rank them by
+    # relevance first, so the bound drops the least relevant items.
+    "corpus": 12000,
+    "sources": 12000,
 }
 
 

@@ -63,16 +63,12 @@
             </div>
         </div>
 
-        <!-- Academic Year/Term Selector -->
+        <!-- Academic Year Selector -->
         <div class="row mb-3">
             <div class="col-md-6">
+                <label class="form-label small text-muted mb-1" for="academicYearSelect">Academic year</label>
                 <select id="academicYearSelect" class="form-select">
-                    <option value="">Select Academic Year</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <select id="termSelect" class="form-select">
-                    <option value="">Select Term</option>
+                    <option value="">Loading…</option>
                 </select>
             </div>
         </div>

@@ -32,7 +32,6 @@ class AttendancePermissionService
         }
     }
 
-    // TODO: Delegate to AttendancePermissionService
     public function getPermissions($id, $data, $segments, BaseController $controller) {
         if ($denied = $controller->guardStaffAttendance('attendance_boarding_view', ['system administrator', 'school administrator', 'headteacher', 'director', 'boarding master'])) return $denied;
         try {
@@ -68,7 +67,6 @@ class AttendancePermissionService
         }
     }
 
-    // TODO: Delegate to AttendancePermissionService
     public function postPermissions($id, $data, $segments, BaseController $controller) {
         if ($denied = $controller->guardStaffAttendance('attendance_boarding_create', ['system administrator', 'school administrator', 'headteacher', 'boarding master'])) return $denied;
         try {
@@ -104,7 +102,6 @@ class AttendancePermissionService
         }
     }
 
-    // TODO: Delegate to AttendancePermissionService
     public function putPermissions($id, $data, $segments, BaseController $controller) {
         $requestedStatus = $data['status'] ?? null;
         $approvalDecision = in_array($requestedStatus, ['approved', 'rejected'], true);

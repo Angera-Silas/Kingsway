@@ -343,6 +343,30 @@ class FinanceController extends BaseController
         }
     }
 
+    /**
+     * POST /api/finance/extra-charge-obligations-worker
+     * Ticker job extra_charge_obligations (schedules.yaml). Replaces the
+     * MariaDB event, which needed event_scheduler=ON.
+     */
+    public function postExtraChargeObligationsWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        try {
+            $result = (new \App\API\Services\ExtraChargeObligationService($this->db->getConnection()))->generateDue();
+            if ($result['created'] > 0) {
+                \App\API\Includes\FileLogger::write('finance', ['action' => 'extra_charge_obligations_generated'] + $result);
+            }
+            return $this->success($result, 'Extra-charge obligations generated.');
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::error('finance', ['action' => 'extra_charge_obligations_worker', 'error' => $e->getMessage()]);
+            return $this->serverError('Extra-charge obligation worker failed.');
+        }
+    }
+
     /** POST /api/finance/kcb-disbursements/{id}/retry */
     public function postKcbDisbursementsRetry($id = null, $data = [], $segments = [])
     {

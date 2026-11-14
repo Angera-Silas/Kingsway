@@ -2978,7 +2978,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $eventId = $business->getOrCreate('admission_status_notification', $key, date('Y-m-d H:i:s'), (int) ($this->user_id ?: 1));
             $queued = $platform->queueRenderedForContacts([['user_id' => null, 'phone' => $row['parent_phone'] ?? null, 'email' => $row['parent_email'] ?? null]], $channel, $subject, $channel === 'email' ? $emailBody : $body, ['purpose' => 'admissions', 'sender_id' => (int) ($this->user_id ?: 1), 'business_event_id' => $eventId]);
             if ($event === 'accepted' && $channel === 'email' && !empty($queued['communication_id'])) {
-                $this->attachAdmissionFeeStructure((int) $queued['communication_id'], (string) ($row['academic_year'] ?? date('Y')), (string) ($row['grade_applying_for'] ?? ''), (string) ($row['student_type_code'] ?? 'all'));
+                $this->attachAdmissionFeeStructure((int) $queued['communication_id'], (string) ($row['academic_year'] ?? ''), (string) ($row['grade_applying_for'] ?? ''), (string) ($row['student_type_code'] ?? 'all'));
             }
             $business->markProcessed($eventId);
             if (!empty($queued['communication_id'])) {

@@ -133,18 +133,40 @@
       toggle.textContent = boxes.length && boxes.every((box) => box.checked) ? 'Clear selection' : 'Select all';
     }
   }
+  // Year and term shown in the list (AcademicYearFilter; "All terms" = 0).
+  const scope = { yearId: 0, termId: 0, ready: false };
+  async function mountScope() {
+    const yearSelect = $('examPeriodYearFilter');
+    if (!window.AcademicYearFilter || !yearSelect) return;
+    await window.AcademicYearFilter.mount(yearSelect, {
+      termSelect: $('examPeriodTermFilter'),
+      allTermsLabel: 'All terms',
+      onChange: (yearId, _year, termId) => {
+        scope.yearId = Number(yearId || 0);
+        scope.termId = Number(termId || 0);
+        if (scope.ready) renderPeriods();
+      },
+    });
+    scope.ready = true;
+  }
+  function inScope(p) {
+    if (scope.yearId && Number(p.academic_year_id || 0) !== scope.yearId) return false;
+    if (scope.termId && Number(p.academic_year_term_id || 0) !== scope.termId) return false;
+    return true;
+  }
   async function loadPeriods() {
     try {
-      state.periods = await call('/academic/exam-periods') || [];
-      if (!Array.isArray(state.periods)) state.periods = state.periods.items || [];
+      state.allPeriods = await call('/academic/exam-periods') || [];
+      if (!Array.isArray(state.allPeriods)) state.allPeriods = state.allPeriods.items || [];
       // Deleted periods are GONE — never render them in the active list.
-      state.periods = state.periods.filter((p) => !p.deleted_at);
+      state.allPeriods = state.allPeriods.filter((p) => !p.deleted_at);
       renderPeriods();
     } catch (error) { $('examPeriodsBody').innerHTML = `<tr><td colspan="10" class="text-danger">${esc(error.message || 'Unable to load exam periods.')}</td></tr>`; }
   }
   function renderPeriods() {
     const body = $('examPeriodsBody');
-    if (!state.periods.length) { body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No exam periods yet.</td></tr>'; return; }
+    state.periods = (state.allPeriods || []).filter(inScope);
+    if (!state.periods.length) { body.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">${(state.allPeriods || []).length ? 'No exam periods in the selected year and term.' : 'No exam periods yet.'}</td></tr>`; return; }
     body.innerHTML = state.periods.map((p) => {
       const resultCount = `${Number(p.approved_count || 0)} approved · ${Number(p.submitted_count || 0)} submitted`;
       const item = (action, icon, label, extra = '', disabled = false) => `<li><button class="dropdown-item${extra ? ` ${extra}` : ''}" type="button" data-period-action="${action}" data-id="${Number(p.id)}"${disabled ? ' disabled title="Schedule every learning area first"' : ''}><i class="bi ${icon} me-2"></i>${esc(label)}</button></li>`;
@@ -406,7 +428,7 @@
     const row = $('examDocumentSaveRow');
     const select = $('examDocumentTargetPeriod');
     if (!row || !select) return;
-    const national = (state.periods || []).filter((period) => String(period.assessment_kind || '') === 'national' && !period.deleted_at);
+    const national = (state.allPeriods || []).filter((period) => String(period.assessment_kind || '') === 'national' && !period.deleted_at);
     if (!national.length) {
       row.classList.add('d-none');
       $('examDocumentSaveStatus').textContent = 'Create a national (KNEC) exam period first, then save this timetable to it.';
@@ -613,7 +635,7 @@
     bootstrap.Modal.getOrCreateInstance($('examPeriodEditModal')).show();
   }
   function openDeleteModal(periodId) {
-    const row = state.periods.find((x) => Number(x.id) === periodId);
+    const row = (state.allPeriods || []).find((x) => Number(x.id) === periodId);
     if (!row) return;
     const form = $('examPeriodDeleteForm'); if (!form) return;
     form.dataset.periodId = String(periodId);
@@ -735,7 +757,7 @@
 
     // Initial data load. The delegated listener above is registered first so
     // the very first render already responds to every action button.
-    await loadOptions($('examPeriodTerm')?.value || '');
+    await Promise.all([loadOptions($('examPeriodTerm')?.value || ''), mountScope()]);
     await loadPeriods();
   }
 
@@ -745,7 +767,7 @@
     const action = button.dataset.periodAction;
     const periodId = Number(button.dataset.id || 0);
     if (!periodId) return;
-    const period = state.periods.find((p) => Number(p.id) === periodId);
+    const period = (state.allPeriods || []).find((p) => Number(p.id) === periodId);
     const label = period ? period.title : 'this exam period';
 
     switch (action) {

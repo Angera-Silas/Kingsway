@@ -80,6 +80,17 @@ final class PublicAiAssistantService
             'conversation' => $safeConversation,
         ]);
 
+        // The engine applies the same citation rule and may already have
+        // decided to refer the visitor to a person (no usable source, or an
+        // answer it could not ground). That is a normal outcome, not an error.
+        $engineStatus = (string) ($result['status'] ?? '');
+        if ($engineStatus === 'escalate' && !isset($result['body'])) {
+            return [
+                'status' => 'escalate',
+                'reason' => mb_substr((string) ($result['reason'] ?? 'engine_referral'), 0, 80),
+                'message' => 'Please contact the school assistant so the question can be verified.',
+            ];
+        }
         if (!is_string($result['title'] ?? null) || !is_string($result['body'] ?? null)) {
             throw new DomainException('The public assistant returned an invalid answer.', 502);
         }
