@@ -46,18 +46,18 @@
           <div class="col-md-4"><label>Duration (minutes) *</label><input type="number" name="duration" id="lpDuration" value="40" min="1" required></div>
           <div class="col-12"><label>Specific learning outcomes *</label><div id="lpOutcomes" class="border rounded p-2 bg-light"><span class="text-muted small">Select an approved scheme row first.</span></div></div>
           <div class="col-12"><label>Learning experiences *</label><div id="lpExperiences" class="border rounded p-2 bg-light"><span class="text-muted small">Select an approved scheme row first.</span></div></div>
-          <div class="col-12"><label>Lesson activities *</label><div id="lpActivities" class="border rounded p-2 bg-light"><span class="text-muted small">Add the concrete activities delivered in this lesson.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddActivity"><i class="bi bi-plus"></i> Add activity</button></div>
-          <div class="col-md-6"><label>Resources / Teaching Aids</label><div id="lpResources" class="border rounded p-2 bg-light"><span class="text-muted small">No resources configured for this sub-strand yet.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddResource"><i class="bi bi-plus"></i> Add resource</button></div>
+          <div class="col-12"><label>Lesson activities *</label><div id="lpActivities" class="border rounded p-2 bg-light"><span class="text-muted small">Add the concrete activities delivered in this lesson.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddActivity" data-year-write><i class="bi bi-plus"></i> Add activity</button></div>
+          <div class="col-md-6"><label>Resources / Teaching Aids</label><div id="lpResources" class="border rounded p-2 bg-light"><span class="text-muted small">No resources configured for this sub-strand yet.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddResource" data-year-write><i class="bi bi-plus"></i> Add resource</button></div>
           <div class="col-md-6"><label>Assessment tools</label><div id="lpAssessmentTools" class="border rounded p-2 bg-light"><span class="text-muted small">Assessment tools configured for this learning area will appear here.</span></div></div>
           <div class="col-md-6"><label>Assessment rubric criteria</label><div id="lpAssessmentRubrics" class="border rounded p-2 bg-light"><span class="text-muted small">Select an assessment tool first.</span></div></div>
           <div class="col-md-6"><label>Core competencies</label><div id="lpCompetencies" class="border rounded p-2 bg-light"></div></div>
           <div class="col-md-6"><label>Rubric criteria / levels</label><div id="lpRubrics" class="border rounded p-2 bg-light"></div></div>
           <div class="col-12"><label>Key inquiry questions</label><div id="lpQuestions" class="border rounded p-2 bg-light"></div></div>
-          <div class="col-12"><label>Expected coverage</label><div id="lpCoverage" class="border rounded p-2 bg-light"><span class="text-muted small">Add the atomic coverage items expected from this lesson.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddCoverage"><i class="bi bi-plus"></i> Add coverage item</button></div>
+          <div class="col-12"><label>Expected coverage</label><div id="lpCoverage" class="border rounded p-2 bg-light"><span class="text-muted small">Add the atomic coverage items expected from this lesson.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddCoverage" data-year-write><i class="bi bi-plus"></i> Add coverage item</button></div>
         </div>
         <div class="mt-4 d-flex gap-2">
-          <button type="button" class="btn btn-outline-primary" onclick="createLessonPlanController.save('draft')"><i class="bi bi-save me-1"></i>Save as Draft</button>
-          <button type="button" class="btn btn-success" onclick="createLessonPlanController.save('submitted')"><i class="bi bi-send me-1"></i>Create &amp; Submit for Review</button>
+          <button type="button" class="btn btn-outline-primary" onclick="createLessonPlanController.save('draft')" data-year-write><i class="bi bi-save me-1"></i>Save as Draft</button>
+          <button type="button" class="btn btn-success" onclick="createLessonPlanController.save('submitted')" data-year-write><i class="bi bi-send me-1"></i>Create &amp; Submit for Review</button>
         </div>
       </form>
     </div>

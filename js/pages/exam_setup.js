@@ -181,14 +181,7 @@ const examSetupController = (() => {
   }
 
   function _populateFilterDropdowns() {
-    _fillSelect("filterYear", academicYears, (y) => ({
-      value: y.id,
-      text: y.year_name || y.year_code,
-    }));
-    _fillSelect("filterTerm", terms, (t) => ({
-      value: t.id,
-      text: t.name || `Term ${t.term_number}`,
-    }));
+    // filterYear/filterTerm belong to the shared AcademicYearFilter (mountYearFilter).
     _fillSelect("filterClass", classes, (c) => ({
       value: c.id,
       text: c.name || c.class_name,
@@ -207,7 +200,7 @@ const examSetupController = (() => {
     ["formTerm", "importTerm"].forEach((id) => {
       _fillSelect(id, terms, (t) => ({
         value: t.id,
-        text: t.name || `Term ${t.term_number}`,
+        text: `${t.name || `Term ${t.term_number}`} — ${t.year_name || t.year_code || ""}`,
       }));
     });
   }
@@ -259,18 +252,31 @@ const examSetupController = (() => {
   /* =================================================================
        LIST / TABLE
     ================================================================= */
+  /** The shared year/term selector: the list shows that year (current by default). */
+  async function mountYearFilter() {
+    await window.AcademicYearFilter?.mount($("filterYear"), {
+      termSelect: $("filterTerm"),
+      allTermsLabel: "All terms",
+      onChange: (yearId, year, termId) => {
+        _currentAcademicYear = yearId;
+        _currentTerm = termId;
+        loadExams(1);
+      },
+    });
+  }
+
   async function loadExams(page = 1) {
     try {
       pagination.page = page;
       const params = new URLSearchParams({ page, limit: pagination.limit });
 
-      const yearVal = $("filterYear")?.value;
-      const termVal = $("filterTerm")?.value;
+      const yearVal = _currentAcademicYear;
+      const termVal = _currentTerm;
       const classVal = $("filterClass")?.value;
       const statusVal = $("filterStatus")?.value;
       const searchVal = $("filterSearch")?.value?.trim();
 
-      if (yearVal) params.append("year_id", yearVal);
+      if (yearVal) { params.append("academic_year_id", yearVal); params.append("year_id", yearVal); }
       if (termVal) params.append("term_id", termVal);
       if (classVal) params.append("class_id", classVal);
       if (statusVal) params.append("status", statusVal);
@@ -341,7 +347,7 @@ const examSetupController = (() => {
                         <div class="empty-state">
                             <i class="bi bi-journal-x"></i>
                             <p>No exam configurations found.<br>
-                            <button class="btn btn-sm btn-academic mt-2" onclick="examSetupController.openCreateModal()">
+                            <button class="btn btn-sm btn-academic mt-2" onclick="examSetupController.openCreateModal()" data-year-write>
                                 <i class="bi bi-plus-circle me-1"></i>Create First Exam
                             </button></p>
                         </div>
@@ -408,10 +414,10 @@ const examSetupController = (() => {
                                 <i class="bi bi-eye"></i>
                             </button>
                             ${_canCreate() ? `
-                            <button class="btn btn-outline-warning btn-sm" onclick="examSetupController.editExam(${exam.id})" title="Edit">
+                            <button class="btn btn-outline-warning btn-sm" onclick="examSetupController.editExam(${exam.id})" title="Edit" data-year-write>
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-outline-danger btn-sm" onclick="examSetupController.confirmDelete(${exam.id}, '${escHtml(name).replace(/'/g, "\\'")}')" title="Delete">
+                            <button class="btn btn-outline-danger btn-sm" onclick="examSetupController.confirmDelete(${exam.id}, '${escHtml(name).replace(/'/g, "\\'")}')" title="Delete" data-year-write>
                                 <i class="bi bi-trash"></i>
                             </button>` : ''}
                         </div>
@@ -509,6 +515,9 @@ const examSetupController = (() => {
     ================================================================= */
   function openCreateModal() {
     _resetForm();
+    // A new configuration belongs to the year/term the page is showing.
+    if (_currentAcademicYear) $("formAcademicYear").value = String(_currentAcademicYear);
+    if (_currentTerm) $("formTerm").value = String(_currentTerm);
     $("examFormModalLabel").innerHTML =
       '<i class="bi bi-plus-circle me-2"></i>Create Exam Configuration';
     _renderGradingScale("standard");
@@ -606,11 +615,11 @@ const examSetupController = (() => {
             </td>
             <td>
                 <input type="number" class="form-control subject-max" name="max_marks" min="1" max="1000"
-                       value="${data?.max_marks || 100}" required>
+                       value="${data?.max_marks || 100}" required data-year-write>
             </td>
             <td>
                 <input type="number" class="form-control subject-pass" name="passing_marks" min="0" max="1000"
-                       value="${data?.passing_marks || data?.pass_marks || 40}">
+                       value="${data?.passing_marks || data?.pass_marks || 40}" data-year-write>
             </td>
             <td>
                 <input type="number" class="form-control subject-weight" name="weight" min="0" max="100" step="0.1"
@@ -618,7 +627,7 @@ const examSetupController = (() => {
                        onchange="examSetupController.updateSubjectTotals()">
             </td>
             <td class="text-center">
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="examSetupController.removeSubjectRow(this)" title="Remove">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="examSetupController.removeSubjectRow(this)" title="Remove" data-year-write>
                     <i class="bi bi-x-lg"></i>
                 </button>
             </td>`;
@@ -1276,8 +1285,6 @@ const examSetupController = (() => {
     ================================================================= */
   function clearFilters() {
     [
-      "filterYear",
-      "filterTerm",
       "filterClass",
       "filterStatus",
       "filterSearch",
@@ -1299,7 +1306,7 @@ const examSetupController = (() => {
     // Filter bar
     $("btnApplyFilters")?.addEventListener("click", () => loadExams(1));
     $("btnClearFilters")?.addEventListener("click", clearFilters);
-    ["filterYear", "filterTerm", "filterClass", "filterStatus"].forEach(
+    ["filterClass", "filterStatus"].forEach(
       (id) => {
         $(id)?.addEventListener("change", () => loadExams(1));
       },
@@ -1359,32 +1366,6 @@ const examSetupController = (() => {
       return;
     }
 
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload exams when academic year or term changes
-          loadExams();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      _currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      _currentTerm = window.AcademicContext.getTermId();
-      
-      // Update filters to use current context
-      if (_currentTerm) {
-        const termFilter = $('termFilter');
-        if (termFilter) termFilter.value = _currentTerm;
-      }
-    }
-
     const canCreate = typeof AuthContext !== 'undefined'
       ? AuthContext.hasPermission('assessments_create')
       : false;
@@ -1401,7 +1382,7 @@ const examSetupController = (() => {
 
     _attachListeners();
     await loadReferenceData();
-    await loadExams();
+    await mountYearFilter(); // loads the list for the default year/term
     window.APIRealtime?.register?.("exam_setup", { refresh: async () => { await loadReferenceData(); await loadExams(pagination.page); } }, ["academic"]);
   }
 

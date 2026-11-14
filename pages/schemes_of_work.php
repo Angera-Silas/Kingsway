@@ -24,7 +24,7 @@
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-success btn-sm" id="generateSchemeBtn"
-                            data-role="class_teacher,subject_teacher,headteacher,admin">
+                            data-role="class_teacher,subject_teacher,headteacher,admin" data-year-write>
                         <i class="bi bi-magic me-1"></i> Auto-Generate
                     </button>
                     <button class="btn btn-outline-primary btn-sm" id="exportSchemesBtn"
@@ -215,7 +215,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="confirmGenerateBtn">
+                <button type="button" class="btn btn-success" id="confirmGenerateBtn" data-year-write>
                     <i class="bi bi-magic me-1"></i> Generate
                 </button>
             </div>
@@ -262,11 +262,11 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-success" id="approveSchemeBtn"
-                        data-role="headteacher,admin">
+                        data-role="headteacher,admin" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Approve
                 </button>
                 <button type="button" class="btn btn-danger" id="rejectSchemeBtn"
-                        data-role="headteacher,admin">
+                        data-role="headteacher,admin" data-year-write>
                     <i class="bi bi-x-circle me-1"></i> Reject
                 </button>
             </div>

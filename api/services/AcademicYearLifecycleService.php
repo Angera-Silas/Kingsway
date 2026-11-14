@@ -1,32 +1,27 @@
 <?php
 namespace App\API\Services;
 
-use PDO;
-
 /**
  * Academic year lifecycle states.
  *
- * Every year is `active` unless it is `archived`; the sub-state records
- * where it sits in the school calendar:
+ * Every year has status `active`; the state records where it sits in the
+ * school calendar:
  *
- *   active - upcoming    many years may be upcoming (rollover prep, intake)
- *   active - current     exactly one year
- *   active - completed   teaching finished; readable by every user,
- *                        editable only by school admin / system admin /
- *                        director
- *   archived             rare, system-admin only, far future; NOT part of
- *                        the annual rollover
+ *   upcoming    many years may be upcoming (rollover prep, intake)
+ *   current     exactly one year
+ *   completed   teaching finished; readable by every user, editable only by
+ *               school admin / system admin / director, or by a user the
+ *               system administrator has granted EDIT_COMPLETED_PERMISSION
  *
- * Completed is deliberately NOT "sealed": a school's data must stay
- * editable by authorised staff, so completed only raises the bar on who
- * may write to that year's rows.
+ * There is no archiving. Every year the school has run stays visible and
+ * its records stay available (decision of 2026-11-14: "every data matters").
  */
 final class AcademicYearLifecycleService
 {
     /**
-     * Roles permitted to write into a completed (or archived) year.
-     * Both spellings are accepted because callers may pass either the role
-     * title ("School Administrator") or its code ("school_admin").
+     * Roles that may always write into a completed year. Both spellings are
+     * accepted because callers may pass the role title ("School
+     * Administrator") or its code ("school_admin").
      */
     public const EDIT_ROLES = [
         'system_administrator', 'system_admin',
@@ -34,70 +29,51 @@ final class AcademicYearLifecycleService
         'director',
     ];
 
+    /**
+     * Permission a system administrator grants (per user, or per role) so
+     * another user may edit records in a completed year.
+     */
+    public const EDIT_COMPLETED_PERMISSION = 'academic_years_edit_completed';
+
     public const STATE_UPCOMING = 'upcoming';
     public const STATE_CURRENT = 'current';
     public const STATE_COMPLETED = 'completed';
-    public const STATE_ARCHIVED = 'archived';
 
     public const STATUS_ACTIVE = 'active';
-    public const STATUS_ARCHIVED = 'archived';
 
     /** Render the "active - completed" wording used across the UI. */
     public static function label(string $status, string $state): string
     {
-        if ($status === self::STATUS_ARCHIVED) return 'archived';
         return 'active - ' . ($state !== '' ? $state : 'upcoming');
     }
 
     public static function allowedStates(): array
     {
-        return [self::STATE_UPCOMING, self::STATE_CURRENT, self::STATE_COMPLETED, self::STATE_ARCHIVED];
+        return [self::STATE_UPCOMING, self::STATE_CURRENT, self::STATE_COMPLETED];
+    }
+
+    public static function isCompleted(string $state): bool
+    {
+        return $state === self::STATE_COMPLETED;
     }
 
     /**
-     * Whether a year is visible at all.
+     * Whether the caller may write into a year in this state.
      *
-     * Archiving is a permanent closure: the year's data is hidden completely
-     * from ordinary access. Every other state (active - upcoming / current /
-     * completed) is visible to every user, including read-only users.
-     */
-    public static function isArchived(string $status, string $state): bool
-    {
-        return $status === self::STATUS_ARCHIVED || $state === self::STATE_ARCHIVED;
-    }
-
-    public static function isVisible(string $status, string $state): bool
-    {
-        return !self::isArchived($status, $state);
-    }
-
-    /**
-     * SQL predicate that excludes archived years. Use in any WHERE clause that
-     * lists or resolves years, so an archived year never surfaces to an
-     * ordinary user.
-     */
-    public static function visibleSql(string $alias = ''): string
-    {
-        $prefix = $alias !== '' ? $alias . '.' : '';
-
-        return $prefix . "status <> '" . self::STATUS_ARCHIVED . "'";
-    }
-
-    /**
-     * A completed (or archived) year is writable only by the roles above.
      * Upcoming and current years are writable by anyone the route already
-     * authorised.
+     * authorised. A completed year is writable by the EDIT_ROLES, or when
+     * $hasEditCompletedPermission is true (the caller resolved
+     * EDIT_COMPLETED_PERMISSION for the user).
      */
-    public static function isYearEditable(string $status, string $state, array $roles): bool
-    {
-        $isClosed = $state === self::STATE_COMPLETED
-            || $state === self::STATE_ARCHIVED
-            || $status === self::STATUS_ARCHIVED;
+    public static function isYearEditable(
+        string $status,
+        string $state,
+        array $roles,
+        bool $hasEditCompletedPermission = false
+    ): bool {
+        if (!self::isCompleted($state)) return true;
+        if ($hasEditCompletedPermission) return true;
 
-        if (!$isClosed) return true;
-
-        // Callers may pass either the role title ("School Administrator")
-        // or its code ("school_admin"), so normalise both spellings.
         $normalised = [];
         foreach ($roles as $role) {
             $role = strtolower(trim((string) $role));

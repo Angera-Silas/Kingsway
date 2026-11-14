@@ -131,14 +131,29 @@ class LearnerAcademicRecordService
         $streamId = (int) ($year['stream_ref'] ?? 0);
         $yearClassId = (int) ($year['year_class_id'] ?? 0);
 
+        // Term names come from a keyed read of the small `terms` table (it has
+        // no read projection), so no live join is needed (Hard Rule 1).
         $terms = $this->rows(
-            "SELECT ayt.id, t.name AS term_name
+            "SELECT ayt.id, ayt.term_id
              FROM " . $this->ref('academic_year_terms') . " ayt
-             JOIN terms t ON t.id = ayt.term_id
              WHERE ayt.academic_year_id = ?
              ORDER BY ayt.opening_date, ayt.id",
             [$yearId]
         );
+        $termNames = [];
+        $termNumberIds = array_values(array_unique(array_filter(array_map(static fn ($t) => (int) $t['term_id'], $terms))));
+        if ($termNumberIds) {
+            foreach ($this->rows(
+                'SELECT id, name FROM terms WHERE id IN (' . implode(',', array_fill(0, count($termNumberIds), '?')) . ')',
+                $termNumberIds
+            ) as $row) {
+                $termNames[(int) $row['id']] = $row['name'];
+            }
+        }
+        foreach ($terms as &$term) {
+            $term['term_name'] = $termNames[(int) $term['term_id']] ?? ('Term ' . (int) $term['term_id']);
+        }
+        unset($term);
         $termIds = array_map(static fn ($t) => (int) $t['id'], $terms);
         $termIn = implode(',', $termIds ?: [0]);
 
@@ -201,21 +216,37 @@ class LearnerAcademicRecordService
         );
 
         // Formative scores are stored per learner; the assessment's class
-        // stream and term place them in this year.
-        $formative = $this->rows(
+        // stream and term place them in this year. `formative_scores` has no
+        // read projection, so the assessments come from the projection and the
+        // learner's scores from a keyed read (no live join, Hard Rule 1).
+        $formativeAssessments = [];
+        foreach ($this->rows(
             "SELECT a.id AS assessment_id, a.title, a.assessment_date, a.learning_area_id, a.academic_year_term_id,
                     a.status AS assessment_status, a.strand_id, a.sub_strand_id,
                     s.name AS strand_name, ss.name AS sub_strand_name,
-                    fs.score, fs.max_score, fs.percentage, fs.cbc_grade, fs.remarks,
                     (a.status = 'approved') AS approved
-             FROM formative_scores fs
-             JOIN " . $this->ref('assessments') . " a ON a.id = fs.assessment_id
+             FROM " . $this->ref('assessments') . " a
              LEFT JOIN " . $this->ref('strands') . " s ON s.id = a.strand_id
              LEFT JOIN " . $this->ref('sub_strands') . " ss ON ss.id = a.sub_strand_id
-             WHERE fs.student_id = ? AND a.academic_year_class_stream_id = ? AND a.academic_year_term_id IN ({$termIn})
+             WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id IN ({$termIn})
              ORDER BY a.assessment_date, a.id",
-            [$studentId, $streamId]
-        );
+            [$streamId]
+        ) as $row) {
+            $formativeAssessments[(int) $row['assessment_id']] = $row;
+        }
+        $formative = [];
+        if ($formativeAssessments) {
+            $ids = array_keys($formativeAssessments);
+            foreach ($this->rows(
+                'SELECT assessment_id, score, max_score, percentage, cbc_grade, remarks
+                 FROM formative_scores
+                 WHERE student_id = ? AND assessment_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
+                array_merge([$studentId], $ids)
+            ) as $score) {
+                $formative[] = $formativeAssessments[(int) $score['assessment_id']] + $score;
+            }
+            usort($formative, static fn ($a, $b) => [$a['assessment_date'], $a['assessment_id']] <=> [$b['assessment_date'], $b['assessment_id']]);
+        }
 
         $byArea = [];
         $awaiting = 0;

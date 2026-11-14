@@ -2,8 +2,8 @@
  * AcademicYearFilter: one reusable academic-year (and term) selector for any page.
  *
  * Pages were built assuming a single academic year. This component lets a
- * page show any visible year (current, upcoming or completed; archived years
- * are never listed by the API) with the current year as the default.
+ * page show any year (current, upcoming or completed) with the current year
+ * as the default.
  *
  *   AcademicYearFilter.mount(selectElement, {
  *     onChange: (yearId, year) => loadData(yearId),   // also called once on mount
@@ -22,6 +22,14 @@
  * e.g. 'All terms': that option is listed first and is the default, and
  * onChange receives termId = null while it is selected. Pass
  * allTermsDefault: false to list it but still open on the default term.
+ *
+ * Every selection (including the first) is announced as a
+ * `kingsway:academic-year` event on document ({detail: {yearId, termId, ...}})
+ * so other panels on the page can follow it.
+ *
+ * Every year change also calls YearMode.apply() (js/components/year_mode.js):
+ * a completed year shows a banner and disables `[data-year-write]` controls
+ * for users who may not edit it.
  *
  * termId is the academic_year_terms id (what timetable/exam endpoints call
  * academic_year_term_id). The choice is kept in the URL (?academic_year_id=N
@@ -187,6 +195,12 @@
         [PARAM]: Number(year.id) === Number(current.id) ? 0 : year.id,
         ...(termSelect ? { [TERM_PARAM]: term ? term.id : 0 } : {}),
       });
+      // Completed years show read-only for users who may not edit them.
+      window.YearMode?.apply(Number(year.id), select);
+      // Other panels on the page may follow the same selection.
+      document.dispatchEvent(new CustomEvent('kingsway:academic-year', {
+        detail: { yearId: Number(year.id), year, termId: term ? Number(term.id) : null, term, select },
+      }));
       if (typeof onChange === 'function') {
         onChange(Number(year.id), year, term ? Number(term.id) : null, term);
       }
@@ -199,5 +213,43 @@
     return { years, current, selected: selectedYear, selectedTerm };
   }
 
-  window.AcademicYearFilter = Object.freeze({ mount, label: optionText });
+  /**
+   * For pages whose template has no year select: add a small year (and
+   * optionally term) bar at the top of the page content and mount the filter
+   * on it. The bar is part of the page fragment, so soft navigation replaces
+   * it with the next page.
+   *
+   *   AcademicYearFilter.mountBar({ term: true, onChange: (yearId, year, termId) => load() });
+   */
+  async function mountBar({ term = false, allTermsLabel = '', allTermsDefault = true, onChange } = {}) {
+    const host = document.getElementById('main-content-segment') || document.querySelector('main') || document.body;
+    let bar = host.querySelector('[data-academic-year-bar]');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.setAttribute('data-academic-year-bar', '');
+      bar.className = 'd-flex flex-wrap align-items-center gap-2 mb-3 d-print-none';
+      const field = (id, text) => {
+        const label = document.createElement('label');
+        label.className = 'small text-muted mb-0';
+        label.htmlFor = id;
+        label.textContent = text;
+        const select = document.createElement('select');
+        select.id = id;
+        select.className = 'form-select form-select-sm';
+        select.style.width = 'auto';
+        bar.append(label, select);
+      };
+      field('ayBarYear', 'Academic year');
+      if (term) field('ayBarTerm', 'Term');
+      host.insertBefore(bar, host.firstChild);
+    }
+    return mount(bar.querySelector('#ayBarYear'), {
+      termSelect: term ? bar.querySelector('#ayBarTerm') : null,
+      allTermsLabel,
+      allTermsDefault,
+      onChange,
+    });
+  }
+
+  window.AcademicYearFilter = Object.freeze({ mount, mountBar, label: optionText });
 })(window);

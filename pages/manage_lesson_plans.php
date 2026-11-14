@@ -95,7 +95,7 @@
             Create and monitor lesson plans generated from approved schemes of work
         </small>
     </div>
-    <button class="btn btn-light btn-sm" id="btnCreateLessonPlan" data-bs-toggle="modal" data-bs-target="#addLessonPlanModal" data-permission="lesson_plans_create">
+    <button class="btn btn-light btn-sm" id="btnCreateLessonPlan" data-bs-toggle="modal" data-bs-target="#addLessonPlanModal" data-permission="lesson_plans_create" data-year-write>
         <i class="bi bi-plus-circle me-1"></i>Create Lesson Plan
     </button>
 </div>

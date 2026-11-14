@@ -31,16 +31,9 @@ const studentPerformanceController = (() => {
     state.years = rowsOf(years);
     state.classes = rowsOf(classes);
     state.streams = rowsOf(streams);
-    const yearSelect = $('academicYearFilter');
-    if (yearSelect) {
-      yearSelect.innerHTML = '<option value="">Current Academic Year</option>' + state.years.map((year) => `<option value="${Number(year.id)}">${escapeHtml(year.year_name || year.name || year.year_code)}</option>`).join('');
-      const current = state.years.find((year) => Boolean(Number(year.is_current)) || year.status === 'active');
-      if (current) yearSelect.value = String(current.id);
-    }
     const classSelect = $('classFilter');
     if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + state.classes.map((item) => `<option value="${Number(item.id)}">${escapeHtml(item.name || item.class_name)}</option>`).join('');
     renderStreamOptions();
-    await loadTerms();
   }
 
   function renderStreamOptions() {
@@ -54,18 +47,15 @@ const studentPerformanceController = (() => {
   async function loadTerms() {
     const yearId = $('academicYearFilter')?.value || '';
     const termsResponse = await get('/academic/terms', yearId ? { academic_year_id: yearId } : {});
+    // The selected year's terms (for the learner report); the term select
+    // itself belongs to AcademicYearFilter.
     state.terms = rowsOf(termsResponse);
-    const select = $('termFilter');
-    const previous = select?.value || '';
-    if (select) {
-      select.innerHTML = '<option value="">All Terms</option>' + state.terms.map((term) => `<option value="${Number(term.id)}">${escapeHtml(term.name || term.term_name)}</option>`).join('');
-      if (state.terms.some((term) => String(term.id) === previous)) select.value = previous;
-    }
   }
 
   function currentFilters() {
     const filters = {
       view_mode: $('viewMode')?.value || 'students',
+      academic_year_id: $('academicYearFilter')?.value || '',
       year_id: $('academicYearFilter')?.value || '',
       term_id: $('termFilter')?.value || '',
       class_id: $('classFilter')?.value || '',
@@ -316,16 +306,15 @@ const studentPerformanceController = (() => {
 
   function bindFilters() {
     $('viewMode')?.addEventListener('change', load);
-    $('academicYearFilter')?.addEventListener('change', async () => { await loadTerms(); await load(); });
-    $('termFilter')?.addEventListener('change', load);
     $('classFilter')?.addEventListener('change', () => { renderStreamOptions(); load(); });
     ['streamFilter', 'genderFilter'].forEach((id) => $(id)?.addEventListener('change', load));
     let searchTimer;
     $('studentSearch')?.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(load, 300); });
     $('resetFiltersBtn')?.addEventListener('click', async () => {
       if ($('viewMode')) $('viewMode').value = 'students';
-      ['academicYearFilter', 'termFilter', 'classFilter', 'streamFilter', 'genderFilter', 'studentSearch'].forEach((id) => { if ($(id)) $(id).value = ''; });
-      await loadTerms();
+      // Reset keeps the selected year and term (the shared selector owns them).
+      ['classFilter', 'streamFilter', 'genderFilter', 'studentSearch'].forEach((id) => { if ($(id)) $(id).value = ''; });
+      renderStreamOptions();
       await load();
     });
   }
@@ -368,7 +357,15 @@ const studentPerformanceController = (() => {
     bindAiSupportPlanning();
     try {
       await loadReferences();
-      await load();
+      // The shared year/term selector (current year, running term by default)
+      // loads the overview now and on every change.
+      const mounted = await window.AcademicYearFilter?.mount($('academicYearFilter'), {
+        termSelect: $('termFilter'),
+        allTermsLabel: 'All terms',
+        allTermsDefault: false,
+        onChange: async () => { await loadTerms(); await load(); },
+      });
+      if (!mounted) { await loadTerms(); await load(); }
     } catch (error) {
       console.error('Student performance page initialization failed:', error);
       showState({ error: error.message || 'Could not prepare performance filters.' });

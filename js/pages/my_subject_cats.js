@@ -53,44 +53,25 @@ const mySubjectCatsCtrl = (() => {
         }
     }
 
-    async function loadYears() {
-        try {
-            const response = await apiCall('academic/years-list');
-            state.years = response || [];
-            const select = document.getElementById('yearFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Years</option>';
-                state.years.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year.id;
-                    option.textContent = year.year_name;
-                    if (year.is_current) option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load years:', error);
-        }
+    /** Rows from an unwrapped API payload (list or {data|items|...}). */
+    function rowsOf(payload, key = '') {
+        if (Array.isArray(payload)) return payload;
+        if (key && Array.isArray(payload?.[key])) return payload[key];
+        return payload?.data || payload?.items || payload?.assessments || payload?.students || payload?.subjects || payload?.exams || [];
     }
 
-    async function loadTerms() {
-        try {
-            const response = await apiCall('academic/terms-list');
-            state.terms = response || [];
-            const select = document.getElementById('termFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Terms</option>';
-                state.terms.forEach(term => {
-                    const option = document.createElement('option');
-                    option.value = term.id;
-                    option.textContent = `${term.name} (${term.year_code || ''})`;
-                    if (term.status === 'current') option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load terms:', error);
-        }
+    /** The shared year/term selector; the current year (and running term) by default. */
+    async function mountYearFilter() {
+        await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+            termSelect: document.getElementById('termFilter'),
+            allTermsLabel: 'All terms',
+            allTermsDefault: false,
+            onChange: (yearId, year, termId) => {
+                state.currentAcademicYear = yearId;
+                state.currentTerm = termId;
+                loadCats();
+            },
+        });
     }
 
     async function loadSubjects() {
@@ -148,12 +129,15 @@ const mySubjectCatsCtrl = (() => {
 
     async function loadCats() {
         try {
-            const yearId = document.getElementById('yearFilter')?.value || '';
-            const termId = document.getElementById('termFilter')?.value || '';
+            const yearId = state.currentAcademicYear;
+            if (!yearId) return;
+            const termId = state.currentTerm || '';
             const subjectId = document.getElementById('subjectFilter')?.value || '';
 
             const response = await apiCall('academic/formative-assessments', 'GET', null, {
+                academic_year_id: yearId,
                 year_id: yearId,
+                academic_year_term_id: termId,
                 term_id: termId,
                 subject_id: subjectId,
                 subject_teacher_only: true // Only show CATs for this teacher's subjects
@@ -197,13 +181,13 @@ const mySubjectCatsCtrl = (() => {
                     <td>${Number(cat.student_count) || 0}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="mySubjectCatsCtrl.editCat(${cat.id})">
+                            <button class="btn btn-outline-primary" data-year-write onclick="mySubjectCatsCtrl.editCat(${cat.id})">
                                 <i class="bi bi-pencil"></i>
                             </button>
                             <button class="btn btn-outline-success" onclick="mySubjectCatsCtrl.enterMarks(${cat.id})">
                                 <i class="bi bi-check-circle"></i>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="mySubjectCatsCtrl.deleteCat(${cat.id})">
+                            <button class="btn btn-outline-danger" data-year-write onclick="mySubjectCatsCtrl.deleteCat(${cat.id})">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -211,6 +195,8 @@ const mySubjectCatsCtrl = (() => {
                 </tr>
             `;
         }).join('');
+        // A completed year stays read-only for users who may not edit it.
+        window.YearMode?.refresh(tbody);
     }
 
     function updateStats() {
@@ -260,7 +246,14 @@ const mySubjectCatsCtrl = (() => {
     async function saveCat() {
         try {
             const catId = document.getElementById('catId').value;
+            // A new CAT belongs to the term the page is showing, never "now".
+            if (!catId && !state.currentTerm) {
+                toast('Choose the term this CAT belongs to in the Term filter first.', 'warning');
+                return;
+            }
             const data = {
+                academic_year_id: state.currentAcademicYear,
+                ...(catId ? {} : { academic_year_term_id: state.currentTerm, term_id: state.currentTerm }),
                 name: document.getElementById('catName').value,
                 type: document.getElementById('catType').value,
                 subject_id: document.getElementById('catSubject').value,
@@ -281,7 +274,7 @@ const mySubjectCatsCtrl = (() => {
             loadCats();
         } catch (error) {
             console.error('Failed to save CAT:', error);
-            toast('Failed to save CAT', 'error');
+            toast(error?.message || 'Failed to save CAT', 'error');
         }
     }
 
@@ -294,7 +287,7 @@ const mySubjectCatsCtrl = (() => {
             loadCats();
         } catch (error) {
             console.error('Failed to delete CAT:', error);
-            toast('Failed to delete CAT', 'error');
+            toast(error?.message || 'Failed to delete CAT', 'error');
         }
     }
 
@@ -307,9 +300,6 @@ const mySubjectCatsCtrl = (() => {
         document.getElementById('refreshBtn')?.addEventListener('click', loadCats);
         document.getElementById('createCatBtn')?.addEventListener('click', () => showCatModal());
         document.getElementById('saveCatBtn')?.addEventListener('click', saveCat);
-        
-        document.getElementById('yearFilter')?.addEventListener('change', loadCats);
-        document.getElementById('termFilter')?.addEventListener('change', loadCats);
         document.getElementById('subjectFilter')?.addEventListener('change', loadCats);
     }
 
@@ -323,27 +313,23 @@ const mySubjectCatsCtrl = (() => {
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadYears();
-                    loadTerms();
-                    loadCats();
-                }
+                if (event === 'refreshed') loadCats();
             });
 
             if (!window.AcademicContext.isLoaded()) {
                 await window.AcademicContext.init();
             }
-
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
         }
 
         document.getElementById('myCatsLoading').style.display = 'none';
         document.getElementById('myCatsContent').style.display = 'block';
 
-        await Promise.all([loadYears(), loadTerms(), loadSubjects(), loadClasses()]);
-        await loadCats();
+        await Promise.all([loadSubjects(), loadClasses()]);
+
         bindEvents();
+
+        await mountYearFilter(); // loads data for the default year/term
+
     }
 
     return {

@@ -12,44 +12,41 @@ const generateClassReportController = {
     ]);
     this.state.years = this.rows(yearsResponse);
     this.state.classes = this.rows(classesResponse);
-    this.fillSelect('yearFilter', this.state.years, 'All Years', (item) => item.year_name || item.name || item.year_code);
     this.fillSelect('classFilter', this.state.classes, 'All Classes', (item) => item.name || item.class_name);
-    const currentYear = this.state.years.find((year) => year.is_current || year.status === 'current');
-    if (currentYear) document.getElementById('yearFilter').value = String(currentYear.id);
-    await this.loadTerms();
+    // The shared year/term selector loads the report now and on every change.
+    await this.mountYearFilter();
     document.getElementById('reportType')?.addEventListener('change', () => this.load());
-    document.getElementById('yearFilter')?.addEventListener('change', async () => { await this.loadTerms(); await this.load(); });
-    document.getElementById('termFilter')?.addEventListener('change', () => this.load());
     document.getElementById('classFilter')?.addEventListener('change', () => this.load());
     document.getElementById('refreshBtn')?.addEventListener('click', () => this.load());
     document.getElementById('printBtn')?.addEventListener('click', () => this.print());
     document.getElementById('exportBtn')?.addEventListener('click', () => this.exportCSV());
-    await this.load();
+
     window.APIRealtime?.register?.('generate_class_report', { refresh: () => this.load() }, ['academic', 'reports']);
   },
   fillSelect(id, rows, firstLabel, label) {
     const select = document.getElementById(id); if (!select) return;
     select.innerHTML = `<option value="">${this.esc(firstLabel)}</option>` + rows.map((row) => `<option value="${Number(row.id)}">${this.esc(label(row))}</option>`).join('');
   },
-  async loadTerms() {
-    const yearId = document.getElementById('yearFilter')?.value || '';
-    try {
-      const response = await this.API('GET', '/api/academic/terms', null, yearId ? { academic_year_id: yearId } : {});
-      this.state.terms = this.rows(response);
-      this.fillSelect('termFilter', this.state.terms, 'All Terms', (item) => `${item.name || item.term_name || 'Term'} · ${item.year_name || ''}`);
-      const current = this.state.terms.find((term) => term.is_current || term.status === 'current');
-      if (current) document.getElementById('termFilter').value = String(current.id);
-    } catch (error) {
-      this.state.terms = []; this.fillSelect('termFilter', [], 'All Terms', () => '');
-      this.showError(error?.message || 'Terms could not be loaded.');
-    }
+  async mountYearFilter() {
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+      termSelect: document.getElementById('termFilter'),
+      allTermsLabel: 'All terms',
+      onChange: (yearId, year, termId) => {
+        this.state.yearId = yearId;
+        this.state.termId = termId;
+        this.state.yearLabel = year?.year_name || year?.year_code || '';
+        this.load();
+      },
+    });
+    if (!mounted) await this.load();
   },
   async load() {
     this.setLoading(true); this.hideError();
     const params = {
       report_type: document.getElementById('reportType')?.value || 'performance',
-      year_id: document.getElementById('yearFilter')?.value || '',
-      term_id: document.getElementById('termFilter')?.value || '',
+      academic_year_id: this.state.yearId || '',
+      year_id: this.state.yearId || '',
+      term_id: this.state.termId || '',
       class_id: document.getElementById('classFilter')?.value || '',
     };
     Object.keys(params).forEach((key) => { if (!params[key]) delete params[key]; });
@@ -83,7 +80,7 @@ const generateClassReportController = {
     if (!this.state.columns.length || !this.state.rows.length) return window.showNotification?.('There is no report data to export.', 'info');
     const quote = (value) => `"${String(value ?? '').replaceAll('"','""')}"`;
     const csv = [this.state.columns.map((column) => column.label), ...this.state.rows.map((row) => this.state.columns.map((column) => row[column.key]))].map((row) => row.map(quote).join(',')).join('\r\n');
-    window.KingswayFileLifecycle?.exportText?.(csv, 'class-report.csv', 'text/csv;charset=utf-8;');
+    window.KingswayFileLifecycle?.exportText?.(csv, `class-report-${String(this.state.yearLabel || '').replace(/[\/\s]+/g, '-')}.csv`, 'text/csv;charset=utf-8;');
   },
   print() { if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('reports')) return window.showNotification?.('You do not have permission to print reports.', 'error'); window.print(); },
 };

@@ -24,70 +24,31 @@ const MySubjectsController = {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadMySubjects();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this.state.currentTerm = window.AcademicContext.getTermId();
-    }
     
     this.bindEvents();
-    await this.loadAcademicYears();
-    await this.loadMySubjects();
+    // The shared year/term selector (view only: it never changes the
+    // school's current year). Current year and running term by default.
+    await this.mountYearFilter();
   },
 
   bindEvents() {
-    // Academic year selector
-    const yearSelect = document.getElementById('academicYearSelect');
-    if (yearSelect) {
-      yearSelect.addEventListener('change', async (e) => {
-        this.state.currentAcademicYear = e.target.value;
-        if (window.AcademicContext) {
-          await window.AcademicContext.setCurrentAcademicYear(e.target.value);
-        }
-        await this.loadMySubjects();
-      });
-    }
 
-    // Term selector
-    const termSelect = document.getElementById('termSelect');
-    if (termSelect) {
-      termSelect.addEventListener('change', async (e) => {
-        this.state.currentTerm = e.target.value;
-        await this.loadMySubjects();
-      });
-    }
   },
 
-  async loadAcademicYears() {
-    try {
-      const years = await window.API.academic.listYears() || [];
-      const yearSelect = document.getElementById('academicYearSelect');
-      if (yearSelect) {
-        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-        
-        // Set current academic year if available
-        if (this.state.currentAcademicYear) {
-          yearSelect.value = this.state.currentAcademicYear;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading academic years:', error);
-    }
+  async mountYearFilter() {
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('academicYearSelect'), {
+      termSelect: document.getElementById('termSelect'),
+      allTermsLabel: 'All terms',
+      allTermsDefault: false,
+      onChange: (yearId, year, termId) => {
+        this.state.currentAcademicYear = yearId;
+        this.state.currentTerm = termId;
+        this.loadMySubjects();
+      },
+    });
+    if (!mounted) await this.loadMySubjects();
   },
+
 
   async loadMySubjects() {
     try {
@@ -239,7 +200,6 @@ const MySubjectsController = {
   },
 
   async refresh() {
-    await this.loadAcademicYears();
     await this.loadMySubjects();
   },
 

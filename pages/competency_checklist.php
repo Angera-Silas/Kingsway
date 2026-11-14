@@ -14,9 +14,11 @@
       <h3 class="mb-0"><i class="bi bi-list-check me-2 text-primary"></i>Competency Checklist</h3>
       <small class="text-muted">Self-assessment by domain — mentor validates each item</small>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex flex-wrap gap-2">
+      <select id="ccYearSelect" class="form-select form-select-sm" style="width:auto" aria-label="Academic year"></select>
+      <select id="ccTermSelect" class="form-select form-select-sm" style="width:auto" aria-label="Term"></select>
       <span class="badge bg-secondary align-self-center">Rating: 1=Beginner · 2=Developing · 3=Proficient · 4=Expert</span>
-      <button class="btn btn-primary btn-sm" id="ccSaveAllBtn">
+      <button class="btn btn-primary btn-sm" id="ccSaveAllBtn" data-year-write>
         <i class="bi bi-check-all me-1"></i> Save All Ratings
       </button>
     </div>

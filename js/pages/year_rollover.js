@@ -46,10 +46,10 @@ window.yearRolloverController = {
     // Billing and balance carry-forward now happen at promotion time, so the
     // finance phase only closes the outgoing year, migrates baselines and
     // performs the final cutover.
-    // Archiving is deliberately NOT a rollover step. The outgoing year is
-    // CLOSED (active - completed, readable by all, editable only by school
-    // admin / system admin / director) during the final cutover; archiving is
-    // a separate system-admin action.
+    // The outgoing year is CLOSED (active - completed: readable by all,
+    // editable by school admin / system admin / director or a user granted
+    // academic_years_edit_completed) during the final cutover. The system has
+    // no archiving; every year stays visible.
     finance: ['migrate_baselines', 'close_outgoing_year', 'activate_new_year_term_one'],
   },
 
@@ -1325,13 +1325,10 @@ window.yearRolloverController = {
     const s = this._status || {};
     const badge = document.getElementById('yrCurrentYearBadge');
     if (badge) {
-      // Every year is active unless archived; the sub-state says where it sits.
+      // Every year is active; the sub-state says where it sits.
       const current = s.current_year || null;
       const state = current?.state || 'current';
-      const status = current?.status || 'active';
-      badge.textContent = status === 'archived'
-        ? `Archived · ${current?.year_name || '—'}`
-        : `active - ${state} · ${current?.year_name || this._currentYear?.year_name || '—'}`;
+      badge.textContent = `active - ${state} · ${current?.year_name || this._currentYear?.year_name || '—'}`;
     }
 
     const setCheck = (iconId, statusId, ok, trueText, falseText) => {
@@ -1596,10 +1593,9 @@ window.yearRolloverController = {
               : 'Stage completed and progress saved.', performed: new Date().toISOString() });
         showNotification(`${stage?.label || code} completed.`, 'success');
       } else if (code === 'close_outgoing_year') {
-        // Closing is NOT archiving. The outgoing year becomes active - completed:
-        // readable by every user, writable only by school admin / system admin /
-        // director. Archiving is a separate system-admin action and never
-        // happens here, so no archive options are sent.
+        // The outgoing year becomes active - completed: readable by every user,
+        // writable by school admin / system admin / director or a user granted
+        // academic_years_edit_completed.
         data = await callAPI('/academic/year-transition/close-year', 'POST', {
           instance_id: this._instanceId,
         });

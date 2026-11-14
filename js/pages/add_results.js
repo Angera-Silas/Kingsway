@@ -77,28 +77,22 @@ const addResultsController = (() => {
       return;
     }
     await loadReferencesComposed();
-    await Promise.all([loadYears(), loadClasses(), loadSubjects(), loadTerms(), loadAssessmentTypes()]);
-    window.APIRealtime?.register?.("add_results", { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadYears(), loadClasses(), loadSubjects(), loadTerms(), loadAssessmentTypes()]); } }, ["academic"]);
+    await Promise.all([mountYearFilter(), loadClasses(), loadSubjects(), loadAssessmentTypes()]);
+    window.APIRealtime?.register?.("add_results", { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadClasses(), loadSubjects(), loadAssessmentTypes()]); } }, ["academic"]);
     document
       .getElementById("addResultForm")
       .addEventListener("submit", handleSubmit);
   }
 
-  async function loadYears() {
-    try {
-      const sel = document.getElementById("yearSelect");
-      resetSelect(sel);
-      const res = referenceCache?.years ?? (await API.academic.getAllAcademicYears());
-      const years = res?.data || res || [];
-      years.forEach((y) => {
-        const o = document.createElement("option");
-        o.value = y.id || y.year_id;
-        o.textContent = y.year_name || y.name || y.year;
-        sel.appendChild(o);
-      });
-    } catch (e) {
-      console.error("Load years:", e);
-    }
+  /** The shared year/term selector: the result is recorded for that year-term. */
+  let selected = { yearId: null, termId: null, termName: "" };
+  async function mountYearFilter() {
+    await window.AcademicYearFilter?.mount(document.getElementById("yearSelect"), {
+      termSelect: document.getElementById("termSelect"),
+      onChange: (yearId, year, termId, term) => {
+        selected = { yearId, termId, termName: term?.name || (term ? `Term ${term.term_number || term.term_id}` : "") };
+      },
+    });
   }
 
   async function loadClasses() {
@@ -133,36 +127,6 @@ const addResultsController = (() => {
     } catch (e) {
       console.error("Load subjects:", e);
     }
-  }
-
-  async function loadTerms() {
-    const sel = document.getElementById("termSelect");
-    if (!sel) return;
-    resetSelect(sel);
-    try {
-      if (API?.academic?.getTerms || referenceCache?.terms !== undefined) {
-        const res = referenceCache?.terms ?? (await API.academic.getTerms());
-        const terms = res?.data || res || [];
-        const termList = Array.isArray(terms) ? terms : terms.terms || [];
-        if (termList.length) {
-          termList.forEach((t) => {
-            const o = document.createElement("option");
-            o.value = t.name || t.term_name || t;
-            o.textContent = t.name || t.term_name || t;
-            sel.appendChild(o);
-          });
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn("Load terms from API failed, using defaults:", e);
-    }
-    ["Term 1", "Term 2", "Term 3"].forEach((t) => {
-      const o = document.createElement("option");
-      o.value = t;
-      o.textContent = t;
-      sel.appendChild(o);
-    });
   }
 
   async function loadAssessmentTypes() {
@@ -242,8 +206,9 @@ const addResultsController = (() => {
       subject_id: document.getElementById("subjectSelect").value,
       class_id: document.getElementById("classSelect").value,
       marks: parseFloat(document.getElementById("marksInput").value),
-      term: document.getElementById("termSelect").value,
-      academic_year_id: document.getElementById("yearSelect").value,
+      term: selected.termName,
+      academic_year_id: selected.yearId,
+      academic_year_term_id: selected.termId,
       assessment_type: document.getElementById("assessmentType").value,
       remarks: document.getElementById("remarksInput").value,
     };
@@ -251,6 +216,7 @@ const addResultsController = (() => {
       !payload.student_id ||
       !payload.subject_id ||
       !payload.class_id ||
+      !payload.academic_year_term_id ||
       isNaN(payload.marks)
     ) {
       await window.infoDialog('Notice', "Please fill all required fields.");
@@ -259,8 +225,8 @@ const addResultsController = (() => {
     const { grade, points } = calcGrade(payload.marks);
     payload.grade = grade;
     payload.points = points;
+    const btn = e.target.querySelector('button[type="submit"]');
     try {
-      const btn = e.target.querySelector('button[type="submit"]');
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
       const res = await API.academic.recordMarks(payload);
@@ -273,11 +239,13 @@ const addResultsController = (() => {
       } else {
         await window.infoDialog('Notice', "Failed to save result.");
       }
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Result';
     } catch (err) {
       console.error("Save result:", err);
-      await window.infoDialog('Notice', "Error saving result.");
+      await window.infoDialog('Notice', err?.message || "Error saving result.");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Result';
+      window.YearMode?.refresh(btn);
     }
   }
 

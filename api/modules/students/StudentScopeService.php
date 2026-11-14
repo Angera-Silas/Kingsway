@@ -38,6 +38,8 @@ class StudentScopeService
             'class_stream_pairs' => [],
             'boarding_only' => false,
             'transport_route_ids' => [],
+            // academic_year_class_streams.id the teacher taught in any year
+            'history_stream_ids' => [],
         ];
 
         if (in_array($context, ['full_management', 'oversight', 'academic', 'discipline', 'welfare'], true)) {
@@ -53,13 +55,17 @@ class StudentScopeService
             // Class teachers have pastoral ownership of their streams and may
             // also teach specialist areas in other streams (especially Grades
             // 4-9). Their learner visibility is the blended union.
-            $teacher = (new TeacherScopeService($this->db))->forUser($user);
+            $teacherScope = new TeacherScopeService($this->db);
+            $teacher = $teacherScope->forUser($user);
             $scope['class_stream_pairs'] = $teacher['class_stream_pairs'] ?? [];
+            $scope['history_stream_ids'] = $teacherScope->streamIdsAllYears($user);
         }
 
         if ($context === 'subject_teacher') {
-            $teacher = (new TeacherScopeService($this->db))->forUser($user);
+            $teacherScope = new TeacherScopeService($this->db);
+            $teacher = $teacherScope->forUser($user);
             $scope['class_stream_pairs'] = $teacher['subject_stream_pairs'] ?? [];
+            $scope['history_stream_ids'] = $teacherScope->streamIdsAllYears($user);
         }
 
         if ($context === 'parent_children') {
@@ -135,6 +141,20 @@ class StudentScopeService
 
         if (!empty($scope['student_ids']) && in_array($studentId, $scope['student_ids'], true)) {
             return true;
+        }
+
+        // A teacher may open a learner they taught in any year, current or
+        // completed (year-aware access, 2026-11-14).
+        if (!empty($scope['history_stream_ids']) && empty($scope['boarding_only'])) {
+            $marks = implode(',', array_fill(0, count($scope['history_stream_ids']), '?'));
+            $stmt = $this->db->prepare(
+                "SELECT 1 FROM " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . "
+                 WHERE student_id = ? AND academic_year_class_stream_id IN ({$marks}) LIMIT 1"
+            );
+            $stmt->execute(array_merge([$studentId], array_map('intval', $scope['history_stream_ids'])));
+            if ($stmt->fetchColumn()) {
+                return true;
+            }
         }
 
         $where = ['s.id = ?'];

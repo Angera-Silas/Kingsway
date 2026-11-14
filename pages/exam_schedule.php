@@ -120,7 +120,7 @@
    </div>
    <div class="small text-muted mt-2" id="publishResultsFeedback" aria-live="polite"></div>
   </div>
-  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-success" id="confirmPublishResults">Publish results</button></div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-success" id="confirmPublishResults" data-year-write>Publish results</button></div>
  </div></div>
 </div>
 
@@ -159,7 +159,7 @@
    <div class="col-md-6"><label class="form-label" for="examPeriodEnd">Ends *</label><input type="date" class="form-control" id="examPeriodEnd" required></div></div>
        <div class="row g-3 mt-1"><div class="col-md-4"><label class="form-label" for="examPeriodAssessmentKind">Summative assessment type *</label><select class="form-select" id="examPeriodAssessmentKind" required><option value="">Loading from database…</option></select></div><div class="col-md-4 d-none" id="nationalAssessmentWrap"><label class="form-label" for="nationalAssessmentCode">National assessment *</label><select class="form-select" id="nationalAssessmentCode"><option value="">Select assessment</option><option value="KPSEA">KPSEA · Grade 6</option><option value="KJSEA">KJSEA · Grade 9</option><option value="OTHER">Other national assessment</option></select></div><div class="col-md-4"><label class="form-label" for="examPeriodEntryMode">Result setup</label><select class="form-select" id="examPeriodEntryMode"><option value="timetable">Create timetable first</option><option value="results_only">Results entry only (no timetable)</option></select></div></div>
    <div class="mt-3"><div class="d-flex justify-content-between"><label class="form-label">Applicable classes *</label><button class="btn btn-sm btn-link p-0" type="button" id="examPeriodToggleClasses">Select all</button></div><div class="row g-2" id="examPeriodClasses"><div class="text-muted">Choose an academic term first.</div></div></div>
-  </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="createExamPeriodBtn">Create period</button></div></form>
+  </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="createExamPeriodBtn" data-year-write>Create period</button></div></form>
  </div></div>
 </div>
 
@@ -183,7 +183,7 @@
     <div class="d-flex gap-2 mt-2" id="examPeriodEditImportRow">
       <button class="btn btn-sm btn-outline-primary" type="button" id="openExamDocumentImport"><i class="bi bi-file-earmark-arrow-up me-1"></i>Import timetable / results</button>
     </div>
-   </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="saveExamPeriodEditBtn"><i class="bi bi-check2 me-1"></i>Save changes</button></div></form>
+   </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="saveExamPeriodEditBtn" data-year-write><i class="bi bi-check2 me-1"></i>Save changes</button></div></form>
  </div></div>
 </div>
 
@@ -193,7 +193,7 @@
   <form id="examPeriodDeleteForm"><div class="modal-body">
    <p class="mb-2">You are about to delete the exam period <strong id="examPeriodDeleteName"></strong>.</p>
    <p class="text-muted mb-0">It will be hidden from normal lists and can be restored by an administrator from the actions menu.</p>
-  </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" type="submit" id="examPeriodDeleteBtn"><i class="bi bi-trash me-1"></i>Delete period</button></div></form>
+  </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" type="submit" id="examPeriodDeleteBtn" data-year-write><i class="bi bi-trash me-1"></i>Delete period</button></div></form>
  </div></div>
 </div>
 

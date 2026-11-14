@@ -95,7 +95,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="apoSchemeModalBody"></div>
-            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-success d-none" id="apoApproveScheme"><i class="bi bi-check2-circle me-1"></i>Approve complete workbook</button></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-success d-none" id="apoApproveScheme" data-year-write><i class="bi bi-check2-circle me-1"></i>Approve complete workbook</button></div>
         </div>
     </div>
 </div>

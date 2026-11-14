@@ -30,15 +30,11 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Academic Year</label>
-                                <select id="yearSelect" class="form-select" required>
-                                    <option value="">-- Select Year --</option>
-                                </select>
+                                <select id="yearSelect" class="form-select" required aria-label="Academic year"></select>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Term</label>
-                                <select id="termSelect" class="form-select" required>
-                                    <option value="">-- Select Term --</option>
-                                </select>
+                                <select id="termSelect" class="form-select" required aria-label="Term"></select>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Class</label>
@@ -66,7 +62,7 @@
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Marks (0-100)</label>
-                                <input type="number" id="marksInput" class="form-control" min="0" max="100" step="0.5" required placeholder="0-100" oninput="addResultsController.previewGrade()">
+                                <input type="number" id="marksInput" class="form-control" min="0" max="100" step="0.5" required placeholder="0-100" oninput="addResultsController.previewGrade()" data-year-write>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Auto Grade</label>
@@ -80,10 +76,10 @@
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Remarks (Optional)</label>
-                                <textarea id="remarksInput" class="form-control" rows="2" placeholder="Teacher's remarks"></textarea>
+                                <textarea id="remarksInput" class="form-control" rows="2" placeholder="Teacher's remarks" data-year-write></textarea>
                             </div>
                             <div class="col-12">
-                                <button type="submit" class="btn btn-primary btn-lg w-100">
+                                <button type="submit" class="btn btn-primary btn-lg w-100" data-year-write>
                                     <i class="bi bi-check-lg me-2"></i>Save Result
                                 </button>
                             </div>

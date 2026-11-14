@@ -41,6 +41,24 @@ class StudentsAPI extends BaseAPI
             $conditions = [];
             $bindings = [];
 
+            // Year-aware (2026-11-15): class/stream placement in the selected
+            // year (the current year by default). A past or upcoming year lists
+            // only the learners placed in it; the current year keeps every
+            // learner, including new admissions not yet placed.
+            $yearScope = new \App\API\Services\YearScope($this->db);
+            $currentYearId = $yearScope->currentYearId();
+            $requestedYearId = (int) (is_array($params) ? ($params['academic_year_id'] ?? $params['year_id'] ?? 0) : 0);
+            $listYearId = $requestedYearId > 0 ? $requestedYearId : $currentYearId;
+            // Placement in the year's roll (active / completed / graduated, per
+            // the counting rules). learner_placement holds ACTIVE enrolments
+            // only, so after year-end promotion it would show the current
+            // year's learners without a class; the history projection keeps
+            // every year. Other years list only the learners placed in them.
+            $placementRef = ReadReplicaService::qualifiedRef('learner_placement_history');
+            if ($requestedYearId > 0 && $requestedYearId !== $currentYearId) {
+                $conditions[] = 'lp.student_id IS NOT NULL';
+            }
+
             if (!empty($visibilityScope['restricted'])) {
                 $scopeClauses = [];
 
@@ -166,15 +184,11 @@ class StudentsAPI extends BaseAPI
                 : "NULL AS total_fees, NULL AS total_paid, NULL AS fee_balance";
 
             $joins = "
-                LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp
+                LEFT JOIN {$placementRef} lp
                     ON lp.student_id = s.id
-                    AND lp.academic_year_id = (
-                        SELECT ay_current.id
-                        FROM academic_years ay_current
-                        WHERE ay_current.is_current = 1
-                        ORDER BY ay_current.id DESC
-                        LIMIT 1
-                )
+                    AND lp.enrollment_status IN ('active','completed','graduated')
+                    AND lp.academic_year_id = " . (int) $listYearId . "
+
                 LEFT JOIN student_types st ON s.student_type_id = st.id
                 {$feeJoin}
                 LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_guardian') . " lg
@@ -2929,6 +2943,13 @@ private function getCurrentStudentTransport(int $studentId): array
         $where = ['sae.student_id = ?'];
         $bindings = [$id];
 
+        // Year-aware (2026-11-15): one academic year by academic_years.id.
+        $academicYearId = (int) ($params['academic_year_id'] ?? 0);
+        if ($academicYearId > 0) {
+            $where[] = 'sae.academic_year_id = ?';
+            $bindings[] = $academicYearId;
+        }
+
         if (!empty($termId) && ctype_digit((string) $termId)) {
             $where[] = 'ayt.id = ?';
             $bindings[] = (int) $termId;
@@ -3048,11 +3069,18 @@ private function getCurrentStudentTransport(int $studentId): array
     private function getAttendanceCoverage(int $studentId, array $params, array $records): array
     {
         $academicYear = $params['academic_year'] ?? $params['year'] ?? null;
-        $yearFilter = $academicYear !== null && ctype_digit((string) $academicYear)
-            ? 'AND CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?'
-            : 'AND ay.is_current = 1';
-        $yearBindings = $academicYear !== null && ctype_digit((string) $academicYear)
-            ? [(int) $academicYear] : [];
+        $academicYearId = (int) ($params['academic_year_id'] ?? 0);
+        if ($academicYearId > 0) {
+            // Year-aware (2026-11-15): the selected academic year by id.
+            $yearFilter = 'AND ay.id = ?';
+            $yearBindings = [$academicYearId];
+        } else {
+            $yearFilter = $academicYear !== null && ctype_digit((string) $academicYear)
+                ? 'AND CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?'
+                : 'AND ay.is_current = 1';
+            $yearBindings = $academicYear !== null && ctype_digit((string) $academicYear)
+                ? [(int) $academicYear] : [];
+        }
         $stmt = $this->db->prepare(
             "SELECT sae.id, sae.academic_year_id, ay.start_date, ay.end_date,
                     CASE WHEN s.entry_source='admission'
@@ -5564,20 +5592,14 @@ private function getCurrentStudentTransport(int $studentId): array
     public function getStudentStatistics($params = [])
     {
         try {
-            $yearRow = $this->db->query(
-                "SELECT id, year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") .
-                " WHERE is_current=1 ORDER BY id DESC LIMIT 1"
-            )->fetch(PDO::FETCH_ASSOC) ?: [];
-            $yearId = (int)($yearRow['id'] ?? 0);
-
-            $termStmt = $this->db->query(
-                "SELECT ayt.opening_date, ayt.closing_date
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ayt.academic_year_id
-                 WHERE ay.is_current=1 AND ayt.status='current'
-                 ORDER BY ayt.id DESC LIMIT 1"
-            );
-            $term = $termStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            // Year-aware (2026-11-15): the selected year (current by default)
+            // and its term in session / latest opened (YearScope rules).
+            $scopeYear = $this->yearScope(is_array($params) ? $params : [], \App\API\Services\YearScope::TERM_DEFAULT);
+            $yearRow = ['id' => $scopeYear['year_id'], 'year_code' => $scopeYear['year']['year_code'] ?? ''];
+            $yearId = (int) $scopeYear['year_id'];
+            $term = $scopeYear['term']
+                ? ['opening_date' => $scopeYear['term']['opening_date'], 'closing_date' => $scopeYear['term']['closing_date']]
+                : [];
 
             $scopeBindings = [];
             $conditions = [];
@@ -5596,9 +5618,17 @@ private function getCurrentStudentTransport(int $studentId): array
                 }
                 $conditions[] = $scopeParts ? '(' . implode(' OR ', $scopeParts) . ')' : '1=0';
             }
+            // Another year counts only the learners placed in it (one year's
+            // roll, distinct learners); the current year also counts learners
+            // admitted but not yet placed.
+            if ($yearId !== (new \App\API\Services\YearScope($this->db))->currentYearId()) {
+                $conditions[] = 'lp.student_id IS NOT NULL';
+            }
             $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
 
-            $placementView = ReadReplicaService::qualifiedRef('learner_placement');
+            // The year's roll (active / completed / graduated): learner_placement
+            // holds active enrolments only and empties a year after promotion.
+            $placementView = ReadReplicaService::qualifiedRef('learner_placement_history');
             // Fee totals are supplementary to student counts. Keep the
             // directory statistics available during a fee projection outage,
             // and explicitly mark those figures unavailable instead of
@@ -5619,6 +5649,7 @@ private function getCurrentStudentTransport(int $studentId): array
                     SELECT lp_latest.student_id, MAX(lp_latest.enrollment_id) AS enrollment_id
                     FROM {$placementView} lp_latest
                     WHERE lp_latest.academic_year_id = ?
+                      AND lp_latest.enrollment_status IN ('active','completed','graduated')
                     GROUP BY lp_latest.student_id
                 ) latest_lp ON latest_lp.student_id = s.id
                 LEFT JOIN {$placementView} lp ON lp.enrollment_id = latest_lp.enrollment_id";
@@ -7883,14 +7914,6 @@ private function getCurrentStudentTransport(int $studentId): array
     public function updateAcademicYearStatus($yearId, $state)
     {
         return $this->yearManager->updateYearState($yearId, $state);
-    }
-
-    /**
-     * Archive academic year
-     */
-    public function archiveAcademicYear($yearId, $userId, $notes = null)
-    {
-        return $this->yearManager->archiveYear($yearId, $userId, $notes);
     }
 
     /**

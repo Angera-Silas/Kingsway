@@ -7,7 +7,7 @@
         <div class="d-flex flex-wrap gap-2 align-items-end">
             <div><label class="form-label small text-muted mb-1" for="examDraftYear">Academic year</label><select class="form-select form-select-sm" id="examDraftYear"></select></div>
             <div><label class="form-label small text-muted mb-1" for="examDraftTerm">Term</label><select class="form-select form-select-sm" id="examDraftTerm"></select></div>
-            <button class="btn btn-success" id="newExamDraft" type="button"><i class="bi bi-plus-lg me-1"></i>New draft</button>
+            <button class="btn btn-success" id="newExamDraft" type="button" data-year-write><i class="bi bi-plus-lg me-1"></i>New draft</button>
         </div>
     </div>
 
@@ -45,12 +45,12 @@
                         <tbody id="examEntryRows"></tbody>
                     </table>
                 </div>
-                <button class="btn btn-outline-success btn-sm" id="addExamRow" type="button"><i class="bi bi-plus-lg me-1"></i>Add paper</button>
+                <button class="btn btn-outline-success btn-sm" id="addExamRow" type="button" data-year-write><i class="bi bi-plus-lg me-1"></i>Add paper</button>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Close</button>
-                <button class="btn btn-success" id="saveExamDraft" type="button"><i class="bi bi-save me-1"></i>Save draft</button>
-                <button class="btn btn-primary" id="submitExamDraft" type="button"><i class="bi bi-send me-1"></i>Submit for review</button>
+                <button class="btn btn-success" id="saveExamDraft" type="button" data-year-write><i class="bi bi-save me-1"></i>Save draft</button>
+                <button class="btn btn-primary" id="submitExamDraft" type="button" data-year-write><i class="bi bi-send me-1"></i>Submit for review</button>
             </div>
         </div>
     </div>

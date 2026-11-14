@@ -31,7 +31,9 @@ const comparativeReportsController = (() => {
       get('/academic/years/list')
     ]);
     state.years = rowsFrom(yearsResponse);
-    const currentYear = state.years.find((year) => Boolean(Number(year.is_current)) || year.status === 'active')
+    // The year chosen in the shared selector; the current year until it answers.
+    const currentYear = state.years.find((year) => Number(year.id) === Number(state.selectedYearId))
+      || state.years.find((year) => Boolean(Number(year.is_current)))
       || state.years[0];
     if (!currentYear) {
       state.terms = [];
@@ -177,9 +179,15 @@ const comparativeReportsController = (() => {
   async function init() {
     await window.AuthContext?.ready?.();
     bind();
-    await load();
-    const filter = document.getElementById('filterSelect');
-    if (filter) filter.innerHTML = '<option value="">All Classes</option>' + state.rows.map((row) => `<option value="${Number(row.class_id)}">${escapeHtml(row.class_name)}</option>`).join('');
+    const fillClasses = () => {
+      const filter = document.getElementById('filterSelect');
+      if (filter) filter.innerHTML = '<option value="">All Classes</option>' + state.rows.map((row) => `<option value="${Number(row.class_id)}">${escapeHtml(row.class_name)}</option>`).join('');
+    };
+    // The shared year selector (current year by default) reloads the comparison.
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+      onChange: (yearId) => { state.selectedYearId = yearId; load().then(fillClasses); },
+    });
+    if (!mounted) { await load(); fillClasses(); }
   }
 
   return { init, refresh: load, exportCSV, print };

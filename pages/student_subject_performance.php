@@ -27,15 +27,11 @@
                         <div class="row mb-3">
                             <div class="col-md-4">
                                 <label class="form-label">Academic Year</label>
-                                <select id="yearFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Years</option>
-                                </select>
+                                <select id="yearFilter" class="form-select" data-permission="academic_view" aria-label="Academic year"></select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Term</label>
-                                <select id="termFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Terms</option>
-                                </select>
+                                <select id="termFilter" class="form-select" data-permission="academic_view" aria-label="Term"></select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Subject</label>

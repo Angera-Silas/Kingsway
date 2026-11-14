@@ -97,7 +97,7 @@ const competencyChecklistController = (() => {
     const ratingButtons = [1, 2, 3, 4].map(n => `
       <button class="btn btn-sm ${selfRating == n ? 'btn-' + ratingColor(n) : 'btn-outline-' + ratingColor(n)} py-0 px-2"
               onclick="competencyChecklistController.setRating(${item.id}, ${n})"
-              title="${RATING_LABELS[n]}">
+              title="${RATING_LABELS[n]}" data-year-write>
         ${n}
       </button>
     `).join('');
@@ -156,28 +156,19 @@ const competencyChecklistController = (() => {
 
   async function init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          load();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      currentTerm = window.AcademicContext.getTermId();
-    }
-    
     const saveAllBtn = document.getElementById('ccSaveAllBtn');
     if (saveAllBtn) saveAllBtn.addEventListener('click', saveAll);
-    load();
+    // The shared year/term selector (current year, running term by default)
+    // loads the checklist now and on every change.
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('ccYearSelect'), {
+      termSelect: document.getElementById('ccTermSelect'),
+      onChange: (yearId, year, termId) => {
+        currentAcademicYear = yearId;
+        currentTerm = termId;
+        load();
+      },
+    });
+    if (!mounted) load();
   }
 
   return { init, setRating, saveAll };

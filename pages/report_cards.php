@@ -114,7 +114,7 @@
         <small>Generate, review, and distribute student CBC report cards</small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-light btn-sm" id="generateAllBtn">
+        <button class="btn btn-light btn-sm" id="generateAllBtn" data-year-write>
             <i class="bi bi-file-earmark-plus me-1"></i>Generate Class Cards
         </button>
         <button class="btn btn-light btn-sm" id="downloadAllBtn">
@@ -264,7 +264,7 @@
       <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2"><strong>Linked parents / guardians</strong><button class="btn btn-sm btn-link" type="button" id="toggleReleaseParents">Select none</button></div>
       <div id="releaseParentsList" class="list-group"><div class="text-muted small">Loading linked guardians…</div></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="confirmReleaseBtn">Release report card</button></div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="confirmReleaseBtn" data-year-write>Release report card</button></div>
   </div></div>
 </div>
 

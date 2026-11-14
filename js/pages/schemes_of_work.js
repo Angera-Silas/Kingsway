@@ -330,7 +330,7 @@ const SchemesOfWorkController = (() => {
                 <button class="btn btn-outline-info" onclick="SchemesOfWorkController.viewScheme(${s.id}, ${s.scheme_workbook_id || 0})" title="Review complete workbook">
                   <i class="bi bi-eye"></i>
                 </button>
-                ${s.workbook_status === 'submitted' && s.scheme_workbook_id ? `<button class="btn btn-outline-success" onclick="SchemesOfWorkController.approveWorkbook(${s.scheme_workbook_id})" title="Approve complete workbook"><i class="bi bi-check2-circle"></i></button>` : ''}
+                ${s.workbook_status === 'submitted' && s.scheme_workbook_id ? `<button class="btn btn-outline-success" onclick="SchemesOfWorkController.approveWorkbook(${s.scheme_workbook_id})" title="Approve complete workbook" data-year-write><i class="bi bi-check2-circle"></i></button>` : ''}
               </div>
             </td>
           </tr>`;
