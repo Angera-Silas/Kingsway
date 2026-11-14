@@ -26,8 +26,8 @@ const enterResultsController = (() => {
       return;
     }
     await loadReferencesComposed();
-    await Promise.all([loadClasses(), loadSubjects(), loadYears()]);
-    window.APIRealtime?.register?.("enter_results", { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadClasses(), loadSubjects(), loadYears()]); } }, ["academic"]);
+    await Promise.all([loadClasses(), loadSubjects(), mountYearFilter()]);
+    window.APIRealtime?.register?.("enter_results", { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadClasses(), loadSubjects()]); } }, ["academic"]);
     document
       .getElementById("resultsForm")
       ?.addEventListener("submit", handleSubmit);
@@ -74,23 +74,15 @@ const enterResultsController = (() => {
     }
   }
 
-  async function loadYears() {
-    try {
-      const r = referenceCache?.years ?? (await API.academic.getAllAcademicYears().catch(() => null));
-      const items = r?.data || r || [];
-      const sel = document.getElementById("yearSelect");
-      if (!sel) return;
-      sel.innerHTML =
-        '<option value="">-- Select Year --</option>' +
-        items
-          .map(
-            (y) =>
-              `<option value="${y.id}" ${y.is_current || y.status === "active" ? "selected" : ""}>${esc(y.name || y.year)}</option>`,
-          )
-          .join("");
-    } catch (e) {
-      console.error("Years load error:", e);
-    }
+  /** The shared year/term selector: results are entered for that year-term. */
+  let selected = { yearId: null, termId: null, termName: "" };
+  async function mountYearFilter() {
+    await window.AcademicYearFilter?.mount(document.getElementById("yearSelect"), {
+      termSelect: document.getElementById("termSelect"),
+      onChange: (yearId, year, termId, term) => {
+        selected = { yearId, termId, termName: term?.name || (term ? `Term ${term.term_number || term.term_id}` : "") };
+      },
+    });
   }
 
   async function loadStudents() {
@@ -128,7 +120,7 @@ const enterResultsController = (() => {
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0"><i class="fas fa-users me-2"></i>${students.length} Students</h5>
             <div>
-                <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="enterResultsController.fillAll()"><i class="fas fa-fill me-1"></i>Auto-fill</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-year-write onclick="enterResultsController.fillAll()"><i class="fas fa-fill me-1"></i>Auto-fill</button>
                 <button type="button" class="btn btn-sm btn-outline-danger" onclick="enterResultsController.clearAll()"><i class="fas fa-eraser me-1"></i>Clear</button>
             </div>
         </div>
@@ -140,9 +132,9 @@ const enterResultsController = (() => {
                 <td>${i + 1}</td>
                 <td>${esc(s.admission_no || s.admission_number || s.reg_no || "--")}</td>
                 <td><strong>${esc(s.name || s.student_name || ((s.first_name || "") + " " + (s.last_name || "")).trim())}</strong></td>
-                <td><input type="number" class="form-control form-control-sm mi" data-sid="${s.id}" min="0" max="100" step="0.5" placeholder="0-100" oninput="enterResultsController.onMark(this)"></td>
+                <td><input type="number" class="form-control form-control-sm mi" data-year-write data-sid="${s.id}" min="0" max="100" step="0.5" placeholder="0-100" oninput="enterResultsController.onMark(this)"></td>
                 <td><span class="badge bg-secondary gb" data-sid="${s.id}">--</span></td>
-                <td><input type="text" class="form-control form-control-sm ri" data-sid="${s.id}" placeholder="Optional"></td>
+                <td><input type="text" class="form-control form-control-sm ri" data-year-write data-sid="${s.id}" placeholder="Optional"></td>
             </tr>`,
               )
               .join("")}</tbody>
@@ -153,6 +145,8 @@ const enterResultsController = (() => {
             <div class="col-3"><div class="card bg-light p-2 text-center"><small class="text-muted">Highest</small><h5 class="mb-0" id="highestMarks">--</h5></div></div>
             <div class="col-3"><div class="card bg-light p-2 text-center"><small class="text-muted">Lowest</small><h5 class="mb-0" id="lowestMarks">--</h5></div></div>
         </div>`;
+    // A completed year stays read-only for users who may not edit it.
+    window.YearMode?.refresh(box);
   }
 
   function grade(m) {
@@ -242,10 +236,11 @@ const enterResultsController = (() => {
     e.preventDefault();
     const classId = document.getElementById("classSelect")?.value;
     const subjectId = document.getElementById("subjectSelect")?.value;
-    const term = document.getElementById("termSelect")?.value;
-    const yearId = document.getElementById("yearSelect")?.value;
+    const term = selected.termName;
+    const termId = selected.termId;
+    const yearId = selected.yearId;
     const type = document.getElementById("assessmentType")?.value;
-    if (!classId || !subjectId || !term || !yearId || !type) {
+    if (!classId || !subjectId || !termId || !yearId || !type) {
       notify("Please fill all required fields", "warning");
       return;
     }
@@ -283,6 +278,7 @@ const enterResultsController = (() => {
         subject_id: subjectId,
         term,
         academic_year_id: yearId,
+        academic_year_term_id: termId,
         assessment_type: type,
         results,
       };

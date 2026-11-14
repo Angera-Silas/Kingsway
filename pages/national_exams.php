@@ -167,7 +167,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="natExamCtrl.saveResults()">
+        <button type="button" class="btn btn-primary" onclick="natExamCtrl.saveResults()" data-year-write>
           <i class="bi bi-floppy me-1"></i> Save Results
         </button>
       </div>

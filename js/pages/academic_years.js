@@ -121,7 +121,7 @@ const academicYearsController = {
       const status = String(year.status || year.year_status || '').trim().toLowerCase();
       const current = year.is_current === true || Number(year.is_current) === 1;
       const active = current || ['active', 'registration', 'closing'].includes(status);
-      const past = status === 'archived' || status === 'completed' || (year.end_date && String(year.end_date).slice(0, 10) < this.todayLocal());
+      const past = status === 'completed' || (year.end_date && String(year.end_date).slice(0, 10) < this.todayLocal());
       return this.state.view === 'active' ? active : past;
     });
     const body = document.getElementById('ayYearsBody');
@@ -133,7 +133,7 @@ const academicYearsController = {
       <td class="small">${this.fmtDate(y.end_date)}</td>
       <td class="small">${this.state.termCountsAvailable && y.term_count != null ? Number(y.term_count) : '<span class="text-muted" title="Term counts could not be matched to this academic year">—</span>'}</td>
       <td class="small"><span class="badge bg-${this.yearStatus(y).className}">${this.yearStatus(y).label}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="academicYearsController.editYear(${y.id})"><i class="bi bi-pencil"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="academicYearsController.editYear(${y.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 

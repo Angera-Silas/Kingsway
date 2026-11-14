@@ -66,7 +66,7 @@
                         <tr id="rubricTableState"><td colspan="10" class="text-center text-muted py-4">No rubrics found.</td></tr>
                     </tbody>
                 </table>
-                <template id="assessmentRubricRowTemplate"><tr data-rubric-row><td data-fill="number"></td><td data-fill="criteria"></td><td data-fill="tool"></td><td class="text-muted small" data-fill="level-1"></td><td class="text-muted small" data-fill="level-2"></td><td class="text-muted small" data-fill="level-3"></td><td class="text-muted small" data-fill="level-4"></td><td data-fill="points"></td><td data-fill="sort"></td><td><div data-fill="manager-actions"><button class="btn btn-sm btn-outline-primary me-1" type="button" data-action="edit"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger" type="button" data-action="delete"><i class="bi bi-trash"></i></button></div><a class="btn btn-sm btn-outline-success" data-action="propose" href="home.php?route=curriculum_proposals">Propose</a></td></tr></template>
+                <template id="assessmentRubricRowTemplate"><tr data-rubric-row><td data-fill="number"></td><td data-fill="criteria"></td><td data-fill="tool"></td><td class="text-muted small" data-fill="level-1"></td><td class="text-muted small" data-fill="level-2"></td><td class="text-muted small" data-fill="level-3"></td><td class="text-muted small" data-fill="level-4"></td><td data-fill="points"></td><td data-fill="sort"></td><td><div data-fill="manager-actions"><button class="btn btn-sm btn-outline-primary me-1" type="button" data-action="edit" data-year-write><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger" type="button" data-action="delete" data-year-write><i class="bi bi-trash"></i></button></div><a class="btn btn-sm btn-outline-success" data-action="propose" href="home.php?route=curriculum_proposals">Propose</a></td></tr></template>
                 <template id="rubricPreviousPageTemplate"><li class="page-item"><button class="page-link" data-rubric-page aria-label="Previous">&laquo;</button></li></template>
                 <template id="rubricPageTemplate"><li class="page-item"><button class="page-link" data-rubric-page></button></li></template>
                 <template id="rubricNextPageTemplate"><li class="page-item"><button class="page-link" data-rubric-page aria-label="Next">&raquo;</button></li></template>
@@ -124,7 +124,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="saveToolBtn">Create Tool</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveToolBtn" data-year-write>Create Tool</button>
             </div>
         </div>
     </div>
@@ -185,7 +185,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="saveRubricBtn">Save</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveRubricBtn" data-year-write>Save</button>
             </div>
         </div>
     </div>

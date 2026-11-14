@@ -1475,44 +1475,6 @@ class StudentsController extends BaseController
     }
 
     /**
-     * POST /api/students/academic-year-archive
-     *
-     * Permanently archive an academic year. System administrator only.
-     *
-     * Archiving is NOT the same as completing a year. Closing a year marks it
-     * active - completed: readable by every user, writable only by school
-     * admin / director / system admin. Archiving goes further and permanently
-     * hides the year's data from ordinary access, so it is a deliberate
-     * super-user action that never runs as part of a rollover.
-     */
-    public function postAcademicYearArchive($id = null, $data = [], $segments = [])
-    {
-        if (!$this->userHasAny(['system_admin'], [2], ['System Administrator'])) {
-            return $this->forbidden('Only a system administrator may archive an academic year.');
-        }
-
-        $yearId = $data['year_id'] ?? $data['id'] ?? $id;
-        if ($yearId === null) {
-            return $this->badRequest('year_id is required');
-        }
-
-        // The operational year can never be archived: the school is still in it.
-        $currentYear = $this->contract(\App\API\Services\AcademicContextService::class)->getCurrentAcademicYear();
-        if ((int) ($currentYear['id'] ?? 0) === (int) $yearId) {
-            return $this->badRequest('The current academic year cannot be archived while it is in use.');
-        }
-
-        $userId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
-        if ($userId <= 0) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        $notes = $data['notes'] ?? $data['closure_notes'] ?? null;
-        $result = $this->api->archiveAcademicYear((int) $yearId, $userId, $notes);
-        return $this->success(['archived' => (bool) $result], 'Academic year archived');
-    }
-
-    /**
      * GET /api/students/academic-year-terms
      */
     public function getAcademicYearTerms($id = null, $data = [], $segments = [])

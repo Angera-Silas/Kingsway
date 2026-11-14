@@ -183,6 +183,15 @@ class ControllerRouter
             // Get request data
             $data = $this->getRequestBody($method);
 
+            // A completed academic year is readable by all but writable only
+            // by its editors (YearWriteScopeService documents the rule).
+            $yearDenied = (new \App\API\Services\YearWriteScopeService())
+                ->check($method, (string) $controllerName, (string) $methodName, $id, $data);
+            if ($yearDenied !== null) {
+                $this->trace($method, $controllerName, $resource, $id, $yearDenied);
+                return $yearDenied;
+            }
+
             // Call controller method with id and data
             $result = $controller->$methodName($id, $data, $segments);
 

@@ -312,8 +312,11 @@ class AcademicManager extends BaseAPI
     public function getAssessmentsList(array $data): array
     {
         try {
+            // Year-aware (2026-11-14): standard keys; the current year by default.
+            $data = $this->normalizeYearFilters($data);
             $where  = ['1=1'];
             $params = [];
+            if (!empty($data['year_id']) && empty($data['term_id'])) { $where[] = 'aterm.academic_year_id=:yid'; $params[':yid'] = (int) $data['year_id']; }
             if (!empty($data['class_id']))           { $where[] = 'a.academic_year_class_stream_id=:cid'; $params[':cid']  = (int) $data['class_id']; }
             if (!empty($data['term_id']))             { $where[] = 'a.academic_year_term_id=:tid';      $params[':tid']  = (int) $data['term_id']; }
             if (!empty($data['subject_id']))          { $where[] = 'a.learning_area_id=:sid';   $params[':sid']  = (int) $data['subject_id']; }
@@ -359,6 +362,8 @@ class AcademicManager extends BaseAPI
     public function getFormativeAssessments(array $data, ?int $staffId = null): array
     {
         try {
+            // Year-aware (2026-11-14): standard keys; the current year by default.
+            $data = $this->normalizeYearFilters($data);
             // Formative assessments have NO types — filters are strands, sub-strands, objectives only.
             $where  = ["a.is_formative = 1"];
             $params = [];
@@ -1974,12 +1979,14 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
     public function getReports(array $data, ?int $staffId = null): array
     {
         try {
+            // Year-aware (2026-11-14): standard keys; the current year by default.
+            $data = $this->normalizeYearFilters($data);
             $reportType = strtolower((string) ($data['report_type'] ?? 'performance'));
             $classId = !empty($data['class_id']) ? (int) $data['class_id'] : null;
             $subjectId = !empty($data['subject_id']) ? (int) $data['subject_id'] : null;
 
             if (!$classId) {
-                $classId = $this->resolveTeacherClassId($staffId);
+                $classId = $this->resolveTeacherClassId($staffId, (int) ($data['year_id'] ?? 0));
             }
 
             $rows = [];
@@ -2058,12 +2065,13 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         }
     }
 
-    private function resolveTeacherClassId(?int $staffId): ?int
+    /** The class this teacher was class teacher of in the given year (default: current). */
+    private function resolveTeacherClassId(?int $staffId, int $academicYearId = 0): ?int
     {
         if (!$staffId) {
             return null;
         }
-        $academicYearId = $this->resolveCurrentAcademicYearId();
+        $academicYearId = $academicYearId ?: $this->resolveCurrentAcademicYearId();
         if (!$academicYearId) {
             return null;
         }
@@ -2205,7 +2213,8 @@ if ($classId) {
             // the legacy my_cats form keys (name/type) are mapped onto the schema.
             $title = $data['title'] ?? $data['name'] ?? null;
             $typeId = $this->resolveFormativeTypeId($data['assessment_type_classification_id'] ?? $data['type'] ?? null);
-            $termId = $data['term_id'] ?? null;
+            // academic_year_terms.id; the page sends the term it is showing.
+            $termId = $data['academic_year_term_id'] ?? $data['term_id'] ?? null;
             if (!$termId) {
                 $termId = $this->dbQuery(
                     "SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
@@ -6026,6 +6035,8 @@ la.learning_area_family_id, la.name AS learning_area_family,
     public function getInternSubjects(int $staffId, array $query = []): array
     {
         try {
+            // Year-aware (2026-11-14): the selected year, the current year by default.
+            $yearId = (int) $this->normalizeYearFilters($query)['year_id'];
             $rows = $this->dbQuery(
                 "SELECT
                     la.id AS subject_id,
@@ -6044,10 +6055,10 @@ la.learning_area_family_id, la.name AS learning_area_family,
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
                  JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = ayclat.staff_id
                  JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
-                 WHERE ayclat.staff_id = :staff AND ay.is_current = 1
+                 WHERE ayclat.staff_id = :staff AND ay.id = :year
                  GROUP BY la.id, la.name, la.level_band, p.first_name, p.last_name, ayclat.role
                  ORDER BY la.name",
-                [':staff' => $staffId]
+                [':staff' => $staffId, ':year' => $yearId]
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
@@ -6064,6 +6075,8 @@ la.learning_area_family_id, la.name AS learning_area_family,
     public function getMySubjects(int $staffId, array $query = []): array
     {
         try {
+            // Year-aware (2026-11-14): the selected year, the current year by default.
+            $yearId = (int) $this->normalizeYearFilters($query)['year_id'];
             $rows = $this->dbQuery(
                 "SELECT
                     la.id AS id,
@@ -6087,10 +6100,10 @@ la.learning_area_family_id, la.name AS learning_area_family,
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw ON sw.academic_year_class_learning_area_id = aycla.id
-                 WHERE ayclat.staff_id = :staff AND ay.is_current = 1
+                 WHERE ayclat.staff_id = :staff AND ay.id = :year
                  GROUP BY la.id, la.name, ayclat.role
                  ORDER BY la.name",
-                [':staff' => $staffId]
+                [':staff' => $staffId, ':year' => $yearId]
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
@@ -6264,14 +6277,16 @@ la.learning_area_family_id, la.name AS learning_area_family,
     public function getMySyllabus(int $staffId, array $query = []): array
     {
         try {
+            // Year-aware (2026-11-14): the selected year, the current year by default.
+            $yearId = (int) $this->normalizeYearFilters($query)['year_id'];
             $where = ["s.status = :active",
                 "la.id IN (SELECT DISTINCT aycla2.learning_area_id
                             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " ayclat
                             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla2 ON aycla2.id = ayclat.academic_year_class_learning_area_id
                             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc2 ON ayc2.id = aycla2.academic_year_class_id
                             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay2 ON ay2.id = ayc2.academic_year_id
-                            WHERE ayclat.staff_id = :staff AND ay2.is_current = 1)"];
-            $params = [':active' => 'active', ':staff' => $staffId];
+                            WHERE ayclat.staff_id = :staff AND ay2.id = :year)"];
+            $params = [':active' => 'active', ':staff' => $staffId, ':year' => $yearId];
             if (!empty($query['subject_id'])) {
                 $where[] = 'la.id = :subject_id';
                 $params[':subject_id'] = (int) $query['subject_id'];
@@ -6431,10 +6446,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
                     "SELECT id, year_code, start_date, end_date, status, state, is_current
                      FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
                 )->fetch(PDO::FETCH_ASSOC);
-            if (!$yearRow || \App\API\Services\AcademicYearLifecycleService::isArchived(
-                (string) $yearRow['status'],
-                (string) ($yearRow['state'] ?? '')
-            )) {
+            if (!$yearRow) {
                 return $this->errorResponse('Academic year not found', 404);
             }
             $yearId = (int) $yearRow['id'];
@@ -6739,14 +6751,16 @@ la.learning_area_family_id, la.name AS learning_area_family,
     public function getLessonPlansByClass(array $query): array
     {
         try {
+            // Year-aware (2026-11-14): the selected year, the current year by default.
+            $yearId = (int) $this->normalizeYearFilters($query)['year_id'];
             $classId = (int) ($query['class_id'] ?? 0);
             if ($classId) {
                 $class = $this->dbQuery(
                     "SELECT class_name
                      FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_class_directory') . "
-                     WHERE class_id = :class_id AND is_current_year = 1
+                     WHERE class_id = :class_id AND academic_year_id = :year
                      LIMIT 1",
-                    [':class_id' => $classId]
+                    [':class_id' => $classId, ':year' => $yearId]
                 )->fetch(PDO::FETCH_ASSOC);
                 $subjects = $this->dbQuery(
                     "SELECT
@@ -6764,10 +6778,10 @@ la.learning_area_family_id, la.name AS learning_area_family,
                      LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = ayclat.staff_id
                      LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                      LEFT JOIN " . ReadReplicaService::qualifiedRef("lesson_plans") . " lp ON lp.academic_year_class_learning_area_id = aycla.id
-                     WHERE ayc.class_id = :class_id AND ay.is_current = 1
+                     WHERE ayc.class_id = :class_id AND ay.id = :year
                      GROUP BY la.id, p.first_name, p.last_name, lp.id, lp.status, lp.updated_at
                      ORDER BY la.name",
-                    [':class_id' => $classId]
+                    [':class_id' => $classId, ':year' => $yearId]
                 )->fetchAll(PDO::FETCH_ASSOC);
                 return $this->successResponse([
                     'class_name' => $class['class_name'] ?? 'Class',
@@ -6779,10 +6793,10 @@ la.learning_area_family_id, la.name AS learning_area_family,
             $limit = min(100, max(1, (int) ($query['limit'] ?? 15)));
             $offset = ($page - 1) * $limit;
 
-            $where = ['ay.is_current = 1'];
-            $params = [];
-            $countWhere = ['is_current_year = 1'];
-            $countParams = [];
+            $where = ['ay.id = :year'];
+            $params = [':year' => $yearId];
+            $countWhere = ['academic_year_id = :count_year'];
+            $countParams = [':count_year' => $yearId];
             if (!empty($query['class_id'])) {
                 $where[] = 'ayc.class_id = :class_id';
                 $params[':class_id'] = (int) $query['class_id'];

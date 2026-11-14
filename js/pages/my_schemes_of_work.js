@@ -26,33 +26,18 @@ const MySchemesOfWorkController = {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadSchemes();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this.state.currentTerm = window.AcademicContext.getTermId();
-    }
     
     this.bindEvents();
-    await this.loadSchemes();
+    // The shared year/term selector (current year, running term by default)
+    // loads the page now and on every change.
+    const yearBar = await window.AcademicYearFilter?.mountBar({ term: true, allTermsLabel: 'All terms', onChange: (yearId, year, termId) => { this.state.currentAcademicYear = yearId; this.state.currentTerm = termId; this.loadSchemes(); } });
+    if (!yearBar) await this.loadSchemes();
     const contextEl = document.getElementById('currentPlanningContext');
-    if (contextEl) contextEl.innerHTML = '<i class="bi bi-calendar2-check text-success me-2"></i>Current academic year and term are supplied automatically by Kingsway.';
+    if (contextEl) contextEl.innerHTML = '<i class="bi bi-calendar2-check text-success me-2"></i>Showing the academic year and term selected above (the current ones by default).';
   },
 
   bindEvents() {
-    // Academic year and term are system context, never teacher inputs.
+    // Academic year and term come from the shared year/term bar (view only).
   },
 
   async loadAcademicYears() {
@@ -207,7 +192,7 @@ const MySchemesOfWorkController = {
           <td>${lastUpdated}</td>
           <td><div class="btn-group btn-group-sm">
             ${scheme.scheme_workbook_id ? `<button class="btn btn-outline-primary" onclick="MySchemesOfWorkController.viewWorkbook(${scheme.scheme_workbook_id})" title="View complete term workbook" aria-label="View complete term workbook"><i class="bi bi-eye me-1"></i>View</button>` : `<button class="btn btn-outline-primary" onclick="MySchemesOfWorkController.viewScheme(${scheme.id})" title="View weekly plan" aria-label="View weekly plan"><i class="bi bi-eye me-1"></i>View</button>`}
-            ${scheme.scheme_workbook_id && scheme.workbook_status === 'draft' ? `<button class="btn btn-outline-secondary" onclick="MySchemesOfWorkController.editWorkbook(${scheme.scheme_workbook_id})" title="Continue term workbook" aria-label="Edit term workbook"><i class="bi bi-pencil me-1"></i>Edit</button><button class="btn btn-outline-success" onclick="MySchemesOfWorkController.submitWorkbook(${scheme.scheme_workbook_id})" title="Submit complete term workbook" aria-label="Submit term workbook"><i class="bi bi-send me-1"></i>Submit</button>` : ''}
+            ${scheme.scheme_workbook_id && scheme.workbook_status === 'draft' ? `<button class="btn btn-outline-secondary" onclick="MySchemesOfWorkController.editWorkbook(${scheme.scheme_workbook_id})" title="Continue term workbook" aria-label="Edit term workbook" data-year-write><i class="bi bi-pencil me-1"></i>Edit</button><button class="btn btn-outline-success" onclick="MySchemesOfWorkController.submitWorkbook(${scheme.scheme_workbook_id})" title="Submit complete term workbook" aria-label="Submit term workbook" data-year-write><i class="bi bi-send me-1"></i>Submit</button>` : ''}
             ${scheme.scheme_workbook_id && scheme.workbook_status === 'approved' ? `<button class="btn btn-outline-warning" onclick="MySchemesOfWorkController.requestRevision(${scheme.scheme_workbook_id})" title="Create a controlled revision" aria-label="Request scheme revision"><i class="bi bi-arrow-repeat me-1"></i>Request revision</button>` : ''}
             ${scheme.is_workbook_draft ? '<span class="badge bg-info text-dark ms-1 align-content-center">Saved draft</span>' : ''}
             ${scheme.workbook_status === 'submitted' ? '<span class="badge bg-warning text-dark ms-1 align-content-center">Workbook submitted</span>' : ''}

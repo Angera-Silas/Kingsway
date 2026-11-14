@@ -24,31 +24,16 @@ const studentProgressReportsController = (() => {
     const [years, classes] = await Promise.all([get('/academic/years/list'), get('/academic/classes-list')]);
     state.years = rowsOf(years);
     state.classes = rowsOf(classes);
-    const yearSelect = $('yearFilter');
-    if (yearSelect) {
-      yearSelect.innerHTML = '<option value="">Current Academic Year</option>' + state.years.map((year) => `<option value="${Number(year.id)}">${escapeHtml(year.year_name || year.name || year.year_code)}</option>`).join('');
-      const current = state.years.find((year) => Boolean(Number(year.is_current)) || year.status === 'active');
-      if (current) yearSelect.value = String(current.id);
-    }
     const classSelect = $('classFilter');
     if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + state.classes.map((item) => `<option value="${Number(item.id)}">${escapeHtml(item.name || item.class_name)}</option>`).join('');
-    await loadTerms();
   }
 
   async function loadTerms() {
     const yearId = $('yearFilter')?.value || '';
     const response = await get('/academic/terms', yearId ? { academic_year_id: yearId } : {});
+    // The year's terms, used to find the previous term to compare with; the
+    // term select itself belongs to AcademicYearFilter.
     state.terms = rowsOf(response);
-    const select = $('termFilter');
-    const previousValue = select?.value || '';
-    if (select) {
-      select.innerHTML = '<option value="">All Terms</option>' + state.terms.map((term) => `<option value="${Number(term.id)}">${escapeHtml(term.name || term.term_name)}</option>`).join('');
-      if (state.terms.some((term) => String(term.id) === previousValue)) select.value = previousValue;
-      else {
-        const current = state.terms.find((term) => term.status === 'current' || term.is_current);
-        if (current) select.value = String(current.id);
-      }
-    }
   }
 
   function previousTerm(currentTerm) {
@@ -142,8 +127,6 @@ const studentProgressReportsController = (() => {
   }
 
   function bindFilters() {
-    $('yearFilter')?.addEventListener('change', async () => { await loadTerms(); await load(); });
-    $('termFilter')?.addEventListener('change', load);
     $('classFilter')?.addEventListener('change', load);
     $('exportBtn')?.addEventListener('click', exportCSV);
     $('printBtn')?.addEventListener('click', print);
@@ -152,7 +135,17 @@ const studentProgressReportsController = (() => {
   async function init() {
     await window.AuthContext?.ready?.();
     bindFilters();
-    try { await loadReferences(); await load(); }
+    try {
+      await loadReferences();
+      // The shared year/term selector (current year, running term by default).
+      const mounted = await window.AcademicYearFilter?.mount($('yearFilter'), {
+        termSelect: $('termFilter'),
+        allTermsLabel: 'All terms',
+        allTermsDefault: false,
+        onChange: async () => { await loadTerms(); await load(); },
+      });
+      if (!mounted) { await loadTerms(); await load(); }
+    }
     catch (error) {
       console.error('Student progress report initialization failed:', error);
       revealContent();

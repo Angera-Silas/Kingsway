@@ -287,10 +287,10 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-light btn-sm" id="btnImportConfig"
-                title="Import exam configuration from template or previous term">
+                title="Import exam configuration from template or previous term" data-year-write>
             <i class="bi bi-upload me-1"></i>Import Config
         </button>
-        <button class="btn btn-warning btn-sm text-dark" id="btnCreateExam">
+        <button class="btn btn-warning btn-sm text-dark" id="btnCreateExam" data-year-write>
             <i class="bi bi-plus-circle-fill me-1"></i>Create Exam
         </button>
     </div>
@@ -339,17 +339,13 @@
             <label class="form-label fw-semibold">
                 <i class="bi bi-calendar3 me-1 text-success"></i>Academic Year
             </label>
-            <select class="form-select" id="filterYear">
-                <option value="">All Years</option>
-            </select>
+            <select class="form-select" id="filterYear" aria-label="Academic year"></select>
         </div>
         <div class="col-md-3">
             <label class="form-label fw-semibold">
                 <i class="bi bi-calendar-week me-1 text-success"></i>Term
             </label>
-            <select class="form-select" id="filterTerm">
-                <option value="">All Terms</option>
-            </select>
+            <select class="form-select" id="filterTerm" aria-label="Term"></select>
         </div>
         <div class="col-md-3">
             <label class="form-label fw-semibold">
@@ -386,9 +382,6 @@
         <div class="col-md-6 d-flex align-items-end justify-content-end gap-2">
             <button class="btn btn-sm btn-academic-outline" id="btnClearFilters">
                 <i class="bi bi-x-circle me-1"></i>Clear Filters
-            </button>
-            <button class="btn btn-sm btn-academic" id="btnApplyFilters">
-                <i class="bi bi-funnel-fill me-1"></i>Apply
             </button>
         </div>
     </div>
@@ -540,7 +533,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <button type="button" class="btn btn-sm btn-academic-outline mt-2" id="btnAddSubjectRow">
+                        <button type="button" class="btn btn-sm btn-academic-outline mt-2" id="btnAddSubjectRow" data-year-write>
                             <i class="bi bi-plus-lg me-1"></i>Add Subject
                         </button>
                         <div class="d-flex gap-3 mt-2">
@@ -620,7 +613,7 @@
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
                     <i class="bi bi-x me-1"></i>Cancel
                 </button>
-                <button type="button" class="btn btn-academic" id="btnSaveExam">
+                <button type="button" class="btn btn-academic" id="btnSaveExam" data-year-write>
                     <span class="spinner-border spinner-border-sm me-1 d-none" id="saveSpinner" role="status"></span>
                     <i class="bi bi-check-circle me-1" id="saveIcon"></i>
                     <span id="saveLabel">Save Exam</span>
@@ -650,10 +643,10 @@
             </div>
             <div class="modal-footer bg-light">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-warning btn-sm" id="viewEditBtn">
+                <button type="button" class="btn btn-warning btn-sm" id="viewEditBtn" data-year-write>
                     <i class="bi bi-pencil me-1"></i>Edit
                 </button>
-                <button type="button" class="btn btn-academic btn-sm" id="viewDuplicateBtn">
+                <button type="button" class="btn btn-academic btn-sm" id="viewDuplicateBtn" data-year-write>
                     <i class="bi bi-copy me-1"></i>Duplicate
                 </button>
             </div>
@@ -738,7 +731,7 @@
             </div>
             <div class="modal-footer justify-content-center">
                 <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-sm btn-danger" id="btnConfirmDelete">
+                <button type="button" class="btn btn-sm btn-danger" id="btnConfirmDelete" data-year-write>
                     <i class="bi bi-trash me-1"></i>Delete
                 </button>
             </div>

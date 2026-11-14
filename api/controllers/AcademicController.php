@@ -5210,6 +5210,17 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/year-calendar — current year's calendar days.
      */
+    /**
+     * GET /api/academic/year-access?academic_year_id=N (default: current year)
+     * Tells the page whether the signed-in user may edit that year's records.
+     * Any signed-in user may ask about themselves; nothing else is returned.
+     */
+    public function getYearAccess($id = null, $data = [], $segments = [])
+    {
+        $yearId = (int) ($id ?: ($data['academic_year_id'] ?? 0));
+        return $this->handleResponse($this->api->yearAccess($yearId > 0 ? $yearId : null));
+    }
+
     public function getYearCalendar($id = null, $data = [], $segments = [])
     {
         // GET /api/academic/year-calendar?academic_year_id=N (default: current year)

@@ -79,16 +79,12 @@ $appBase = app_base_path();
 
                 <div class="col-xl-2 col-md-4">
                     <label class="form-label fw-semibold">Academic Year</label>
-                    <select class="form-select" id="academicYearFilter">
-                        <option value="">All Years</option>
-                    </select>
+                    <select class="form-select" id="academicYearFilter" aria-label="Academic year"></select>
                 </div>
 
                 <div class="col-xl-2 col-md-4">
                     <label class="form-label fw-semibold">Term</label>
-                    <select class="form-select" id="termFilter">
-                        <option value="">All Terms</option>
-                    </select>
+                    <select class="form-select" id="termFilter" aria-label="Term"></select>
                 </div>
 
                 <div class="col-xl-2 col-md-4">

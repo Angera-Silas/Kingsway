@@ -2534,6 +2534,18 @@ PROJECTIONS: dict[str, dict[str, Any]] = {
         "sensitivity": "personal",
         "max_age_seconds": 600,
     },
+    # Every year's placements with the enrolment status (year-aware reads of
+    # completed and upcoming years; learner_placement holds active only).
+    "learner_placement_history": {
+        "source": "vw_learner_placement_history",
+        "target": "mmv_learner_placement_history",
+        "indexes": {
+            "idx_pk": ("enrollment_id",),
+            "idx_year_student": ("academic_year_id", "student_id"),
+        },
+        "sensitivity": "personal",
+        "max_age_seconds": 600,
+    },
     "exam_context": {
         "source": "vw_exam_context",
         "target": "mmv_exam_context",

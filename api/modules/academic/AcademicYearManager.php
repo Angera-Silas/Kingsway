@@ -328,12 +328,6 @@ class AcademicYearManager
             throw new Exception("Invalid year state: $state");
         }
 
-        if ($state === \App\API\Services\AcademicYearLifecycleService::STATE_ARCHIVED) {
-            throw new Exception(
-                'Archiving is not a rollover action. A system administrator may archive a year explicitly.'
-            );
-        }
-
         // is_current must move with state: state = 'current' requires the flag,
         // and any other state releases it, so exactly one year is current at
         // all times (enforced in the database by uk_academic_years_single_current
@@ -346,113 +340,6 @@ class AcademicYearManager
                     completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, NOW()) ELSE NULL END
               WHERE id = ?"
         )->execute([$state, $isCurrent, $state, $yearId]);
-    }
-
-    /**
-     * Archive an academic year: a permanent, system-administrator-only closure.
-     *
-     * Archiving is NOT the same as completing a year. Completing marks the year
-     * active - completed, leaving its data readable for every user and writable
-     * by school admin / director / system admin. Archiving goes further: the
-     * year's data is hidden completely from ordinary access. It is therefore
-     * never part of a rollover, and is guarded here as well as at the endpoint.
-     */
-    public function archiveYear(int $yearId, int $userId, ?string $notes = null): bool
-    {
-        $year = $this->getAcademicYear($yearId);
-        if (!$year) {
-            throw new Exception("Academic year not found");
-        }
-
-        // The school is still operating inside this year; archiving it would
-        // hide the year everyone is working in.
-        if ((int) ($year['is_current'] ?? 0) === 1) {
-            throw new Exception(
-                'The current academic year is in use and cannot be archived. Close it first, then archive it later if required.'
-            );
-        }
-
-        if (\App\API\Services\AcademicYearLifecycleService::isArchived(
-            (string) $year['status'],
-            (string) ($year['state'] ?? '')
-        )) {
-            // Already archived: keep the action idempotent rather than an error.
-            return true;
-        }
-
-        $this->db->beginTransaction();
-
-        try {
-            // Archiving is a lifecycle status change, not a sub-state change.
-            // This is the ONLY path that sets status = 'archived', and it is an
-            // explicit system-administrator action -- never part of a rollover.
-            $this->db->prepare(
-                "UPDATE academic_years
-                    SET status = 'archived',
-                        state = 'archived',
-                        is_current = 0
-                  WHERE id = ?"
-            )->execute([$yearId]);
-
-            // Update academic_year_archives table
-            $archiveData = $this->getArchiveStats($yearId);
-
-            $sql = "INSERT INTO academic_year_archives (
-                academic_year, status, total_students, promoted_count,
-                retained_count, transferred_count, graduated_count,
-                closure_initiated_by, closure_date, closure_notes, archived_at
-            ) VALUES (?, 'archived', ?, ?, ?, ?, ?, ?, NOW(), ?, NOW())
-            ON DUPLICATE KEY UPDATE
-                status = 'archived',
-                total_students = VALUES(total_students),
-                promoted_count = VALUES(promoted_count),
-                retained_count = VALUES(retained_count),
-                transferred_count = VALUES(transferred_count),
-                graduated_count = VALUES(graduated_count),
-                closure_initiated_by = VALUES(closure_initiated_by),
-                closure_date = NOW(),
-                closure_notes = VALUES(closure_notes),
-                archived_at = NOW()";
-
-            $yearNumber = (int) substr($year['year_code'], 0, 4) + 1; // e.g., 2025/2026 -> 2026
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $yearNumber,
-                $archiveData['total_students'],
-                $archiveData['promoted_count'],
-                $archiveData['retained_count'],
-                $archiveData['transferred_count'],
-                $archiveData['graduated_count'],
-                $userId,
-                $notes
-            ]);
-
-            $this->db->commit();
-            return true;
-        } catch (Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
-    }
-
-    /**
-     * Get statistics for archiving
-     */
-    private function getArchiveStats(int $yearId): array
-    {
-        $stmt = $this->db->prepare("
-            SELECT
-                COUNT(*) as total_students,
-                SUM(CASE WHEN enrollment_status = 'completed' THEN 1 ELSE 0 END) as promoted_count,
-                SUM(CASE WHEN enrollment_status = 'active' THEN 1 ELSE 0 END) as retained_count,
-                SUM(CASE WHEN enrollment_status = 'transferred' THEN 1 ELSE 0 END) as transferred_count,
-                SUM(CASE WHEN enrollment_status = 'graduated' THEN 1 ELSE 0 END) as graduated_count
-            FROM student_academic_enrollments
-            WHERE academic_year_id = ?
-        ");
-        $stmt->execute([$yearId]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     /**
@@ -538,14 +425,6 @@ class AcademicYearManager
         if (!empty($filters['status'])) {
             $sql .= " AND ay.status = ?";
             $params[] = $filters['status'];
-        }
-
-        // An archived year is hidden completely: its data is not accessible to
-        // ordinary users any more. A caller may still ask for archived years
-        // explicitly (status filter above) — that is the system administrator's
-        // restore path — but they never appear in a default listing.
-        if (empty($filters['status']) || $filters['status'] !== 'archived') {
-            $sql .= " AND " . \App\API\Services\AcademicYearLifecycleService::visibleSql('ay');
         }
 
         $sql .= " ORDER BY ay.start_date DESC";

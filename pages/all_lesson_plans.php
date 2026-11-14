@@ -187,8 +187,8 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-outline-primary" id="saveDraftBtn">Save as Draft</button>
-                <button type="button" class="btn btn-primary" id="submitLessonPlanBtn">Submit for Approval</button>
+                <button type="button" class="btn btn-outline-primary" id="saveDraftBtn" data-year-write>Save as Draft</button>
+                <button type="button" class="btn btn-primary" id="submitLessonPlanBtn" data-year-write>Submit for Approval</button>
             </div>
         </div>
     </div>

@@ -11,10 +11,9 @@
       <select class="form-select form-select-sm" id="aoClassFilter" style="width:auto;" onchange="assessmentOverviewCtrl.reload()">
         <option value="">All My Classes</option>
       </select>
-      <select class="form-select form-select-sm" id="aoTermFilter" style="width:auto;" onchange="assessmentOverviewCtrl.reload()">
-        <option value="">Current Term</option>
-      </select>
-      <button class="btn btn-primary btn-sm" onclick="assessmentOverviewCtrl.showCreateModal()">
+      <select class="form-select form-select-sm" id="aoYearFilter" style="width:auto;" aria-label="Academic year"></select>
+      <select class="form-select form-select-sm" id="aoTermFilter" style="width:auto;" aria-label="Term"></select>
+      <button class="btn btn-primary btn-sm" onclick="assessmentOverviewCtrl.showCreateModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Create Assessment
       </button>
     </div>
@@ -239,7 +238,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="assessmentOverviewCtrl.saveAssessment()">
+        <button type="button" class="btn btn-primary" onclick="assessmentOverviewCtrl.saveAssessment()" data-year-write>
           <i class="bi bi-check-circle me-1"></i> Create Assessment
         </button>
       </div>
@@ -290,7 +289,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-        <button type="button" class="btn btn-success" onclick="assessmentOverviewCtrl.saveMarks()">
+        <button type="button" class="btn btn-success" onclick="assessmentOverviewCtrl.saveMarks()" data-year-write>
           <i class="bi bi-save me-1"></i> Save All Marks
         </button>
       </div>

@@ -46,53 +46,34 @@ const subjectClassComparisonCtrl = (() => {
         }
     }
 
-    async function loadYears() {
-        try {
-            const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
-            const select = document.getElementById('yearFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Years</option>';
-                state.years.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year.id;
-                    option.textContent = year.year_name;
-                    if (year.is_current) option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load years:', error);
-        }
+    /** Rows from an unwrapped API payload (list or {data|items|...}). */
+    function rowsOf(payload, key = '') {
+        if (Array.isArray(payload)) return payload;
+        if (key && Array.isArray(payload?.[key])) return payload[key];
+        return payload?.data || payload?.items || payload?.assessments || payload?.students || payload?.subjects || payload?.exams || [];
     }
 
-    async function loadTerms() {
-        try {
-            const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
-            const select = document.getElementById('termFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Terms</option>';
-                state.terms.forEach(term => {
-                    const option = document.createElement('option');
-                    option.value = term.id;
-                    option.textContent = `${term.name} (${term.year_code || ''})`;
-                    if (term.status === 'current') option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load terms:', error);
-        }
+    /** The shared year/term selector; the current year (and running term) by default. */
+    async function mountYearFilter() {
+        await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+            termSelect: document.getElementById('termFilter'),
+            allTermsLabel: 'All terms',
+            allTermsDefault: false,
+            onChange: (yearId, year, termId) => {
+                state.currentAcademicYear = yearId;
+                state.currentTerm = termId;
+                loadComparison();
+            },
+        });
     }
 
     async function loadSubjects() {
         try {
             // Load only subjects assigned to this teacher
-            const response = await apiCall('academic/subjects-list', 'GET', {
+            const response = await window.API.apiCall('academic/subjects-list', 'GET', null, {
                 subject_teacher_only: true
-            });
-            state.subjects = response.data || [];
+            }, { checkPermission: false });
+            state.subjects = rowsOf(response);
             const select = document.getElementById('subjectFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Subjects</option>';
@@ -110,8 +91,9 @@ const subjectClassComparisonCtrl = (() => {
 
     async function loadComparison() {
         try {
-            const yearId = document.getElementById('yearFilter')?.value || '';
-            const termId = document.getElementById('termFilter')?.value || '';
+            const yearId = state.currentAcademicYear;
+            if (!yearId) return;
+            const termId = state.currentTerm || '';
             const subjectId = document.getElementById('subjectFilter')?.value || '';
 
             // Re-pointed from the non-existent `comparative-reports` slug (which fell
@@ -120,11 +102,13 @@ const subjectClassComparisonCtrl = (() => {
             // `class_metrics` into the page's comparison shape; grade counts and
             // pass_rate are native, while highest/lowest are not computed server-side
             // so we leave them marked unavailable rather than fabricate numbers.
-            const response = await apiCall('academic/results-analysis', 'GET', {
+            const response = await window.API.apiCall('academic/results-analysis', 'GET', null, {
+                academic_year_id: yearId,
                 year_id: yearId,
+                academic_year_term_id: termId,
                 term_id: termId,
                 subject_id: subjectId
-            });
+            }, { checkPermission: false });
 
             const data = response.data || {};
             const subjectName = (data.subject_metrics && data.subject_metrics[0] && data.subject_metrics[0].subject_name) || '—';
@@ -184,6 +168,8 @@ const subjectClassComparisonCtrl = (() => {
                 </tr>
             `;
         }).join('');
+        // A completed year stays read-only for users who may not edit it.
+        window.YearMode?.refresh(tbody);
     }
 
     function updateStats() {
@@ -304,20 +290,8 @@ const subjectClassComparisonCtrl = (() => {
     }
 
     function bindEvents() {
-        document.getElementById('loadComparisonBtn')?.addEventListener('click', loadComparison);
         document.getElementById('exportBtn')?.addEventListener('click', exportComparison);
         document.getElementById('printBtn')?.addEventListener('click', printComparison);
-        
-        document.getElementById('yearFilter')?.addEventListener('change', () => {
-            if (document.getElementById('subjectFilter').value) {
-                loadComparison();
-            }
-        });
-        document.getElementById('termFilter')?.addEventListener('change', () => {
-            if (document.getElementById('subjectFilter').value) {
-                loadComparison();
-            }
-        });
         document.getElementById('subjectFilter')?.addEventListener('change', loadComparison);
     }
 
@@ -328,31 +302,15 @@ const subjectClassComparisonCtrl = (() => {
             return;
         }
 
-        // Initialize Academic Context if available
-        if (window.AcademicContext) {
-            window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadYears();
-                    loadTerms();
-                    if (document.getElementById('subjectFilter').value) {
-                        loadComparison();
-                    }
-                }
-            });
-
-            if (!window.AcademicContext.isLoaded()) {
-                await window.AcademicContext.init();
-            }
-
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
-        }
-
         document.getElementById('comparisonLoading').style.display = 'none';
         document.getElementById('comparisonContent').style.display = 'block';
 
-        await Promise.all([loadYears(), loadTerms(), loadSubjects()]);
+        await Promise.all([loadSubjects()]);
+
         bindEvents();
+
+        await mountYearFilter(); // loads data for the default year/term
+
     }
 
     return { init };

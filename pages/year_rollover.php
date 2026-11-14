@@ -127,7 +127,7 @@
               </tbody>
             </table>
           </div>
-          <button class="btn btn-primary" id="yrStartBtn" onclick="yearRolloverController.createNewYear()">
+          <button class="btn btn-primary" id="yrStartBtn" onclick="yearRolloverController.createNewYear()" data-year-write>
             <i class="bi bi-calendar-plus me-1"></i> Create New Academic Year &amp; Calendar
           </button>
           <span class="ms-2 small text-muted" id="yrCreateMsg"></span>
@@ -168,7 +168,7 @@
           <?php endif; ?>
           <?php if ($phase === 'curriculum'): ?>
           <p class="small text-muted">Confirm the learning areas offered in each class. Subject teachers set strands and substrands later.</p>
-          <div class="d-flex justify-content-end mb-2"><button type="button" class="btn btn-sm btn-outline-primary" id="yrAddLearningArea"><i class="bi bi-plus-lg me-1"></i>Add learning area</button></div>
+          <div class="d-flex justify-content-end mb-2"><button type="button" class="btn btn-sm btn-outline-primary" id="yrAddLearningArea" data-year-write><i class="bi bi-plus-lg me-1"></i>Add learning area</button></div>
           <div class="table-responsive"><table class="table table-sm table-hover align-middle"><thead id="yrCurriculumDraftHead"><tr><th>Learning area</th><th>Target-year classes</th></tr></thead><tbody id="yrCurriculumDraftBody"><tr><td colspan="2" class="text-center text-muted">Load a target year and prepare its classes first.</td></tr></tbody></table></div>
           <?php elseif ($phase === 'staff'): ?>
           <p class="small text-muted">Confirm which current staff are expected to continue. Class teachers, subject assignments and timetables are set up later for each active term.</p>
@@ -176,7 +176,7 @@
           <?php elseif ($phase === 'fees'): ?>
           <h6 class="mt-2">School fees</h6>
           <div class="table-responsive"><table class="table table-sm table-hover align-middle"><thead id="yrFeeDraftHead"><tr><th>Class</th><th>Learner type</th><th>Term 1</th><th>Term 2</th><th>Term 3</th><th>Total</th></tr></thead><tbody id="yrFeeDraftBody"></tbody></table></div>
-          <div class="d-flex justify-content-between align-items-center mt-4 mb-2"><div><h6 class="mb-0">Fee structure charges</h6><small class="text-muted">Registration, interview and other published fees. Individual and class charges are managed separately.</small></div><button type="button" class="btn btn-sm btn-outline-primary" id="yrAddExtraCharge"><i class="bi bi-plus-lg me-1"></i>Add fee</button></div>
+          <div class="d-flex justify-content-between align-items-center mt-4 mb-2"><div><h6 class="mb-0">Fee structure charges</h6><small class="text-muted">Registration, interview and other published fees. Individual and class charges are managed separately.</small></div><button type="button" class="btn btn-sm btn-outline-primary" id="yrAddExtraCharge" data-year-write><i class="bi bi-plus-lg me-1"></i>Add fee</button></div>
           <div class="table-responsive"><table class="table table-sm table-hover align-middle"><thead><tr><th style="min-width:180px">Charge</th><th style="min-width:150px">Applies to</th><th style="min-width:380px">Pricing (KES)</th><th style="width:180px">Source</th></tr></thead><tbody id="yrExtraChargesBody"><tr><td colspan="4" class="text-center text-muted py-3">No published charges set up in either year.</td></tr></tbody></table></div>
           <?php endif; ?>
           <?php endif; ?>
@@ -256,7 +256,7 @@
               <div class="col-md-2"><label class="form-label" for="yrBulkSourceStream">Current stream</label><select class="form-select" id="yrBulkSourceStream"><option value="">All streams</option></select></div>
               <div class="col-md-2"><label class="form-label" for="yrBulkDecision">Decision</label><select class="form-select" id="yrBulkDecision"><option value="promote">Promote</option><option value="retain">Retain</option><option value="graduate">Graduate</option></select></div>
               <div class="col-md-3"><label class="form-label" for="yrBulkTarget">Target class / stream</label><select class="form-select" id="yrBulkTarget"><option value="">Choose destination</option></select></div>
-              <div class="col-md-2 d-grid"><button type="button" class="btn btn-outline-primary" id="yrAddPromotionRule"><i class="bi bi-plus-lg me-1"></i>Add mapping</button></div>
+              <div class="col-md-2 d-grid"><button type="button" class="btn btn-outline-primary" id="yrAddPromotionRule" data-year-write><i class="bi bi-plus-lg me-1"></i>Add mapping</button></div>
             </div>
             <div class="table-responsive mt-3" id="yrPromotionRulesWrap">
               <table class="table table-sm align-middle mb-2"><thead><tr><th>Current group</th><th>Decision</th><th>Target</th><th>Learners</th><th></th></tr></thead><tbody id="yrPromotionRulesBody"><tr><td colspan="5" class="text-muted">No bulk mappings added.</td></tr></tbody></table>
@@ -276,7 +276,7 @@
         <div class="d-flex justify-content-between align-items-center mb-2">
           <span class="fw-semibold" id="yrPromotionProgress">Loading learners…</span>
           <span class="small text-muted" id="yrPromotionSelectionCount">0 selected</span>
-          <button class="btn btn-primary btn-sm" id="yrSavePromotionAssignments" onclick="yearRolloverController.savePromotionAssignments()"><i class="bi bi-save me-1"></i>Save selected assignments</button>
+          <button class="btn btn-primary btn-sm" id="yrSavePromotionAssignments" onclick="yearRolloverController.savePromotionAssignments()" data-year-write><i class="bi bi-save me-1"></i>Save selected assignments</button>
         </div>
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle">

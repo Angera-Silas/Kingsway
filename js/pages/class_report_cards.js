@@ -7,27 +7,30 @@ const classReportCardsController = {
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
-    ['yearFilter', 'termFilter', 'classFilter'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.load()));
+    ['classFilter'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.load()));
     document.getElementById('studentFilter')?.addEventListener('input', () => this.render());
     document.getElementById('exportBtn')?.addEventListener('click', () => this.exportCSV());
     document.getElementById('printBtn')?.addEventListener('click', () => this.print());
     try {
-      const [yearsResponse, termsResponse, classesResponse] = await Promise.all([
-        this.api('GET', '/api/academic/years/list'),
-        this.api('GET', '/api/academic/terms'),
-        this.api('GET', '/api/academic/classes-list'),
-      ]);
-      this.fill('yearFilter', this.rows(yearsResponse), 'All Years', (row) => row.year_name || row.name || row.year_code);
-      this.fill('termFilter', this.rows(termsResponse), 'All Terms', (row) => `${row.name || row.term_name || 'Term'}${row.year_name ? ` · ${row.year_name}` : ''}`);
+      const classesResponse = await this.api('GET', '/api/academic/classes-list');
       this.fill('classFilter', this.rows(classesResponse), 'All Assigned Classes', (row) => row.name || row.class_name);
-      const year = this.rows(yearsResponse).find((row) => row.is_current || row.status === 'current');
-      if (year) document.getElementById('yearFilter').value = String(year.id);
-      const term = this.rows(termsResponse).find((row) => row.is_current || row.status === 'current');
-      if (term) document.getElementById('termFilter').value = String(term.id);
     } catch (error) {
       this.showError(error?.message || 'Reference data could not be loaded.');
     }
-    await this.load();
+    // The shared year/term selector (current year, running term by default)
+    // loads the results now and on every change.
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+      termSelect: document.getElementById('termFilter'),
+      allTermsLabel: 'All terms',
+      allTermsDefault: false,
+      onChange: (yearId, year, termId) => {
+        this.state.yearId = yearId;
+        this.state.termId = termId;
+        this.state.yearLabel = year?.year_name || year?.year_code || '';
+        this.load();
+      },
+    });
+    if (!mounted) await this.load();
     window.APIRealtime?.register?.('class_report_cards', { refresh: () => this.load() }, ['reports', 'academic']);
   },
 
@@ -43,8 +46,9 @@ const classReportCardsController = {
     const params = {
       report_type: 'performance',
       class_teacher_only: '1',
-      year_id: document.getElementById('yearFilter')?.value || '',
-      term_id: document.getElementById('termFilter')?.value || '',
+      academic_year_id: this.state.yearId || '',
+      year_id: this.state.yearId || '',
+      term_id: this.state.termId || '',
       class_id: document.getElementById('classFilter')?.value || '',
     };
     Object.keys(params).forEach((key) => { if (!params[key]) delete params[key]; });
@@ -89,7 +93,7 @@ const classReportCardsController = {
     const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const csv = [this.state.columns.map((column) => column.label || column.key), ...this.state.rows.map((row) => this.state.columns.map((column) => row[column.key]))].map((row) => row.map(quote).join(',')).join('\r\n');
     if (!this.state.rows.length) return window.showNotification?.('There are no assessment results to export.', 'info');
-    window.KingswayFileLifecycle?.exportText?.(csv, 'class-report-card-results.csv', 'text/csv;charset=utf-8;');
+    window.KingswayFileLifecycle?.exportText?.(csv, `class-report-card-results-${String(this.state.yearLabel || '').replace(/[\/\s]+/g, '-')}.csv`, 'text/csv;charset=utf-8;');
   },
   print() {
     if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('results')) return window.showNotification?.('You do not have permission to print results.', 'error');

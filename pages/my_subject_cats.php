@@ -27,15 +27,11 @@ return;
                         <div class="row mb-3">
                             <div class="col-md-4">
                                 <label class="form-label">Academic Year</label>
-                                <select id="yearFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Years</option>
-                                </select>
+                                <select id="yearFilter" class="form-select" data-permission="academic_view" aria-label="Academic year"></select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Term</label>
-                                <select id="termFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Terms</option>
-                                </select>
+                                <select id="termFilter" class="form-select" data-permission="academic_view" aria-label="Term"></select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Subject</label>
@@ -46,7 +42,7 @@ return;
                         </div>
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
-                                <button id="createCatBtn" class="btn btn-primary" data-permission="assessments_create">
+                                <button id="createCatBtn" class="btn btn-primary" data-permission="assessments_create" data-year-write>
                                     <i class="bi bi-plus-lg me-1"></i>Create CAT
                                 </button>
                                 <button id="refreshBtn" class="btn btn-outline-secondary">
@@ -159,7 +155,7 @@ return;
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveCatBtn">Save CAT</button>
+                <button type="button" class="btn btn-primary" id="saveCatBtn" data-year-write>Save CAT</button>
             </div>
         </div>
     </div>

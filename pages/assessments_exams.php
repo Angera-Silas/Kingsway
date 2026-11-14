@@ -236,10 +236,10 @@
     <div class="ex-filter-card d-flex align-items-center gap-3 flex-wrap mb-0" id="contextBar">
         <div class="d-flex align-items-center gap-2">
             <span class="text-muted small fw-semibold">Academic Year:</span>
-            <span class="badge bg-primary" id="ctxYear">Loading…</span>
+            <select class="form-select form-select-sm" id="ctxYear" aria-label="Academic year" style="width:180px"></select>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <span class="text-muted small fw-semibold">Current Term:</span>
+            <span class="text-muted small fw-semibold">Term in session:</span>
             <span class="badge bg-success" id="ctxTerm">Loading…</span>
         </div>
         <div class="d-flex align-items-center gap-2 ms-auto">
@@ -662,7 +662,7 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Max Marks</label>
-                            <input type="number" class="form-control" name="max_marks" value="100" min="1" max="1000">
+                            <input type="number" class="form-control" name="max_marks" value="100" min="1" max="1000" data-year-write>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Assessment Date</label>
@@ -681,7 +681,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-ex-primary"><i class="bi bi-check2 me-1"></i>Create Assessment</button>
+                    <button type="submit" class="btn btn-ex-primary" data-year-write><i class="bi bi-check2 me-1"></i>Create Assessment</button>
                 </div>
             </form>
         </div>
@@ -728,10 +728,10 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-ex-outline" onclick="assessExamsCtrl.saveDraftResults()">
+                <button class="btn btn-ex-outline" onclick="assessExamsCtrl.saveDraftResults()" data-year-write>
                     <i class="bi bi-save me-1"></i>Save Draft
                 </button>
-                <button class="btn btn-ex-primary" onclick="assessExamsCtrl.submitResults()">
+                <button class="btn btn-ex-primary" onclick="assessExamsCtrl.submitResults()" data-year-write>
                     <i class="bi bi-send me-1"></i>Submit Results
                 </button>
             </div>
@@ -779,7 +779,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-ex-primary"><i class="bi bi-play-circle me-1"></i>Start Workflow</button>
+                    <button type="submit" class="btn btn-ex-primary" data-year-write><i class="bi bi-play-circle me-1"></i>Start Workflow</button>
                 </div>
             </form>
         </div>

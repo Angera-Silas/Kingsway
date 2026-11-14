@@ -148,14 +148,13 @@
 ======================================================= -->
 <div class="academic-card p-3 mb-4">
     <div class="row g-3 align-items-end">
-        <div class="col-md-4">
-            <label class="form-label fw-semibold">Term</label>
-            <select class="form-select" id="termFilter">
-                <option value="">All Terms</option>
-                <option value="1">Term 1</option>
-                <option value="2">Term 2</option>
-                <option value="3">Term 3</option>
-            </select>
+        <div class="col-md-2">
+            <label class="form-label fw-semibold" for="yearFilter">Academic year</label>
+            <select class="form-select" id="yearFilter"></select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-semibold" for="termFilter">Term</label>
+            <select class="form-select" id="termFilter"></select>
         </div>
         <div class="col-md-4">
             <label class="form-label fw-semibold">Class</label>

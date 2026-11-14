@@ -332,8 +332,8 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-outline-primary d-none" id="generateOpenDrafts">Review drafts</button>
-                <button type="button" class="btn btn-academic" id="generateRun">
+                <button type="button" class="btn btn-outline-primary d-none" id="generateOpenDrafts" data-year-write>Review drafts</button>
+                <button type="button" class="btn btn-academic" id="generateRun" data-year-write>
                     <i class="bi bi-magic me-1"></i>Generate draft
                 </button>
             </div>

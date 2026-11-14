@@ -15,8 +15,8 @@
             </div>
             <div id="reportCardsContent" style="display:none">
                 <div class="row g-3 mb-3">
-                    <div class="col-md-3"><label class="form-label" for="yearFilter">Academic Year</label><select id="yearFilter" class="form-select"><option value="">All Years</option></select></div>
-                    <div class="col-md-3"><label class="form-label" for="termFilter">Term</label><select id="termFilter" class="form-select"><option value="">All Terms</option></select></div>
+                    <div class="col-md-3"><label class="form-label" for="yearFilter">Academic Year</label><select id="yearFilter" class="form-select" aria-label="Academic year"></select></div>
+                    <div class="col-md-3"><label class="form-label" for="termFilter">Term</label><select id="termFilter" class="form-select" aria-label="Term"></select></div>
                     <div class="col-md-3"><label class="form-label" for="classFilter">Class</label><select id="classFilter" class="form-select"><option value="">All Assigned Classes</option></select></div>
                     <div class="col-md-3"><label class="form-label" for="studentFilter">Find Student</label><input id="studentFilter" class="form-control" type="search" placeholder="Name or admission number"></div>
                 </div>

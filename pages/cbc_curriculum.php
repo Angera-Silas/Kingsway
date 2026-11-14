@@ -288,7 +288,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="saveSubStrandBtn">Save</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveSubStrandBtn" data-year-write>Save</button>
             </div>
         </div>
     </div>
@@ -340,7 +340,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="saveLoBtn">Save</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveLoBtn" data-year-write>Save</button>
             </div>
         </div>
     </div>
@@ -373,7 +373,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="saveCwBtn">Save</button>
+                <button type="button" class="btn btn-primary btn-sm" id="saveCwBtn" data-year-write>Save</button>
             </div>
         </div>
     </div>

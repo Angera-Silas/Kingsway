@@ -24,7 +24,10 @@ const performanceAnalysisController = (() => {
   async function loadContext() {
     const years = await get('/academic/years/list');
     state.years = rowsOf(years);
-    const year = state.years.find((item) => Boolean(Number(item.is_current)) || item.status === 'active') || state.years[0];
+    // The year chosen in the shared selector; the current year until it answers.
+    const year = state.years.find((item) => Number(item.id) === Number(state.selectedYearId))
+      || state.years.find((item) => Boolean(Number(item.is_current)))
+      || state.years[0];
     if (!year) return null;
     const terms = await get('/academic/terms', { academic_year_id: year.id });
     state.terms = rowsOf(terms);
@@ -160,7 +163,11 @@ const performanceAnalysisController = (() => {
       console.warn('Performance subject list unavailable:', error);
     }
     bind();
-    await load();
+    // The shared year selector (current year by default) reloads the analysis.
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+      onChange: (yearId) => { state.selectedYearId = yearId; load(); },
+    });
+    if (!mounted) await load();
     const filter = document.getElementById('filterSelect');
     if (filter) filter.innerHTML = '<option value="">All Subjects</option>' + state.subjects.map((subject) => `<option value="${Number(subject.id)}">${escapeHtml(subject.name || subject.subject_name)}</option>`).join('');
   }

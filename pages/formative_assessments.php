@@ -26,7 +26,7 @@
       <button class="btn btn-outline-secondary btn-sm" onclick="fAssCtrl.loadAll()">
         <i class="bi bi-arrow-clockwise"></i> Refresh
       </button>
-      <button class="btn btn-primary" onclick="fAssCtrl.showCreateModal()">
+      <button class="btn btn-primary" onclick="fAssCtrl.showCreateModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> New Assessment
       </button>
     </div>
@@ -219,7 +219,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="fAssCtrl.saveAssessment()">Create Assessment</button>
+        <button type="button" class="btn btn-primary" onclick="fAssCtrl.saveAssessment()" data-year-write>Create Assessment</button>
       </div>
     </div>
   </div>
