@@ -221,6 +221,35 @@
    *
    *   AcademicYearFilter.mountBar({ term: true, onChange: (yearId, year, termId) => load() });
    */
+  /**
+   * The row that holds the page's title (and usually its buttons): the year
+   * bar belongs there, not above the page. Older pages build their header in
+   * a few ways; the first one found wins. Null when the page has no header.
+   */
+  function pageHeader(host) {
+    const selectors = [
+      '.page-header > .d-flex',
+      '.page-header',
+      '.card:not(.card .card) > .card-header > .d-flex',
+      '.card:not(.card .card) > .card-header',
+      '.fl-head',
+      '.payroll-hero .row',
+      '.executive-hero .row',
+      '.sa-header',
+      '.id-cards-hero',
+      'header',
+    ];
+    for (const selector of selectors) {
+      const el = host.querySelector(selector);
+      if (el && el.offsetParent !== null && !el.closest('.modal')) return el;
+    }
+    // Any other page: the flex row that holds its first heading.
+    const heading = [...host.querySelectorAll('h1, h2, h3, h4')]
+      .find((h) => h.offsetParent !== null && !h.closest('.modal, [data-academic-year-bar], table, .tab-pane:not(.active)'));
+    const row = heading?.closest('.d-flex');
+    return row && host.contains(row) ? row : null;
+  }
+
   async function mountBar({ term = false, allTermsLabel = '', allTermsDefault = true, onChange } = {}) {
     const host = document.getElementById('main-content-segment') || document.querySelector('main') || document.body;
     let bar = host.querySelector('[data-academic-year-bar]');
@@ -241,7 +270,15 @@
       };
       field('ayBarYear', 'Academic year');
       if (term) field('ayBarTerm', 'Term');
-      host.insertBefore(bar, host.firstChild);
+      const header = pageHeader(host);
+      if (header) {
+        // In the page header, beside the title and its buttons.
+        bar.classList.remove('mb-3');
+        bar.classList.add('ms-auto');
+        header.appendChild(bar);
+      } else {
+        host.insertBefore(bar, host.firstChild);
+      }
     }
     return mount(bar.querySelector('#ayBarYear'), {
       termSelect: term ? bar.querySelector('#ayBarTerm') : null,

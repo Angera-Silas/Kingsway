@@ -104,6 +104,8 @@ const paymentReportsController = {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     await this.loadReferencesComposed();
     await this.load();
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.("payment_reports", {
       refresh: async () => {
         this.state.referenceCache = null;

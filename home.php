@@ -92,6 +92,10 @@ if (!headers_sent()) {
     >
     <link
         rel="stylesheet"
+        href="<?= htmlspecialchars($appBase) ?>/css/kw-clean.css?v=<?= asset_version('css/kw-clean.css') ?>"
+    >
+    <link
+        rel="stylesheet"
         href="<?= htmlspecialchars($appBase) ?>/assets/css/print.css?v=<?= asset_version('assets/css/print.css') ?>"
         media="print"
     >
@@ -247,6 +251,7 @@ $files = [
     'js/components/year_mode.js',
     'js/components/academic_year_filter.js',
     'js/core/year_scope.js',
+    'js/core/kw_clean_routes.js',
     'js/utils/form-validation.js',
     'js/core/recipient_picker.js',
     'js/core/markdown.js',

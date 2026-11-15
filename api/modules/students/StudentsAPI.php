@@ -31,6 +31,74 @@ class StudentsAPI extends BaseAPI
     }
 
     // List all students with pagination and search
+    /**
+     * What happened to each learner at the end of the listed year, in plain
+     * words: "Promoted to Grade 3 A (2027/2028)", "Graduated, class of 2026",
+     * "Retained in Grade 2 A (2027/2028)", "Transferred" (with the reason
+     * recorded), "Withdrawn". Learners still active in the year get none.
+     * Read from the year's transition (keyed by the enrolment it left).
+     */
+    private function withYearOutcome(array $students): array
+    {
+        $enrollmentIds = [];
+        foreach ($students as $row) {
+            if (in_array($row['enrollment_status'] ?? '', ['completed', 'graduated', 'transferred', 'withdrawn'], true)) {
+                $enrollmentIds[] = (int) $row['enrollment_id'];
+            }
+        }
+        $enrollmentIds = array_values(array_filter(array_unique($enrollmentIds)));
+        $transitions = [];
+        $targets = [];
+        if ($enrollmentIds) {
+            $in = implode(',', $enrollmentIds);
+            foreach ($this->db->query(
+                "SELECT from_student_academic_enrollment_id AS from_id, to_student_academic_enrollment_id AS to_id, transition_type, reason
+                 FROM " . ReadReplicaService::qualifiedRef('student_transitions') . "
+                 WHERE from_student_academic_enrollment_id IN ({$in})
+                 ORDER BY id"
+            )->fetchAll(PDO::FETCH_ASSOC) as $t) {
+                $transitions[(int) $t['from_id']] = $t;
+            }
+            $toIds = array_values(array_filter(array_map(static fn ($t) => (int) $t['to_id'], $transitions)));
+            if ($toIds) {
+                foreach ($this->db->query(
+                    "SELECT lp.enrollment_id, lp.class_name, lp.stream_name, ay.year_code
+                     FROM " . ReadReplicaService::qualifiedRef('learner_placement_history') . " lp
+                     JOIN " . ReadReplicaService::qualifiedRef('academic_years') . " ay ON ay.id = lp.academic_year_id
+                     WHERE lp.enrollment_id IN (" . implode(',', $toIds) . ")"
+                )->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                    $targets[(int) $p['enrollment_id']] = $p;
+                }
+            }
+        }
+        $yearStart = [];
+        foreach ($students as &$row) {
+            $status = (string) ($row['enrollment_status'] ?? '');
+            $t = $transitions[(int) ($row['enrollment_id'] ?? 0)] ?? null;
+            $target = $t && $t['to_id'] ? ($targets[(int) $t['to_id']] ?? null) : null;
+            $where = $target ? trim($target['class_name'] . ' ' . ($target['stream_name'] ?? '')) . " ({$target['year_code']})" : '';
+            $label = null;
+            if ($status === 'graduated' || ($t['transition_type'] ?? '') === 'graduation') {
+                $yid = (int) ($row['academic_year_id'] ?? 0);
+                $yearStart[$yid] ??= (string) ($this->db->query('SELECT YEAR(start_date) FROM academic_years WHERE id = ' . $yid)->fetchColumn() ?: '');
+                $label = 'Graduated' . ($yearStart[$yid] !== '' ? ', class of ' . $yearStart[$yid] : '');
+            } elseif (($t['transition_type'] ?? '') === 'promotion') {
+                $label = 'Promoted' . ($where !== '' ? ' to ' . $where : '');
+            } elseif (($t['transition_type'] ?? '') === 'retention') {
+                $label = 'Retained' . ($where !== '' ? ' in ' . $where : '');
+            } elseif ($status === 'transferred' || in_array($t['transition_type'] ?? '', ['transfer', 'internal'], true)) {
+                $label = 'Transferred' . (!empty($t['reason']) ? ': ' . $t['reason'] : '');
+            } elseif ($status === 'withdrawn') {
+                $label = 'Withdrawn';
+            } elseif ($status === 'completed') {
+                $label = 'Promoted';
+            }
+            $row['year_outcome'] = $label;
+        }
+        unset($row);
+        return $students;
+    }
+
     public function list($params = [])
     {
         try {
@@ -186,7 +254,7 @@ class StudentsAPI extends BaseAPI
             $joins = "
                 LEFT JOIN {$placementRef} lp
                     ON lp.student_id = s.id
-                    AND lp.enrollment_status IN ('active','completed','graduated')
+                    AND lp.enrollment_status IN ('active','completed','graduated','transferred','withdrawn')
                     AND lp.academic_year_id = " . (int) $listYearId . "
 
                 LEFT JOIN student_types st ON s.student_type_id = st.id
@@ -225,6 +293,7 @@ class StudentsAPI extends BaseAPI
                     lp.aycs_id AS academic_year_class_stream_id,
                     lp.enrollment_id,
                     lp.academic_year_id,
+                    lp.enrollment_status,
                     st.name AS student_type_name,
                     st.name AS student_type,
                     st.code AS student_type_code,
@@ -253,6 +322,7 @@ class StudentsAPI extends BaseAPI
                 $student['photo_url'] = $this->normalizePublicAssetPath($student['photo_url'] ?? '');
             }
             unset($student);
+            $students = $this->withYearOutcome($students);
 
             $this->logAction('read', null, 'Listed students');
 
@@ -5674,7 +5744,7 @@ private function getCurrentStudentTransport(int $studentId): array
             $sql = "SELECT COUNT(DISTINCT s.id) AS total,
                            COUNT(DISTINCT CASE WHEN s.status='active' THEN s.id END) AS active,
                            COUNT(DISTINCT CASE WHEN s.status<>'active' THEN s.id END) AS inactive,
-                           COUNT(DISTINCT CASE WHEN ? IS NOT NULL AND COALESCE(s.admission_date, s.created_at) BETWEEN ? AND ? THEN s.id END) AS new_this_term,
+                           COUNT(DISTINCT CASE WHEN ? IS NOT NULL AND s.admission_date BETWEEN ? AND ? THEN s.id END) AS new_this_term,
                            {$feeSummary}
                     FROM " . ReadReplicaService::qualifiedRef('students') . " s {$joins} {$where}";
             $stmt = $this->db->prepare($sql);

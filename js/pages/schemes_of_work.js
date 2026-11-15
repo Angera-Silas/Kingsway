@@ -4,7 +4,7 @@
  * Integrates with AcademicContext for academic year awareness
  */
 
-const SchemesOfWorkController = (() => {
+var SchemesOfWorkController = (() => {
   // Private state
   const state = {
     schemes: [],
@@ -830,7 +830,7 @@ const SchemesOfWorkController = (() => {
   };
 })();
 
-let _initialized = false;
+var _initialized = false;
 
 function initializeSchemesOfWork() {
   if (_initialized) return;
@@ -848,3 +848,6 @@ if (window.__APP_BOOTED__) {
 }
 
 window.SchemesOfWorkController = SchemesOfWorkController;
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => SchemesOfWorkController.refresh());

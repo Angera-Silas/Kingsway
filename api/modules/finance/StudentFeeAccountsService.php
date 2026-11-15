@@ -167,6 +167,7 @@ class StudentFeeAccountsService
             $r['id'] = (int) $r['id'];
         }
         unset($r);
+        $rows = $this->withLeaving($rows, $yearId);
 
         // Term-by-term position of the whole year (same class/search filter).
         // With an account filter (e.g. "in credit"), the terms describe the
@@ -239,6 +240,55 @@ class StudentFeeAccountsService
                 'has_current_term' => $current !== null,
             ],
         ];
+    }
+
+    /**
+     * Learners who LEFT in this year (graduated, transferred, withdrawn):
+     * their final balance is settled at student clearance, before the
+     * leaving certificate and other certificates are issued. Adds
+     * `leaving` = {status, label, clearance} to those rows.
+     */
+    private function withLeaving(array $rows, int $yearId): array
+    {
+        $ids = array_values(array_filter(array_map(static fn ($r) => (int) $r['id'], $rows)));
+        if (!$ids) return $rows;
+        $left = [];
+        foreach ($this->rows(
+            "SELECT student_id, enrollment_status FROM " . ReadReplicaService::qualifiedRef('learner_placement_history') . "
+             WHERE academic_year_id = ? AND enrollment_status IN ('graduated','transferred','withdrawn')
+               AND student_id IN (" . implode(',', $ids) . ")",
+            [$yearId]
+        ) as $p) {
+            $left[(int) $p['student_id']] = $p['enrollment_status'];
+        }
+        if (!$left) return $rows;
+        $clearance = [];
+        try {
+            foreach ($this->rows(
+                "SELECT student_id, COUNT(*) AS items, SUM(status = 'cleared') AS cleared
+                 FROM student_clearances WHERE student_id IN (" . implode(',', array_keys($left)) . ") GROUP BY student_id"
+            ) as $c) {
+                $clearance[(int) $c['student_id']] = ((int) $c['items'] > 0 && (int) $c['items'] === (int) $c['cleared']) ? 'cleared' : 'in_progress';
+            }
+        } catch (\Throwable $ignored) {
+            // no clearance records yet
+        }
+        $year = $this->rows('SELECT YEAR(start_date) AS y FROM academic_years WHERE id = ?', [$yearId])[0]['y'] ?? '';
+        foreach ($rows as &$r) {
+            $status = $left[(int) $r['id']] ?? null;
+            if (!$status) continue;
+            $bal = (float) $r['current_balance'];
+            $how = $status === 'graduated' ? 'Graduated' . ($year ? " (class of {$year})" : '') : ucfirst($status);
+            $money = number_format(abs($bal), 2);
+            $r['leaving'] = [
+                'status' => $status,
+                'label' => $bal > 0 ? "{$how} owing KES {$money}" : ($bal < 0 ? "{$how} with an overpayment of KES {$money}" : "{$how}, account cleared"),
+                'to_settle' => $bal != 0.0,
+                'clearance' => $clearance[(int) $r['id']] ?? 'not_started',
+            ];
+        }
+        unset($r);
+        return $rows;
     }
 
     private function terms(int $yearId): array

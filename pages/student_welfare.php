@@ -41,7 +41,7 @@ $appBase = app_base_path();
 
             <!-- Filters -->
             <div class="row g-3 mb-4">
-                <div class="col-xl-2 col-md-4">
+                <div class="col-xl-2 col-md-4 d-none" data-replaced-by="shared year bar">
                     <label class="form-label fw-semibold">Academic Year</label>
                     <select class="form-select" id="academicYearFilter">
                         <option value="">All Years</option>

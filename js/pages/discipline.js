@@ -1,4 +1,4 @@
-const DisciplineController = {
+var DisciplineController = {
     ui: {},
     _allCases: [],
     _activeTab: "all",

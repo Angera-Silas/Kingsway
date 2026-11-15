@@ -78,16 +78,9 @@ $appBase = app_base_path();
                     </div>
                 </div>
 
+                <!-- Filters load on change; no Apply button (Hard Rule 6). -->
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
-                    </button>
+                    <button type="button" class="btn btn-link btn-sm text-secondary px-0" id="resetFiltersBtn">Clear filters</button>
                 </div>
             </div>
 

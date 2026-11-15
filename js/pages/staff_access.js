@@ -6,6 +6,9 @@
  *
  * Uses window.API.staff.getAccessContext() from js/api.js.
  */
+// Shared by several Staff and Finance pages: soft navigation can load this
+// file again, and a second top-level `const` would throw. Load it once.
+if (!window.StaffAccessController) {
 const StaffAccessController = {
     initialized: false,
     initializationPromise: null,
@@ -323,3 +326,4 @@ const StaffAccessController = {
 
 window.StaffAccessController = StaffAccessController;
 window.StaffAccess = StaffAccessController;
+}

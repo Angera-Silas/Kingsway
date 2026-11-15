@@ -1,4 +1,4 @@
-const ProfileController = (() => {
+var ProfileController = (() => {
     let userData = null;
     let profile = null;          // merged profile payload (staff or system)
     let domain = 'unknown';      // 'school' | 'system'

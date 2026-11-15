@@ -584,3 +584,6 @@ document.addEventListener("DOMContentLoaded", () =>
 );
 
 window.lessonPlansController = lessonPlansController;
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => lessonPlansController.loadPlans());

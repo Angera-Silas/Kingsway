@@ -16,6 +16,40 @@ class MigrationService
     }
 
     /**
+     * Migrations live in the migrations folder and, since 2026-11-15, in its
+     * two sub-folders: applied_to_production/ (applied on the live server)
+     * and notAppliedToProduction/ (created and applied only locally). The
+     * ledger keys stay the bare file name, so moving a file between folders
+     * changes nothing recorded.
+     */
+    private const SUBFOLDERS = ['', 'applied_to_production', 'notAppliedToProduction'];
+
+    /** @return string[] every migration file, by file name (first folder wins on a duplicate). */
+    private function allMigrationFiles(): array
+    {
+        $files = [];
+        foreach (self::SUBFOLDERS as $sub) {
+            $dir = $this->migrationsDir . ($sub !== '' ? '/' . $sub : '');
+            foreach (glob($dir . '/*.sql') ?: [] as $file) {
+                $files[basename($file)] ??= $file;
+            }
+        }
+        ksort($files);
+        return array_values($files);
+    }
+
+    /** Where a migration file is, by file name (top folder when it exists nowhere yet). */
+    private function migrationPath(string $basename): string
+    {
+        $basename = basename($basename);
+        foreach (self::SUBFOLDERS as $sub) {
+            $path = $this->migrationsDir . ($sub !== '' ? '/' . $sub : '') . '/' . $basename;
+            if (is_file($path)) return $path;
+        }
+        return $this->migrationsDir . '/' . $basename;
+    }
+
+    /**
      * Resolve the MySQL client binary.
      *
      * The stack is system Apache + system MariaDB (XAMPP was removed), so the
@@ -56,7 +90,7 @@ class MigrationService
 
     public function getPending(): array
     {
-        $files = glob($this->migrationsDir . '/*.sql');
+        $files = $this->allMigrationFiles();
         sort($files);
         $applied = $this->db->query("SELECT filename, checksum FROM migrations")->fetchAll(PDO::FETCH_KEY_PAIR);
 
@@ -87,7 +121,7 @@ class MigrationService
      */
     public function verify(): array
     {
-        $files = glob($this->migrationsDir . '/*.sql') ?: [];
+        $files = $this->allMigrationFiles() ?: [];
         sort($files);
         $ledger = $this->db->query("SELECT filename, checksum FROM migrations")->fetchAll(PDO::FETCH_KEY_PAIR);
         $schema = (string) $this->db->query("SELECT DATABASE()")->fetchColumn();
@@ -201,7 +235,7 @@ class MigrationService
                 $results[] = ['filename' => $basename, 'status' => 'failed', 'error' => 'Not a .sql migration file'];
                 break;
             }
-            $path = $this->migrationsDir . '/' . $basename;
+            $path = $this->migrationPath($basename);
             if (!is_file($path)) {
                 $results[] = ['filename' => $basename, 'status' => 'failed', 'error' => 'Migration file not found'];
                 break;
@@ -267,7 +301,7 @@ class MigrationService
      */
     public function missingEffects(string $basename): array
     {
-        $path = $this->migrationsDir . '/' . basename($basename);
+        $path = $this->migrationPath($basename);
         if (!is_file($path)) {
             return ['file not found'];
         }
@@ -281,7 +315,7 @@ class MigrationService
             $tables[$sc . '.' . $t] = true;
         }
         $dropped = [];
-        foreach (glob($this->migrationsDir . '/*.sql') ?: [] as $file) {
+        foreach ($this->allMigrationFiles() ?: [] as $file) {
             foreach (self::objectNames((string) file_get_contents($file), '/\bDROP\s+(?:TABLE|VIEW)\s+(?:IF\s+EXISTS\s+)?((?:`?\w+`?\.)?`?\w+`?(?:\s*,\s*(?:`?\w+`?\.)?`?\w+`?)*)/i', $schema) as $n) {
                 $dropped[$n] = true;
             }
@@ -366,7 +400,7 @@ class MigrationService
                 $results[] = ['filename' => $basename, 'status' => 'refused', 'error' => 'not in schema: ' . implode(', ', array_slice($missing, 0, 6))];
                 continue;
             }
-            $insert->execute([$basename, md5_file($this->migrationsDir . '/' . $basename)]);
+            $insert->execute([$basename, md5_file($this->migrationPath($basename))]);
             $results[] = ['filename' => $basename, 'status' => 'baselined'];
         }
         return $results;
@@ -385,7 +419,7 @@ class MigrationService
         $results = [];
         foreach ($filenames as $filename) {
             $basename = basename((string) $filename);
-            $path = $this->migrationsDir . '/' . $basename;
+            $path = $this->migrationPath($basename);
             if (!isset($ledger[$basename]) || !is_file($path)) {
                 $results[] = ['filename' => $basename, 'status' => 'refused', 'error' => 'not recorded or file missing'];
                 continue;

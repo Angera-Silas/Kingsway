@@ -2158,6 +2158,68 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/statistics-get
      */
+    // ==================== STUDENT CLEARANCE ====================
+
+    /**
+     * GET /api/students/clearance-leavers?academic_year_id=&outcome=&state=&search=
+     * Learners who left in the year (graduated, transferred, withdrawn) with
+     * their final fee position and clearance progress.
+     */
+    public function getClearanceLeavers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['students_view', 'students_view_all', 'finance_view'])) {
+            return $this->forbidden('You cannot view student clearance');
+        }
+        return $this->clearanceCall(function ($service, $db) use ($data) {
+            $filters = is_array($data) ? $data : [];
+            return $service->leavers((int) \App\API\Services\YearScope::listYear($db, $filters)['year_id'], $filters);
+        }, 'Clearance loaded');
+    }
+
+    /** POST /api/students/clearance-start {student_id, academic_year_id} */
+    public function postClearanceStart($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['students_edit', 'students_manage', 'finance_manage', 'students_create'])) {
+            return $this->forbidden('You cannot start a clearance');
+        }
+        $data = is_array($data) ? $data : [];
+        return $this->clearanceCall(fn ($service) => $service->start(
+            (int) ($data['student_id'] ?? 0),
+            (int) ($data['academic_year_id'] ?? 0),
+            (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0) ?: null
+        ), 'Clearance started');
+    }
+
+    /** POST /api/students/clearance-decide {student_id, academic_year_id, type, status, note} */
+    public function postClearanceDecide($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['students_edit', 'students_manage', 'finance_manage', 'students_create', 'library_manage', 'inventory_manage'])) {
+            return $this->forbidden('You cannot record a clearance decision');
+        }
+        $data = is_array($data) ? $data : [];
+        return $this->clearanceCall(fn ($service) => $service->decide(
+            (int) ($data['student_id'] ?? 0),
+            (int) ($data['academic_year_id'] ?? 0),
+            (string) ($data['type'] ?? ''),
+            (string) ($data['status'] ?? ''),
+            isset($data['note']) ? (string) $data['note'] : null,
+            (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0) ?: null
+        ), 'Clearance updated');
+    }
+
+    private function clearanceCall(callable $run, string $message)
+    {
+        try {
+            $db = $this->getDb()->getConnection();
+            return $this->success($run(new \App\API\Services\StudentClearanceService($db), $db), $message);
+        } catch (\InvalidArgumentException $e) {
+            return $e->getCode() === 404 ? $this->notFound($e->getMessage()) : $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[StudentsController] clearance: ' . $e->getMessage());
+            return $this->serverError('Failed to process the clearance', 'An internal error occurred.');
+        }
+    }
+
     public function getStatisticsGet($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view student statistics')) {

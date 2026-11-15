@@ -4,7 +4,7 @@
  * Manages school timetable viewing by class, teacher, or room (read-only)
  * Connected to timetable_entries via SchedulesAPI (day_of_week numeric 1=Mon..7=Sun)
  */
-const TimetableController = {
+var TimetableController = {
   state: {
     timetable: [],
     classes: [],
