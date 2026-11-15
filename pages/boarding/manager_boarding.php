@@ -18,7 +18,7 @@ $roleCategory = 'manager';
         <a href="<?= htmlspecialchars($appBase) ?>/home.php?route=boarding_roll_call" class="btn btn-success">
             <i class="bi bi-clipboard-check me-1"></i> Take Roll Call
         </a>
-        <button class="btn btn-primary" id="assignRoomBtn">
+        <button class="btn btn-primary" id="assignRoomBtn" data-year-write>
             <i class="bi bi-door-open me-1"></i> Assign Room
         </button>
         <button class="btn btn-outline-secondary" id="refreshBtn">
@@ -176,7 +176,7 @@ $roleCategory = 'manager';
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="confirmAssignBtn">
+                <button type="button" class="btn btn-primary" id="confirmAssignBtn" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Assign
                 </button>
             </div>

@@ -73,7 +73,7 @@
                     <option value="12">December</option>
                 </select>
             </div><div class="col-md-3 d-flex align-items-end">
-                <button class="btn btn-success w-100" onclick="detailedPayslipController.generatePayslip()">
+                <button class="btn btn-success w-100" onclick="detailedPayslipController.generatePayslip()" data-year-write>
                     <i class="bi bi-file-earmark-text"></i> View payslip
                 </button>
             </div>
@@ -366,7 +366,7 @@
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
                     <i class="bi bi-x-circle"></i> Cancel
                 </button>
-                <button type="button" class="btn text-white" id="confirmModalOk" style="background: #0d4f2a;">
+                <button type="button" class="btn text-white" id="confirmModalOk" style="background: #0d4f2a;" data-year-write>
                     <i class="bi bi-check-circle"></i> Confirm
                 </button>
             </div>

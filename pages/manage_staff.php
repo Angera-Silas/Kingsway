@@ -53,7 +53,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                 <p class="text-muted mb-0"><?= htmlspecialchars($staffPageDescription, ENT_QUOTES, 'UTF-8') ?></p>
             </div>
             <div class="btn-group">
-                <button class="btn btn-primary" id="addStaffBtn" data-permission-module="staff" data-permission-action="create">
+                <button class="btn btn-primary" id="addStaffBtn" data-permission-module="staff" data-permission-action="create" data-year-write>
                     <i class="bi bi-plus-lg me-1"></i>Add Existing Staff
                 </button>
                 <button class="btn btn-outline-primary" type="button" data-staff-workspace="import" data-requires-staff-import="true" data-permission="staff.directory.manage">
@@ -114,10 +114,10 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
         <div class="card-body">
             <div id="staffBulkActions" class="d-none align-items-center flex-wrap gap-2 mb-3" aria-live="polite">
                 <span id="staffSelectionCount" class="fw-semibold small"></span>
-                <button type="button" class="btn btn-sm btn-outline-success" id="bulkActivateStaffBtn">Activate accounts</button>
-                <button type="button" class="btn btn-sm btn-outline-warning" id="bulkDeactivateStaffBtn">Deactivate accounts</button>
-                <button type="button" class="btn btn-sm btn-outline-primary" id="bulkManageStaffRolesBtn">Set roles</button>
-                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkResetStaffPasswordsBtn">Send password reset links</button>
+                <button type="button" class="btn btn-sm btn-outline-success" id="bulkActivateStaffBtn" data-year-write>Activate accounts</button>
+                <button type="button" class="btn btn-sm btn-outline-warning" id="bulkDeactivateStaffBtn" data-year-write>Deactivate accounts</button>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="bulkManageStaffRolesBtn" data-year-write>Set roles</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkResetStaffPasswordsBtn" data-year-write>Send password reset links</button>
                 <button type="button" class="btn btn-sm btn-link" id="clearStaffSelectionBtn">Clear selection</button>
             </div>
             <div class="table-responsive">
@@ -157,7 +157,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveStaffRolesBtn">Save roles</button>
+                <button type="button" class="btn btn-primary" id="saveStaffRolesBtn" data-year-write>Save roles</button>
             </div>
         </div>
     </div>
@@ -226,7 +226,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveStaffBtn">Save</button>
+                <button type="button" class="btn btn-primary" id="saveStaffBtn" data-year-write>Save</button>
             </div>
         </div>
     </div>
@@ -250,7 +250,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="editFromViewBtn">
+                <button type="button" class="btn btn-primary" id="editFromViewBtn" data-year-write>
                     <i class="bi bi-pencil me-1"></i>Edit Staff
                 </button>
             </div>
@@ -274,11 +274,11 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
     <div class="page-header mb-4 d-flex justify-content-between align-items-start"><div><h4 class="mb-1">Staff setup</h4><p class="text-muted mb-0">Manage the departments and employment positions used by staff records, forms and import templates.</p></div><div class="btn-group"><button class="btn btn-outline-secondary" id="exportStaffSetupBtn" type="button">Export CSV</button><button class="btn btn-outline-secondary" id="printStaffSetupBtn" type="button">Print / PDF</button></div></div>
     <div class="row g-4">
       <div class="col-lg-6"><div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Departments</h5></div><div class="card-body">
-        <form id="staffDepartmentForm" class="row g-2 mb-3"><input type="hidden" id="staffDepartmentId"><div class="col-md-5"><label class="form-label" for="staffDepartmentName">Name</label><input class="form-control" id="staffDepartmentName" maxlength="100" required></div><div class="col-md-3"><label class="form-label" for="staffDepartmentCode">Code</label><input class="form-control" id="staffDepartmentCode" maxlength="20" required></div><div class="col-md-4 d-flex align-items-end gap-2"><button class="btn btn-primary" type="submit">Save</button><button class="btn btn-outline-secondary" type="button" id="resetStaffDepartmentForm">Clear</button></div><div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" id="staffDepartmentActive" checked><label class="form-check-label" for="staffDepartmentActive">Active for new assignments</label></div></form>
+        <form id="staffDepartmentForm" class="row g-2 mb-3"><input type="hidden" id="staffDepartmentId"><div class="col-md-5"><label class="form-label" for="staffDepartmentName">Name</label><input class="form-control" id="staffDepartmentName" maxlength="100" required></div><div class="col-md-3"><label class="form-label" for="staffDepartmentCode">Code</label><input class="form-control" id="staffDepartmentCode" maxlength="20" required></div><div class="col-md-4 d-flex align-items-end gap-2"><button class="btn btn-primary" type="submit" data-year-write>Save</button><button class="btn btn-outline-secondary" type="button" id="resetStaffDepartmentForm" data-year-write>Clear</button></div><div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" id="staffDepartmentActive" checked><label class="form-check-label" for="staffDepartmentActive">Active for new assignments</label></div></form>
         <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Department</th><th>Code</th><th>Status</th><th></th></tr></thead><tbody id="staffDepartmentsList"><tr><td colspan="4" class="text-muted">Loading…</td></tr></tbody></table></div>
       </div></div></div>
       <div class="col-lg-6"><div class="card h-100"><div class="card-header"><h5 class="mb-0">Employment positions</h5></div><div class="card-body">
-        <form id="staffPositionForm" class="row g-2 mb-3"><input type="hidden" id="staffPositionId"><div class="col-md-6"><label class="form-label" for="staffPositionName">Position name</label><input class="form-control" id="staffPositionName" maxlength="120" required></div><div class="col-md-6"><label class="form-label" for="staffPositionType">Staff type</label><select class="form-select" id="staffPositionType"><option value="">Any type</option></select></div><div class="col-md-6"><label class="form-label" for="staffPositionCategory">Staff category</label><select class="form-select" id="staffPositionCategory"><option value="">Any category</option></select></div><div class="col-md-6"><label class="form-label" for="staffPositionRoles">Related system roles</label><select class="form-select" id="staffPositionRoles" multiple size="3" aria-describedby="staffPositionRolesHelp"><option value="">Any role</option></select><div class="form-text" id="staffPositionRolesHelp">Select one or more roles this position can serve.</div></div><div class="col-md-6"><label class="form-label" for="staffPositionDefaultRoles">Default position for roles</label><select class="form-select" id="staffPositionDefaultRoles" multiple size="3" aria-describedby="staffPositionDefaultRolesHelp"><option value="">Select roles</option></select><div class="form-text" id="staffPositionDefaultRolesHelp">New staff with a selected primary role start with this position. The School Administrator can change it later.</div></div><div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" id="staffPositionActive" checked><label class="form-check-label" for="staffPositionActive">Active for new staff and imports</label></div><div class="col-12"><button class="btn btn-primary" type="submit">Save position</button><button class="btn btn-outline-secondary ms-2" type="button" id="resetStaffPositionForm">Clear</button></div></form>
+        <form id="staffPositionForm" class="row g-2 mb-3"><input type="hidden" id="staffPositionId"><div class="col-md-6"><label class="form-label" for="staffPositionName">Position name</label><input class="form-control" id="staffPositionName" maxlength="120" required></div><div class="col-md-6"><label class="form-label" for="staffPositionType">Staff type</label><select class="form-select" id="staffPositionType"><option value="">Any type</option></select></div><div class="col-md-6"><label class="form-label" for="staffPositionCategory">Staff category</label><select class="form-select" id="staffPositionCategory"><option value="">Any category</option></select></div><div class="col-md-6"><label class="form-label" for="staffPositionRoles">Related system roles</label><select class="form-select" id="staffPositionRoles" multiple size="3" aria-describedby="staffPositionRolesHelp"><option value="">Any role</option></select><div class="form-text" id="staffPositionRolesHelp">Select one or more roles this position can serve.</div></div><div class="col-md-6"><label class="form-label" for="staffPositionDefaultRoles">Default position for roles</label><select class="form-select" id="staffPositionDefaultRoles" multiple size="3" aria-describedby="staffPositionDefaultRolesHelp"><option value="">Select roles</option></select><div class="form-text" id="staffPositionDefaultRolesHelp">New staff with a selected primary role start with this position. The School Administrator can change it later.</div></div><div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" id="staffPositionActive" checked><label class="form-check-label" for="staffPositionActive">Active for new staff and imports</label></div><div class="col-12"><button class="btn btn-primary" type="submit" data-year-write>Save position</button><button class="btn btn-outline-secondary ms-2" type="button" id="resetStaffPositionForm" data-year-write>Clear</button></div></form>
         <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Position</th><th>Applies to</th><th>Status</th><th></th></tr></thead><tbody id="staffPositionsList"><tr><td colspan="4" class="text-muted">Loading…</td></tr></tbody></table></div>
       </div></div></div>
     </div>

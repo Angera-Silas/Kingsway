@@ -12,7 +12,7 @@
         <i class="bi bi-download me-1"></i> Export
       </button>
       <button class="btn btn-sm btn-danger" id="addExpenseBtn" style="display:none"
-              onclick="expensesController.showModal()">
+              onclick="expensesController.showModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Record Expense
       </button>
     </div>
@@ -227,8 +227,8 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-outline-danger" onclick="expensesController.saveDraft()">Save as Draft</button>
-        <button class="btn btn-danger" onclick="expensesController.saveAndSubmit()">Submit for Approval</button>
+        <button class="btn btn-outline-danger" onclick="expensesController.saveDraft()" data-year-write>Save as Draft</button>
+        <button class="btn btn-danger" onclick="expensesController.saveAndSubmit()" data-year-write>Submit for Approval</button>
       </div>
     </div>
   </div>
@@ -266,7 +266,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn" id="approvalConfirmBtn" onclick="expensesController.confirmApproval()">Confirm</button>
+        <button class="btn" id="approvalConfirmBtn" onclick="expensesController.confirmApproval()" data-year-write>Confirm</button>
       </div>
     </div>
   </div>

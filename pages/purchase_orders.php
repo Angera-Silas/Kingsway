@@ -23,7 +23,7 @@
             <button class="btn btn-outline-secondary" onclick="PurchaseOrdersController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
             </button>
-            <button class="btn btn-primary" onclick="PurchaseOrdersController.showCreateModal()">
+            <button class="btn btn-primary" onclick="PurchaseOrdersController.showCreateModal()" data-year-write>
                 <i class="bi bi-plus-lg me-1"></i> New Purchase Order
             </button>
         </div>
@@ -220,13 +220,13 @@
                                         <input type="text" class="form-control form-control-sm" placeholder="Total" name="item_total[]" readonly>
                                     </div>
                                     <div class="col-md-1">
-                                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="PurchaseOrdersController.removeItemRow(this)" title="Remove">
+                                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="PurchaseOrdersController.removeItemRow(this)" title="Remove" data-year-write>
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="PurchaseOrdersController.addItemRow()">
+                            <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="PurchaseOrdersController.addItemRow()" data-year-write>
                                 <i class="bi bi-plus-lg me-1"></i> Add Item
                             </button>
                         </div>
@@ -245,7 +245,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="PurchaseOrdersController.savePO()">
+                <button type="button" class="btn btn-primary" onclick="PurchaseOrdersController.savePO()" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Save Purchase Order
                 </button>
             </div>

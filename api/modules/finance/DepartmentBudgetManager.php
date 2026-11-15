@@ -20,7 +20,7 @@ class DepartmentBudgetManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             $data['title'] ?? 'Department budget proposal',
-            $data['academic_year'] ?? date('Y'),
+            \App\API\Services\YearScope::legacyYear($this->db, $data),
             isset($data['term']) && is_numeric($data['term']) ? (int) $data['term'] : null,
             $data['amount_requested'] ?? 0,
             $this->withDepartmentMarker($data),
@@ -64,7 +64,7 @@ class DepartmentBudgetManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             'Department allocation',
-            date('Y'),
+            \App\API\Services\YearScope::legacyYear($this->db, []),
             $amount,
             '[dept_id:' . (int) $departmentId . '] Allocated funds',
             $allocatedBy,
@@ -137,7 +137,7 @@ class DepartmentBudgetManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             'Department fund request',
-            $data['academic_year'] ?? date('Y'),
+            \App\API\Services\YearScope::legacyYear($this->db, $data),
             $data['amount'] ?? 0,
             $this->withDepartmentMarker($data),
             $data['requested_by'] ?? 0,

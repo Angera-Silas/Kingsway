@@ -78,7 +78,7 @@ window.yearRolloverController = {
     ['assign_target_streams', 'Assign each learner to a target class and stream', 'Assign in batches; saved progress can be resumed later.', 'bi-diagram-2', 'primary'],
     ['create_new_year_enrollments', 'Create new-year enrollments', 'Create target-year enrollment records without overwriting history.', 'bi-person-plus', 'info'],
     ['migrate_baselines', 'Migrate competency baselines', 'Carry CBC competency baselines into the new year.', 'bi-graph-up-arrow', 'primary'],
-    ['close_outgoing_year', 'Close the outgoing year', 'Mark the outgoing year completed: readable by every user, editable only by school admin, system admin or director. Nothing is archived or hidden.', 'bi-folder-check', 'secondary'],
+    ['close_outgoing_year', 'Close the outgoing year', 'Confirm the closing. The outgoing year stays current until its last day; on the new year\'s start date it becomes completed (readable by everyone, editable by school admin, system admin or director).', 'bi-folder-check', 'secondary'],
     ['activate_new_year_term_one', 'Certify the new academic year', 'Run every readiness check. The system then switches to the new year on its start date — the outgoing year stays operational until its last day.', 'bi-patch-check', 'success'],
   ].map(([code, label, desc, icon, color]) => ({ code, label, desc, icon, color })),
 
@@ -392,6 +392,19 @@ window.yearRolloverController = {
     }
     localStorage.setItem(this._STORE_KEY, String(this._instanceId));
     this._importWorkflowLog();
+  },
+
+  /**
+   * Move the page's position FORWARD only. Re-saving an earlier stage (a
+   * setup tab, promotions again) must never send the position back, or every
+   * later stage shows "not done" and finished stages become runnable again.
+   * The server applies the same rule.
+   */
+  _moveTo: function (code) {
+    const target = this._stages.findIndex(s => s.code === code);
+    const current = this._stages.findIndex(s => s.code === this._currentStage);
+    if (target < 0) return;
+    if (current < 0 || target > current) this._currentStage = code;
   },
 
   _canonicalStage: function (code) {
@@ -1565,7 +1578,7 @@ window.yearRolloverController = {
         const classStageIndex = this._stages.findIndex(item => item.code === 'configure_classes_streams');
         const currentStageIndex = this._stages.findIndex(item => item.code === this._currentStage);
         if (currentStageIndex < 0 || currentStageIndex <= classStageIndex) {
-          this._currentStage = 'configure_learning_areas';
+          this._moveTo('configure_learning_areas');
         }
         this._workflowData = {
           ...(this._workflowData || {}),
@@ -1584,7 +1597,7 @@ window.yearRolloverController = {
           instance_id: this._instanceId,
           stage_code: code,
         });
-        this._currentStage = data.current_stage || this._currentStage;
+        if (data.current_stage) this._moveTo(this._canonicalStage(data.current_stage));
         const financeDetails = data.finance_rollover?.[code] || data[code] || {};
         this._log.push({ stage: code, status: 'completed', details: financeDetails.learners_recorded != null
           ? `${financeDetails.learners_recorded} learner balances recorded.`
@@ -1599,7 +1612,7 @@ window.yearRolloverController = {
         data = await callAPI('/academic/year-transition/close-year', 'POST', {
           instance_id: this._instanceId,
         });
-        this._currentStage = 'activate_new_year_term_one';
+        this._moveTo('activate_new_year_term_one');
         this._log.push({
           stage: code, status: 'completed',
           details: `Outgoing year closed as active - completed · assessments, attendance and competencies retained and readable`,
@@ -1615,7 +1628,7 @@ window.yearRolloverController = {
         data = await callAPI('/academic/year-transition/migrate-competency-baselines', 'POST', {
           instance_id: this._instanceId,
         });
-        this._currentStage = 'close_outgoing_year';
+        this._moveTo('close_outgoing_year');
         this._log.push({
           stage: 'migrate_baselines', status: 'completed',
           details: `${data.total_baselines ?? 0} baselines · ${data.students_tracked ?? 0} students · ${data.competencies_tracked ?? 0} competencies`,
@@ -1910,7 +1923,7 @@ window.yearRolloverController = {
         ].filter(Boolean).join(' · '),
         performed: new Date().toISOString()
       });
-      if (res.complete) this._currentStage = 'migrate_baselines';
+      if (res.complete) this._moveTo('migrate_baselines');
       await this.loadPromotionBoard();
       this._renderStages();
       this._renderLog();

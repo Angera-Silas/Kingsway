@@ -681,17 +681,10 @@
     const years = data.years || {};
     const terms = data.terms || {};
     if (lede) {
-      const yearText = years.to
-        ? (data.year_mode === 'transition'
-          ? `Outgoing year ${years.from?.label || '—'} against incoming year ${years.to.label}`
-          : `${years.from ? `Previous year ${years.from.label}` : 'No previous year'} against current year ${years.to.label}`)
-        : 'No academic year is set as current';
-      const termText = terms.to
-        ? (data.term_mode === 'transition'
-          ? `the term that closed (${terms.from?.label || '—'}) against the next term (${terms.to.label})`
-          : `${terms.from ? `the previous term (${terms.from.label})` : 'no previous term'} against the current term (${terms.to.label})`)
-        : 'no term is scheduled';
-      lede.textContent = `${yearText}; ${termText}. ${data.counting_rule || ''}`;
+      // Short: just the periods compared ("2026/2027 → 2027/2028 · Term 3 → Term 1").
+      const yearText = years.to ? `${years.from?.label || '—'} → ${years.to.label}` : 'No current academic year';
+      const termText = terms.to ? `${terms.from?.label || '—'} → ${terms.to.label}` : '';
+      lede.textContent = [yearText, termText].filter(Boolean).join(' · ');
     }
 
     const cards = [];

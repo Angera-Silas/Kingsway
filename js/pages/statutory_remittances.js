@@ -361,7 +361,7 @@ const statutoryRemittancesController = {
         <td class="text-end">
           <button class="btn btn-sm btn-outline-primary me-1" onclick="statutoryRemittancesController.viewDetail(${r.id})" title="View"><i class="bi bi-eye"></i></button>
           ${bal > 0 ? `<button class="btn btn-sm btn-outline-success me-1" onclick="statutoryRemittancesController.initiatePayment(${r.id})" title="Submit bank payment"><i class="bi bi-bank"></i></button>` : ''}
-          <button class="btn btn-sm btn-outline-secondary" onclick="statutoryRemittancesController.edit(${r.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="statutoryRemittancesController.edit(${r.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
         </td>
       </tr>`;
     }).join('');

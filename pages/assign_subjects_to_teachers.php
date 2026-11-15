@@ -20,7 +20,7 @@
             <button class="btn btn-outline-secondary btn-sm" id="printAssignmentsBtn" type="button">
                 <i class="bi bi-printer"></i> Print
             </button>
-            <button class="btn btn-success btn-sm" id="addAssignmentBtn">
+            <button class="btn btn-success btn-sm" id="addAssignmentBtn" data-year-write>
                 <i class="bi bi-plus-circle"></i> New Assignment
             </button>
         </div>
@@ -184,7 +184,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveAssignmentBtn">Save Assignment</button>
+                <button type="button" class="btn btn-primary" id="saveAssignmentBtn" data-year-write>Save Assignment</button>
             </div>
         </div>
     </div>

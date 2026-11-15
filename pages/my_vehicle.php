@@ -96,7 +96,7 @@
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" id="issues-tab" data-bs-toggle="tab" data-bs-target="#issues" type="button">
+                <button class="nav-link" id="issues-tab" data-bs-toggle="tab" data-bs-target="#issues" type="button" data-year-write>
                     Reported Issues
                 </button>
             </li>
@@ -234,7 +234,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveMaintenanceBtn">Save</button>
+                <button type="button" class="btn btn-primary" id="saveMaintenanceBtn" data-year-write>Save</button>
             </div>
         </div>
     </div>
@@ -277,7 +277,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-warning" id="saveIssueBtn">Report Issue</button>
+                <button type="button" class="btn btn-warning" id="saveIssueBtn" data-year-write>Report Issue</button>
             </div>
         </div>
     </div>

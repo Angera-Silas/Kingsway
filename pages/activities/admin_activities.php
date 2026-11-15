@@ -223,7 +223,7 @@ if ($navBase === '.') $navBase = '';
                         <div class="bulk-actions" id="bulkActions" style="display: none;">
                             <span class="selected-count">0 selected</span>
                             <button class="btn btn-warning btn-sm">Bulk Edit</button>
-                            <button class="btn btn-danger btn-sm" id="bulkDeleteBtn">Delete Selected</button>
+                            <button class="btn btn-danger btn-sm" id="bulkDeleteBtn" data-year-write>Delete Selected</button>
                         </div>
                     </div>
 

@@ -82,7 +82,7 @@
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term / holiday</th><th scope="col">Week</th><th scope="col">Date</th><th scope="col">Day</th><th scope="col">Event</th><th scope="col">Type</th><th scope="col">Actions</th></tr></thead>
                     <tbody id="yearCalendarBody"><tr id="yearCalendarState"><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                 </table>
-                <template id="yearCalendarRowTemplate"><tr data-year-calendar-row><td data-fill="number"></td><td data-fill="term"></td><td data-fill="week"></td><td data-fill="date"></td><td data-fill="day"></td><td><strong data-fill="event-name"></strong><span class="badge bg-danger-subtle text-danger ms-1" data-fill="manual" hidden>Manual</span><div class="mt-1" data-fill="events"></div></td><td><span class="badge" data-fill="type"></span></td><td><button class="btn btn-sm btn-outline-primary" data-action="edit" type="button" title="Mark holiday / edit day"><i class="fas fa-calendar-day"></i></button></td></tr></template>
+                <template id="yearCalendarRowTemplate"><tr data-year-calendar-row><td data-fill="number"></td><td data-fill="term"></td><td data-fill="week"></td><td data-fill="date"></td><td data-fill="day"></td><td><strong data-fill="event-name"></strong><span class="badge bg-danger-subtle text-danger ms-1" data-fill="manual" hidden>Manual</span><div class="mt-1" data-fill="events"></div></td><td><span class="badge" data-fill="type"></span></td><td><button class="btn btn-sm btn-outline-primary" data-action="edit" type="button" title="Mark holiday / edit day" data-year-write><i class="fas fa-calendar-day"></i></button></td></tr></template>
                 <template id="yearCalendarEventBadgeTemplate"><span class="badge bg-info-subtle text-info border border-info me-1"></span></template>
             </div>
         </div>
@@ -131,14 +131,14 @@
                 <div class="col-6"><input type="time" class="form-control" id="eventStartTime"></div>
                 <div class="col-6"><input type="time" class="form-control" id="eventEndTime"></div>
                 <div class="col-6"><input type="date" class="form-control" id="eventEndDate" title="End date (blank = same day; use for multi-day events like exams)"></div>
-                <div class="col-12"><button class="btn btn-outline-primary w-100" onclick="YearCalendarController.addEvent()"><i class="bi bi-plus-lg me-1"></i> Add Event</button></div>
+                <div class="col-12"><button class="btn btn-outline-primary w-100" onclick="YearCalendarController.addEvent()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add Event</button></div>
             </div>
         </div>
     </div>
     <div class="modal-footer">
-        <button type="button" class="btn btn-danger" onclick="YearCalendarController.markExamWeek()"><i class="bi bi-pencil-square me-1"></i> Mark Whole Week as Exam Week</button>
+        <button type="button" class="btn btn-danger" onclick="YearCalendarController.markExamWeek()" data-year-write><i class="bi bi-pencil-square me-1"></i> Mark Whole Week as Exam Week</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="YearCalendarController.saveDay()"><i class="bi bi-check-lg me-1"></i> Save</button>
+        <button type="button" class="btn btn-primary" onclick="YearCalendarController.saveDay()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button>
     </div>
 </div></div></div>
 

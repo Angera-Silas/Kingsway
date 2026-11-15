@@ -2265,6 +2265,7 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/index": "finance_view",
   "/finance": "finance_view",
   "/finance/students/payment-status": "finance_view",
+  "/finance/student-fee-accounts": "finance_view",
   "/finance/payroll": {
     GET: "finance_view",
     POST: "finance_create",
@@ -6511,6 +6512,9 @@ window.API = {
     // Students
     getStudentPaymentStatusList: async (params = {}) =>
       apiCall("/finance/students/payment-status", "GET", null, params),
+    // One row per learner for one academic year, per-term columns.
+    getStudentFeeAccounts: async (params = {}) =>
+      apiCall("/finance/student-fee-accounts", "GET", null, params),
     getStudentPaymentHistory: async (studentId, params) =>
       apiCall(
         `/finance/students-payment-history?student_id=${studentId}`,

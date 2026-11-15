@@ -30,7 +30,7 @@ $appBase = app_base_path();
                     <button class="btn btn-outline-light btn-sm" id="printBtn" type="button">
                         <i class="bi bi-printer"></i> Print
                     </button>
-                    <button class="btn btn-light btn-sm" id="addCaseBtn">
+                    <button class="btn btn-light btn-sm" id="addCaseBtn" data-year-write>
                         <i class="bi bi-plus-circle"></i> Add Case
                     </button>
                 </div>
@@ -319,13 +319,13 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-success" id="addSessionBtn">
+                <button class="btn btn-success" id="addSessionBtn" data-year-write>
                     <i class="bi bi-plus-circle me-1"></i> Add Session Note
                 </button>
                 <button class="btn btn-warning" id="scheduleFollowUpBtn">
                     <i class="bi bi-calendar me-1"></i> Schedule Follow-up
                 </button>
-                <button class="btn btn-danger" id="closeCaseBtn">
+                <button class="btn btn-danger" id="closeCaseBtn" data-year-write>
                     <i class="bi bi-x-circle me-1"></i> Close Case
                 </button>
             </div>
@@ -460,7 +460,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-info" id="addCaseSaveBtn">
+                <button type="button" class="btn btn-info" id="addCaseSaveBtn" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Create Case
                 </button>
             </div>

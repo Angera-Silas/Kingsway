@@ -6,132 +6,128 @@
  */
 ?>
 
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-primary text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <div>
-                <h4 class="mb-0"><i class="bi bi-credit-card"></i> Student Fee Accounts</h4>
-                <small class="opacity-75">Balances, obligations and learner statements</small>
-            </div>
-            <div class="btn-group">
-                <button class="btn btn-outline-light btn-sm" id="awardScholarshipBtn" hidden>
-                    <i class="bi bi-award"></i> Sponsor (Scholarship)
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="waiveFeesBtn" hidden>
-                    <i class="bi bi-shield-check"></i> Waive Off Fees
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="printSelectedFeesBtn">
-                    <i class="bi bi-printer"></i> Print Selected
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="exportBtn">
-                    <i class="bi bi-download"></i> Export
-                </button>
-            </div>
+<style>
+/* Fee accounts: a bursar's ledger. One idea carries the page: the balance
+   line (opening + fees − reductions − credits − paid = balance). Figures are
+   tabular; colour only means something: owed, in credit, reduced. */
+#feeAccountsPage {
+    --fa-ink: #1f2a44;
+    --fa-muted: #667085;
+    --fa-rule: #e3e6eb;
+    --fa-paper: #ffffff;
+    --fa-owed: #a23b2a;
+    --fa-credit: #2f7d5b;
+    --fa-reduce: #4c5ba8;
+    color: var(--fa-ink);
+    background: var(--fa-paper);
+    border: 1px solid var(--fa-rule);
+    border-radius: 10px;
+    padding: 1.25rem 1.25rem 1rem;
+}
+#feeAccountsPage .fl-num, #feeAccountsPage .fl-table td.num, #feeAccountsPage .fl-ledger strong { font-variant-numeric: tabular-nums; }
+#feeAccountsPage .fl-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: .75rem; margin-bottom: 1rem; }
+#feeAccountsPage .fl-title { font-size: 1.5rem; font-weight: 650; letter-spacing: -.01em; margin: 0; }
+#feeAccountsPage .fl-sub { margin: .15rem 0 0; color: var(--fa-muted); }
+#feeAccountsPage .fl-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+#feeAccountsPage .fl-filters { display: grid; grid-template-columns: minmax(12rem, 2fr) repeat(4, minmax(8rem, 1fr)); gap: .6rem; margin-bottom: 1.25rem; }
+#feeAccountsPage .fl-field { display: flex; flex-direction: column; gap: .2rem; margin: 0; }
+#feeAccountsPage .fl-field > span, #feeAccountsPage .fl-rows > span { font-size: .78rem; color: var(--fa-muted); }
+
+/* The balance line */
+#feeAccountsPage .fl-ledger { display: flex; flex-wrap: wrap; align-items: stretch; border-top: 2px solid var(--fa-ink); border-bottom: 1px solid var(--fa-rule); }
+#feeAccountsPage .fl-step { flex: 1 1 8.5rem; padding: .75rem .9rem .8rem 0; position: relative; }
+#feeAccountsPage .fl-step + .fl-step { padding-left: 1.4rem; }
+#feeAccountsPage .fl-step + .fl-step::before { content: attr(data-op); position: absolute; left: .35rem; top: .7rem; color: var(--fa-muted); font-size: 1.05rem; }
+#feeAccountsPage .fl-step small { display: block; font-size: .78rem; color: var(--fa-muted); }
+#feeAccountsPage .fl-step strong { display: block; font-size: 1.05rem; font-weight: 600; margin-top: .1rem; white-space: nowrap; }
+#feeAccountsPage .fl-step em { display: block; font-style: normal; font-size: .75rem; color: var(--fa-muted); margin-top: .1rem; }
+#feeAccountsPage .fl-step.is-reduce strong { color: var(--fa-reduce); }
+#feeAccountsPage .fl-step.is-result { flex: 1.4 1 14rem; background: #f6f7f9; padding-right: .9rem; }
+#feeAccountsPage .fl-step.is-result strong { font-size: 1.45rem; font-weight: 700; }
+#feeAccountsPage .is-owed { color: var(--fa-owed); }
+#feeAccountsPage .is-credit { color: var(--fa-credit); }
+
+/* Terms of the year, under the line */
+#feeAccountsPage .fl-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; padding: .8rem 0 .2rem; }
+#feeAccountsPage .fl-term { font-size: .85rem; }
+#feeAccountsPage .fl-term header { display: flex; justify-content: space-between; font-weight: 600; }
+#feeAccountsPage .fl-term .fl-bar { height: 4px; background: var(--fa-rule); border-radius: 2px; margin: .35rem 0; overflow: hidden; }
+#feeAccountsPage .fl-term .fl-bar span { display: block; height: 100%; background: var(--fa-ink); }
+#feeAccountsPage .fl-term p { margin: 0; color: var(--fa-muted); }
+#feeAccountsPage .fl-term.is-selected header { color: var(--fa-reduce); }
+#feeAccountsPage .fl-note { font-size: .8rem; color: var(--fa-muted); margin: .4rem 0 .9rem; }
+
+/* Learner rows */
+#feeAccountsPage .fl-table { font-size: .875rem; margin-bottom: 0; }
+#feeAccountsPage .fl-table thead th { font-size: .78rem; font-weight: 600; color: var(--fa-muted); border-bottom: 1px solid var(--fa-ink); white-space: nowrap; background: transparent; }
+#feeAccountsPage .fl-table td.num, #feeAccountsPage .fl-table th.num { text-align: right; white-space: nowrap; }
+#feeAccountsPage .fl-table td.dim { color: #b0b6c0; }
+#feeAccountsPage .fl-who strong { display: block; font-weight: 600; }
+#feeAccountsPage .fl-who span { font-size: .78rem; color: var(--fa-muted); }
+#feeAccountsPage .fl-state { font-size: .78rem; font-weight: 600; white-space: nowrap; }
+#feeAccountsPage .fl-toggle { border: 0; background: none; color: var(--fa-muted); padding: 0 .25rem; }
+#feeAccountsPage .fl-toggle:focus-visible, #feeAccountsPage .btn:focus-visible { outline: 2px solid var(--fa-reduce); outline-offset: 2px; }
+#feeAccountsPage tr.fl-detail td { background: #f6f7f9; font-size: .8rem; }
+#feeAccountsPage .fl-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .5rem 1.5rem; padding: .25rem 0; }
+#feeAccountsPage .fl-detail-grid b { display: block; }
+#feeAccountsPage .fl-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem; border-top: 1px solid var(--fa-rule); margin-top: .75rem; padding-top: .75rem; }
+#feeAccountsPage .fl-rows { display: flex; align-items: center; gap: .4rem; margin: 0; }
+@media (max-width: 768px) {
+    #feeAccountsPage { padding: 1rem; }
+    #feeAccountsPage .fl-filters { grid-template-columns: 1fr 1fr; }
+    #feeAccountsPage .fl-field-search { grid-column: 1 / -1; }
+    #feeAccountsPage .fl-step { flex-basis: 45%; }
+}
+@media print {
+    #feeAccountsPage { border: 0; padding: 0; }
+    @page { size: A4 landscape; margin: 10mm; }
+}
+</style>
+
+<section class="fl" id="feeAccountsPage">
+    <header class="fl-head">
+        <div>
+            <h1 class="fl-title">Fee accounts</h1>
+            <p class="fl-sub" id="faPeriod">Loading the year…</p>
         </div>
+        <div class="fl-actions d-print-none">
+            <button class="btn btn-sm btn-outline-secondary" id="awardScholarshipBtn" hidden><i class="bi bi-award"></i> Sponsor (Scholarship)</button>
+            <button class="btn btn-sm btn-outline-secondary" id="waiveFeesBtn" hidden><i class="bi bi-shield-check"></i> Waive Off Fees</button>
+            <button class="btn btn-sm btn-outline-secondary" id="printSelectedFeesBtn"><i class="bi bi-printer"></i> Print selected</button>
+            <button class="btn btn-sm btn-outline-secondary" id="exportBtn"><i class="bi bi-download"></i> Export CSV</button>
+        </div>
+    </header>
+
+    <div class="fl-filters d-print-none">
+        <label class="fl-field fl-field-search">
+            <span>Search</span>
+            <input type="search" class="form-control form-control-sm" id="searchStudent" placeholder="Name or admission number">
+        </label>
+        <label class="fl-field"><span>Academic year</span><select class="form-select form-select-sm" id="yearFilter"><option value="">Loading…</option></select></label>
+        <label class="fl-field"><span>Term</span><select class="form-select form-select-sm" id="termFilter"><option value="">Whole year</option></select></label>
+        <label class="fl-field"><span>Class</span><select class="form-select form-select-sm" id="classFilter"><option value="">All classes</option></select></label>
+        <label class="fl-field"><span>Account</span>
+            <select class="form-select form-select-sm" id="statusFilter">
+                <option value="">All accounts</option>
+                <option value="pending">Not yet paid</option>
+                <option value="partial">Part paid</option>
+                <option value="paid">Cleared</option>
+                <option value="credit">In credit</option>
+            </select>
+        </label>
     </div>
 
-    <div class="card-body">
-        <div class="alert alert-light border small">This is the learner account view. To enter or reconcile a payment, use <strong>Payment Register</strong>.</div>
+    <!-- The school's position for the selection, read left to right as the
+         bursar's balance: opening balance + fees − reductions − credits − paid. -->
+    <div class="fl-ledger" id="faLedger" aria-live="polite"></div>
+    <div class="fl-terms" id="faTerms"></div>
 
-        <!-- Search & Filter -->
-        <div class="row g-2 mb-4 align-items-end">
-            <div class="col-md-3">
-                <input type="text" class="form-control" id="searchStudent" placeholder="Search student...">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted mb-1" for="yearFilter">Academic year</label>
-                <select class="form-select" id="yearFilter">
-                    <option value="">All years</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted mb-1" for="classFilter">Class</label>
-                <select class="form-select" id="classFilter">
-                    <option value="">All Classes</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted mb-1" for="statusFilter">Status</label>
-                <select class="form-select" id="statusFilter">
-                    <option value="">All Status</option>
-                    <option value="paid">Paid</option>
-                    <option value="partial">Partial</option>
-                    <option value="pending">Pending</option>
-                    <option value="credit">Overpaid (Credit)</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted mb-1" for="termFilter">Term</label>
-                <select class="form-select" id="termFilter">
-                    <option value="">Whole Year (All Terms)</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <select class="form-select" id="perPageFilter" aria-label="Rows per page">
-                    <option value="25">25 rows per page</option>
-                    <option value="50">50 rows per page</option>
-                    <option value="100">100 rows per page</option>
-                    <option value="250">250 rows per page</option>
-                </select>
-            </div>
-        </div>
+    <p class="fl-note d-print-none">Payments are entered and reconciled in Payment Register.</p>
 
-        <!-- Summary Cards — the annual figure with the selected term below it -->
-        <div class="row mb-3 g-3">
-            <div class="col-md-3">
-                <div class="card border-primary h-100">
-                    <div class="card-body py-3">
-                        <h6 class="text-muted mb-1 small">Total Expected <span class="fw-normal" id="expectedPeriodLabel">—</span></h6>
-                        <h4 class="text-primary mb-1" id="totalExpected">KES 0</h4>
-                        <small class="text-muted" id="expectedTermLine">—</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-success h-100">
-                    <div class="card-body py-3">
-                        <h6 class="text-muted mb-1 small">Total Collected <span class="fw-normal" id="collectedPeriodLabel">—</span></h6>
-                        <h4 class="text-success mb-1" id="totalCollected">KES 0</h4>
-                        <small class="text-muted" id="collectedTermLine">—</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-warning h-100">
-                    <div class="card-body py-3">
-                        <h6 class="text-muted mb-1 small">Total Outstanding <span class="fw-normal" id="outstandingPeriodLabel">—</span></h6>
-                        <h4 class="text-warning mb-1" id="totalOutstanding">KES 0</h4>
-                        <small class="text-muted" id="outstandingTermLine">—</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-info h-100">
-                    <div class="card-body py-3">
-                        <h6 class="text-muted mb-1 small">Collection Rate <span class="fw-normal" id="ratePeriodLabel">—</span></h6>
-                        <h4 class="text-info mb-1" id="collectionRate">0%</h4>
-                        <small class="text-muted" id="rateTermLine">—</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Term progress strip: term 1 we were here, term 2 here, term 3 is
-             where the school is now. -->
-        <div class="card mb-4" id="termProgressCard">
-            <div class="card-body py-3">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="text-muted mb-0">Collection progress by term</h6>
-                    <small class="text-muted" id="termProgressUpdated"></small>
-                </div>
-                <div class="row" id="termProgressStrip"></div>
-            </div>
-        </div>
-
-        <!-- Students Table -->
+<!-- Students Table -->
         <div class="table-responsive">
-            <table class="table table-hover" id="feesTable">
-                <thead class="table-light">
+            <table class="table fl-table align-middle" id="feesTable">
+                <thead>
                     <tr>
                         <th scope="col" class="text-center"><input type="checkbox" id="selectAllFeeStudents" aria-label="Select all students"></th>
                         <th scope="col">Admission No</th>
@@ -150,12 +146,13 @@
             </table>
         </div>
 
-        <!-- Pagination — table footer, staff-table style -->
-        <div id="pagination" class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 pt-3 border-top">
-            <!-- Dynamic pagination -->
+        <div class="fl-foot">
+            <div id="pagination" class="d-flex justify-content-between align-items-center flex-wrap gap-2"></div>
+            <select class="d-none" id="perPageFilter" aria-hidden="true" tabindex="-1">
+                <option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option>
+            </select>
         </div>
-    </div>
-</div>
+</section>
 
 <!-- Student Fee Details Modal -->
 <div class="modal fade" id="feeDetailsModal" tabindex="-1">
@@ -276,7 +273,7 @@
                 <h6>Existing awards for this learner</h6>
                 <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Year</th><th>Programme</th><th>Coverage</th><th>Period</th><th>Status</th><th></th></tr></thead><tbody id="studentAssistanceAwardsBody"></tbody></table></div>
             </div>
-            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-success" id="saveAssistanceBtn">Sponsor (Scholarship)</button></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-success" id="saveAssistanceBtn" data-year-write>Sponsor (Scholarship)</button></div>
         </div>
     </div>
 </div>
@@ -301,7 +298,7 @@
                     </div>
                 </form>
             </div>
-            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-warning" id="saveWaiverBtn">Waive Off Fees</button></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-warning" id="saveWaiverBtn" data-year-write>Waive Off Fees</button></div>
         </div>
     </div>
 </div>

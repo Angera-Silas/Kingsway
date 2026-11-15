@@ -5438,7 +5438,7 @@ private function getCurrentStudentTransport(int $studentId): array
                 FROM {$lp} lp
                 LEFT JOIN term_consolidations tc
                     ON tc.student_id = lp.student_id
-                   AND tc.academic_year = CAST(SUBSTRING((SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = lp.academic_year_id),1,4) AS UNSIGNED)
+                   AND tc.academic_year_id = lp.academic_year_id
                 LEFT JOIN (
                     SELECT vws.student_id,
                            ROUND(
@@ -8600,8 +8600,13 @@ return [
     public function getAlumni($filters = [])
     {
         try {
-            // New schema: graduation events live in student_transitions (transition_type='graduation').
-            // Class/stream/year are derived via the to_enrollment → academic_year_class_streams chain.
+            // Graduation events live in student_transitions (transition_type =
+            // 'graduation'). The transition row is stamped with the year the
+            // move takes effect (the incoming year), but a learner GRADUATES IN
+            // the year of the final-class enrolment they completed (the
+            // outgoing year): the Grade 9 learners of 2026/2027 are the
+            // "graduating class of 2026". Year, class and stream therefore come
+            // from the from-enrolment.
             $sql = "
                 SELECT
                     st.id              AS transition_id,
@@ -8611,7 +8616,8 @@ return [
                     st.decided_by,
                     st.decided_at,
                     st.executed_at,
-                    st.academic_year_id,
+                    gay.id             AS academic_year_id,
+                    st.academic_year_id AS transition_academic_year_id,
                     s.admission_no,
                     per.first_name,
                     per.middle_name,
@@ -8619,12 +8625,13 @@ return [
                     per.gender,
                     c.name   AS class_name,
                     sm.name AS stream_name,
-                    ay.year_code AS graduation_year
+                    gay.year_code AS graduation_year,
+                    YEAR(gay.start_date) AS graduating_class_of
                 FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " st
                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = st.student_id
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
-                    ON sae.id = st.to_student_academic_enrollment_id
+                    ON sae.id = st.from_student_academic_enrollment_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     ON aycs.id = sae.academic_year_class_stream_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm
@@ -8633,18 +8640,18 @@ return [
                     ON ayc.id = aycs.academic_year_class_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c
                     ON c.id = ayc.class_id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay
-                    ON ay.id = st.academic_year_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " gay
+                    ON gay.id = COALESCE(sae.academic_year_id, st.academic_year_id)
                 WHERE st.transition_type = 'graduation'
             ";
             $params = [];
 
             if (!empty($filters['academic_year_id'])) {
-                $sql .= " AND st.academic_year_id = ?";
+                $sql .= " AND gay.id = ?";
                 $params[] = (int) $filters['academic_year_id'];
             } elseif (!empty($filters['graduation_year'])) {
-                // Match the academic_year whose year_code starts with the graduation year
-                $sql .= " AND CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?";
+                // "Class of 2026" = the academic year that starts in 2026
+                $sql .= " AND YEAR(gay.start_date) = ?";
                 $params[] = (int) $filters['graduation_year'];
             }
 

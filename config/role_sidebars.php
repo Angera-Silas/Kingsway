@@ -219,6 +219,7 @@ return [
             'subitems' => [
                 ['label' => 'Students Overview', 'url' => 'students_overview'],
                 ['label' => 'Performance Overview', 'url' => 'student_performance'],
+                ['label' => 'Class Records', 'url' => 'class_records'],   // class x year x learning area x term, and the cohort over the years
                 ['label' => 'Discipline Overview', 'url' => 'discipline_cases'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
@@ -295,6 +296,7 @@ return [
                 ['label' => 'Academic Oversight', 'url' => 'academic_planning_oversight'],
                 ['label' => 'View Results', 'url' => 'view_results'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],
+                ['label' => 'National Assessments', 'url' => 'national_exams'],   // KPSEA / KJSEA results upload
                 ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
             ]
         ],
@@ -432,6 +434,7 @@ return [
             'icon' => 'fas fa-user-graduate',
             'subitems' => [
                 ['label' => 'All Students', 'url' => 'manage_students'],
+                ['label' => 'Class Records', 'url' => 'class_records'],   // class x year x learning area x term, and the cohort over the years
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Student Profiles', 'url' => 'student_profiles'],
                 ['label' => 'ID Cards', 'url' => 'student_id_cards'],
@@ -535,6 +538,7 @@ return [
                 ['label' => 'Acad. Year Rollover', 'url' => 'year_rollover'],
                 ['label' => 'Academic Oversight', 'url' => 'academic_planning_oversight'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards
+                ['label' => 'National Assessments', 'url' => 'national_exams'],   // KPSEA / KJSEA results upload
                 ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
                 ['label' => 'CBC Manager', 'url' => 'cbc_curriculum'],
                 ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
@@ -751,6 +755,7 @@ return [
                 ['label' => 'Official Results', 'url' => 'view_results'],
                 ['label' => 'Results Analysis', 'url' => 'results_analysis'],
                 ['label' => 'Report Cards (Approve)', 'url' => 'report_cards'],              // HT signs off on report cards
+                ['label' => 'National Assessments', 'url' => 'national_exams'],   // KPSEA / KJSEA results upload
             ]
         ],
 
@@ -791,6 +796,7 @@ return [
             'subitems' => [
                 ['label' => 'Students Overview', 'url' => 'students_overview'],
                 ['label' => 'Performance Overview', 'url' => 'student_performance'],
+                ['label' => 'Class Records', 'url' => 'class_records'],   // class x year x learning area x term, and the cohort over the years
                 ['label' => 'Discipline Cases', 'url' => 'discipline_cases'],
                 ['label' => 'Counseling', 'url' => 'student_counseling'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
@@ -993,6 +999,7 @@ return [
             'subitems' => [
                 ['label' => 'Academic Students', 'url' => 'academic_students'],
                 ['label' => 'Performance Overview', 'url' => 'student_performance'],
+                ['label' => 'Class Records', 'url' => 'class_records'],   // class x year x learning area x term, and the cohort over the years
                 ['label' => 'Student Promotion', 'url' => 'student_promotion'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
@@ -1103,6 +1110,7 @@ return [
                 ['label' => 'Student List', 'url' => 'my_students_list'],
                 ['label' => 'Student Profiles', 'url' => 'student_profiles'],
                 ['label' => 'Class Performance', 'url' => 'my_students_performance'],
+                ['label' => 'Class Records', 'url' => 'class_records'],   // class x year x learning area x term, and the cohort over the years
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Special Needs Students', 'url' => 'special_needs_students'],
@@ -1256,6 +1264,7 @@ return [
             'subitems' => [
                 ['label' => 'Subject Overview', 'url' => 'my_subjects_overview'],
                 ['label' => 'Classes I Teach', 'url' => 'my_classes_taught'],
+                ['label' => 'Class Records', 'url' => 'class_records'],   // class x year x learning area x term, and the cohort over the years
                 ['label' => 'Syllabus Coverage', 'url' => 'my_subject_syllabus'],
             ]
         ],

@@ -161,7 +161,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="adjustmentsController.saveAdjustment()">
+        <button type="button" class="btn btn-primary" onclick="adjustmentsController.saveAdjustment()" data-year-write>
           <i class="bi bi-send me-1"></i> Submit for Approval
         </button>
       </div>
@@ -192,7 +192,7 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-success" id="ajApproveConfirmBtn"
-                onclick="adjustmentsController.confirmApproveReject()">Confirm</button>
+                onclick="adjustmentsController.confirmApproveReject()" data-year-write>Confirm</button>
       </div>
     </div>
   </div>

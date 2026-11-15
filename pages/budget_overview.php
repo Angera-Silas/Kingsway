@@ -11,7 +11,7 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-calculator"></i> Budget Overview</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addBudgetBtn" data-permission="budget_create">
+                <button class="btn btn-light btn-sm" id="addBudgetBtn" data-permission="budget_create" data-year-write>
                     <i class="bi bi-plus-circle"></i> New Budget
                 </button>
                 <button class="btn btn-outline-light btn-sm" id="exportBtn">
@@ -192,7 +192,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveBudgetBtn">Save Budget</button>
+                <button type="button" class="btn btn-primary" id="saveBudgetBtn" data-year-write>Save Budget</button>
             </div>
         </div>
     </div>

@@ -11,10 +11,10 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-arrow-left-right"></i> Stock Movement & Adjustments</h4>
             <div class="btn-group">
-                <button class="btn btn-dark btn-sm" id="addStockBtn" data-permission="stock_manage">
+                <button class="btn btn-dark btn-sm" id="addStockBtn" data-permission="stock_manage" data-year-write>
                     <i class="bi bi-plus-circle"></i> Add Stock
                 </button>
-                <button class="btn btn-outline-dark btn-sm" id="removeStockBtn" data-permission="stock_manage">
+                <button class="btn btn-outline-dark btn-sm" id="removeStockBtn" data-permission="stock_manage" data-year-write>
                     <i class="bi bi-dash-circle"></i> Remove Stock
                 </button>
                 <button class="btn btn-outline-dark btn-sm" id="exportStockBtn">
@@ -185,7 +185,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="saveStockInBtn">Add Stock</button>
+                <button type="button" class="btn btn-success" id="saveStockInBtn" data-year-write>Add Stock</button>
             </div>
         </div>
     </div>
@@ -251,7 +251,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" id="saveStockOutBtn">Remove Stock</button>
+                <button type="button" class="btn btn-danger" id="saveStockOutBtn" data-year-write>Remove Stock</button>
             </div>
         </div>
     </div>

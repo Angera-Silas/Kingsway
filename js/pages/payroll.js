@@ -185,7 +185,7 @@ const payrollController = {
                       <i class="bi bi-receipt"></i> Payslip
                     </button>
                     ${canApprove && (r.status === 'pending' || r.status === 'draft') ? `
-                    <button class="btn btn-sm btn-outline-success" onclick="payrollController.approvePayroll(${r.id})">
+                    <button class="btn btn-sm btn-outline-success" onclick="payrollController.approvePayroll(${r.id})" data-year-write>
                       <i class="bi bi-check-circle"></i> Approve
                     </button>` : ''}
                   </td>

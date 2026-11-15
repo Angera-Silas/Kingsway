@@ -11,7 +11,7 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-cup-hot"></i> Menu Planning</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addMenuBtn" data-permission="menu_manage">
+                <button class="btn btn-light btn-sm" id="addMenuBtn" data-permission="menu_manage" data-year-write>
                     <i class="bi bi-plus-circle"></i> Add Menu
                 </button>
                 <button class="btn btn-outline-light btn-sm" id="printMenuBtn">
@@ -230,7 +230,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveMenuBtn">Save Menu</button>
+                <button type="button" class="btn btn-primary" id="saveMenuBtn" data-year-write>Save Menu</button>
             </div>
         </div>
     </div>

@@ -24,13 +24,13 @@ $appBase = app_base_path();
                     <button class="btn btn-light btn-sm" id="refreshBtn">
                         <i class="bi bi-arrow-clockwise"></i> Refresh
                     </button>
-                    <button class="btn btn-outline-light btn-sm" id="assignDormBtn">
+                    <button class="btn btn-outline-light btn-sm" id="assignDormBtn" data-year-write>
                         <i class="bi bi-house me-1"></i> Assign Dormitory
                     </button>
                     <button class="btn btn-outline-light btn-sm" id="rollCallBtn">
                         <i class="bi bi-clipboard-check me-1"></i> Take Roll Call
                     </button>
-                    <button class="btn btn-outline-light btn-sm" id="createExeatBtn">
+                    <button class="btn btn-outline-light btn-sm" id="createExeatBtn" data-year-write>
                         <i class="bi bi-door-open me-1"></i> Create Exeat
                     </button>
                     <button class="btn btn-outline-light btn-sm" id="printBoardingListBtn">
@@ -319,10 +319,10 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-warning" id="assignDormModalBtn">
+                <button class="btn btn-warning" id="assignDormModalBtn" data-year-write>
                     <i class="bi bi-house me-1"></i> Assign Dormitory
                 </button>
-                <button class="btn btn-info" id="addBoardingNoteBtn">
+                <button class="btn btn-info" id="addBoardingNoteBtn" data-year-write>
                     <i class="bi bi-plus-circle me-1"></i> Add Note
                 </button>
             </div>
@@ -378,7 +378,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-success" id="saveAssignDormBtn">
+                <button class="btn btn-success" id="saveAssignDormBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Save Assignment
                 </button>
             </div>
@@ -431,7 +431,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-success" id="saveRollCallBtn">
+                <button class="btn btn-success" id="saveRollCallBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Save Roll Call
                 </button>
             </div>
@@ -506,7 +506,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-success" id="saveExeatBtn">
+                <button class="btn btn-success" id="saveExeatBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Create Exeat
                 </button>
             </div>
@@ -567,7 +567,7 @@ $appBase = app_base_path();
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-info" id="saveBoardingNoteBtn">
+                <button class="btn btn-info" id="saveBoardingNoteBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Save Note
                 </button>
             </div>

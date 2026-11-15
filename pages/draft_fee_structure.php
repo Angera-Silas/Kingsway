@@ -25,7 +25,7 @@
     </div>
     <div class="d-flex gap-2">
       <button class="btn btn-outline-success btn-sm" onclick="draftFeeStructureController.loadGrid()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
-      <button class="btn btn-success btn-sm" onclick="draftFeeStructureController.newBundle()"><i class="bi bi-plus-lg me-1"></i>New Structure</button>
+      <button class="btn btn-success btn-sm" onclick="draftFeeStructureController.newBundle()" data-year-write><i class="bi bi-plus-lg me-1"></i>New Structure</button>
     </div>
   </div>
 
@@ -70,8 +70,8 @@
       <div class="modal-footer border-0">
       <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
       <button class="btn btn-outline-success" onclick="draftFeeStructureController.showPrintDialog()"><i class="bi bi-printer me-1"></i>Print</button>
-      <button class="btn btn-outline-primary" onclick="draftFeeStructureController.save('draft')"><i class="bi bi-save me-1"></i>Save as Draft</button>
-      <button class="btn btn-success" onclick="draftFeeStructureController.save('submit')"><i class="bi bi-send me-1"></i>Submit for Review</button>
+      <button class="btn btn-outline-primary" onclick="draftFeeStructureController.save('draft')" data-year-write><i class="bi bi-save me-1"></i>Save as Draft</button>
+      <button class="btn btn-success" onclick="draftFeeStructureController.save('submit')" data-year-write><i class="bi bi-send me-1"></i>Submit for Review</button>
     </div>
   </div></div>
 </div>

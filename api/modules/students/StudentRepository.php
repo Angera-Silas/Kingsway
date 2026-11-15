@@ -48,26 +48,25 @@ class StudentRepository
     }
 
     /**
-     * Build the FROM clause using the mmv_learner_placement projection.
-     * Replaces the 7-table join chain (students→persons→sae→aycs→ayc→classes→streams).
-     * Note: mmv_learner_placement only contains active enrollments. We LEFT JOIN it
-     * to students+persons so un-enrolled students still appear (matching old LEFT JOIN behavior).
+     * The FROM clause: students + persons LEFT JOIN the placement (so
+     * learners with no placement still appear for the current year).
+     * The learner's placement in ONE academic year (default: the current
+     * year), from the placement history: learner_placement holds ACTIVE
+     * enrolments only, so after year-end promotion the current year's
+     * learners (completed / graduated) lost their class. The year's roll is
+     * active, completed or graduated (counting rules).
      */
-    private function placementJoins(): string
+    private function placementJoins(?int $yearId = null): string
     {
+        $yearId = $yearId ?: (new \App\API\Services\YearScope($this->db))->currentYearId();
         return "
             FROM students s
             INNER JOIN persons p ON p.id = s.person_id
             LEFT JOIN student_types st ON st.id = s.student_type_id
-            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement_history') . " lp
                 ON lp.student_id = s.id
-                AND lp.academic_year_id = (
-                    SELECT ay_current.id
-                    FROM academic_years ay_current
-                    WHERE ay_current.is_current = 1
-                    ORDER BY ay_current.id DESC
-                    LIMIT 1
-                )
+                AND lp.academic_year_id = " . (int) $yearId . "
+                AND lp.enrollment_status IN ('active','completed','graduated')
             LEFT JOIN academic_years ay ON ay.id = lp.academic_year_id
             LEFT JOIN (
                 SELECT
@@ -192,7 +191,21 @@ class StudentRepository
 
         // Normalized placement filters: class_id and stream_id resolve through
         // the year-scoped enrollment context, never students.stream_id.
-        foreach (['class_id' => 'lp.class_id', 'stream_id' => 'lp.stream_id', 'status' => 's.status', 'gender' => 'p.gender', 'student_type_id' => 's.student_type_id', 'academic_year_id' => 'lp.academic_year_id'] as $param => $column) {
+        // The year (academic_year_id / year_id, default current) picks the
+        // placement; any other year lists only the learners on its roll.
+        $year = \App\API\Services\YearScope::listYear($this->db, $filters);
+        if (!$year['is_current']) {
+            $conditions[] = 'lp.enrollment_id IS NOT NULL';
+        }
+
+        // "Graduated" also finds the year's graduating class: their learner
+        // status changes only when the next year is activated.
+        if (($filters['status'] ?? '') === 'graduated') {
+            $conditions[] = "(s.status = 'graduated' OR lp.enrollment_status = 'graduated')";
+            unset($filters['status']);
+        }
+
+        foreach (['class_id' => 'lp.class_id', 'stream_id' => 'lp.stream_id', 'status' => 's.status', 'gender' => 'p.gender', 'student_type_id' => 's.student_type_id'] as $param => $column) {
             if (!empty($filters[$param])) {
                 $conditions[] = "{$column} = ?";
                 $bindings[] = $filters[$param];
@@ -200,7 +213,7 @@ class StudentRepository
         }
 
         $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
-        $joins = $this->placementJoins();
+        $joins = $this->placementJoins((int) $year['year_id']);
 
         $countStmt = $this->db->prepare("SELECT COUNT(DISTINCT s.id) {$joins} {$where}");
         $countStmt->execute($bindings);

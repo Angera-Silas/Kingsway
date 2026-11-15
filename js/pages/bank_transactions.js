@@ -172,7 +172,7 @@
                             (!isReconciled ?
                                 '<button class="btn btn-outline-success" onclick="BankTransactionsController.reconcile(' + txn.id + ')" title="Reconcile"><i class="fas fa-check-double"></i></button>'
                                 : '') +
-                            '<button class="btn btn-outline-danger" onclick="BankTransactionsController.deleteTransaction(' + txn.id + ')" title="Delete"><i class="fas fa-trash"></i></button>' +
+                            '<button class="btn btn-outline-danger" onclick="BankTransactionsController.deleteTransaction(' + txn.id + ')" title="Delete" data-year-write><i class="fas fa-trash"></i></button>' +
                         '</div>' +
                     '</td>' +
                     '</tr>';

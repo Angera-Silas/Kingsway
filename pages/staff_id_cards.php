@@ -27,8 +27,7 @@
                 type="button"
                 class="btn btn-primary"
                 id="generateOnePassBtn"
-                data-permission="staff.id_cards.manage"
-            >
+                data-permission="staff.id_cards.manage" data-year-write>
                 <i class="bi bi-person-plus me-1" aria-hidden="true"></i>
                 Generate One
             </button>
@@ -37,8 +36,7 @@
                 type="button"
                 class="btn btn-outline-primary"
                 id="generateBulkPassesBtn"
-                data-permission="staff.id_cards.manage"
-            >
+                data-permission="staff.id_cards.manage" data-year-write>
                 <i class="bi bi-collection me-1" aria-hidden="true"></i>
                 Generate Bulk
             </button>
@@ -249,7 +247,7 @@
 
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="generateSecurityPassSubmitBtn">
+                <button type="button" class="btn btn-primary" id="generateSecurityPassSubmitBtn" data-year-write>
                     <i class="bi bi-magic me-1" aria-hidden="true"></i>
                     Generate and Preview
                 </button>
@@ -307,8 +305,7 @@
                     type="button"
                     class="btn btn-primary"
                     id="generateBulkSecurityPassesSubmitBtn"
-                    data-permission="staff.id_cards.manage"
-                >
+                    data-permission="staff.id_cards.manage" data-year-write>
                     <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>
                     Generate / Regenerate
                 </button>
@@ -363,8 +360,7 @@
                     class="btn btn-success"
                     id="issueSecurityPassBtn"
                     data-permission="staff.id_cards.manage"
-                    disabled
-                >
+                    disabled data-year-write>
                     <i class="bi bi-shield-check me-1" aria-hidden="true"></i>
                     Mark Issued
                 </button>

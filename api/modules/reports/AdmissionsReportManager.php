@@ -13,7 +13,10 @@ class AdmissionsReportManager extends BaseAPI
         try {
             $where = ["a.status = 'enrolled'"];
             $params = [];
-            if (!empty($filters['year'])) {
+            if (!empty($filters['academic_year_id'])) {
+                $where[] = 'a.academic_year_id = ?';
+                $params[] = (int) $filters['academic_year_id'];
+            } elseif (!empty($filters['year'])) {
                 $where[] = 'a.academic_year = ?';
                 $params[] = $filters['year'];
             }
@@ -26,12 +29,13 @@ class AdmissionsReportManager extends BaseAPI
             }
             $sql = "SELECT
                         a.academic_year AS year,
+                        a.academic_year_id,
                         a.grade_applying_for AS class_name,
                         a.gender,
                         COUNT(*) AS total
                     FROM admission_applications a
                     WHERE " . implode(' AND ', $where) . "
-                    GROUP BY a.academic_year, a.grade_applying_for, a.gender
+                    GROUP BY a.academic_year, a.academic_year_id, a.grade_applying_for, a.gender
                     ORDER BY year DESC, class_name";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -48,7 +52,8 @@ class AdmissionsReportManager extends BaseAPI
         try {
             $where = ["a.status <> 'cancelled'"];
             $params = [];
-            if (!empty($filters['academic_year'])) { $where[] = 'a.academic_year = ?'; $params[] = $filters['academic_year']; }
+            if (!empty($filters['academic_year_id'])) { $where[] = 'a.academic_year_id = ?'; $params[] = (int) $filters['academic_year_id']; }
+            elseif (!empty($filters['academic_year'])) { $where[] = 'a.academic_year = ?'; $params[] = $filters['academic_year']; }
             if (!empty($filters['grade'])) { $where[] = 'a.grade_applying_for = ?'; $params[] = $filters['grade']; }
             $sql = "SELECT
                         COUNT(DISTINCT a.id) AS total_applicants,
@@ -76,21 +81,32 @@ class AdmissionsReportManager extends BaseAPI
         // Alumni count by graduation year and gender — graduations are recorded as
         // transition_type='graduation' rows in student_transitions.
         try {
+            // A learner graduates IN the year of the final-class enrolment they
+            // completed (the outgoing year), not the date the transition ran:
+            // graduation_year 2026 = the "graduating class of 2026"
+            // (academic year 2026/2027).
             $where = ["st.transition_type = 'graduation'"];
             $params = [];
-            if (!empty($filters['graduation_year'])) {
-                $where[] = 'YEAR(COALESCE(st.executed_at, st.decided_at)) = ?';
-                $params[] = $filters['graduation_year'];
+            if (!empty($filters['academic_year_id'])) {
+                $where[] = 'gay.id = ?';
+                $params[] = (int) $filters['academic_year_id'];
+            } elseif (!empty($filters['graduation_year'])) {
+                $where[] = 'YEAR(gay.start_date) = ?';
+                $params[] = (int) $filters['graduation_year'];
             }
             $sql = "SELECT
-                        YEAR(COALESCE(st.executed_at, st.decided_at)) AS graduation_year,
+                        YEAR(gay.start_date) AS graduation_year,
+                        gay.id AS academic_year_id,
+                        gay.year_code AS academic_year,
                         p.gender,
                         COUNT(*) AS alumni_count
                     FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " st
                     JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = st.student_id
                     JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = st.from_student_academic_enrollment_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " gay ON gay.id = COALESCE(sae.academic_year_id, st.academic_year_id)
                     WHERE " . implode(' AND ', $where) . "
-                    GROUP BY graduation_year, p.gender
+                    GROUP BY gay.id, gay.year_code, graduation_year, p.gender
                     ORDER BY graduation_year DESC";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);

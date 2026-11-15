@@ -8183,12 +8183,12 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                 LEFT JOIN annual_scores ans
                     ON ans.student_id = s.id
-                   AND ans.academic_year = ?
+                   AND ans.academic_year_id = ?
                 {$attendanceJoin}
                 WHERE s.id = ?
                 LIMIT 1
             ";
-            $studentBindings = array_merge([$yearValue], $attendanceBindings, [$studentId]);
+            $studentBindings = array_merge([$yearId], $attendanceBindings, [$studentId]);
             $studentStmt = $this->db->prepare($studentSql);
             $studentStmt->execute($studentBindings);
             $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
@@ -8569,7 +8569,7 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                 LEFT JOIN annual_scores ans
                     ON ans.student_id = s.id
-                   AND ans.academic_year = ?
+                   AND ans.academic_year_id = ?
                 {$attendanceJoin}
                 {$termJoin}
                 {$feeJoin}
@@ -8584,7 +8584,7 @@ return errorResponse($e->getMessage(), 400);
                 $limit = 100000;
                 $offset = 0;
             }
-            $queryBindings = array_merge($attendanceBindings, $termBindings, [$yearValue], $feeBindings, $bindings, [$limit, $offset]);
+            $queryBindings = array_merge($attendanceBindings, $termBindings, [$yearId], $feeBindings, $bindings, [$limit, $offset]);
             $stmt = $this->db->prepare($sql);
             $stmt->execute($queryBindings);
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -8905,13 +8905,13 @@ return errorResponse($e->getMessage(), 400);
             LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
             LEFT JOIN annual_scores ans
                 ON ans.student_id = s.id
-               AND ans.academic_year = ?
+               AND ans.academic_year_id = ?
             WHERE {$whereClause}
             ORDER BY c.name, p.first_name, p.last_name
         ";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(array_merge($bindings, [$yearValue]));
+        $stmt->execute(array_merge($bindings, [$academicYearId]));
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

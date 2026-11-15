@@ -162,10 +162,10 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-danger" id="rejectBtn" data-permission="finance_approve">
+                <button type="button" class="btn btn-danger" id="rejectBtn" data-permission="finance_approve" data-year-write>
                     <i class="bi bi-x-circle"></i> Reject
                 </button>
-                <button type="button" class="btn btn-success" id="approveBtn" data-permission="finance_approve">
+                <button type="button" class="btn btn-success" id="approveBtn" data-permission="finance_approve" data-year-write>
                     <i class="bi bi-check-circle"></i> Approve
                 </button>
             </div>

@@ -40,7 +40,7 @@
             <div class="card bg-success text-white">
                 <div class="card-body text-center">
                     <h2 id="recentAlumni">--</h2>
-                    <p class="mb-0">This Year</p>
+                    <p class="mb-0">Latest Graduating Class</p>
                 </div>
             </div>
         </div>
@@ -62,7 +62,7 @@
                 </div>
                 <div class="col-md-3">
                     <select class="form-select" id="filterYear">
-                        <option value="">All Graduation Years</option>
+                        <option value="">All Graduating Classes</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -87,7 +87,7 @@
                             <th>#</th>
                             <th>Admission No</th>
                             <th>Name</th>
-                            <th>Graduated Year</th>
+                            <th>Graduating Class</th>
                             <th>Class</th>
                             <th>Stream</th>
                             <th>Contact</th>

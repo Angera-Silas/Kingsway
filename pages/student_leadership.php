@@ -58,7 +58,7 @@
       <div class="lead-card mb-3">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center">
           <span><i class="fas fa-gavel me-2"></i>Leadership Assignments</span>
-          <button class="btn btn-primary btn-sm lead-manage-only" onclick="StudentLeadershipController.openAssign()"><i class="fas fa-plus me-1"></i>Assign Position</button>
+          <button class="btn btn-primary btn-sm lead-manage-only" onclick="StudentLeadershipController.openAssign()" data-year-write><i class="fas fa-plus me-1"></i>Assign Position</button>
         </div>
         <div class="p-3">
           <div class="row g-2 mb-2">
@@ -69,7 +69,7 @@
             <div class="col-md-2"><label class="form-label small fw-semibold mb-1">Student</label>
               <select id="leadStudentFilter" class="form-select form-select-sm"><option value="">All students</option></select></div>
             <div class="col-md-5 d-flex align-items-end justify-content-end">
-              <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.resetLeadershipFilters()">Reset</button>
+              <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.resetLeadershipFilters()" data-year-write>Reset</button>
             </div>
           </div>
           <div class="row g-3 d-none" id="leadershipDirectory"></div>
@@ -163,7 +163,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="StudentLeadershipController.savePosition()"><i class="fas fa-save me-1"></i>Save Position</button>
+        <button type="button" class="btn btn-primary" onclick="StudentLeadershipController.savePosition()" data-year-write><i class="fas fa-save me-1"></i>Save Position</button>
       </div>
     </div>
   </div>
@@ -217,7 +217,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveLeadership()">Save Assignment</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveLeadership()" data-year-write>Save Assignment</button>
       </div>
     </div>
   </div>
@@ -255,7 +255,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveHouse()">Save House</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveHouse()" data-year-write>Save House</button>
       </div>
     </div>
   </div>
@@ -323,7 +323,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveAward()">Save Award</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveAward()" data-year-write>Save Award</button>
       </div>
     </div>
   </div>
@@ -358,8 +358,8 @@
           <div class="col-md-6"><label class="form-label small fw-semibold">Secondary Signatory (right)</label>
             <input type="text" id="atSignatory2" class="form-control form-control-sm" placeholder="e.g. Headteacher"></div>
           <div class="col-12 d-flex gap-2">
-            <button class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveAwardType()"><i class="fas fa-save me-1"></i>Save Type</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.resetAwardTypeForm()">Reset</button>
+            <button class="btn btn-primary btn-sm" onclick="StudentLeadershipController.saveAwardType()" data-year-write><i class="fas fa-save me-1"></i>Save Type</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.resetAwardTypeForm()" data-year-write>Reset</button>
           </div>
         </div>
         <div class="table-responsive" style="max-height:340px;overflow:auto;">

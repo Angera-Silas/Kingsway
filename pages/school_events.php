@@ -21,7 +21,7 @@
                 </div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-outline-secondary" onclick="SchoolEventsController.syncNow()"><i class="bi bi-arrow-repeat me-1"></i> Sync Calendar</button>
-                    <button class="btn btn-primary" id="addEventBtn" onclick="SchoolEventsController.openAddModal()">
+                    <button class="btn btn-primary" id="addEventBtn" onclick="SchoolEventsController.openAddModal()" data-year-write>
                         <i class="bi bi-plus-lg me-1"></i> New Event
                     </button>
                 </div>

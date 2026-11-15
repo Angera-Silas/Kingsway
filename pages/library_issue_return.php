@@ -32,7 +32,7 @@
         <div class="mb-3"><label class="form-label small fw-semibold">Due Date</label>
           <input type="date" class="form-control form-control-sm" id="lirDue">
         </div>
-        <button class="btn btn-primary btn-sm w-100" onclick="libraryIssueReturnController.issue()"><i class="bi bi-arrow-right-circle me-1"></i>Issue Book</button>
+        <button class="btn btn-primary btn-sm w-100" onclick="libraryIssueReturnController.issue()" data-year-write><i class="bi bi-arrow-right-circle me-1"></i>Issue Book</button>
       </div>
     </div>
     <div class="col-lg-8">
