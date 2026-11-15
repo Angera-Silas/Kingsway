@@ -90,8 +90,8 @@ const interventionPlansController = {
         <td><span class="badge bg-${statusCls[(p.status||'active').toLowerCase()] || 'secondary'}">${this._esc(p.status || 'active')}</span></td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-primary me-1" onclick="interventionPlansController.viewPlan(${p.id})">View</button>
-          <button class="btn btn-sm btn-outline-secondary me-1" onclick="interventionPlansController.editPlan(${p.id})">Edit</button>
-          <button class="btn btn-sm btn-outline-danger" onclick="interventionPlansController.deletePlan(${p.id})">Delete</button>
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick="interventionPlansController.editPlan(${p.id})" data-year-write>Edit</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="interventionPlansController.deletePlan(${p.id})" data-year-write>Delete</button>
         </td>
       </tr>`).join('');
 

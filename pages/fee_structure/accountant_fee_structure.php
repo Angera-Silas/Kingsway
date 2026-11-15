@@ -25,7 +25,7 @@
     <div>
         <button class="btn btn-outline-secondary btn-sm" onclick="exportToExcel()"><i class="bi bi-download"></i> Export
             to Excel</button>
-        <button class="btn btn-success btn-sm" onclick="showDuplicateForNewYear()"><i class="bi bi-files"></i> Duplicate
+        <button class="btn btn-success btn-sm" onclick="showDuplicateForNewYear()" data-year-write><i class="bi bi-files"></i> Duplicate
             for New Year</button>
     </div>
 </div>
@@ -135,7 +135,7 @@
         Reconcile Fees</button>
     <button class="btn btn-outline-warning btn-sm" onclick="viewDefaulters()"><i class="bi bi-exclamation-triangle"></i>
         View Defaulters</button>
-    <button class="btn btn-outline-info btn-sm" onclick="generateInvoices()"><i class="bi bi-receipt"></i> Generate
+    <button class="btn btn-outline-info btn-sm" onclick="generateInvoices()" data-year-write><i class="bi bi-receipt"></i> Generate
         Invoices</button>
     <button class="btn btn-outline-secondary btn-sm" onclick="sendReminders()"><i class="bi bi-bell"></i> Send
         Reminders</button>
@@ -218,7 +218,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('duplicateModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmDuplicate()"><i class="bi bi-files"></i>
+                <button class="btn btn-primary" onclick="confirmDuplicate()" data-year-write><i class="bi bi-files"></i>
                     Duplicate</button>
             </div>
         </div>
@@ -258,7 +258,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('detailedFeeStructureModal')">Close</button>
-                <button class="btn btn-warning" onclick="window.accountantController.editDetailedStructure()">
+                <button class="btn btn-warning" onclick="window.accountantController.editDetailedStructure()" data-year-write>
                     <i class="bi bi-pencil"></i> Edit
                 </button>
                 <button class="btn btn-success" onclick="window.accountantController.exportToPDF()">

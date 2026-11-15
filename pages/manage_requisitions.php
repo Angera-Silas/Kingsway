@@ -11,7 +11,7 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-clipboard-data"></i> Requisitions Management</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="createRequisitionBtn" data-permission="requisitions_create">
+                <button class="btn btn-light btn-sm" id="createRequisitionBtn" data-permission="requisitions_create" data-year-write>
                     <i class="bi bi-plus-circle"></i> New Requisition
                 </button>
                 <button class="btn btn-outline-light btn-sm" id="exportRequisitionsBtn">
@@ -158,7 +158,7 @@
                         <div id="requisitionItems">
                             <!-- Dynamic item rows -->
                         </div>
-                        <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addItemRowBtn">
+                        <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addItemRowBtn" data-year-write>
                             <i class="bi bi-plus"></i> Add Item
                         </button>
                     </div>
@@ -187,7 +187,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="submitRequisitionBtn">Submit Requisition</button>
+                <button type="button" class="btn btn-primary" id="submitRequisitionBtn" data-year-write>Submit Requisition</button>
             </div>
         </div>
     </div>
@@ -207,9 +207,9 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-danger" id="rejectRequisitionBtn"
-                    data-permission="requisitions_approve">Reject</button>
+                    data-permission="requisitions_approve" data-year-write>Reject</button>
                 <button type="button" class="btn btn-success" id="approveRequisitionBtn"
-                    data-permission="requisitions_approve">Approve</button>
+                    data-permission="requisitions_approve" data-year-write>Approve</button>
             </div>
         </div>
     </div>

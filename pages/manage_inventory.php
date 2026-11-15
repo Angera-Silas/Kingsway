@@ -22,7 +22,7 @@
                 <!-- Add Item - Inventory Manager only -->
                 <button class="btn btn-light btn-sm" id="addItemBtn" 
                         data-permission="inventory_create"
-                        data-role="inventory_manager,store_manager,admin">
+                        data-role="inventory_manager,store_manager,admin" data-year-write>
                     <i class="bi bi-plus-circle"></i> Add Item
                 </button>
                 <!-- Restock - Inventory Manager only -->
@@ -34,7 +34,7 @@
                 <!-- Issue Stock - Multiple roles -->
                 <button class="btn btn-outline-light btn-sm" id="issueStockBtn"
                         data-permission="inventory_issue"
-                        data-role="inventory_manager,store_manager,cateress,cook,librarian,lab_technician">
+                        data-role="inventory_manager,store_manager,cateress,cook,librarian,lab_technician" data-year-write>
                     <i class="bi bi-box-arrow-right"></i> Issue Stock
                 </button>
                 <!-- Export - All with view permission -->

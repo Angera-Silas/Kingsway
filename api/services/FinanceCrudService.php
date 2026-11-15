@@ -74,7 +74,7 @@ final class FinanceCrudService
             $expNo, $d['category_id'] ?? null, $d['description'], $d['amount'], $d['expense_date'],
             $d['payment_method'] ?? 'cash', $d['reference_number'] ?? null, $d['vendor_id'] ?? null,
             $d['receipt_number'] ?? null, $d['budget_line_item_id'] ?? null,
-            $d['department_id'] ?? null, $d['academic_year'] ?? date('Y'), $d['term'] ?? null,
+            $d['department_id'] ?? null, YearScope::legacyYear($this->db, $d), $d['term'] ?? null,
             $d['notes'] ?? null, $d['attachment_path'] ?? null, $userId,
         ]);
         return ['id' => $this->db->lastInsertId(), 'expense_number' => $expNo];
@@ -307,7 +307,7 @@ final class FinanceCrudService
         )->execute([
             $adjNo,
             !empty($d['student_id']) ? (int) $d['student_id'] : 0,
-            $d['academic_year'] ?? date('Y'),
+            YearScope::legacyYear($this->db, $d),
             $d['term'] ?? $d['term_id'] ?? null,
             $d['reference_payment_id'] ?? null,
             abs((float) ($d['amount'] ?? 0)),
@@ -486,7 +486,7 @@ final class FinanceCrudService
         $this->db->prepare(
             "INSERT INTO budgets (name, academic_year, term, total_amount, description, status, created_by)
              VALUES (?,?,?,?,?,'draft',?)"
-        )->execute([$d['name'], $d['academic_year'], $d['term'] ?? null, $d['total_amount'] ?? 0, $d['description'] ?? null, $userId]);
+        )->execute([$d['name'], YearScope::legacyYear($this->db, $d), $d['term'] ?? null, $d['total_amount'] ?? 0, $d['description'] ?? null, $userId]);
         $budgetId = $this->db->lastInsertId();
 
         if (!empty($d['line_items']) && is_array($d['line_items'])) {
@@ -522,7 +522,8 @@ final class FinanceCrudService
         $params = [];
         if (!empty($filters['student_id']))    { $where[] = 'fdw.student_id=?';    $params[] = $filters['student_id']; }
         if (!empty($filters['status']))        { $where[] = 'fdw.status=?';        $params[] = $filters['status']; }
-        if (!empty($filters['academic_year'])) { $where[] = 'fdw.academic_year=?'; $params[] = $filters['academic_year']; }
+        if (!empty($filters['academic_year_id'])) { $where[] = 'fdw.academic_year_id=?'; $params[] = (int) $filters['academic_year_id']; }
+        elseif (!empty($filters['academic_year'])) { $where[] = 'fdw.academic_year=?'; $params[] = YearScope::legacyYear($this->db, ['academic_year' => $filters['academic_year']]); }
 
         $rows = $this->db->prepare(
             "SELECT fdw.*, COALESCE(CONCAT(sp.first_name,' ',sp.last_name), '—') AS student_name,
@@ -896,7 +897,7 @@ final class FinanceCrudService
               credit_amount, credit_reason, expiry_date, notes, created_by)
              VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(CURDATE(), INTERVAL 2 YEAR), ?, ?)"
         )->execute([
-            $creditNum, $d['student_id'], $d['academic_year'] ?? date('Y'),
+            $creditNum, $d['student_id'], YearScope::legacyYear($this->db, $d),
             $d['term_id'] ?? null, $d['source_transaction_id'] ?? null,
             $d['credit_amount'], $d['credit_reason'] ?? 'overpayment',
             $d['notes'] ?? null, $userId

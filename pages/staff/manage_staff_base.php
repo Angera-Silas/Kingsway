@@ -332,7 +332,7 @@
                             </button>
                         </div>
                         <div data-role="bursar,director,admin">
-                            <button class="btn btn-success" onclick="staffManagementController.approvePayroll()">
+                            <button class="btn btn-success" onclick="staffManagementController.approvePayroll()" data-year-write>
                                 <i class="bi bi-check-circle"></i> Approve Payroll
                             </button>
                         </div>
@@ -490,7 +490,7 @@
                     <div class="d-flex justify-content-between mb-3">
                         <div class="btn-group">
                             <button class="btn btn-primary" onclick="staffManagementController.markAttendance()"
-                                    data-role="hr_manager,admin">
+                                    data-role="hr_manager,admin" data-year-write>
                                 <i class="bi bi-check2-square"></i> Mark Attendance
                             </button>
                             <button class="btn btn-outline-info" onclick="staffManagementController.showAttendanceReport()">
@@ -539,10 +539,10 @@
                     <!-- Assignment Actions -->
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div class="btn-group">
-                            <button class="btn btn-primary" onclick="staffManagementController.showAssignClassModal()" data-role="hr_manager,headteacher,admin">
+                            <button class="btn btn-primary" onclick="staffManagementController.showAssignClassModal()" data-role="hr_manager,headteacher,admin" data-year-write>
                                 <i class="bi bi-plus-circle"></i> Assign to Class
                             </button>
-                            <button class="btn btn-outline-primary" onclick="staffManagementController.showAssignSubjectModal()" data-role="hr_manager,headteacher,admin">
+                            <button class="btn btn-outline-primary" onclick="staffManagementController.showAssignSubjectModal()" data-role="hr_manager,headteacher,admin" data-year-write>
                                 <i class="bi bi-book"></i> Assign Subject
                             </button>
                         </div>
@@ -757,7 +757,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Assign</button>
+                    <button type="submit" class="btn btn-primary" data-year-write>Assign</button>
                 </div>
             </form>
         </div>
@@ -802,7 +802,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Assign Subject</button>
+                    <button type="submit" class="btn btn-primary" data-year-write>Assign Subject</button>
                 </div>
             </form>
         </div>
@@ -1021,7 +1021,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
+                    <button type="submit" class="btn btn-success" data-year-write>
                         <i class="bi bi-save"></i> Save Staff Member
                     </button>
                 </div>
@@ -1072,7 +1072,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
+                    <button type="submit" class="btn btn-success" data-year-write>
                         <i class="bi bi-upload"></i> Import Staff
                     </button>
                 </div>
@@ -1179,7 +1179,7 @@
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <button type="submit" class="btn btn-success">Save Contract</button>
+                            <button type="submit" class="btn btn-success" data-year-write>Save Contract</button>
                         </div>
                     </form>
                 </div>

@@ -165,7 +165,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="sickBayController.saveVisit()">Save Visit</button>
+        <button type="button" class="btn btn-primary" onclick="sickBayController.saveVisit()" data-year-write>Save Visit</button>
       </div>
     </div>
   </div>

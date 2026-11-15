@@ -141,7 +141,7 @@
                 id="markTodayBtn"
                 data-bs-toggle="modal"
                 data-bs-target="#markStaffModal"
-                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
+                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own" data-year-write>
             <i class="bi bi-check2-square me-1"></i>Mark Today
         </button>
         <button class="btn btn-outline-light btn-sm"
@@ -400,11 +400,11 @@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-success btn-sm" id="markAllPresentBtn"
-                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
+                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own" data-year-write>
                             <i class="bi bi-check-all me-1"></i>All Present
                         </button>
                         <button class="btn btn-outline-danger btn-sm" id="markAllAbsentBtn"
-                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
+                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own" data-year-write>
                             <i class="bi bi-x-lg me-1"></i>All Absent
                         </button>
                     </div>
@@ -436,7 +436,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-sa" id="submitStaffAttendanceBtn"
-                        data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
+                        data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own" data-year-write>
                     <i class="bi bi-check-circle me-1"></i>Submit Attendance
                 </button>
             </div>

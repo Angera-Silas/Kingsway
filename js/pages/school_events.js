@@ -223,7 +223,7 @@
                 '      </div>',
                 '      <div class="modal-footer">',
                 '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>',
-                '        <button type="button" class="btn btn-primary" id="saveEventBtn">Save Event</button>',
+                '        <button type="button" class="btn btn-primary" id="saveEventBtn" data-year-write>Save Event</button>',
                 '      </div>',
                 '    </div>',
                 '  </div>',

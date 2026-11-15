@@ -262,7 +262,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="submitSaleBtn">
+                    <button type="submit" class="btn btn-primary" id="submitSaleBtn" data-year-write>
                         <i class="bi bi-check me-1"></i>Record Sale
                     </button>
                 </div>
@@ -311,7 +311,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success" id="submitRestockBtn">
+                    <button type="submit" class="btn btn-success" id="submitRestockBtn" data-year-write>
                         <i class="bi bi-boxes me-1"></i>Restock
                     </button>
                 </div>

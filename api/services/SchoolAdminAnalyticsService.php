@@ -38,28 +38,31 @@ class SchoolAdminAnalyticsService
      * Get active students statistics
      * Card 1: Active Students
      */
-    public function getActiveStudentsStats(): array
+    public function getActiveStudentsStats(array $filters = []): array
     {
         try {
-            // Total active students - from student_academic_enrollments + persons for gender
-            $query = "SELECT 
-                        COUNT(DISTINCT sae.student_id) as total_students,
-                        COUNT(DISTINCT sae.academic_year_class_stream_id) as active_streams,
-                        SUM(CASE WHEN LOWER(sae.gender) = 'male' THEN 1 ELSE 0 END) as male,
-                        SUM(CASE WHEN LOWER(sae.gender) = 'female' THEN 1 ELSE 0 END) as female
-                      FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sae
-                      WHERE sae.enrollment_status = 'active'";
-            $stmt = $this->db->query($query);
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-            // Get total active classes from academic_year_classes table
-            $classQuery = "SELECT COUNT(*) as total FROM academic_year_classes WHERE status = 'active'";
-            $classStmt = $this->db->query($classQuery);
-            $classResult = $classStmt->fetch(\PDO::FETCH_ASSOC);
+            // The year's roll (default: the current academic year), each
+            // learner once: enrolments active, completed (promoted) or
+            // graduated. "Active" alone would count the incoming year once
+            // promotion has run.
+            $yearId = (int) YearScope::listYear($this->db, $filters)['year_id'];
+            $result = $this->db->query(
+                "SELECT COUNT(DISTINCT lp.student_id) AS total_students,
+                        COUNT(DISTINCT lp.aycs_id) AS active_streams,
+                        COUNT(DISTINCT lp.class_id) AS active_classes,
+                        COUNT(DISTINCT CASE WHEN LOWER(pd.gender) = 'male' THEN lp.student_id END) AS male,
+                        COUNT(DISTINCT CASE WHEN LOWER(pd.gender) = 'female' THEN lp.student_id END) AS female
+                 FROM " . ReadReplicaService::qualifiedRef("learner_placement_history") . " lp
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.student_id = lp.student_id
+                 WHERE lp.academic_year_id = ? AND lp.enrollment_status IN ('active','completed','graduated')",
+                [$yearId]
+            )->fetch(\PDO::FETCH_ASSOC) ?: [];
 
             return [
+                'academic_year_id' => $yearId,
                 'total_students' => (int) ($result['total_students'] ?? 0),
-                'active_classes' => (int) ($classResult['total'] ?? $result['active_streams'] ?? 0),
+                'active_classes' => (int) ($result['active_classes'] ?? 0),
+                'active_streams' => (int) ($result['active_streams'] ?? 0),
                 'male' => (int) ($result['male'] ?? 0),
                 'female' => (int) ($result['female'] ?? 0)
             ];
@@ -296,9 +299,14 @@ class SchoolAdminAnalyticsService
      * Get student admissions statistics
      * Card 7: Student Admissions
      */
-    public function getStudentAdmissionsStats(): array
+    public function getStudentAdmissionsStats(array $filters = []): array
     {
         try {
+            // Year-aware (2026-11-15): applications made within the selected
+            // academic year's dates (the intake cycle), current by default.
+            $scope = (new \App\API\Services\YearScope($this->db))->fromRequest($filters);
+            $from = substr((string) ($scope['year']['start_date'] ?? date('Y-01-01')), 0, 10);
+            $to = substr((string) ($scope['year']['end_date'] ?? date('Y-12-31')), 0, 10);
             $query = "SELECT 
                         SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted,
                         SUM(CASE WHEN status = 'documents_pending' THEN 1 ELSE 0 END) as documents_pending,
@@ -309,8 +317,8 @@ class SchoolAdminAnalyticsService
                         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
                         COUNT(*) as total
                       FROM admission_applications 
-                      WHERE YEAR(created_at) = YEAR(CURDATE())";
-            $stmt = $this->db->query($query);
+                      WHERE DATE(created_at) BETWEEN ? AND ?";
+            $stmt = $this->db->query($query, [$from, $to]);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
             $submitted = (int) ($result['submitted'] ?? 0);
@@ -401,21 +409,24 @@ class SchoolAdminAnalyticsService
      * Get class distribution statistics
      * Card 9: Class Distribution
      */
-    public function getClassDistributionStats(): array
+    public function getClassDistributionStats(array $filters = []): array
     {
         try {
-           // Join students via student_academic_enrollments → academic_year_class_streams → classes
+            // The classes of ONE academic year (default current) with that
+            // year's roll per class (active, promoted, graduated).
+            $yearId = (int) YearScope::listYear($this->db, $filters)['year_id'];
             $query = "SELECT 
                         c.id,
                         c.name as class_name,
-                        COUNT(DISTINCT sae.student_id) as student_count
-                      FROM " . ReadReplicaService::qualifiedRef("classes") . " c
-                      JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.class_id = c.id AND ayc.status = 'active'
-                      LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
-                      LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
+                        COUNT(DISTINCT lp.student_id) as student_count
+                      FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
+                      JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_placement_history") . " lp
+                        ON lp.academic_year_class_id = ayc.id AND lp.enrollment_status IN ('active','completed','graduated')
+                      WHERE ayc.academic_year_id = ?
                       GROUP BY c.id, c.name
-                      ORDER BY c.name";
-            $stmt = $this->db->query($query);
+                      ORDER BY c.id";
+            $stmt = $this->db->query($query, [$yearId]);
             $classes = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
             $counts = array_map('intval', array_column($classes, 'student_count'));

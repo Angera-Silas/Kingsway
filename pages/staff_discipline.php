@@ -28,7 +28,7 @@ $appBase = app_base_path();
                     <button class="btn btn-outline-light btn-sm" id="staffDisciplinePrintBtn">
                         <i class="bi bi-printer"></i> Print / PDF
                     </button>
-                    <button class="btn btn-warning btn-sm" id="addStaffDisciplineBtn" data-permission="staff_discipline_create">
+                    <button class="btn btn-warning btn-sm" id="addStaffDisciplineBtn" data-permission="staff_discipline_create" data-year-write>
                         <i class="bi bi-plus-circle"></i> Log Case
                     </button>
                 </div>
@@ -197,7 +197,7 @@ $appBase = app_base_path();
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Log Case</button>
+                    <button type="submit" class="btn btn-primary" data-year-write><i class="bi bi-save me-1"></i>Log Case</button>
                 </div>
             </form>
         </div>

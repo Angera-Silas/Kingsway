@@ -69,25 +69,32 @@ class ReportingManager extends FileLifecycleBase
             // the filter (an id, a stored "2026/2027" code, or a bare "2026")
             // to the STORED year code via the canonical resolver. date('Y')
             // alone matches nothing — the view stores "2026/2027".
-            $feeLedgerFilter = new \App\API\Services\payments\FeeLedgerFilter();
-            $academicYear = $feeLedgerFilter->academicYear($filters['academic_year'] ?? null);
-            if ($academicYear === '') {
-                $ayStmt = $this->db->query("SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
-                $academicYear = (string) ($ayStmt->fetchColumn() ?: date('Y'));
-            }
-            $filterStart = $filters['date_from'] ?? ($academicYear . '-01-01');
-            $filterEnd = $filters['date_to'] ?? ($academicYear . '-12-31');
+            // Year-aware (2026-11-15): academic_year / academic_year_id (id,
+            // stored code or bare year), the current year by default. The date
+            // window is that academic year's own dates ("2026/2027-01-01"
+            // was never a date).
+            $year = $this->resolveYear($filters['academic_year_id'] ?? $filters['academic_year'] ?? null);
+            $academicYear = $year['code'];
+            $yearDates = $this->db->prepare('SELECT start_date, end_date FROM academic_years WHERE id = ? LIMIT 1');
+            $yearDates->execute([$year['id']]);
+            $dates = $yearDates->fetch(PDO::FETCH_ASSOC) ?: ['start_date' => date('Y') . '-01-01', 'end_date' => date('Y') . '-12-31'];
+            $filterStart = $filters['date_from'] ?? substr((string) $dates['start_date'], 0, 10);
+            $filterEnd = $filters['date_to'] ?? substr((string) $dates['end_date'], 0, 10);
 
             // Get current term
-            $stmt = $this->db->query(
+            // The selected year's term in session, else its latest opened term
+            // (YearScope rules); for the current year that is today's term.
+            $scopeTerm = (new \App\API\Services\YearScope($this->db))
+                ->fromRequest(['academic_year_id' => $year['id']], \App\API\Services\YearScope::TERM_DEFAULT);
+            $stmt = $this->db->prepare(
                 "SELECT academic_year_term_id AS id,
                         term_name AS name,
                         CAST(SUBSTRING(term_code, 2) AS UNSIGNED) AS term_number
                  FROM " . ReadReplicaService::qualifiedRef('academic_term_terms') . "
-                 WHERE is_current_year = 1
-                   AND term_period_status = 'current'
+                 WHERE academic_year_term_id = ?
                  LIMIT 1"
             );
+            $stmt->execute([(int) ($scopeTerm['year_term_id'] ?? 0)]);
             $currentTerm = $stmt->fetch(PDO::FETCH_ASSOC);
             $currentTermId = $currentTerm['id'] ?? null;
             $currentTermName = $currentTerm['name'] ?? 'N/A';
@@ -789,22 +796,27 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function getPivotByClass($academicYear = null, $termId = null)
     {
         try {
-            $academicYear = $academicYear ?? date('Y');
+            // Year-aware (2026-11-15): the year's roll (active / completed /
+            // graduated enrolments of THAT year) with that year's fee balances.
+            $year = $this->resolveYear($academicYear);
+            $academicYear = $year['code'];
 
             $sql = "SELECT 
                         c.name as class_name,
-                        sl.name as level_name,
+                        COALESCE(sl.name, 'Level not set') as level_name,
                         COUNT(DISTINCT s.id) as student_count,
                         COALESCE(SUM(f.amount_due), 0) as total_due,
                         COALESCE(SUM(f.amount_paid), 0) as total_paid,
                         COALESCE(SUM(f.balance), 0) as balance,
                         ROUND(COALESCE(SUM(f.amount_paid), 0) / NULLIF(COALESCE(SUM(f.amount_due), 0), 0) * 100, 1) as collection_rate
                     FROM " . ReadReplicaService::qualifiedRef("students") . " s
-                    JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                    JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON s.id = sae.student_id AND sae.academic_year_id = " . (int) $year['id'] . " AND sae.enrollment_status IN ('active','completed','graduated')
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
                     JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
-                    JOIN school_levels sl ON c.level_id = sl.id
+                    -- LEFT: Playgroup/PP1/PP2 point at a level id missing from
+                    -- school_levels; an inner join dropped every pre-primary learner.
+                    LEFT JOIN school_levels sl ON c.level_id = sl.id
                     LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " f ON f.student_academic_enrollment_id = sae.id AND f.academic_year = ?";
 
             $params = [$academicYear];
@@ -814,9 +826,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $params[] = $termId;
             }
 
-            $sql .= " WHERE s.status = 'active'
+            $sql .= " WHERE " . ($year['is_current'] ? "s.status IN ('active','graduated')" : '1=1') . "
                       GROUP BY c.id, c.name, sl.name
-                      ORDER BY sl.id, c.name";
+                      ORDER BY COALESCE(sl.id, 0), c.name";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -838,7 +850,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function getPivotByPaymentMethod($academicYear = null, $termId = null)
     {
         try {
-            $academicYear = $academicYear ?? date('Y');
+            $academicYear = $this->resolveYearCode($academicYear);
 
             $sql = "SELECT 
                         COALESCE(p.method, 'Unknown') as payment_method,
@@ -882,7 +894,8 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function getPivotByStudentType($academicYear = null, $termId = null)
     {
         try {
-            $academicYear = $academicYear ?? date('Y');
+            $year = $this->resolveYear($academicYear);
+            $academicYear = $year['code'];
 
             $sql = "SELECT 
                         st.name as student_type,
@@ -902,7 +915,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $params[] = $termId;
             }
 
-            $sql .= " WHERE s.status = 'active'
+            // A past year includes graduated/transferred learners who carry
+            // that year's balances; the current year lists active learners.
+            $sql .= " WHERE " . ($year['is_current'] ? "s.status = 'active'" : 'f.student_id IS NOT NULL') . "
                       GROUP BY st.id, st.name
                       ORDER BY st.id";
 
@@ -956,7 +971,9 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function getPivotByFeeType($academicYear = null, $termId = null)
     {
         try {
-            $academicYear = $academicYear ?? date('Y');
+            // student_fee_obligations is keyed by academic_years.id (a code
+            // never matched here).
+            $academicYear = $this->resolveYear($academicYear)['id'];
 
 $sql = "SELECT 
                         'School Fees' as fee_type,
@@ -995,7 +1012,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function getTopDefaulters($limit = 20, $academicYear = null)
     {
         try {
-            $academicYear = $academicYear ?? date('Y');
+            $academicYear = $this->resolveYearCode($academicYear);
             $limit = (int) $limit;
 
             $ayStmt = $this->db->prepare(
@@ -1060,16 +1077,26 @@ return formatResponse(false, null, 'An internal error occurred.');
     /**
      * Summary totals for the reports landing page.
      */
-    public function getFinancialSummaryReport()
+    public function getFinancialSummaryReport(array $filters = [])
     {
         try {
-            $stmt = $this->db->query(
+            // Year-aware (2026-11-15): finance follows the academic year. "To
+            // date" runs from the selected year's start to today (or to its end
+            // for a past year); the current year by default.
+            $year = $this->resolveYear($filters['academic_year_id'] ?? $filters['academic_year'] ?? null);
+            $datesStmt = $this->db->prepare('SELECT start_date, end_date FROM academic_years WHERE id = ? LIMIT 1');
+            $datesStmt->execute([$year['id']]);
+            $dates = $datesStmt->fetch(PDO::FETCH_ASSOC) ?: ['start_date' => date('Y-01-01'), 'end_date' => date('Y-12-31')];
+            $from = substr((string) $dates['start_date'], 0, 10);
+            $to = min(date('Y-m-d'), substr((string) $dates['end_date'], 0, 10));
+            $stmt = $this->db->prepare(
                 "SELECT
-                    (SELECT COALESCE(SUM(amount),0) FROM " . ReadReplicaService::qualifiedRef("payments") . " WHERE YEAR(payment_date)=YEAR(CURDATE()) AND status='confirmed') AS total_collected_ytd,
-                    (SELECT COALESCE(SUM(balance),0) FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " WHERE academic_year_id=(SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)) AS total_outstanding,
-                    (SELECT COALESCE(SUM(amount),0) FROM " . ReadReplicaService::qualifiedRef("expenses") . " WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
+                    (SELECT COALESCE(SUM(amount),0) FROM " . ReadReplicaService::qualifiedRef("payments") . " WHERE DATE(payment_date) BETWEEN ? AND ? AND status='confirmed') AS total_collected_ytd,
+                    (SELECT COALESCE(SUM(balance),0) FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " WHERE academic_year_id = ?) AS total_outstanding,
+                    (SELECT COALESCE(SUM(amount),0) FROM " . ReadReplicaService::qualifiedRef("expenses") . " WHERE DATE(expense_date) BETWEEN ? AND ? AND status='approved') AS total_expenses_ytd,
                     (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("payments") . " WHERE DATE(payment_date)=CURDATE() AND status='confirmed') AS payments_today"
             );
+            $stmt->execute([$from, $to, $year['id'], $from, $to]);
             $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
@@ -1085,6 +1112,43 @@ return formatResponse(false, null, 'An internal error occurred.');
     /**
      * Resolve the current academic year code.
      */
+    /**
+     * The academic year a fee report shows: an academic_years.id, a stored
+     * code ("2026/2027") or a bare start year ("2026"); the current year when
+     * none is given. date('Y') alone never matches the stored code.
+     *
+     * @return array{id:int, code:string, is_current:bool}
+     */
+    private function resolveYear($academicYear): array
+    {
+        $value = trim((string) ($academicYear ?? ''));
+        $row = null;
+        if ($value !== '' && preg_match('/^\d{4}\/\d{4}$/', $value)) {
+            $stmt = $this->db->prepare('SELECT id, year_code, is_current FROM academic_years WHERE year_code = ? LIMIT 1');
+            $stmt->execute([$value]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        } elseif ($value !== '' && preg_match('/^\d{4}$/', $value)) {
+            $stmt = $this->db->prepare('SELECT id, year_code, is_current FROM academic_years WHERE YEAR(start_date) = ? ORDER BY start_date LIMIT 1');
+            $stmt->execute([(int) $value]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        } elseif ($value !== '' && ctype_digit($value)) {
+            $stmt = $this->db->prepare('SELECT id, year_code, is_current FROM academic_years WHERE id = ? LIMIT 1');
+            $stmt->execute([(int) $value]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        if (!$row) {
+            $row = $this->db->query('SELECT id, year_code, is_current FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1')
+                ->fetch(PDO::FETCH_ASSOC) ?: ['id' => 0, 'year_code' => '', 'is_current' => 1];
+        }
+        return ['id' => (int) $row['id'], 'code' => (string) $row['year_code'], 'is_current' => (int) $row['is_current'] === 1];
+    }
+
+    /** The stored year code a fee report filters by (see resolveYear). */
+    private function resolveYearCode($academicYear): string
+    {
+        return $this->resolveYear($academicYear)['code'];
+    }
+
     public function getCurrentAcademicYearCode()
     {
         try {

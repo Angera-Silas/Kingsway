@@ -34,7 +34,7 @@ const AlumniController = {
         const years = new Set();
         const classes = new Set();
         this.state.allAlumni.forEach(a => {
-            if (a.graduation_year) years.add(a.graduation_year);
+            if (a.graduating_class_of) years.add(Number(a.graduating_class_of));
             if (a.class_name) classes.add(a.class_name);
         });
         this.state.graduationYears = [...years].sort((a, b) => b - a);
@@ -42,8 +42,8 @@ const AlumniController = {
 
         const yearSel = document.getElementById('filterYear');
         if (yearSel) {
-            yearSel.innerHTML = '<option value="">All Graduation Years</option>' +
-                this.state.graduationYears.map(y => `<option value="${y}">${y}</option>`).join('');
+            yearSel.innerHTML = '<option value="">All Graduating Classes</option>' +
+                this.state.graduationYears.map(y => `<option value="${y}">Class of ${y}</option>`).join('');
         }
 
         const classSel = document.getElementById('filterClass');
@@ -87,7 +87,7 @@ const AlumniController = {
                 (a.admission_no || '').toLowerCase().includes(search)
             );
         }
-        if (year) filtered = filtered.filter(a => String(a.graduation_year) === year);
+        if (year) filtered = filtered.filter(a => String(a.graduating_class_of) === year);
         if (cls) filtered = filtered.filter(a => a.class_name === cls);
         if (active !== '') filtered = filtered.filter(a => String(a.is_active_alumni ?? 1) === active);
 
@@ -97,14 +97,23 @@ const AlumniController = {
 
     updateStats() {
         const all = this.state.allAlumni;
-        const currentYear = new Date().getFullYear();
+        // The most recent graduating class (e.g. "Class of 2026"), not the
+        // calendar year: Grade 9 graduates in the outgoing academic year.
+        const latestClass = Math.max(0, ...all.map(a => Number(a.graduating_class_of) || 0));
         const el = (id, val) => {
             const e = document.getElementById(id);
             if (e) e.textContent = val;
         };
         el('totalAlumni', all.length);
-        el('recentAlumni', all.filter(a => String(a.graduation_year) === String(currentYear)).length);
+        el('recentAlumni', latestClass ? all.filter(a => Number(a.graduating_class_of) === latestClass).length : 0);
         el('activeAlumni', all.filter(a => (a.contact_email || a.contact_phone) && (a.is_active_alumni ?? 1) == 1).length);
+    },
+
+    /** "Class of 2026 (2026/2027)": the graduating class is named by the
+     *  academic year the learners completed their final class in. */
+    classOf(a) {
+        if (!a || !a.graduating_class_of) return a?.graduation_year || '--';
+        return `Class of ${a.graduating_class_of}` + (a.graduation_year ? ` (${a.graduation_year})` : '');
     },
 
     renderTable() {
@@ -125,7 +134,7 @@ const AlumniController = {
                     <td>${i + 1}</td>
                     <td>${this.esc(a.admission_no || '--')}</td>
                     <td><strong>${this.esc(name)}</strong></td>
-                    <td>${this.esc(a.graduation_year || '--')}</td>
+                    <td>${this.esc(this.classOf(a))}</td>
                     <td>${this.esc(a.class_name || '--')}</td>
                     <td>${this.esc(a.stream_name || '--')}</td>
                     <td><small>${this.esc(contact)}</small></td>
@@ -133,8 +142,8 @@ const AlumniController = {
                     <td>
                         <div class="btn-group btn-group-sm">
                             <button class="btn btn-outline-primary" onclick="AlumniController.viewAlumni(${i})" title="View"><i class="fas fa-eye"></i></button>
-                            <button class="btn btn-outline-info" onclick="AlumniController.editAlumni(${i})" title="Edit"><i class="fas fa-edit"></i></button>
-                            ${active ? `<button class="btn btn-outline-warning" onclick="AlumniController.deactivateAlumni(${i})" title="Deactivate"><i class="fas fa-user-slash"></i></button>` : ''}
+                            <button class="btn btn-outline-info" onclick="AlumniController.editAlumni(${i})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
+                            ${active ? `<button class="btn btn-outline-warning" onclick="AlumniController.deactivateAlumni(${i})" title="Deactivate" data-year-write><i class="fas fa-user-slash"></i></button>` : ''}
                         </div>
                     </td>
                 </tr>`;
@@ -152,7 +161,7 @@ const AlumniController = {
                     <h6>Student Info</h6>
                     <p><strong>Name:</strong> ${this.esc(name)}</p>
                     <p><strong>Admission No:</strong> ${this.esc(a.admission_no || 'N/A')}</p>
-                    <p><strong>Graduated:</strong> ${this.esc(a.graduation_year || 'N/A')}</p>
+                    <p><strong>Graduated:</strong> ${this.esc(this.classOf(a))}</p>
                     <p><strong>Class:</strong> ${this.esc(a.class_name || 'N/A')} - ${this.esc(a.stream_name || 'N/A')}</p>
                 </div>
                 <div class="col-md-6">
@@ -225,7 +234,7 @@ const AlumniController = {
                     <label class="form-label">Notes</label>
                     <textarea class="form-control" name="alumni_notes" rows="2">${this.esc(a.alumni_notes || '')}</textarea>
                 </div>
-                <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i>Save Changes</button>
+                <button type="submit" class="btn btn-primary" data-year-write><i class="fas fa-save me-1"></i>Save Changes</button>
             </form>`,
             () => {
                 document.getElementById('editAlumniForm')?.addEventListener('submit', async (e) => {
@@ -270,7 +279,7 @@ const AlumniController = {
             'Next School', 'Career Interest', 'Final Grade', 'Final Average', 'Awards', 'Status'];
         const rows = this.state.alumni.map((a, i) => [
             i + 1, a.admission_no || '', a.first_name || '', a.middle_name || '', a.last_name || '',
-            a.graduation_year || '', a.class_name || '', a.stream_name || '',
+            this.classOf(a), a.class_name || '', a.stream_name || '',
             a.contact_email || '', a.contact_phone || '',
             a.next_school || '', a.career_interest || '',
             a.final_grade || '', a.final_average || '', a.awards || '',

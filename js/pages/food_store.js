@@ -251,7 +251,7 @@ const FoodStoreController = {
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-primary" onclick="FoodStoreController.openItemModal(${i.id})" title="Edit"><i class="fas fa-edit"></i></button>
-                        <button class="btn btn-outline-danger" onclick="FoodStoreController.deleteItem(${i.id})" title="Delete"><i class="fas fa-trash"></i></button>
+                        <button class="btn btn-outline-danger" onclick="FoodStoreController.deleteItem(${i.id})" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
                     </div>
                 </td>
             </tr>`;

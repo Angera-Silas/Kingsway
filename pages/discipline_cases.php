@@ -27,7 +27,7 @@ $appBase = app_base_path();
                     <button class="btn btn-outline-light btn-sm" id="printCasesBtn">
                         <i class="bi bi-printer"></i> Print
                     </button>
-                    <button class="btn btn-light btn-sm" id="addCaseBtn" style="display: none;">
+                    <button class="btn btn-light btn-sm" id="addCaseBtn" style="display: none;" data-year-write>
                         <i class="bi bi-plus-circle"></i> Add Case
                     </button>
                 </div>
@@ -371,7 +371,7 @@ $appBase = app_base_path();
                                 </div>
                             </div>
                             <div class="mt-3">
-                                <button class="btn btn-success" id="updateCaseBtn">
+                                <button class="btn btn-success" id="updateCaseBtn" data-year-write>
                                     <i class="bi bi-check-lg me-1"></i> Update Case
                                 </button>
                             </div>

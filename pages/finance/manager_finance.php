@@ -68,7 +68,7 @@
     <input type="date" class="form-input" id="dateToFilter" placeholder="To">
     <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
     <button class="btn btn-outline" onclick="exportTransactions()">📥 Export</button>
-    <button class="btn btn-primary" data-hide-for-director="true" onclick="showAddTransactionModal()">➕ Add Transaction</button>
+    <button class="btn btn-primary" data-hide-for-director="true" onclick="showAddTransactionModal()" data-year-write>➕ Add Transaction</button>
 </div>
 
 <!-- Data Table - Limited columns -->
@@ -151,7 +151,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveTransaction()">Save Transaction</button>
+                <button class="btn btn-primary" onclick="saveTransaction()" data-year-write>Save Transaction</button>
             </div>
         </div>
     </div>

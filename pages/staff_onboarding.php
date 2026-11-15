@@ -12,7 +12,7 @@
         <i class="bi bi-exclamation-circle me-1"></i>Pending Actions
       </button>
       <button class="btn btn-sm btn-success" id="newOnboardingBtn" style="display:none"
-              onclick="staffOnboardingController.showInitiateModal()">
+              onclick="staffOnboardingController.showInitiateModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i>Initiate Onboarding
       </button>
     </div>
@@ -296,7 +296,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="staffOnboardingController.saveDocument()">Save Document</button>
+        <button class="btn btn-primary" onclick="staffOnboardingController.saveDocument()" data-year-write>Save Document</button>
       </div>
     </div>
   </div>
@@ -382,7 +382,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-warning" onclick="staffOnboardingController.saveReview()">Save Review</button>
+        <button class="btn btn-warning" onclick="staffOnboardingController.saveReview()" data-year-write>Save Review</button>
       </div>
     </div>
   </div>

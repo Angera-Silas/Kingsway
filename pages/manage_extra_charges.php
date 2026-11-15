@@ -16,7 +16,7 @@
         <p class="text-muted mb-0">School charges outside normal tuition. Transport and uniforms use their own billing modules and accounts.</p>
     </div>
     <div>
-        <button class="btn btn-primary btn-sm" id="btnCreateCharge"><i class="bi bi-plus-lg"></i> New Extra Charge</button>
+        <button class="btn btn-primary btn-sm" id="btnCreateCharge" data-year-write><i class="bi bi-plus-lg"></i> New Extra Charge</button>
     </div>
 </div>
 
@@ -175,7 +175,7 @@
                     <div class="mb-3">
                         <label class="form-label">Pricing Tiers <small class="text-muted">(optional — for different amounts per category)</small></label>
                         <div id="pricingTiersContainer"></div>
-                        <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="btnAddTier"><i class="bi bi-plus"></i> Add Tier</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="btnAddTier" data-year-write><i class="bi bi-plus"></i> Add Tier</button>
                     </div>
 
                     <hr>
@@ -280,7 +280,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="btnSaveCharge">Save</button>
+                <button type="button" class="btn btn-primary" id="btnSaveCharge" data-year-write>Save</button>
             </div>
         </div>
     </div>
@@ -303,7 +303,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" id="btnConfirmReject">Reject</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmReject" data-year-write>Reject</button>
             </div>
         </div>
     </div>

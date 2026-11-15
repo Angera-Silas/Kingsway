@@ -313,7 +313,7 @@ const AllTeachersController = {
                         <button class="btn btn-outline-primary" onclick="AllTeachersController.viewTeacher(${Number(teacher.id)})" title="View">
                             <i class="bi bi-eye"></i>
                         </button>
-                        <button class="btn btn-outline-info" onclick="AllTeachersController.viewAssignments(${Number(teacher.id)})" title="View Assignments">
+                        <button class="btn btn-outline-info" onclick="AllTeachersController.viewAssignments(${Number(teacher.id)})" title="View Assignments" data-year-write>
                             <i class="bi bi-journal-text"></i>
                         </button>
                         <button class="btn btn-outline-warning" onclick="AllTeachersController.viewWorkload(${Number(teacher.id)})" title="View Workload">

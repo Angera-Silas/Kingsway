@@ -276,7 +276,7 @@ const MarkAttendanceController = {
               <input type="text" class="form-control form-control-sm notes-input" data-student-id="${this.escapeHtml(p.student_id)}" value="${this.escapeHtml(att.notes || "")}" placeholder="Notes">
             </td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="MarkAttendanceController.markOne(${this.escapeHtml(p.student_id)}, 'picked_up')">
+              <button class="btn btn-sm btn-outline-primary" onclick="MarkAttendanceController.markOne(${this.escapeHtml(p.student_id)}, 'picked_up')" data-year-write>
                 <i class="bi bi-arrow-up"></i>
               </button>
             </td>

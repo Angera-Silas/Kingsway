@@ -266,7 +266,7 @@
                     '<input type="text" class="form-control form-control-sm" placeholder="Total" name="item_total[]" readonly>' +
                 '</div>' +
                 '<div class="col-md-1">' +
-                    '<button type="button" class="btn btn-outline-danger btn-sm" onclick="PurchaseOrdersController.removeItemRow(this)" title="Remove">' +
+                    '<button type="button" class="btn btn-outline-danger btn-sm" onclick="PurchaseOrdersController.removeItemRow(this)" title="Remove" data-year-write>' +
                         '<i class="fas fa-trash"></i>' +
                     '</button>' +
                 '</div>';

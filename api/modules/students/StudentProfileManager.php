@@ -1904,7 +1904,14 @@ if ($classId) {
             $assignedTo = !empty($filters['assigned_to']) ? (int) $filters['assigned_to'] : null;
             $search = !empty($filters['search']) ? trim($filters['search']) : '';
 
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            // Year-aware (2026-11-15): cases opened in the selected year (the
+            // current year by default), with the learner's class of THAT year.
+            $year = \App\API\Services\YearScope::listYear($this->db, $filters);
+            $yearDates = $this->db->prepare('SELECT start_date, end_date FROM academic_years WHERE id = ? LIMIT 1');
+            $yearDates->execute([$year['year_id']]);
+            $dates = $yearDates->fetch(PDO::FETCH_ASSOC) ?: ['start_date' => '1000-01-01', 'end_date' => '9999-12-31'];
+            $lp = ReadReplicaService::qualifiedRef('learner_placement_history');
+            $yearIdSql = (int) $year['year_id'];
             $sql = "SELECT
                         swc.id,
                         swc.case_code,
@@ -1927,12 +1934,14 @@ if ($classId) {
                     INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = swc.student_id
                     INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     LEFT JOIN {$lp} lp ON lp.student_id = s.id
+                        AND lp.academic_year_id = {$yearIdSql}
+                        AND lp.enrollment_status IN ('active','completed','graduated','transferred','withdrawn')
                     LEFT JOIN users u ON u.id = swc.assigned_to
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " up ON up.id = u.person_id
                     LEFT JOIN student_welfare_notes swn ON swn.welfare_case_id = swc.id
-                    WHERE s.status = 'active'";
+                    WHERE DATE(swc.opened_at) BETWEEN ? AND ?" . ($year['is_current'] ? " AND s.status = 'active'" : '') . "";
 
-            $bindings = [];
+            $bindings = [$dates['start_date'], $dates['end_date']];
 
             if (($user['role'] ?? '') === 'chaplain' && !empty($user['id'])) {
                 $sql .= " AND swc.assigned_to = ?";

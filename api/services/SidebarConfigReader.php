@@ -857,6 +857,7 @@ class SidebarConfigReader
             'lesson_plans_' => 'Academic',
             'formative_assessments' => 'Assessment & Exams',
             'national_exams' => 'Assessment & Exams',
+            'class_records' => 'Assessment & Exams',
             // Financial ownership must be resolved before broad learner,
             // parent, staff, or transport prefixes. These routes move money,
             // establish charges, or reconcile a financial ledger.

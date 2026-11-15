@@ -101,14 +101,14 @@ const activitiesController = {
                   <td>${this.statusBadge(a.status)}</td>
                   <td>${a.participant_count ?? a.participants_count ?? '—'}</td>
                   <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editActivity(${a.id || a.activity_id})">
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editActivity(${a.id || a.activity_id})" data-year-write>
                       <i class="bi bi-pencil"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-success me-1" title="Register participant"
                       onclick="activitiesController.showParticipantModal(${a.id || a.activity_id})">
                       <i class="bi bi-person-plus"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteActivity(${a.id || a.activity_id})">
+                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteActivity(${a.id || a.activity_id})" data-year-write>
                       <i class="bi bi-trash"></i>
                     </button>
                   </td>
@@ -243,10 +243,10 @@ const activitiesController = {
                   <td>${this.esc(c.description ?? '—')}</td>
                   <td>${this.statusBadge(c.is_active != null ? (c.is_active ? 'active' : 'inactive') : (c.status ?? ''))}</td>
                   <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editCategory(${c.id ?? c.category_id})">
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editCategory(${c.id ?? c.category_id})" data-year-write>
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteCategory(${c.id ?? c.category_id})">
+                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteCategory(${c.id ?? c.category_id})" data-year-write>
                       <i class="bi bi-trash"></i>
                     </button>
                   </td>
@@ -446,10 +446,10 @@ const activitiesController = {
                   <td>${s.start_time ? s.start_time.slice(0,5) : '—'}${s.end_time ? ' – ' + s.end_time.slice(0,5) : ''}</td>
                   <td>${this.esc(s.venue ?? '—')}</td>
                   <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editSchedule(${s.id ?? s.schedule_id})">
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editSchedule(${s.id ?? s.schedule_id})" data-year-write>
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteSchedule(${s.id ?? s.schedule_id})">
+                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteSchedule(${s.id ?? s.schedule_id})" data-year-write>
                       <i class="bi bi-trash"></i>
                     </button>
                   </td>
@@ -557,10 +557,10 @@ const activitiesController = {
                   <td>${r.quantity ?? '—'}</td>
                   <td>${this.statusBadge(r.status ?? r.availability_status)}</td>
                   <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editResource(${r.id ?? r.resource_id})">
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="activitiesController.editResource(${r.id ?? r.resource_id})" data-year-write>
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteResource(${r.id ?? r.resource_id})">
+                    <button class="btn btn-sm btn-outline-danger" onclick="activitiesController.deleteResource(${r.id ?? r.resource_id})" data-year-write>
                       <i class="bi bi-trash"></i>
                     </button>
                   </td>

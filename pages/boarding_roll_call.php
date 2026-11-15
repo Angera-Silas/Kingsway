@@ -213,15 +213,15 @@
         <div class="card-body border-bottom bg-light">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div class="btn-group">
-                    <button id="markAllPresent" class="btn btn-success btn-sm">
+                    <button id="markAllPresent" class="btn btn-success btn-sm" data-year-write>
                         <i class="bi bi-check-all me-1"></i> All Present
                     </button>
-                    <button id="markAllAbsent" class="btn btn-danger btn-sm">
+                    <button id="markAllAbsent" class="btn btn-danger btn-sm" data-year-write>
                         <i class="bi bi-x-circle me-1"></i> All Absent
                     </button>
                 </div>
                 <div>
-                    <button id="submitRollCall" class="btn btn-primary">
+                    <button id="submitRollCall" class="btn btn-primary" data-year-write>
                         <i class="bi bi-check2-circle me-2"></i>Submit Roll Call
                     </button>
                 </div>

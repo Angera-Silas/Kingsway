@@ -2786,7 +2786,7 @@ if ($classId) {
         try {
             $ratings = $data['ratings'] ?? [];
             $termId  = (int) ($data['term_id'] ?? 0);
-            $acadYear = $data['academic_year'] ?? date('Y');
+            $acadYear = \App\API\Services\YearScope::legacyYear($this->db, $data);
             if (!$termId || empty($ratings)) return $this->errorResponse('term_id and ratings are required', 400);
 
             $lvlRows = $this->dbQuery("SELECT id, code FROM performance_levels_cbc")->fetchAll(PDO::FETCH_ASSOC);
@@ -7460,9 +7460,13 @@ la.learning_area_family_id, la.name AS learning_area_family,
                         class_name, stream_name, portfolio_id, academic_year,
                         portfolio_status
                  FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('portfolio_hub_class') . "
-                 WHERE class_id = :cid AND filter_term_id = :tid
+                 WHERE class_id = :cid AND filter_term_id = :tid" . ($termId ? '' : ' AND academic_year_id = :yid') . "
                  ORDER BY first_name, last_name",
-                [':cid' => $classId, ':tid' => $termId]
+                // A term (academic_year_terms.id) pins its own year; the whole
+                // year view shows the selected academic year, default current.
+                $termId
+                    ? [':cid' => $classId, ':tid' => $termId]
+                    : [':cid' => $classId, ':tid' => 0, ':yid' => \App\API\Services\YearScope::listYear($this->db, $query)['year_id']]
             )->fetchAll(PDO::FETCH_ASSOC);
 
             if (!$learners) return $this->successResponse(['learners' => [], 'manifest' => [], 'term_id' => $termId, 'class_id' => $classId], 'No active learners in this class');
@@ -7652,7 +7656,7 @@ la.learning_area_family_id, la.name AS learning_area_family,
         try {
             $studentId = (int) ($data['student_id'] ?? 0);
             $title = trim($data['title'] ?? '');
-            $academicYear = (int) ($data['academic_year'] ?? date('Y'));
+            $academicYear = \App\API\Services\YearScope::legacyYear($this->db, $data);
             $type = $data['portfolio_type'] ?? 'digital';
             $description = trim($data['description'] ?? '');
 

@@ -71,7 +71,7 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
             </button>
         </li>
 	        <li class="nav-item" role="presentation" data-appointment-tab="new">
-            <button class="nav-link" id="new-tab" data-bs-toggle="tab" data-bs-target="#newAppointmentsPane" type="button" role="tab">
+            <button class="nav-link" id="new-tab" data-bs-toggle="tab" data-bs-target="#newAppointmentsPane" type="button" role="tab" data-year-write>
                 New Staff Appointments
             </button>
         </li>

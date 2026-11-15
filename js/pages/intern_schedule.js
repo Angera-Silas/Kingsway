@@ -152,25 +152,6 @@ const internScheduleController = (() => {
   }
 
   async function init() {
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload schedule when academic year or term changes
-          loadSchedule();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      currentTerm = window.AcademicContext.getTermId();
-    }
     
     currentWeek = getISOWeek(new Date());
 
@@ -182,7 +163,10 @@ const internScheduleController = (() => {
     if (nextBtn) nextBtn.addEventListener('click', nextWeek);
     if (todayBtn) todayBtn.addEventListener('click', goToday);
 
-    loadSchedule();
+    // The shared year/term selector (current year, running term by default)
+    // loads the page now and on every change.
+    const yearBar = await window.AcademicYearFilter?.mountBar({ term: true, allTermsLabel: 'All terms', onChange: (yearId, year, termId) => { currentAcademicYear = yearId; currentTerm = termId; loadSchedule(); } });
+    if (!yearBar) await loadSchedule();
   }
 
   return { init, prevWeek, nextWeek, goToday };

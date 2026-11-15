@@ -17,7 +17,7 @@
                     <h4 class="mb-1"><i class="bi bi-trophy me-2"></i>Competitions</h4>
                     <p class="text-muted mb-0">Record and track school competitions</p>
                 </div>
-                <button class="btn btn-primary" onclick="CompetitionsController.showAddModal()"><i class="bi bi-plus-lg me-1"></i> Add New</button>
+                <button class="btn btn-primary" onclick="CompetitionsController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add New</button>
             </div>
         </div>
     </div>
@@ -84,8 +84,8 @@
                         <td><span class="badge" data-field="result"></span></td>
                         <td data-field="award"></td>
                         <td>
-                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit"><i class="fas fa-edit"></i></button>
-                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete"><i class="fas fa-trash"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
                         </td>
                     </tr>
                 </template>
@@ -101,7 +101,7 @@
         <div class="mb-3"><label class="form-label">Date</label><input type="date" class="form-control" id="recordDate"></div>
         <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="active">Active</option><option value="inactive">Inactive</option><option value="pending">Pending</option></select></div>
     </form></div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="CompetitionsController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="CompetitionsController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>
 
 <script src="<?= $appBase ?>/js/pages/competitions.js?v=<?php echo asset_version('js/pages/competitions.js'); ?>"></script>

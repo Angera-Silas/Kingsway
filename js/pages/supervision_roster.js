@@ -135,8 +135,8 @@ const SupervisionRosterController = (() => {
                     <td><span class="badge bg-${statusClass}">${esc(r.status || 'assigned')}</span></td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-warning btn-sm" onclick="SupervisionRosterController.edit(${r.id})" title="Edit"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-danger btn-sm" onclick="SupervisionRosterController.remove(${r.id})" title="Delete"><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-warning btn-sm" onclick="SupervisionRosterController.edit(${r.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-danger btn-sm" onclick="SupervisionRosterController.remove(${r.id})" title="Delete" data-year-write><i class="bi bi-trash"></i></button>
                         </div>
                     </td>
                 </tr>

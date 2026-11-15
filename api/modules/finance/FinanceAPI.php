@@ -285,9 +285,9 @@ class FinanceAPI extends BaseAPI
     /**
      * Reports: summary totals for the reports landing page.
      */
-    public function getFinancialSummaryReport()
+    public function getFinancialSummaryReport(array $filters = [])
     {
-        return $this->reportingManager->getFinancialSummaryReport();
+        return $this->reportingManager->getFinancialSummaryReport($filters);
     }
 
     /**

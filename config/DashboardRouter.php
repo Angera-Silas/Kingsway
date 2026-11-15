@@ -73,6 +73,11 @@ class DashboardRouter
         'create_assessment' => 'my_cats',
         'create_subject_cat' => 'my_cats',
         'my_subject_cats' => 'my_cats',
+        // Free-form "class + subject + term" marks pages: marks belong to an
+        // assessment, and these posted to a workflow endpoint that never
+        // accepted them. Summative marks are entered per exam here.
+        'enter_results' => 'enter_exam_results',
+        'add_results' => 'enter_exam_results',
         'staff_onboarding' => 'manage_staff',
         'staff_lifecycle' => 'manage_staff',
         'import_existing_staff' => 'manage_staff',
@@ -535,6 +540,17 @@ private const ROUTE_ROLES = [
     {
         $key = trim($key);
         return self::DASHBOARD_ALIASES[$key] ?? $key;
+    }
+
+    /**
+     * The route whose page is rendered: dashboard aliases, then retired
+     * pages that resolve to their replacement (ROUTE_ALIASES), so an old
+     * bookmark opens the working page instead of the retired template.
+     */
+    public static function renderedRoute(string $key): string
+    {
+        $key = self::normalizeDashboardKey($key);
+        return self::ROUTE_ALIASES[$key] ?? $key;
     }
 
     public static function getDefaultDashboard(): string

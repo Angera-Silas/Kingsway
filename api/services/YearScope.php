@@ -36,9 +36,16 @@ final class YearScope
     private PDO $db;
     private ?string $today;
 
-    public function __construct(?PDO $db = null, ?string $today = null)
+    /**
+     * @param PDO|\App\Database\Database|null $db a PDO or the Database
+     *        wrapper some services hold (its connection is used)
+     */
+    public function __construct($db = null, ?string $today = null)
     {
-        $this->db = $db ?: Database::getInstance()->getConnection();
+        if ($db !== null && !($db instanceof PDO) && method_exists($db, 'getConnection')) {
+            $db = $db->getConnection();
+        }
+        $this->db = $db instanceof PDO ? $db : Database::getInstance()->getConnection();
         $this->today = $today;
     }
 
@@ -79,6 +86,84 @@ final class YearScope
             'year' => $year,
             'term' => $term,
         ];
+    }
+
+    /**
+     * The year a LIST shows: academic_year_id / year_id from the filters,
+     * else the current year. is_current tells callers whether to keep
+     * current-only conditions (e.g. active learners) or show the whole roll.
+     *
+     * @return array{year_id:int, is_current:bool}
+     */
+    public static function listYear($db, array $filters): array
+    {
+        $scope = new self($db);
+        $current = $scope->currentYearId();
+        $requested = $scope->positiveInt($filters['academic_year_id'] ?? $filters['year_id'] ?? null);
+        $yearId = $requested > 0 ? $requested : $current;
+        return ['year_id' => $yearId, 'is_current' => $yearId === $current];
+    }
+
+    /**
+     * GET endpoints that filter by a date range (date_from / date_to) rather
+     * than by year: controller => [method names]. When such a request names
+     * an academic year (academic_year_id / year_id) and no dates, the router
+     * fills date_from / date_to with that year's start and end dates, so the
+     * endpoint shows the chosen year without code changes. A request that
+     * names no year keeps the endpoint's own default.
+     */
+    public const DATE_SCOPED = [
+        'boarding' => ['getExeats', 'getRollCall', 'getOccupancy', 'getStats'],
+        'attendance' => ['getAcademicSummary', 'getRegisterRange'],
+        'payments' => ['getStats', 'getCollectionTrends', 'getRevenueSources'],
+    ];
+
+    /**
+     * Fill date_from / date_to from the named academic year for a
+     * date-scoped GET (see DATE_SCOPED). Returns the (possibly) updated data.
+     */
+    public static function fillDateRange($db, string $controller, string $methodName, array $data): array
+    {
+        if (!in_array($methodName, self::DATE_SCOPED[strtolower($controller)] ?? [], true)) return $data;
+        if (!empty($data['date_from']) || !empty($data['date_to'])) return $data;
+        $scope = new self($db);
+        $yearId = $scope->positiveInt($data['academic_year_id'] ?? $data['year_id'] ?? null);
+        if ($yearId <= 0) return $data;
+        $year = $scope->year($yearId);
+        if (!$year) return $data;
+        $data['date_from'] = substr((string) $year['start_date'], 0, 10);
+        $data['date_to'] = substr((string) $year['end_date'], 0, 10);
+        return $data;
+    }
+
+    /**
+     * The calendar-year number to store in a legacy `academic_year` YEAR
+     * column (the 21 tables of migration 20261115_academic_year_id_beside_
+     * calendar_year_columns; their triggers fill academic_year_id from it).
+     *
+     * Taken from, in order: academic_year_id / year_id (that year's start
+     * year); academic_year given as a year code ("2026/2027") or a number;
+     * else the CURRENT ACADEMIC YEAR's start year. Never the calendar year
+     * of today: in January the school is often still in the previous
+     * academic year until the year is closed.
+     */
+    public static function legacyYear($db, array $data): int
+    {
+        $scope = new self($db);
+        $yearId = $scope->positiveInt($data['academic_year_id'] ?? $data['year_id'] ?? null);
+        if ($yearId > 0) {
+            $year = $scope->year($yearId);
+            if (!$year) {
+                throw new InvalidArgumentException('Academic year not found', 404);
+            }
+            return (int) substr((string) $year['start_date'], 0, 4);
+        }
+        $raw = trim((string) ($data['academic_year'] ?? ''));
+        if (preg_match('/^(\d{4})/', $raw, $m) && (int) $m[1] >= 1900 && (int) $m[1] <= 2200) {
+            return (int) $m[1];
+        }
+        $current = $scope->currentYear();
+        return $current ? (int) substr((string) $current['start_date'], 0, 4) : (int) date('Y');
     }
 
     /** The current year's id, or 0 when none is marked current. */

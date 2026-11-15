@@ -203,7 +203,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-warning" id="saveCaseBtn">Save Case</button>
+                <button class="btn btn-warning" id="saveCaseBtn" data-year-write>Save Case</button>
             </div>
         </div>
     </div>

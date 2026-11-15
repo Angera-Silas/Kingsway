@@ -36,6 +36,30 @@
     schemes_of_work: { term: false },
     // Phase 2: learners
     manage_students: { term: false },
+    // Phase 2: attendance, boarding, welfare, discipline (record/history pages;
+    // the operational "today" pages - roll calls, marking, sick bay - are not listed)
+    attendance_reports: { term: true },
+    chronic_absenteeism: { term: false },
+    discipline_cases: { term: false },
+    discipline_reports: { term: false },
+    student_welfare: { term: false },
+    welfare_records: { term: false },
+    welfare_summary: { term: false },
+    exeat_history: { term: false },
+    exeat_reports: { term: false },
+    boarding_reports: { term: false },
+    // Phase 3: finance (fee pages pick their own year; payroll is by calendar month)
+    payment_reports: { term: false },
+    // Learner lists built on students/student_context_view.php (the year
+    // picks each learner's class; other years list that year's roll only)
+    academic_students: { term: false },
+    all_students: { term: false },
+    discipline_students: { term: false },
+    my_students_list: { term: false },
+    students_by_class: { term: false },
+    students_overview: { term: false },
+    subject_students_list: { term: false },
+    view_class_lists: { term: false },
   });
 
   const YEAR = 'academic_year_id';
