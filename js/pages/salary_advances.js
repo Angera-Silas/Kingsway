@@ -108,7 +108,7 @@ const salaryAdvancesController = {
         actions.push(`<button class="btn btn-xs btn-outline-danger py-0 px-1" onclick="salaryAdvancesController.showApproval(${a.id},'reject')">Reject</button>`);
       }
       if (a.status === 'active' && this._canApprove) {
-        actions.push(`<button class="btn btn-xs btn-outline-warning py-0 px-1" onclick="salaryAdvancesController.recordDeduction(${a.id})">Deduct</button>`);
+        actions.push(`<button class="btn btn-xs btn-outline-warning py-0 px-1" onclick="salaryAdvancesController.recordDeduction(${a.id})" data-year-write>Deduct</button>`);
       }
 
       return `<tr>

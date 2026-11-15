@@ -161,7 +161,7 @@ const CounselingRecordsController = {
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-primary" onclick="CounselingRecordsController.viewSession(${session.id})" title="View"><i class="fas fa-eye"></i></button>
-                        <button class="btn btn-outline-warning" onclick="CounselingRecordsController.editSession(${session.id})" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-outline-warning" onclick="CounselingRecordsController.editSession(${session.id})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
                     </div>
                 </td>
             </tr>`;

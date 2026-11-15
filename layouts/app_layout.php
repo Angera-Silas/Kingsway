@@ -15,7 +15,7 @@ $route = $_GET['route'] ?? 'loading';
 $route = is_string($route) ? trim($route) : 'loading';
 $route = $route === 'loading'
     ? $route
-    : DashboardRouter::normalizeDashboardKey($route);
+    : DashboardRouter::renderedRoute($route);
 
 // Detect fragment mode (soft navigation)
 $isFragment = isset($_GET['fragment']) && $_GET['fragment'] === '1';

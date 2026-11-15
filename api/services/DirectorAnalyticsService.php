@@ -219,10 +219,10 @@ class DirectorAnalyticsService
     public function getFullDashboardData(array $filters = []): array
     {
         return [
-            'summary' => ['kpis' => $this->getSummaryKPIs()],
+            'summary' => ['kpis' => $this->getSummaryKPIs($filters)],
             'financial' => [
                 'trends' => $this->getFinancialTrends(),
-                'revenue_sources' => $this->getRevenueSources(),
+                'revenue_sources' => $this->getRevenueSources($filters),
             ],
             'academic' => [
                 'kpis' => $this->getAcademicKPIs(),
@@ -238,32 +238,36 @@ class DirectorAnalyticsService
     /**
      * Get comprehensive CEO summary KPIs
      */
-    public function getSummaryKPIs()
+    public function getSummaryKPIs(array $filters = [])
     {
         $result = [];
 
-        // Academic Year and Term (using correct columns)
-        $yearStmt = $this->db->query("SELECT year_name FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
-        $result['academic_year'] = $yearStmt->fetch()['year_name'] ?? date('Y');
+        // Year-aware (2026-11-15): the selected year (current by default) and
+        // its term in session / latest opened (YearScope rules).
+        $scope = (new \App\API\Services\YearScope($this->db))->fromRequest($filters, \App\API\Services\YearScope::TERM_DEFAULT);
+        $yearId = (int) $scope['year_id'];
+        $result['academic_year'] = $scope['year']['year_name'] ?? $scope['year']['year_code'] ?? '';
+        $result['academic_year_id'] = $yearId;
+        $termStmt = $this->db->query("SELECT term_name FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE academic_year_term_id = ? LIMIT 1", [(int) ($scope['year_term_id'] ?? 0)]);
+        $result['current_term'] = $termStmt->fetchColumn() ?: '—';
 
-        $termStmt = $this->db->query("SELECT term_name FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 ORDER BY academic_year_term_id DESC LIMIT 1");
-        $result['current_term'] = $termStmt->fetch()['term_name'] ?? 'Term 1';
+        // Learners on the year's roll (counting rules: one year, distinct
+        // learners, enrolment active / completed / graduated).
+        $rollSql = "SELECT COUNT(DISTINCT student_id) FROM " . ReadReplicaService::qualifiedRef('learner_placement_history') . "
+             WHERE academic_year_id = ? AND enrollment_status IN ('active','completed','graduated')";
+        $result['total_students'] = (int) $this->db->query($rollSql, [$yearId])->fetchColumn();
 
-        // Total Students
-        $query = "SELECT COUNT(*) as total FROM students WHERE status = 'active'";
-        $stmt = $this->db->query($query);
-        $result['total_students'] = $stmt->fetch()['total'] ?? 0;
-
-        // Student Growth (YoY) - simplified calculation
-        $query = "SELECT COUNT(*) as current_year FROM students WHERE YEAR(created_at) = YEAR(CURDATE()) AND status = 'active'";
-        $stmt = $this->db->query($query);
-        $current_year = $stmt->fetch()['current_year'] ?? 0;
-
-        $query = "SELECT COUNT(*) as last_year FROM students WHERE YEAR(created_at) = YEAR(CURDATE()) - 1 AND status = 'active'";
-        $stmt = $this->db->query($query);
-        $last_year = $stmt->fetch()['last_year'] ?? 1; // avoid division by zero
-
-        $result['student_growth'] = $last_year > 0 ? round((($current_year - $last_year) / $last_year) * 100, 1) : 0;
+        // Growth against the previous academic year's roll (not calendar
+        // years of record creation).
+        $startDate = (string) ($scope['year']['start_date'] ?? '');
+        $previousYearId = (int) ($this->db->query(
+            "SELECT id FROM academic_years WHERE start_date < ? ORDER BY start_date DESC LIMIT 1",
+            [$startDate]
+        )->fetchColumn() ?: 0);
+        $last_year = $previousYearId > 0 ? (int) $this->db->query($rollSql, [$previousYearId])->fetchColumn() : 0;
+        $result['student_growth'] = $last_year > 0
+            ? round((($result['total_students'] - $last_year) / $last_year) * 100, 1)
+            : 0;
 
         // Total Staff
         $query = "SELECT COUNT(DISTINCT u.id) as total
@@ -592,19 +596,24 @@ class DirectorAnalyticsService
      * Get revenue sources breakdown
      * Returns: [{ source, amount, percentage }]
      */
-    public function getRevenueSources()
+    public function getRevenueSources(array $filters = [])
     {
         try {
+            // Year-aware (2026-11-15): payments within the selected academic
+            // year's dates (finance follows the academic year), current by default.
+            $scope = (new \App\API\Services\YearScope($this->db))->fromRequest($filters);
+            $from = substr((string) ($scope['year']['start_date'] ?? date('Y-01-01')), 0, 10);
+            $to = substr((string) ($scope['year']['end_date'] ?? date('Y-12-31')), 0, 10);
             $stmt = $this->db->query("
                 SELECT
                     COALESCE(p.method, 'Other') as source,
                     SUM(p.amount) as amount
                 FROM payments p
-                WHERE p.payment_date >= DATE_FORMAT(CURDATE(), '%Y-01-01')
+                WHERE DATE(p.payment_date) BETWEEN ? AND ?
                   AND p.status = 'confirmed'
                 GROUP BY p.method
                 ORDER BY amount DESC
-            ");
+            ", [$from, $to]);
             $rows  = $stmt->fetchAll();
             $total = array_sum(array_column($rows, 'amount'));
 
@@ -616,7 +625,8 @@ class DirectorAnalyticsService
                 $mig = $this->db->query(
                     "SELECT COALESCE(SUM(migration_paid_amount), 0) AS total
                      FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
-                     WHERE academic_year_id = (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current = 1 ORDER BY id DESC LIMIT 1)"
+                     WHERE academic_year_id = ?",
+                    [(int) $scope['year_id']]
                 );
                 $migrationPaid = (float) ($mig->fetch()['total'] ?? 0);
             } catch (\Exception $e) {

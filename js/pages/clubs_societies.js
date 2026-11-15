@@ -122,7 +122,7 @@ const ClubsSocietiesController = {
                             <button class="btn btn-outline-primary" onclick="ClubsSocietiesController.viewMembers(${club.id})">
                                 <i class="fas fa-users me-1"></i>Members
                             </button>
-                            <button class="btn btn-outline-warning" onclick="ClubsSocietiesController.editClub(${club.id})">
+                            <button class="btn btn-outline-warning" onclick="ClubsSocietiesController.editClub(${club.id})" data-year-write>
                                 <i class="fas fa-edit"></i>
                             </button>
                         </div>

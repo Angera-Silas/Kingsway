@@ -50,7 +50,7 @@
             <label class="form-label">Description</label>
             <textarea class="form-control" id="caDesc" rows="3" maxlength="2000"></textarea>
           </div>
-          <button class="btn btn-primary w-100" id="caBtn" type="submit"><i class="bi bi-check-lg me-1"></i>Create Activity</button>
+          <button class="btn btn-primary w-100" id="caBtn" type="submit" data-year-write><i class="bi bi-check-lg me-1"></i>Create Activity</button>
         </form>
       </div>
     </div>

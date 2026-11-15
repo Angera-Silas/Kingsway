@@ -29,7 +29,7 @@
             <label class="form-label">Role</label>
             <input type="text" class="form-control" id="apRole" placeholder="e.g. Member, Captain">
           </div>
-          <button class="btn btn-success w-100" id="apBtn" type="submit"><i class="bi bi-check-lg me-1"></i>Register</button>
+          <button class="btn btn-success w-100" id="apBtn" type="submit" data-year-write><i class="bi bi-check-lg me-1"></i>Register</button>
         </form>
       </div>
     </div>

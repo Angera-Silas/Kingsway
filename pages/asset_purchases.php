@@ -251,7 +251,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="assetPurchasesController.saveAsset()">
+                <button type="button" class="btn btn-primary" onclick="assetPurchasesController.saveAsset()" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Save Asset
                 </button>
             </div>
@@ -298,7 +298,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" onclick="assetPurchasesController.confirmDispose()">
+                <button type="button" class="btn btn-danger" onclick="assetPurchasesController.confirmDispose()" data-year-write>
                     <i class="bi bi-trash me-1"></i> Confirm Disposal
                 </button>
             </div>

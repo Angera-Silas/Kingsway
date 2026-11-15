@@ -124,10 +124,10 @@
                             <i class="bi bi-eye"></i>
                         </button>
                         ${req.status === "pending" ? `
-                        <button class="btn btn-sm btn-outline-success me-1" onclick="ManageRequisitionsController.approveRequisition('${esc(req.id)}')" title="Approve">
+                        <button class="btn btn-sm btn-outline-success me-1" onclick="ManageRequisitionsController.approveRequisition('${esc(req.id)}')" title="Approve" data-year-write>
                             <i class="bi bi-check-lg"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="ManageRequisitionsController.rejectRequisition('${esc(req.id)}')" title="Reject">
+                        <button class="btn btn-sm btn-outline-danger" onclick="ManageRequisitionsController.rejectRequisition('${esc(req.id)}')" title="Reject" data-year-write>
                             <i class="bi bi-x-lg"></i>
                         </button>` : ""}
                     </td>
@@ -246,7 +246,7 @@
                 </div>
                 <div class="col-md-1">
                     <label class="form-label small fw-semibold d-block">&nbsp;</label>
-                    <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="ManageRequisitionsController.removeItemRow(this)" title="Remove">
+                    <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="ManageRequisitionsController.removeItemRow(this)" title="Remove" data-year-write>
                         <i class="bi bi-dash-circle"></i>
                     </button>
                 </div>

@@ -66,7 +66,7 @@
         <div id="mapPromptError" class="alert alert-danger small d-none mb-0"></div>
       </form>
     </div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" form="mapPromptForm" id="mapSendPrompt" class="btn btn-success"><i class="bi bi-phone me-1"></i>Send prompt</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" form="mapPromptForm" id="mapSendPrompt" class="btn btn-success" data-year-write><i class="bi bi-phone me-1"></i>Send prompt</button></div>
   </div></div>
 </div>
 

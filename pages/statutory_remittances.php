@@ -120,7 +120,7 @@
           <h6 class="fw-semibold mb-1">Current Statutory Settings</h6>
           <p class="small text-muted mb-0">These are the rates and tax bands currently used when preparing payroll. A new official notice is added as a new effective-dated setting; completed payrolls are not changed.</p>
         </div>
-        <button id="srAddRuleBtn" class="btn btn-primary btn-sm flex-shrink-0"><i class="bi bi-sliders me-1"></i>Manage statutory settings</button>
+        <button id="srAddRuleBtn" class="btn btn-primary btn-sm flex-shrink-0" data-year-write><i class="bi bi-sliders me-1"></i>Manage statutory settings</button>
       </div>
       <div class="table-responsive">
         <table class="table table-sm table-bordered mb-0">
@@ -156,13 +156,13 @@
       <div class="mt-3" id="srRuleBandsPanel" style="display:none">
         <div class="d-flex justify-content-between align-items-center mb-2">
           <label class="form-label mb-0">PAYE tax bands</label>
-          <button type="button" class="btn btn-sm btn-outline-primary" id="srAddBandBtn"><i class="bi bi-plus-lg me-1"></i>Add tax band</button>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="srAddBandBtn" data-year-write><i class="bi bi-plus-lg me-1"></i>Add tax band</button>
         </div>
         <p class="small text-muted">Enter each income range as separate values. Leave the upper limit blank for the final band.</p>
         <div id="srRuleBandsEditor"></div>
       </div>
     </div>
-    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button id="srSaveRuleBtn" class="btn btn-dark">Save Statutory Setting</button></div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button id="srSaveRuleBtn" class="btn btn-dark" data-year-write>Save Statutory Setting</button></div>
   </div></div>
 </div>
 
@@ -244,7 +244,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button id="srSaveBtn" class="btn btn-primary">Save Remittance</button>
+        <button id="srSaveBtn" class="btn btn-primary" data-year-write>Save Remittance</button>
       </div>
     </div>
   </div>
@@ -279,7 +279,7 @@
         <div class="col-md-4"><label class="form-label">Reason for leaving</label><input type="text" id="srCertificateReason" class="form-control"></div>
       </div>
     </div>
-    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="srSaveCertificateBtn">Save Certificate</button></div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="srSaveCertificateBtn" data-year-write>Save Certificate</button></div>
   </div></div>
 </div>
 

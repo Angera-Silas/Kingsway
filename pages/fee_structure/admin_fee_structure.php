@@ -356,8 +356,8 @@
         <div class="col-lg-5">
             <div class="hero-actions">
                 <button class="executive-btn secondary" onclick="exportFeeStructures()"><i class="bi bi-download me-2"></i>Export</button>
-                <button class="executive-btn secondary" onclick="showDuplicateModal()"><i class="bi bi-files me-2"></i>Duplicate Year</button>
-                <button class="executive-btn primary" onclick="showCreateFeeStructureModal()"><i class="bi bi-plus-lg me-2"></i>Create Structure</button>
+                <button class="executive-btn secondary" onclick="showDuplicateModal()" data-year-write><i class="bi bi-files me-2"></i>Duplicate Year</button>
+                <button class="executive-btn primary" onclick="showCreateFeeStructureModal()" data-year-write><i class="bi bi-plus-lg me-2"></i>Create Structure</button>
             </div>
         </div>
     </div>
@@ -494,7 +494,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('feeStructureModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveFeeStructure()" id="saveBtn">💾 Save</button>
+                <button class="btn btn-primary" onclick="saveFeeStructure()" id="saveBtn" data-year-write>💾 Save</button>
             </div>
         </div>
     </div>
@@ -513,8 +513,8 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
-                <button class="btn btn-warning" onclick="editFromView()" id="editFromViewBtn">✏️ Edit</button>
-                <button class="btn btn-success" onclick="approveFromView()" id="approveFromViewBtn">✅
+                <button class="btn btn-warning" onclick="editFromView()" id="editFromViewBtn" data-year-write>✏️ Edit</button>
+                <button class="btn btn-success" onclick="approveFromView()" id="approveFromViewBtn" data-year-write>✅
                     Approve</button>
             </div>
         </div>
@@ -536,7 +536,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('deleteConfirmModal')">Cancel</button>
-                <button class="btn btn-danger" onclick="confirmDelete()" id="confirmDeleteBtn">🗑️ Delete</button>
+                <button class="btn btn-danger" onclick="confirmDelete()" id="confirmDeleteBtn" data-year-write>🗑️ Delete</button>
             </div>
         </div>
     </div>
@@ -570,7 +570,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('duplicateStructureModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmDuplicate()" id="confirmDuplicateBtn">📑
+                <button class="btn btn-primary" onclick="confirmDuplicate()" id="confirmDuplicateBtn" data-year-write>📑
                     Duplicate</button>
             </div>
         </div>

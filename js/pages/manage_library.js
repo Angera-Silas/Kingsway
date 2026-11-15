@@ -184,10 +184,10 @@ const libraryController = {
           <td>${this._esc(b.location_shelf || '—')}</td>
           <td><span class="badge bg-${b.status === 'active' ? 'success' : 'secondary'}">${b.status}</span></td>
           <td>
-            <button class="btn btn-sm btn-outline-primary me-1" onclick="libraryController.editBook(${b.id})">
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="libraryController.editBook(${b.id})" data-year-write>
               <i class="bi bi-pencil"></i>
             </button>
-            <button class="btn btn-sm btn-outline-danger" onclick="libraryController.deleteBook(${b.id}, '${this._esc(b.title)}')">
+            <button class="btn btn-sm btn-outline-danger" onclick="libraryController.deleteBook(${b.id}, '${this._esc(b.title)}')" data-year-write>
               <i class="bi bi-trash"></i>
             </button>
           </td>
@@ -332,7 +332,7 @@ const libraryController = {
         <td>${this._esc(i.due_date || '—')}</td>
         <td>${od > 0 ? `<span class="badge bg-danger">${od} day${od!==1?'s':''}</span>` : '<span class="badge bg-success">On time</span>'}</td>
         <td>
-          <button class="btn btn-sm btn-success" onclick="libraryController.returnBook(${i.id}, '${this._esc(i.book_title)}')">
+          <button class="btn btn-sm btn-success" onclick="libraryController.returnBook(${i.id}, '${this._esc(i.book_title)}')" data-year-write>
             <i class="bi bi-box-arrow-in-left me-1"></i>Return
           </button>
         </td>

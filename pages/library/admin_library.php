@@ -17,7 +17,7 @@
       <button class="btn btn-outline-secondary btn-sm" onclick="libraryController.loadStats()">
         <i class="bi bi-arrow-clockwise"></i> Refresh
       </button>
-      <button class="btn btn-primary" onclick="libraryController.showAddBookModal()">
+      <button class="btn btn-primary" onclick="libraryController.showAddBookModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Add Book
       </button>
       <button class="btn btn-success" onclick="libraryController.showIssueModal()">
@@ -167,7 +167,7 @@
       <div class="card border-0 shadow-sm">
         <div class="card-body">
           <div class="d-flex justify-content-end mb-3">
-            <button class="btn btn-outline-primary btn-sm" onclick="libraryController.showAddCategoryModal()">
+            <button class="btn btn-outline-primary btn-sm" onclick="libraryController.showAddCategoryModal()" data-year-write>
               <i class="bi bi-plus me-1"></i> Add Category
             </button>
           </div>
@@ -247,7 +247,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="saveBookBtn" onclick="libraryController.saveBook()">Save Book</button>
+        <button type="button" class="btn btn-primary" id="saveBookBtn" onclick="libraryController.saveBook()" data-year-write>Save Book</button>
       </div>
     </div>
   </div>
@@ -289,7 +289,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" onclick="libraryController.submitIssue()">Issue Book</button>
+        <button type="button" class="btn btn-success" onclick="libraryController.submitIssue()" data-year-write>Issue Book</button>
       </div>
     </div>
   </div>
@@ -316,7 +316,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="libraryController.saveCategory()">Save</button>
+        <button type="button" class="btn btn-primary" onclick="libraryController.saveCategory()" data-year-write>Save</button>
       </div>
     </div>
   </div>

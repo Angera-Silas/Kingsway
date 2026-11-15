@@ -352,13 +352,13 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-success" id="markPickedUpBtn">
+                <button class="btn btn-success" id="markPickedUpBtn" data-year-write>
                     <i class="bi bi-arrow-up me-1"></i> Mark Picked Up
                 </button>
-                <button class="btn btn-warning" id="markDroppedOffBtn">
+                <button class="btn btn-warning" id="markDroppedOffBtn" data-year-write>
                     <i class="bi bi-arrow-down me-1"></i> Mark Dropped Off
                 </button>
-                <button class="btn btn-danger" id="markAbsentBtn">
+                <button class="btn btn-danger" id="markAbsentBtn" data-year-write>
                     <i class="bi bi-x-circle me-1"></i> Mark Absent
                 </button>
             </div>
@@ -442,7 +442,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-danger" id="saveIncidentBtn">
+                <button class="btn btn-danger" id="saveIncidentBtn" data-year-write>
                     <i class="bi bi-exclamation-triangle me-1"></i> Submit Report
                 </button>
             </div>

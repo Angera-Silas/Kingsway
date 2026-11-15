@@ -27,7 +27,7 @@ $appBase = app_base_path();
                     <button class="btn btn-outline-light btn-sm" id="printRecordsBtn">
                         <i class="bi bi-printer"></i> Print
                     </button>
-                    <button class="btn btn-light btn-sm" id="addRecordBtn" data-permission="students_create">
+                    <button class="btn btn-light btn-sm" id="addRecordBtn" data-permission="students_create" data-year-write>
                         <i class="bi bi-plus-circle"></i> Add IEP
                     </button>
                 </div>
@@ -463,7 +463,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-info" id="addIepSaveBtn">
+                <button type="button" class="btn btn-info" id="addIepSaveBtn" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Create IEP
                 </button>
             </div>

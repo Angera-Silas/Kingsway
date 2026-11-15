@@ -15,7 +15,7 @@ $roleCategory = 'admin';
         <p class="text-muted mb-0">Complete boarding facility administration</p>
     </div>
     <div class="btn-group">
-        <button class="btn btn-primary" id="addDormitoryBtn">
+        <button class="btn btn-primary" id="addDormitoryBtn" data-year-write>
             <i class="bi bi-plus-lg me-1"></i> Add Dormitory
         </button>
         <a href="<?= htmlspecialchars($appBase) ?>/home.php?route=boarding_roll_call" class="btn btn-success">
@@ -228,7 +228,7 @@ $roleCategory = 'admin';
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveDormitoryBtn">
+                <button type="button" class="btn btn-primary" id="saveDormitoryBtn" data-year-write>
                     <i class="bi bi-save me-1"></i> Save
                 </button>
             </div>

@@ -3029,6 +3029,28 @@ class PolarsReadModelRefresher:
             raise ReadModelError("Unknown read projection")
         return self._refresh_source_view(projection, definition, time.perf_counter())
 
+    def _restage_from_source(
+        self, reads, stage: str, stage_name: str, source: str, definition: dict[str, Any]
+    ) -> None:
+        """Recreate the empty stage with the source view's columns and types,
+        then add the projection's registered indexes."""
+        with reads.cursor() as cursor:
+            cursor.execute(f"DROP TABLE IF EXISTS {stage}")
+            cursor.execute(f"CREATE TABLE {stage} AS SELECT * FROM {source} WHERE 1=0")
+            cursor.execute(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
+                (self.config.db_reads_schema, stage_name),
+            )
+            columns = {str(row[0]) for row in cursor.fetchall()}
+            for name, index_columns in (definition.get("indexes") or {}).items():
+                if any(column not in columns for column in index_columns):
+                    raise ReadModelError(
+                        "Projection output does not match its registered index"
+                    )
+                keys = ",".join(_qid(column) for column in index_columns)
+                cursor.execute(f"ALTER TABLE {stage} ADD INDEX {_qid(name)} ({keys})")
+
     def _refresh_source_view(
         self, projection: str, definition: dict[str, Any], started: float
     ) -> dict[str, Any]:
@@ -3090,9 +3112,12 @@ class PolarsReadModelRefresher:
                     cursor.execute(f"SHOW COLUMNS FROM {target}")
                     target_columns = [str(row[0]) for row in cursor.fetchall()]
                 if source_columns != target_columns:
-                    raise ReadModelError(
-                        "Read projection source and target schemas differ"
-                    )
+                    # The source view gained, lost or reordered columns (a
+                    # migration changed it). Build the stage from the
+                    # source's own shape and the registered indexes instead
+                    # of the old target's, so a view change publishes on the
+                    # next refresh without a hand-made table rebuild.
+                    self._restage_from_source(reads, stage, stage_name, source, definition)
 
                 names_sql = ",".join(_qid(column) for column in source_columns)
                 placeholders = ",".join(["%s"] * len(source_columns))

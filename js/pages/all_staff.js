@@ -249,8 +249,8 @@ const StaffController = (() => {
             <td>${statusBadge}</td>
             <td>
               <button class="btn btn-sm btn-info" onclick="StaffController.viewDetail(${s.id})" title="View"><i class="fas fa-eye"></i></button>
-              <button class="btn btn-sm btn-warning" onclick="StaffController.editStaff(${s.id})" title="Edit"><i class="fas fa-edit"></i></button>
-              <button class="btn btn-sm btn-danger" onclick="StaffController.removeStaff(${s.id})" title="Delete"><i class="fas fa-trash"></i></button>
+              <button class="btn btn-sm btn-warning" onclick="StaffController.editStaff(${s.id})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
+              <button class="btn btn-sm btn-danger" onclick="StaffController.removeStaff(${s.id})" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
             </td>
           </tr>`;
         }

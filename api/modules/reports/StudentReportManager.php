@@ -244,14 +244,21 @@ class StudentReportManager extends BaseAPI
         // 'retained' is not recorded as a transition row (tracked in promotion_batches),
         // so it is reported as 0 here.
         try {
+            // Grouped by the year the learners were promoted or graduated OUT
+            // of (their from-enrolment's academic year), e.g. 2026/2027 ->
+            // promoted into 2027/2028 / graduating class of 2026.
             $sql = "SELECT
-                        YEAR(COALESCE(st.executed_at, st.decided_at, NOW())) AS promotion_year,
+                        YEAR(fay.start_date) AS promotion_year,
+                        fay.id AS academic_year_id,
+                        fay.year_code AS academic_year,
                         COUNT(*) AS total_processed,
                         SUM(CASE WHEN st.transition_type = 'promotion' THEN 1 ELSE 0 END) AS promoted,
                         SUM(CASE WHEN st.transition_type = 'graduation' THEN 1 ELSE 0 END) AS graduated,
-                        0 AS retained
-                    FROM student_transitions st
-                    GROUP BY promotion_year
+                        SUM(CASE WHEN st.transition_type = 'retention' THEN 1 ELSE 0 END) AS retained
+                    FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " st
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = st.from_student_academic_enrollment_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " fay ON fay.id = COALESCE(sae.academic_year_id, st.academic_year_id)
+                    GROUP BY fay.id, fay.year_code, promotion_year
                     ORDER BY promotion_year DESC";
             $stmt = $this->db->query($sql);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);

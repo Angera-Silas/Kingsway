@@ -422,7 +422,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-warning" id="saveMealPlanBtn">
+                <button class="btn btn-warning" id="saveMealPlanBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Save Plan
                 </button>
             </div>

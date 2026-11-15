@@ -252,7 +252,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
+                    <button type="submit" class="btn btn-success" data-year-write>
                         <i class="bi bi-check2-circle me-1"></i>Submit Approval
                     </button>
                 </div>

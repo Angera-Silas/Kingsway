@@ -112,7 +112,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="welfareFUController.save()">Save Follow-up</button>
+        <button type="button" class="btn btn-primary" onclick="welfareFUController.save()" data-year-write>Save Follow-up</button>
       </div>
     </div>
   </div>

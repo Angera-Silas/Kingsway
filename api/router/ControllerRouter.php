@@ -183,6 +183,22 @@ class ControllerRouter
             // Get request data
             $data = $this->getRequestBody($method);
 
+            // Date-range endpoints show the academic year a request names
+            // (YearScope::DATE_SCOPED); handlers read either $data or $_GET.
+            if ($method === 'GET' && is_array($data)) {
+                $scoped = \App\API\Services\YearScope::fillDateRange(
+                    \App\Database\Database::getInstance()->getConnection(),
+                    (string) $controllerName,
+                    (string) $methodName,
+                    $data
+                );
+                if ($scoped !== $data) {
+                    $_GET['date_from'] = $scoped['date_from'];
+                    $_GET['date_to'] = $scoped['date_to'];
+                    $data = $scoped;
+                }
+            }
+
             // A completed academic year is readable by all but writable only
             // by its editors (YearWriteScopeService documents the rule).
             $yearDenied = (new \App\API\Services\YearWriteScopeService())

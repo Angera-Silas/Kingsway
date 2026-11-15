@@ -961,7 +961,7 @@
             <div class="modal-footer" style="border-top: 1px solid var(--payroll-line); padding: 16px 28px;">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: 10px; font-weight: 600;">Cancel</button>
                 <button type="button" class="btn" id="processPayrollBtn" onclick="PayrollManagerController.submitPayroll()" disabled
-                        style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700; padding: 10px 24px;">
+                        style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700; padding: 10px 24px;" data-year-write>
                     <i class="bi bi-check-lg-circle me-1"></i><span id="processPayrollButtonLabel">Prepare Draft</span>
                 </button>
             </div>
@@ -1038,7 +1038,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn" onclick="PayrollManagerController.submitBulkPayroll()"
-                        style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700;">
+                        style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700;" data-year-write>
                     <i class="bi bi-check-lg-circle me-1"></i> Process Selected Payrolls
                 </button>
             </div>
@@ -1090,7 +1090,7 @@
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
                     <i class="bi bi-x-circle"></i> Cancel
                 </button>
-                <button type="button" class="btn text-white" id="payrollConfirmOk" style="background: #0d4f2a;">
+                <button type="button" class="btn text-white" id="payrollConfirmOk" style="background: #0d4f2a;" data-year-write>
                     <i class="bi bi-check-circle"></i> Confirm
                 </button>
             </div>
@@ -1169,11 +1169,11 @@
       </ul>
       <div class="tab-content">
         <section class="tab-pane fade show active" id="roleSalaryTab">
-          <form id="roleSalaryRateForm" class="row g-3"><div class="col-md-5"><label class="form-label" for="salaryRateRole">Primary role</label><select class="form-select" id="salaryRateRole" required></select></div><div class="col-md-3"><label class="form-label" for="salaryRateAmount">Monthly gross salary (KES)</label><input class="form-control" id="salaryRateAmount" type="number" min="0.01" step="0.01" required></div><div class="col-md-2"><label class="form-label" for="salaryRateFrom">Effective from</label><input class="form-control" id="salaryRateFrom" type="date" required></div><div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Save rate</button></div></form>
+          <form id="roleSalaryRateForm" class="row g-3"><div class="col-md-5"><label class="form-label" for="salaryRateRole">Primary role</label><select class="form-select" id="salaryRateRole" required></select></div><div class="col-md-3"><label class="form-label" for="salaryRateAmount">Monthly gross salary (KES)</label><input class="form-control" id="salaryRateAmount" type="number" min="0.01" step="0.01" required></div><div class="col-md-2"><label class="form-label" for="salaryRateFrom">Effective from</label><input class="form-control" id="salaryRateFrom" type="date" required></div><div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit" data-year-write>Save rate</button></div></form>
           <div class="table-responsive mt-4"><table class="table table-sm"><thead><tr><th>Role</th><th>Current configured rate</th><th>Effective from</th><th>To</th></tr></thead><tbody id="roleSalaryRatesBody"></tbody></table></div>
         </section>
         <section class="tab-pane fade" id="individualSalaryTab">
-          <form id="individualSalaryForm" class="row g-3 align-items-end"><div class="col-md-5"><label class="form-label" for="individualSalaryStaff">Staff member</label><select class="form-select" id="individualSalaryStaff" required></select></div><div class="col-md-3"><label class="form-label" for="individualSalaryAmount">Individual gross salary (KES)</label><input class="form-control" id="individualSalaryAmount" type="number" min="0.01" step="0.01" required></div><div class="col-md-2"><label class="form-label" for="individualSalaryFrom">Effective from</label><input class="form-control" id="individualSalaryFrom" type="date" required></div><div class="col-md-2"><button class="btn btn-primary w-100" type="submit">Save amount</button></div><div class="col-12"><button class="btn btn-outline-secondary btn-sm" type="button" id="clearIndividualSalaryOverride">End override from selected date</button><span class="small text-muted ms-2" id="individualSalaryRoleHint"></span></div></form>
+          <form id="individualSalaryForm" class="row g-3 align-items-end"><div class="col-md-5"><label class="form-label" for="individualSalaryStaff">Staff member</label><select class="form-select" id="individualSalaryStaff" required></select></div><div class="col-md-3"><label class="form-label" for="individualSalaryAmount">Individual gross salary (KES)</label><input class="form-control" id="individualSalaryAmount" type="number" min="0.01" step="0.01" required></div><div class="col-md-2"><label class="form-label" for="individualSalaryFrom">Effective from</label><input class="form-control" id="individualSalaryFrom" type="date" required></div><div class="col-md-2"><button class="btn btn-primary w-100" type="submit" data-year-write>Save amount</button></div><div class="col-12"><button class="btn btn-outline-secondary btn-sm" type="button" id="clearIndividualSalaryOverride">End override from selected date</button><span class="small text-muted ms-2" id="individualSalaryRoleHint"></span></div></form>
           <div class="table-responsive mt-4"><table class="table table-sm"><thead><tr><th>Staff</th><th>Individual monthly salary</th><th>Effective from</th><th>To</th></tr></thead><tbody id="individualSalaryHistoryBody"></tbody></table></div>
         </section>
         <section class="tab-pane fade" id="payrollAwardsTab">
@@ -1186,7 +1186,7 @@
             <div class="col-md-4" id="awardDepartmentWrap"><label class="form-label" for="awardDepartment">Department</label><select class="form-select" id="awardDepartment"></select></div>
             <div class="col-md-4 d-none" id="awardStaffWrap"><label class="form-label" for="awardStaff">Select staff</label><select class="form-select" id="awardStaff" multiple size="4"></select></div>
             <div class="col-12"><label class="form-label d-block">Affected months</label><div id="awardMonths" class="d-flex flex-wrap gap-2"></div><label class="form-label mt-2" for="awardYear">Payroll year</label><select class="form-select" id="awardYear" style="max-width:180px"></select></div>
-            <div class="col-12"><button class="btn btn-primary" type="submit">Schedule award for selected months</button><span class="small text-muted ms-2">Recipients are snapshotted when scheduled. Changes affect only the selected months.</span></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit" data-year-write>Schedule award for selected months</button><span class="small text-muted ms-2">Recipients are snapshotted when scheduled. Changes affect only the selected months.</span></div>
           </form>
           <div class="table-responsive mt-4"><table class="table table-sm"><thead><tr><th>Type</th><th>Description</th><th>Recipients</th><th>Department</th><th>Amount / month</th><th>Months</th><th>Status</th><th></th></tr></thead><tbody id="compensationAwardHistoryBody"></tbody></table></div>
         </section>

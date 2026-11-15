@@ -58,11 +58,11 @@
             <h5 class="border-bottom pb-2">Qualifications &amp; Certifications</h5>
             <p class="text-muted small">Add all relevant qualifications. Submitted records remain pending until the school verifies the evidence.</p>
             <div id="spQualifications"></div>
-            <button type="button" class="btn btn-outline-primary btn-sm" id="spAddQualification">Add qualification</button>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="spAddQualification" data-year-write>Add qualification</button>
           </div>
 
           <div class="col-12 mt-4 text-end">
-            <button class="btn btn-success btn-lg px-5" type="submit">Save and Continue</button>
+            <button class="btn btn-success btn-lg px-5" type="submit" data-year-write>Save and Continue</button>
           </div>
         </form>
 

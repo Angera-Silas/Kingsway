@@ -33,7 +33,7 @@
     <div class="p-3 cpast-pane" id="cpastPane-groups">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <span class="fw-semibold small text-uppercase text-muted">Recurring Spiritual Groups</span>
-        <button class="btn btn-primary btn-sm" id="cpastAddGroup"><i class="bi bi-plus-lg me-1"></i>New Group</button>
+        <button class="btn btn-primary btn-sm" id="cpastAddGroup" data-year-write><i class="bi bi-plus-lg me-1"></i>New Group</button>
       </div>
       <div class="row g-3" id="cpastGroups"><div class="col-12 text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div></div>
     </div>
@@ -68,7 +68,7 @@
     <div class="p-3 cpast-pane d-none" id="cpastPane-visits">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <span class="fw-semibold small text-uppercase text-muted">Pastoral Care Visits</span>
-        <button class="btn btn-primary btn-sm" id="cpastAddVisit"><i class="bi bi-plus-lg me-1"></i>Record Visit</button>
+        <button class="btn btn-primary btn-sm" id="cpastAddVisit" data-year-write><i class="bi bi-plus-lg me-1"></i>Record Visit</button>
       </div>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
@@ -137,7 +137,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="cpastSaveGroup">Save Group</button>
+        <button type="button" class="btn btn-primary" id="cpastSaveGroup" data-year-write>Save Group</button>
       </div>
     </div>
   </div>
@@ -157,7 +157,7 @@
           <select class="form-select form-select-sm" id="cpastAddMemberType" style="max-width:110px">
             <option value="student">Student</option><option value="staff">Staff</option>
           </select>
-          <button class="btn btn-sm btn-outline-primary" id="cpastAddMemberBtn"><i class="bi bi-person-plus"></i> Add</button>
+          <button class="btn btn-sm btn-outline-primary" id="cpastAddMemberBtn" data-year-write><i class="bi bi-person-plus"></i> Add</button>
         </div>
         <div class="mb-3"><label class="form-label small">Members</label>
           <div class="table-responsive tall-scroll">
@@ -179,7 +179,7 @@
             <tbody id="cpastGroupAtt"></tbody>
           </table>
         </div>
-        <button class="btn btn-sm btn-primary mt-2" id="cpastSaveGroupAtt"><i class="bi bi-check2"></i> Save Attendance</button>
+        <button class="btn btn-sm btn-primary mt-2" id="cpastSaveGroupAtt" data-year-write><i class="bi bi-check2"></i> Save Attendance</button>
       </div>
     </div>
   </div>
@@ -235,7 +235,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="cpastSaveVisit">Save Visit</button>
+        <button type="button" class="btn btn-primary" id="cpastSaveVisit" data-year-write>Save Visit</button>
       </div>
     </div>
   </div>

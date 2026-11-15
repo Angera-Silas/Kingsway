@@ -97,7 +97,7 @@
       </div>
       <div class="modal-footer border-top">
         <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary btn-sm" id="rjSaveBtn">
+        <button type="button" class="btn btn-primary btn-sm" id="rjSaveBtn" data-year-write>
           <i class="bi bi-check-circle me-1"></i> Save Entry
         </button>
       </div>

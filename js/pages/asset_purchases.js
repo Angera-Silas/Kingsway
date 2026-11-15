@@ -147,7 +147,7 @@ const assetPurchasesController = {
         <td class="text-center"><span class="badge bg-${statusCls[status]||'secondary'}">${this._esc(a.status||'—')}</span></td>
         <td class="text-center">
           <div class="btn-group btn-group-sm">
-            <button class="btn btn-outline-secondary" onclick="assetPurchasesController.editAsset(${a.id})" title="Edit">
+            <button class="btn btn-outline-secondary" onclick="assetPurchasesController.editAsset(${a.id})" title="Edit" data-year-write>
               <i class="bi bi-pencil"></i>
             </button>
             ${isActive ? `<button class="btn btn-outline-danger" onclick="assetPurchasesController.showDisposeModal(${a.id})" title="Dispose">

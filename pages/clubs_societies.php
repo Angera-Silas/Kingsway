@@ -115,7 +115,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" form="addClubForm" class="btn btn-primary">Create Club</button>
+                <button type="submit" form="addClubForm" class="btn btn-primary" data-year-write>Create Club</button>
             </div>
         </div>
     </div>

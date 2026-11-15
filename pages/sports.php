@@ -19,13 +19,13 @@
                     <p class="text-muted mb-0">Manage school sports teams, fixtures, and results</p>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-primary" id="addTeamBtn">
+                    <button class="btn btn-primary" id="addTeamBtn" data-year-write>
                         <i class="bi bi-plus-lg me-1"></i> New Team
                     </button>
-                    <button class="btn btn-outline-primary" id="addFixtureBtn">
+                    <button class="btn btn-outline-primary" id="addFixtureBtn" data-year-write>
                         <i class="bi bi-calendar me-1"></i> Add Fixture
                     </button>
-                    <button class="btn btn-outline-success" id="recordResultBtn">
+                    <button class="btn btn-outline-success" id="recordResultBtn" data-year-write>
                         <i class="bi bi-trophy me-1"></i> Record Result
                     </button>
                 </div>
@@ -159,7 +159,7 @@
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary" id="saveTeamBtn">Save Team</button>
+                        <button type="submit" class="btn btn-primary" id="saveTeamBtn" data-year-write>Save Team</button>
                     </div>
                 </form>
             </div>
@@ -199,7 +199,7 @@
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary" id="saveFixtureBtn">Save Fixture</button>
+                        <button type="submit" class="btn btn-primary" id="saveFixtureBtn" data-year-write>Save Fixture</button>
                     </div>
                 </form>
             </div>
@@ -242,7 +242,7 @@
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-success" id="saveResultBtn">Save Result</button>
+                        <button type="submit" class="btn btn-success" id="saveResultBtn" data-year-write>Save Result</button>
                     </div>
                 </form>
             </div>

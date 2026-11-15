@@ -24,7 +24,7 @@ $appBase = app_base_path();
                     <button class="btn btn-light btn-sm" id="refreshBtn">
                         <i class="bi bi-arrow-clockwise"></i> Refresh
                     </button>
-                    <button class="btn btn-outline-dark btn-sm" id="newCaseBtn">
+                    <button class="btn btn-outline-dark btn-sm" id="newCaseBtn" data-year-write>
                         <i class="bi bi-plus-circle me-1"></i> New Welfare Case
                     </button>
                     <button class="btn btn-outline-dark btn-sm" id="scheduleFollowUpBtn">
@@ -344,7 +344,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-info" id="addNoteBtn">
+                <button class="btn btn-info" id="addNoteBtn" data-year-write>
                     <i class="bi bi-plus-circle me-1"></i> Add Note
                 </button>
                 <button class="btn btn-primary" id="scheduleFollowUpModalBtn">
@@ -394,7 +394,7 @@ $appBase = app_base_path();
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-info" id="saveNoteBtn">
+                <button class="btn btn-info" id="saveNoteBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Save Note
                 </button>
             </div>
@@ -424,7 +424,7 @@ $appBase = app_base_path();
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-primary" id="saveFollowUpBtn">
+                <button class="btn btn-primary" id="saveFollowUpBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Schedule
                 </button>
             </div>
@@ -450,7 +450,7 @@ $appBase = app_base_path();
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-success" id="confirmResolveBtn">
+                <button class="btn btn-success" id="confirmResolveBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Mark Resolved
                 </button>
             </div>
@@ -482,7 +482,7 @@ $appBase = app_base_path();
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-danger" id="confirmEscalateBtn">
+                <button class="btn btn-danger" id="confirmEscalateBtn" data-year-write>
                     <i class="bi bi-exclamation-triangle me-1"></i> Escalate
                 </button>
             </div>
@@ -569,7 +569,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-warning" id="saveNewCaseBtn">
+                <button class="btn btn-warning" id="saveNewCaseBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Save Case
                 </button>
             </div>

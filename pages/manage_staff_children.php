@@ -10,7 +10,7 @@
 <div class="card shadow">
     <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
         <h2 class="mb-0">Staff Children Management</h2>
-        <button class="btn btn-light" onclick="staffChildrenController.showAddModal()">
+        <button class="btn btn-light" onclick="staffChildrenController.showAddModal()" data-year-write>
             <i class="bi bi-plus-circle"></i> Link Child to Staff
         </button>
     </div>
@@ -195,7 +195,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-info">
+                    <button type="submit" class="btn btn-info" data-year-write>
                         <i class="bi bi-save"></i> Save
                     </button>
                 </div>

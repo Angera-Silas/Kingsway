@@ -12,7 +12,7 @@
         <i class="bi bi-download me-1"></i> Export
       </button>
       <button class="btn btn-sm btn-success" id="addPcBtn" onclick="pettyCashController.showModal()"
-              style="display:none">
+              style="display:none" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Record Transaction
       </button>
     </div>
@@ -174,7 +174,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-success" onclick="pettyCashController.save()">Save Record</button>
+        <button class="btn btn-success" onclick="pettyCashController.save()" data-year-write>Save Record</button>
       </div>
     </div>
   </div>

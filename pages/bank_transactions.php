@@ -23,7 +23,7 @@
             <button class="btn btn-outline-secondary" onclick="BankTransactionsController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
             </button>
-            <button class="btn btn-info text-white" onclick="BankTransactionsController.showCreateModal()">
+            <button class="btn btn-info text-white" onclick="BankTransactionsController.showCreateModal()" data-year-write>
                 <i class="bi bi-plus-lg me-1"></i> Add Transaction
             </button>
         </div>
@@ -229,7 +229,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-info text-white" onclick="BankTransactionsController.saveTransaction()">
+                <button type="button" class="btn btn-info text-white" onclick="BankTransactionsController.saveTransaction()" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Save Transaction
                 </button>
             </div>
