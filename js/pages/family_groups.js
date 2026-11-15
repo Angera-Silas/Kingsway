@@ -72,6 +72,11 @@ const FamilyGroupsController = {
       "input",
       this.debounce(() => this.loadFamilies(), 400)
     );
+    // Guardian name/phone loads as you type, like the main search (no Apply button).
+    this.ui.guardianFilter?.addEventListener(
+      "input",
+      this.debounce(() => this.loadFamilies(), 400)
+    );
 
     this.ui.classFilter?.addEventListener("change", () => {
       this.updateStreamsFilter();

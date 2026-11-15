@@ -357,6 +357,24 @@
         #idCardTablePrintArea table { font-size: 9pt; }
         #idCardTablePrintArea img { max-width: 32px; max-height: 32px; }
     }
+
+/* Page chrome in the quiet ledger look (css/kw-clean.css). The printed ID
+   card design above (.id-card-*) is unchanged. */
+.id-cards-page { background: #fff !important; border: 1px solid #e3e6eb; border-radius: 10px; padding: 1.25rem !important; }
+.id-cards-hero { background: none !important; color: #1f2a44 !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 0 .9rem !important; border-bottom: 2px solid #1f2a44; margin-bottom: 0 !important; }
+.id-cards-hero * { color: inherit; }
+.id-cards-hero .text-muted, .id-cards-hero p { color: #667085 !important; }
+.id-cards-hero h1, .id-cards-hero h2, .id-cards-hero h3, .id-cards-hero h4 { font-size: 1.5rem !important; font-weight: 650 !important; color: #1f2a44 !important; }
+.id-cards-hero .small:first-child, .id-cards-hero .text-uppercase { display: none; }
+.id-cards-hero .btn { background: #fff !important; color: #1f2a44 !important; border: 1px solid #e3e6eb !important; box-shadow: none !important; font-size: .82rem; }
+#summaryCards { border-bottom: 1px solid #e3e6eb; --bs-gutter-x: 0; --bs-gutter-y: 0; margin: 0 0 1.25rem !important; }
+#summaryCards > [class*="col"] + [class*="col"] .stat-card { border-left: 1px solid #e3e6eb !important; }
+#summaryCards .stat-card { background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; }
+#summaryCards .stat-card .stat-icon { display: none !important; }
+#summaryCards .stat-card .fs-4 { font-size: 1.3rem !important; font-weight: 650; color: #1f2a44 !important; font-variant-numeric: tabular-nums; }
+#summaryCards .stat-card .text-muted { font-size: .78rem; color: #667085 !important; }
+.id-cards-panel { background: transparent !important; box-shadow: none !important; border: 0 !important; padding: 0 !important; }
+.id-cards-panel .card { border: 0 !important; box-shadow: none !important; }
 </style>
 
 <div class="id-cards-page">

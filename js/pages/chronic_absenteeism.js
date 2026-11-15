@@ -102,3 +102,6 @@ const chronicAbsenteeismController = {
 document.addEventListener('DOMContentLoaded', () => chronicAbsenteeismController.init());
 
 window.chronicAbsenteeismController = chronicAbsenteeismController;
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => chronicAbsenteeismController._load());

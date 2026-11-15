@@ -4,7 +4,7 @@
  * Integrates with AcademicContext for academic year awareness
  */
 
-const GradingStatusController = (() => {
+var GradingStatusController = (() => {
   // Private state
   const state = {
     gradingData: [],

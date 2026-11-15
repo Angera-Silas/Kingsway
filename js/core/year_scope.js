@@ -103,6 +103,15 @@
     return params;
   }
 
+  // Pages that can reload their own data for another year register it here
+  // (KingswayYearScope.onYearChange(fn)); others are reloaded in full so
+  // they never show the previous year's data.
+  const handlers = new Map();
+  function onYearChange(fn) {
+    const route = currentRoute();
+    if (route && typeof fn === 'function') handlers.set(route, fn);
+  }
+
   let attachedFor = '';
   async function attach() {
     const route = currentRoute();
@@ -118,11 +127,14 @@
         // The first call reports the year already shown; later calls are the
         // user's choice: reload the route, whose URL the filter has updated.
         if (first) { first = false; return; }
-        const params = new URLSearchParams(window.location.search);
-        params.delete('route');
-        const target = `home.php?route=${encodeURIComponent(route)}${params.toString() ? `&${params}` : ''}`;
-        if (window.AppRouter?.go) window.AppRouter.go(target);
-        else window.location.reload();
+        // Refresh the page in place: the filter has already put the year in
+        // the URL, and api.js adds it to the page's requests. Re-opening the
+        // same route forced a full page reload (soft navigation reloads any
+        // page whose controller is already loaded), so only a page with no
+        // registered loader is reloaded.
+        const handler = handlers.get(route);
+        if (!handler) { window.location.reload(); return; }
+        Promise.resolve(handler()).catch(() => window.location.reload());
       },
     });
   }
@@ -136,5 +148,6 @@
     isYearScoped: (route) => Boolean(ROUTES[route || currentRoute()]),
     requestParams,
     attach,
+    onYearChange,
   });
 })(window, document);

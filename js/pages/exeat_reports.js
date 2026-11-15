@@ -123,6 +123,8 @@ const exeatReportsController = {
 
   init() {
     this.load();
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.('exeat_reports', {
       refresh: () => this.load(),
     }, ['boarding', 'students']);

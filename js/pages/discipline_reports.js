@@ -66,6 +66,8 @@ const disciplineReportsController = {
     document.getElementById('drExport')?.addEventListener('click', () => this.exportCSV());
     document.getElementById('drPrint')?.addEventListener('click', () => this.print());
     this.load();
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.('discipline_reports', { refresh: () => this.load() }, ['reports', 'discipline']);
   },
 };

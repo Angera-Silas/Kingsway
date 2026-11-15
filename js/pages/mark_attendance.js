@@ -2,7 +2,7 @@
  * Mark Attendance Controller
  * Driver version - Mark passenger attendance for transport trips
  */
-const MarkAttendanceController = {
+var MarkAttendanceController = {
   state: {
     passengers: [],
     routes: [],

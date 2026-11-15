@@ -115,3 +115,6 @@ if (document.readyState === 'loading') {
 } else {
   approvedLessonPlansController.init().catch(() => {});
 }
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => approvedLessonPlansController.loadData());

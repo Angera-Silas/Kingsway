@@ -118,6 +118,8 @@ const attendanceReportsController = {
       ['Classes','Chronic','Trends'].forEach((name) => document.getElementById(`arTab${name}`)?.classList.toggle('d-none', name.toLowerCase() !== button.dataset.tab));
     }));
     document.getElementById('printAttendanceReport')?.addEventListener('click', () => { if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('attendance')) window.print(); });
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.('attendance_reports', { refresh: () => this.load() }, ['attendance']);
     return this.load();
   }

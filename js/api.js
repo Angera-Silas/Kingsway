@@ -915,12 +915,37 @@ const AuthContext = (() => {
    * @param {string} roleName
    * @returns {boolean}
    */
+  // Page templates gate controls with short role codes (data-role="admin,
+  // school_admin,hr_manager,..."), but the roles table holds full names
+  // ("School Administrator", "Accountant", ...). Map each code to the real
+  // roles it means, so a School Administrator is not shown a page without its
+  // buttons. The server still checks permissions on every action.
+  const ROLE_CODE_ALIASES = {
+    admin: ["system_administrator", "school_administrator"],
+    system_admin: ["system_administrator"],
+    school_admin: ["school_administrator"],
+    registrar: ["school_administrator"],
+    secretary: ["school_administrator"],
+    hr_manager: ["school_administrator"],
+    dh_academic: ["deputy_head_academic"],
+    deputy_head: ["deputy_head_academic", "deputy_head_discipline"],
+    bursar: ["accountant"],
+    school_accountant: ["accountant"],
+    hod: ["talent_development"],
+    intern: ["intern/student_teacher"],
+    store_manager: ["uniform_store_manager", "food_store_manager"],
+    inventory_manager: ["uniform_store_manager", "food_store_manager"],
+    cook: ["cateress", "kitchen_staff"],
+    counselor: ["chaplain"],
+    matron: ["boarding_master"],
+  };
+
   function hasRole(roleName) {
     if (!currentUser) return false;
     const normalizedRoleName = normalizeRoleName(roleName);
+    const wanted = new Set([normalizedRoleName, ...(ROLE_CODE_ALIASES[normalizedRoleName] || [])]);
     return roles.some(
-      (role) =>
-        role === roleName || normalizeRoleName(role) === normalizedRoleName,
+      (role) => role === roleName || wanted.has(normalizeRoleName(role)),
     );
   }
 
@@ -1698,6 +1723,21 @@ function dataStoreKeysForRoute(route = "") {
 }
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+// POST endpoints that read, log or suggest and change no school data. Treating
+// them as mutations broadcast an invalidation for every telemetry flush, AI
+// suggestion and Node read, and each one refreshed the open page again.
+const NON_MUTATING_POSTS = new Set([
+  "system/client-log",
+  "dashboard/agent-suggest",
+  "node/view",
+]);
+
+function isDataMutation(method, endpoint) {
+  if (!MUTATION_METHODS.has(String(method).toUpperCase())) return false;
+  const path = String(endpoint || "").split("?")[0].replace(/^\/+/, "").replace(/^api\//, "");
+  return !NON_MUTATING_POSTS.has(path);
+}
 const PERMISSION_ACTIONS = [
   "view",
   "create",
@@ -3947,7 +3987,7 @@ async function apiCallDirect(
     }
 
     // Auto-invalidate cached data on mutations
-    if (MUTATION_METHODS.has(String(method).toUpperCase())) {
+    if (isDataMutation(method, endpoint)) {
       const routeTargets = (options.invalidate || [inferResourceKey(endpoint)])
         .filter(Boolean);
       // Drop both the route-scoped key and the DataStore policy keys controllers
@@ -4028,7 +4068,7 @@ async function apiCallDirect(
     // reconnect. This is what makes the /js/sync/sync_queue.js engine actually
     // get fed instead of sitting dormant. Only mutations are queued — a failed
     // GET is just a cache miss and the SW serves the last good response.
-    const isMutation = MUTATION_METHODS.has(String(method).toUpperCase());
+    const isMutation = isDataMutation(method, endpoint);
     const isOffline =
       navigator.onLine === false ||
       (typeof error === "object" &&
@@ -4715,10 +4755,10 @@ window.API = {
       );
       const payload = resp?.data?.data ?? resp?.data ?? resp;
       const stats = payload?.data ?? payload;
-      const success =
-        resp?.status === "success" ||
-        payload?.status === "success" ||
-        payload?.status_code === 200;
+      // apiCall throws on a failed request and returns the unwrapped data,
+      // so a reply with figures is a success (it has no status field left).
+      const success = !!stats && typeof stats === "object"
+        && (resp?.status === undefined || resp?.status === "success" || payload?.status === "success");
       return { success, data: stats, raw: resp };
     },
     getEnrollmentHistory: async (studentId) =>
