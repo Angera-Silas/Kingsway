@@ -701,7 +701,12 @@ const StudentFeesController = {
             ${cell(credits, { cls: "is-reduce", prefix: "−" })}
             ${cell(row.amount_received ?? row.total_paid)}
             <td class="num fw-semibold ${balance > 0 ? "is-owed" : (balance < 0 ? "is-credit" : "")}">${balance < 0 ? "Credit " : ""}${money(balance)}</td>
-            <td><span class="fl-state ${state.cls}">${state.label}</span>${sponsored}</td>
+            <td>${row.leaving
+              ? `<span class="fl-state ${row.leaving.to_settle ? (balance > 0 ? "is-owed" : "is-credit") : "is-credit"}">${this.esc(row.leaving.label)}</span>
+                 <div class="small text-muted">${row.leaving.to_settle
+                   ? (row.leaving.clearance === "cleared" ? "Cleared" : "Settle at clearance before leaving certificate")
+                   : (row.leaving.clearance === "cleared" ? "Cleared" : "Clearance pending")}</div>`
+              : `<span class="fl-state ${state.cls}">${state.label}</span>${sponsored}`}</td>
             <td class="text-nowrap text-end">
               <button type="button" class="fl-toggle" aria-expanded="false" aria-controls="faDetail${studentId}" title="Show terms" onclick="StudentFeesController.toggleDetail(this, ${studentId})"><i class="bi bi-chevron-down"></i></button>
               <div class="dropdown d-inline-block">

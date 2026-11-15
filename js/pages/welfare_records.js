@@ -85,3 +85,6 @@ if (document.readyState === 'loading') {
 } else {
   welfareRecordsController.init().catch(() => {});
 }
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => welfareRecordsController.load());

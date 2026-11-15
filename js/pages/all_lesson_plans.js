@@ -107,6 +107,8 @@ const allLessonPlansController = {
     if (window.AuthContext?.ready) await window.AuthContext.ready(); this.bind();
     try { await this.loadReferences(); } catch (error) { console.error('Lesson plan filters could not load:', error); }
     await this.load();
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.('all_lesson_plans', { refresh: () => this.load() }, ['academic']);
   },
 };

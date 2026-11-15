@@ -295,6 +295,9 @@
 
   const activeInstances = [];
 
+  // Shared year bar: reload every learner list on the page in place.
+  window.KingswayYearScope?.onYearChange?.(() => Promise.all(activeInstances.map((instance) => instance.load())));
+
   function initAll() {
     document.querySelectorAll(".student-context-page").forEach((root) => {
       if (root.dataset.initialized === "1") return;

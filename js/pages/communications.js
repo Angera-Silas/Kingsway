@@ -11,7 +11,7 @@
  *
  * All dynamic content is escaped before injection (XSS-safe).
  */
-const MessagesInboxController = {
+var MessagesInboxController = {
   API: window.API,
   conversations: [],
   activeId: null,

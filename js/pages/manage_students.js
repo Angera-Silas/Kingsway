@@ -51,6 +51,8 @@ window.studentsManagementController = window.studentsManagementController || {
       return;
     }
     window.APIRealtime?.register?.("manageStudents", this, ["students"]);
+    // The shared year bar: reload the list and figures in place.
+    window.KingswayYearScope?.onYearChange?.(() => this.loadStudents(1));
     await GradingScale.preload();
     await this.loadInitialData();
     await this.loadStudents();
@@ -802,9 +804,7 @@ window.studentsManagementController = window.studentsManagementController || {
                 }</td>
                 <td>${this.formatGender(s.gender)}</td>
                 <td>${contactValue}</td>
-                <td><span class="badge bg-${
-                  s.status === "active" ? "success" : "secondary"
-                }">${s.status || "unknown"}</span><div class="mt-1">${entrySource}</div></td>
+                <td>${this.statusCell(s, entrySource)}</td>
                 <td>${actionsHtml}</td>
             </tr>
         `;
@@ -852,6 +852,23 @@ window.studentsManagementController = window.studentsManagementController || {
     const limit = Math.min(100, Math.max(1, Number.parseInt(value, 10) || 10));
     this.data.pagination.limit = limit;
     this.loadStudents(1);
+  },
+
+  /**
+   * Status for the listed year. After the year's promotion the learner's
+   * outcome is shown in words ("Promoted to Grade 3 A (2027/2028)",
+   * "Graduated, class of 2026", "Transferred: …"); otherwise the learner's
+   * status (Active, Suspended, …).
+   */
+  statusCell: function (s, entrySource) {
+    const outcome = s.year_outcome;
+    if (outcome) {
+      const tone = /^Graduated/.test(outcome) ? "info" : /^Promoted/.test(outcome) ? "success"
+        : /^(Transferred|Withdrawn)/.test(outcome) ? "danger" : "warning";
+      return `<span class="badge bg-${tone}">${this.escapeHtml(outcome)}</span>`;
+    }
+    const label = s.status ? s.status.charAt(0).toUpperCase() + s.status.slice(1) : "Unknown";
+    return `<span class="badge bg-${s.status === "active" ? "success" : "secondary"}">${this.escapeHtml(label)}</span><div class="mt-1">${entrySource}</div>`;
   },
 
   updateStatistics: async function (statistics = null) {

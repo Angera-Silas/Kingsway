@@ -1174,11 +1174,22 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 'year_end_date' => $year['end_date'], 'terms' => $terms, 'term_ids' => $termIds,
                 'new_classes' => [], 'migrated_baselines' => [], 'validation_results' => [],
             ];
-            $instanceId = $this->startWorkflow($this->getWorkflowDefinitionCode(), $yearId, $data);
-            $this->advanceStage($instanceId, 'create_next_year', 'Existing target academic year selected', $data);
-            $this->advanceStage($instanceId, 'enter_year_term_dates', 'Existing year and term dates confirmed', $data);
-            $this->advanceStage($instanceId, 'generate_calendar', 'Target-year calendar generated from recorded dates', $data);
-            $this->advanceStage($instanceId, 'configure_classes_streams', 'Target-year calendar prepared; classes and streams are next', $data);
+            // One step: the workflow and its first stage moves are created
+            // together, so a failure cannot leave a half-started rollover
+            // parked on an early stage (the calendar above is regenerable).
+            $ownTransaction = !$this->db->inTransaction();
+            if ($ownTransaction) $this->db->beginTransaction();
+            try {
+                $instanceId = $this->startWorkflow($this->getWorkflowDefinitionCode(), $yearId, $data);
+                $this->advanceStage($instanceId, 'create_next_year', 'Existing target academic year selected', $data);
+                $this->advanceStage($instanceId, 'enter_year_term_dates', 'Existing year and term dates confirmed', $data);
+                $this->advanceStage($instanceId, 'generate_calendar', 'Target-year calendar generated from recorded dates', $data);
+                $this->advanceStage($instanceId, 'configure_classes_streams', 'Target-year calendar prepared; classes and streams are next', $data);
+                if ($ownTransaction) $this->db->commit();
+            } catch (\Throwable $e) {
+                if ($ownTransaction && $this->db->inTransaction()) $this->db->rollBack();
+                throw $e;
+            }
             return formatResponse(true, ['instance_id' => (int) $instanceId, 'workflow_data' => $data], 'Existing academic year added to rollover.');
         } catch (Exception $e) {
             return $this->handleException($e);

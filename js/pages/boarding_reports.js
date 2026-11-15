@@ -50,6 +50,8 @@ const boardingReportsController = {
     document.getElementById('brPrint')?.addEventListener('click', () => {
       if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('boarding')) window.print();
     });
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.('boarding_reports', { refresh: () => this.load() }, ['boarding']);
     return this.load();
   }

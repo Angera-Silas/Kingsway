@@ -224,6 +224,7 @@ return [
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Alumni Management', 'url' => 'alumni_management'],
+                ['label' => 'Student Clearance', 'url' => 'student_clearance'],   // leavers cleared before the leaving certificate
             ]
         ],
 
@@ -438,10 +439,12 @@ return [
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Student Profiles', 'url' => 'student_profiles'],
                 ['label' => 'ID Cards', 'url' => 'student_id_cards'],
+                ['label' => 'Photo Capture', 'url' => 'photo_capture'],     // learner and staff photos: camera or files
                 ['label' => 'Family Groups', 'url' => 'manage_family_groups'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
                 ['label' => 'Student Promotion', 'url' => 'student_promotion'],          // end-of-year promotion
                 ['label' => 'Alumni Management', 'url' => 'alumni_management'],
+                ['label' => 'Student Clearance', 'url' => 'student_clearance'],   // leavers cleared before the leaving certificate
             ]
         ],
 
@@ -803,6 +806,7 @@ return [
                 ['label' => 'Health Records', 'url' => 'student_health'],
                 ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Alumni Management', 'url' => 'alumni_management'],
+                ['label' => 'Student Clearance', 'url' => 'student_clearance'],   // leavers cleared before the leaving certificate
             ]
         ],
 
@@ -1527,6 +1531,7 @@ return [
                 ['label' => 'Payment Records', 'url' => 'payment_records'],
                 ['label' => 'Unmatched Payments', 'url' => 'unmatched_payments'],
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
+                ['label' => 'Student Clearance', 'url' => 'student_clearance'],   // leavers cleared before the leaving certificate
 
 
             ]

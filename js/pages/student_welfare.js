@@ -101,6 +101,8 @@ const studentWelfareController = {
     document.getElementById('newCaseBtn')?.addEventListener('click', () => { const modal = document.getElementById('newCaseModal'); if (modal && window.bootstrap?.Modal) window.bootstrap.Modal.getOrCreateInstance(modal).show(); });
     document.getElementById('saveNewCaseBtn')?.addEventListener('click', () => this.createCase());
     this.load();
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.('student_welfare', { refresh: () => this.load() }, ['students','counseling']);
   },
 };

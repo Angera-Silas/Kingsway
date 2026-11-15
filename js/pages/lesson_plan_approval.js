@@ -310,3 +310,6 @@ document.addEventListener("DOMContentLoaded", () =>
 );
 
 window.LessonPlanApprovalController = LessonPlanApprovalController;
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => LessonPlanApprovalController.refresh());

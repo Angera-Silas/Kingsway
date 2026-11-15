@@ -69,6 +69,8 @@ const lessonPlansByClassController = {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     await this.loadReferencesComposed();
     await this.load();
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.("lesson_plans_by_class", {
       refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
     }, ["academic"]);
