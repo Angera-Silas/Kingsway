@@ -594,7 +594,7 @@ class AcademicManager extends BaseAPI
                 array_push($params, $like, $like, $like);
             }
 
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('learner_placement_history');
             $sql = "SELECT fs.student_id, s.admission_no,
                            CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS learner_name,
                            lp.class_name, lp.stream_name,
@@ -606,7 +606,8 @@ class AcademicManager extends BaseAPI
                     JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
                     JOIN students s ON s.id = fs.student_id
                     JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN {$lp} lp ON lp.student_id = fs.student_id
+                    -- The class the assessment was taken in (its stream-in-year).
+                    LEFT JOIN {$lp} lp ON lp.student_id = fs.student_id AND lp.aycs_id = a.academic_year_class_stream_id
                     WHERE " . implode(' AND ', $where) . "
                     GROUP BY fs.student_id, la.id
                     ORDER BY lp.class_name, learner_name, la.name
@@ -671,7 +672,7 @@ class AcademicManager extends BaseAPI
             if (!empty($data['strand_id']))   { $where[] = 'st.id = :sid';                   $params[':sid'] = (int) $data['strand_id']; }
             if (!empty($data['sub_strand_id'])) { $where[] = 'ss.id = :ssid';                $params[':ssid'] = (int) $data['sub_strand_id']; }
 
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('learner_placement_history');
             $sql = "SELECT fs.student_id, s.admission_no,
                            CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS learner_name,
                            lp.class_name, lp.stream_name,
@@ -686,12 +687,11 @@ class AcademicManager extends BaseAPI
                     JOIN strands st ON st.id = ss.strand_id
                     JOIN students s ON s.id = fs.student_id
                     JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN {$lp} lp ON lp.student_id = fs.student_id" . (!empty($data['year_id']) ? " AND lp.academic_year_id = :yid2" : "") . "
+                    LEFT JOIN {$lp} lp ON lp.student_id = fs.student_id AND lp.aycs_id = a.academic_year_class_stream_id
                     WHERE " . implode(' AND ', $where) . "
                     GROUP BY fs.student_id, ss.id
                     ORDER BY lp.class_name, learner_name, st.name, ss.name
                     LIMIT 2000";
-            if (!empty($data['year_id'])) $params[':yid2'] = (int) $data['year_id'];
             $rows = $this->dbQuery($sql, $params)->fetchAll(PDO::FETCH_ASSOC);
 
             // Pivot: one row per learner, sub-strands become columns grouped by strand.
@@ -857,7 +857,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
             $bySubject = ($data['group_by'] ?? 'learner') === 'subject';
             $groupClause = $bySubject ? ' GROUP BY u.student_id, u.learning_area_id' : ' GROUP BY u.student_id';
             $subjectSelect = $bySubject ? ', u.learning_area' : '';
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('learner_placement_history');
             $ec = ReadReplicaService::qualifiedRef('exam_context');
             $sql = "SELECT u.student_id, s.admission_no,
                            CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS learner_name,
@@ -997,7 +997,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
             $formativeCls = $classificationId ? " AND a.assessment_type_classification_id = {$classificationId}" : '';
             $summativeCls = $classificationId ? " AND a.assessment_type_classification_id = {$classificationId}" : '';
 
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('learner_placement_history');
             $ec = ReadReplicaService::qualifiedRef('exam_context');
             $sql = "SELECT u.student_id, u.learning_area_id, u.learning_area, u.class_id, u.class_name,
                            u.result_kind, u.pct, per.gender,
@@ -3017,7 +3017,7 @@ if ($classId) {
                  FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
                  WHERE sd.class_id = :class_id
                    AND sd.academic_year_id = :academic_year_id
-                   AND sd.enrollment_status = 'active'
+                   AND sd.enrollment_status IN ('active', 'completed', 'graduated')
                  ORDER BY sd.last_name, sd.first_name",
                 [':class_id' => $classId, ':academic_year_id' => $academicYearId]
             )->fetchAll(PDO::FETCH_ASSOC);
@@ -4507,7 +4507,7 @@ if ($classId) {
             if ($streamId) {
                 $myStudents = (int) $this->dbQuery(
                     "SELECT COUNT(*) FROM student_academic_enrollments
-                     WHERE academic_year_class_stream_id = ? AND enrollment_status = 'active'",
+                     WHERE academic_year_class_stream_id = ? AND enrollment_status IN ('active', 'completed', 'graduated')",
                     [$streamId]
                 )->fetchColumn();
             }
@@ -5962,8 +5962,9 @@ la.learning_area_family_id, la.name AS learning_area_family,
                     aycd.class_id AS class_id,
                     aycd.class_name AS class_name,
                     GROUP_CONCAT(DISTINCT st.name ORDER BY st.name SEPARATOR ', ') AS stream_name,
-                    (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("learner_placement") . " lp
-                      WHERE lp.academic_year_class_id = aycd.id) AS student_count,
+                    (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("learner_placement_history") . " lp
+                      WHERE lp.academic_year_class_id = aycd.id
+                        AND lp.enrollment_status IN ('active', 'completed', 'graduated')) AS student_count,
                     la.id AS subject_id,
                     la.name AS subject_name,
                     0 AS lessons_per_week,

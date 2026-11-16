@@ -171,11 +171,13 @@ class StudentInsightsService
                 '-' AS position
             FROM " . ReadReplicaService::qualifiedRef("students") . " s
             JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
-            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
+            -- The class in the year whose scores are shown (default: current).
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement_history') . " lp ON lp.student_id = s.id
+                 AND lp.academic_year_id = COALESCE(?, (SELECT ay.id FROM " . ReadReplicaService::qualifiedRef('academic_years') . " ay WHERE ay.is_current = 1 ORDER BY ay.id DESC LIMIT 1))
             WHERE " . implode(' AND ', $conditions);
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(array_merge([$termId, $termId, $yearId, $yearId, $yearId, $yearId], $bindings));
+        $stmt->execute(array_merge([$termId, $termId, $yearId, $yearId, $yearId, $yearId, $yearId], $bindings));
         $studentRows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         foreach ($studentRows as &$row) {
@@ -210,7 +212,7 @@ class StudentInsightsService
             }
         }
 
-        $where = ["s.status = 'active'", "sae.academic_year_id = ?", "sae.enrollment_status = 'active'"];
+        $where = ["s.status = 'active'", "sae.academic_year_id = ?", "sae.enrollment_status IN ('active', 'completed', 'graduated')"];
         $bindings = [$yearId];
         $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
         $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
@@ -270,7 +272,7 @@ class StudentInsightsService
                     JOIN " . ReadReplicaService::qualifiedRef('persons') . " per ON per.id = s.person_id
                     JOIN " . ReadReplicaService::qualifiedRef('student_academic_enrollments') . " sae ON sae.student_id = s.id
                     LEFT JOIN " . ReadReplicaService::qualifiedRef('student_types') . " st ON st.id = s.student_type_id
-                    LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id AND lp.academic_year_id = sae.academic_year_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement_history') . " lp ON lp.student_id = s.id AND lp.academic_year_id = sae.academic_year_id
                     {$transportJoin}
                     WHERE " . implode(' AND ', $where) . "
                     GROUP BY s.id, sae.id

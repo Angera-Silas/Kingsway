@@ -43,7 +43,7 @@ class DocumentGenerator extends BaseAPI
     {
         try {
             // Get transfer and student details
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('learner_placement_history');
             $stmt = $this->db->prepare("
                 SELECT
                     tr.id,
@@ -63,7 +63,9 @@ class DocumentGenerator extends BaseAPI
                 FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " tr
                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON tr.student_id = s.id
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
-                LEFT JOIN {$lp} lp ON lp.student_id = s.id AND lp.academic_year_id = tr.academic_year_id
+                -- The class the learner left from (the transition's from-enrolment;
+                -- tr.academic_year_id is the incoming year, empty for graduates).
+                LEFT JOIN {$lp} lp ON lp.enrollment_id = tr.from_student_academic_enrollment_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = s.id AND sp.is_primary_contact = 1
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " par ON par.id = sp.parent_id
                 LEFT JOIN users au ON au.id = tr.decided_by

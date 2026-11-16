@@ -599,7 +599,7 @@ class AttendanceManager extends BaseAPI
                            ) AS display_name,
                            (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " en2
                             WHERE en2.academic_year_class_stream_id = aycs.id
-                              AND en2.enrollment_status = 'active') AS student_count
+                              AND en2.enrollment_status IN ('active', 'completed', 'graduated')) AS student_count
                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     JOIN " . ReadReplicaService::qualifiedRef("streams") . " stm ON stm.id = aycs.stream_id
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id

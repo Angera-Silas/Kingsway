@@ -1234,7 +1234,7 @@ class FeeManager
                             WHERE ay2.year_code = v.academic_year
                             LIMIT 1
                         )
-                        AND sae.enrollment_status = 'active'
+                        AND sae.enrollment_status IN ('active', 'completed', 'graduated')
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
@@ -3846,7 +3846,7 @@ class FeeManager
                       $pmtTermFilter
                 WHERE ayc.class_id = ?
                   AND sae.academic_year_id = ?
-                  AND sae.enrollment_status = 'active'
+                  AND sae.enrollment_status IN ('active', 'completed', 'graduated')
                   AND s.status = 'active'
                 GROUP BY s.id, prs.first_name, prs.last_name, s.admission_no, st.name
                 ORDER BY prs.last_name, prs.first_name
