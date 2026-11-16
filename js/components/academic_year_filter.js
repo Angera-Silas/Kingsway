@@ -95,15 +95,27 @@
     return termsPromise;
   }
 
-  /** The term running today, else the next to open, else the last one. */
-  function defaultTerm(terms) {
+  /**
+   * Default term of a year's terms (in date order). The term running today;
+   * during a holiday, for records and reports the term just closed (the
+   * April Holiday shows Term 1), for planning pages the next to open (Term 2).
+   * Same rules as the server (AcademicPeriodService recordTerm/planningTerm).
+   */
+  function defaultTerm(terms, { planning = false } = {}) {
+    if (!Array.isArray(terms) || !terms.length) return null;
+    const sorted = terms.slice().sort((a, b) => String(a.opening_date || a.start_date || '')
+      .localeCompare(String(b.opening_date || b.start_date || '')));
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const running = terms.find((term) => day(term.opening_date || term.start_date) <= today
-      && today <= day(term.closing_date || term.end_date));
+    const opens = (term) => day(term.opening_date || term.start_date);
+    const closes = (term) => day(term.closing_date || term.end_date);
+    const running = sorted.find((term) => opens(term) <= today && today <= closes(term));
     if (running) return running;
-    const next = terms.find((term) => day(term.opening_date || term.start_date) > today);
-    return next || terms[terms.length - 1];
+    if (planning) {
+      return sorted.find((term) => opens(term) > today) || sorted[sorted.length - 1];
+    }
+    const opened = sorted.filter((term) => opens(term) && opens(term) <= today);
+    return opened.length ? opened[opened.length - 1] : sorted[0];
   }
 
   async function loadYears() {
@@ -114,7 +126,26 @@
       .sort((a, b) => String(b.start_date || '').localeCompare(String(a.start_date || '')));
   }
 
-  async function mount(select, { onChange, termSelect = null, allTermsLabel = '', allTermsDefault = true } = {}) {
+  /**
+   * The year to prepare for: the year of the term in session, or during a
+   * holiday the year of the next term to open (the December Holiday leads to
+   * next year's Term 1).
+   */
+  function planningYear(years, terms, fallback) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const next = terms
+      .filter((term) => day(term.closing_date || term.end_date) >= today)
+      .sort((a, b) => String(a.opening_date || '').localeCompare(String(b.opening_date || '')))[0];
+    return (next && years.find((year) => Number(year.id) === Number(next.academic_year_id))) || fallback;
+  }
+
+  /**
+   * planning: true for pages that prepare work (timetables, allocations,
+   * schemes, rosters). Without a year in the link they open on the term
+   * being prepared: the term in session, or during a holiday the next term.
+   */
+  async function mount(select, { onChange, termSelect = null, allTermsLabel = '', allTermsDefault = true, planning = false } = {}) {
     if (!select) return null;
     select.disabled = true;
     let years = [];
@@ -130,8 +161,8 @@
 
     const current = years.find((year) => Number(year.is_current) === 1) || years[0];
     const requested = years.find((year) => Number(year.id) === fromUrl(PARAM));
-    const selected = requested || current;
-    const allTerms = termSelect ? await loadTerms() : [];
+    const allTerms = (termSelect || planning) ? await loadTerms() : [];
+    const selected = requested || (planning ? planningYear(years, allTerms, current) : current);
     let requestedTermId = fromUrl(TERM_PARAM);
 
     select.innerHTML = '';
@@ -177,7 +208,7 @@
         termSelect.value = '';
         return null;
       }
-      const wanted = fromLink || defaultTerm(terms);
+      const wanted = fromLink || defaultTerm(terms, { planning });
       requestedTermId = 0; // the URL term applies to the first fill only
       termSelect.value = String(wanted.id);
       return wanted;
@@ -209,8 +240,38 @@
     termSelect?.addEventListener('change', notify);
     fillTerms();
     notify();
+    showPeriod(termSelect || select);
 
     return { years, current, selected: selectedYear, selectedTerm };
+  }
+
+  // Where the school year is today. A year is its terms, half terms and
+  // holidays (April, August, December), so a holiday is shown as such.
+  let periodPromise = null;
+  function currentPeriod() {
+    if (!periodPromise) {
+      const api = window.API?.academic;
+      periodPromise = typeof api?.getCurrentPeriod === 'function'
+        ? api.getCurrentPeriod().catch(() => null)
+        : Promise.resolve(null);
+    }
+    return periodPromise;
+  }
+
+  async function showPeriod(anchor) {
+    if (!anchor || anchor.closest('.input-group')) return;
+    const parent = anchor.parentElement;
+    if (!parent || parent.querySelector('[data-academic-period]')) return;
+    const snap = await currentPeriod();
+    const now = snap?.current_period || snap?.data?.current_period;
+    if (!now) return;
+    const next = snap.next_period || snap?.data?.next_period;
+    const badge = document.createElement('span');
+    badge.setAttribute('data-academic-period', '');
+    badge.className = `badge ${now.kind === 'term' ? 'text-bg-success' : 'text-bg-warning'} align-self-center`;
+    badge.textContent = `Today: ${now.label}`;
+    if (next) badge.title = `Next: ${next.label} (from ${next.start_date})`;
+    anchor.insertAdjacentElement('afterend', badge);
   }
 
   /**
@@ -250,7 +311,7 @@
     return row && host.contains(row) ? row : null;
   }
 
-  async function mountBar({ term = false, allTermsLabel = '', allTermsDefault = true, onChange } = {}) {
+  async function mountBar({ term = false, allTermsLabel = '', allTermsDefault = true, planning = false, onChange } = {}) {
     const host = document.getElementById('main-content-segment') || document.querySelector('main') || document.body;
     let bar = host.querySelector('[data-academic-year-bar]');
     if (!bar) {
@@ -284,9 +345,10 @@
       termSelect: term ? bar.querySelector('#ayBarTerm') : null,
       allTermsLabel,
       allTermsDefault,
+      planning,
       onChange,
     });
   }
 
-  window.AcademicYearFilter = Object.freeze({ mount, mountBar, label: optionText });
+  window.AcademicYearFilter = Object.freeze({ mount, mountBar, label: optionText, defaultTerm });
 })(window);

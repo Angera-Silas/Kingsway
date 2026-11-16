@@ -2518,7 +2518,8 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
 
         $sql = "SELECT document_type, verification_status
-                FROM " . ReadReplicaService::qualifiedRef("classes") . " application_id = :id";
+                FROM admission_documents
+                WHERE application_id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['id' => $application_id]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -2634,18 +2635,17 @@ return formatResponse(false, null, 'An internal error occurred.');
 
     private function resolveAcademicTermId(int $academicYear): ?int
     {
-        $stmt = $this->db->prepare("
-            SELECT academic_year_term_id
-            FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
-            WHERE year_code = :year_code
-              AND term_period_status = 'current'
-            ORDER BY term_id ASC
-            LIMIT 1
-        ");
-        $stmt->execute(['year_code' => (string) $academicYear]);
-        $termId = $stmt->fetchColumn();
-        if ($termId) {
-            return (int) $termId;
+        // A learner is admitted into the term in session, or during a holiday
+        // the next term of that year. Year codes read "2026/2027"; the year
+        // passed is its first calendar year.
+        $yearStmt = $this->db->prepare("SELECT id FROM academic_years WHERE year_code LIKE ? ORDER BY id LIMIT 1");
+        $yearStmt->execute([(int) $academicYear . '%']);
+        $admitYearId = (int) ($yearStmt->fetchColumn() ?: 0);
+        if ($admitYearId > 0) {
+            [, $termId] = (new \App\API\Services\AcademicPeriodService($this->db))->planningTerm($admitYearId);
+            if ($termId) {
+                return (int) $termId;
+            }
         }
 
         $fallbackStmt = $this->db->prepare("

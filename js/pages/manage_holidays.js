@@ -22,6 +22,8 @@ const ManageHolidaysController = (() => {
         await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
         await loadData(); setupEventListeners();
+        // Switching the academic year reloads the list in place.
+        window.KingswayYearScope?.onYearChange?.(loadData);
     }
 
     function setupEventListeners() {
@@ -181,7 +183,7 @@ const ManageHolidaysController = (() => {
             showNotification("Holiday saved", "success");
             bootstrap.Modal.getInstance(document.getElementById('formModal'))?.hide();
             if (andApply) {
-                await applyToCalendar();
+                await applyToCalendar(payload.start_date);
             } else {
                 await loadData();
             }
@@ -201,10 +203,15 @@ const ManageHolidaysController = (() => {
         } catch (e) { showNotification(e.message || 'Delete failed', 'danger'); }
     }
 
-    async function applyToCalendar() {
+    // Applies the registry to the academic year being viewed. After saving a
+    // holiday, its own date picks the year, so a holiday entered for another
+    // year lands on that year's calendar.
+    async function applyToCalendar(holidayDate) {
         showNotification('Applying holidays to the academic calendar...', 'info');
         try {
-            const r = await window.API.schedules.applyHolidays();
+            const scope = window.KingswayYearScope?.requestParams?.() || {};
+            const target = (typeof holidayDate === 'string' && holidayDate) ? { date: holidayDate } : scope;
+            const r = await window.API.schedules.applyHolidays(target);
             showNotification(r?.data?.message || 'Holidays applied to the calendar', 'success');
             if (window.DataStore) window.DataStore.invalidateMany(['academic', 'schedules']);
             await loadData();

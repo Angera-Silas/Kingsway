@@ -59,7 +59,7 @@ const assessmentOverviewCtrl = {
       const sources = response?.data?.sources || response?.sources || {};
       const pick = (v) => (Array.isArray(v?.data) ? v.data : (Array.isArray(v) ? v : []));
       this._terms = pick(sources.terms);
-      const current = this._terms.find(t => (t.status || '') === 'current');
+      const current = window.AcademicYearFilter?.defaultTerm?.(this._terms) || this._terms.find(t => (t.status || '') === 'current');
       if (current) this._currentTermId = current.id;
       const termOpts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year_name||t.year_code||t.year||''}</option>`).join('');
       ['aoTermModal'].forEach(id => {
@@ -81,7 +81,7 @@ const assessmentOverviewCtrl = {
     try {
       const r = await callAPI('/academic/terms-list', 'GET');
       this._terms = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const current = this._terms.find(t => (t.status || '') === 'current');
+      const current = window.AcademicYearFilter?.defaultTerm?.(this._terms) || this._terms.find(t => (t.status || '') === 'current');
       if (current) this._currentTermId = current.id;
 
       const opts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year_name||t.year_code||t.year||''}</option>`).join('');

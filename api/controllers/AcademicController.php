@@ -339,10 +339,41 @@ return $this->error('An internal error occurred.');
         }
     }
 
+    /**
+     * GET /api/academic/periods?academic_year_id=
+     * The periods of one academic year in order: each term, its half term and
+     * the holiday after it (April, August, December). Default: current year.
+     */
+    public function getPeriods($id = null, $data = [], $segments = [])
+    {
+        try {
+            $periods = new \App\API\Services\AcademicPeriodService($this->db);
+            $yearId = (int) ($id ?? ($_GET['academic_year_id'] ?? ($data['academic_year_id'] ?? 0)));
+            if ($yearId <= 0) {
+                $yearId = (int) ($this->contextService->getCurrentAcademicYear()['id'] ?? 0);
+            }
+            return $this->success(['academic_year_id' => $yearId, 'periods' => $periods->periodsForYear($yearId)]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->error('An internal error occurred.');
+        }
+    }
+
+    /** GET /api/academic/current-period: today's period, the next one and the term to plan for. */
+    public function getCurrentPeriod($id = null, $data = [], $segments = [])
+    {
+        try {
+            return $this->success((new \App\API\Services\AcademicPeriodService($this->db))->snapshot());
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->error('An internal error occurred.');
+        }
+    }
+
     /** GET /api/academic/teacher-planning-context */
     public function getTeacherPlanningContext($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->api->getTeacherPlanningContext());
+        return $this->handleResponse($this->api->getTeacherPlanningContext(array_merge($_GET, is_array($data) ? $data : [])));
     }
 
     /** GET /api/academic/lesson-planning-context/{schemeId} */

@@ -398,6 +398,15 @@ class AcademicActivationService
                             completed_by = ?
                       WHERE id = ?"
                 )->execute([$actorId, $outgoingId]);
+
+                // A completed year's fee structure is closed with it: it stays
+                // on record for that year's statements and printouts but is no
+                // longer an active structure. The current and upcoming years
+                // each have their own.
+                $this->db->prepare(
+                    "UPDATE academic_year_fee_schedules SET status = 'inactive'
+                      WHERE academic_year_id = ? AND status = 'active'"
+                )->execute([$outgoingId]);
             }
 
             $this->db->prepare("UPDATE academic_years SET is_current = 0 WHERE id <> ?")->execute([$targetId]);
@@ -510,17 +519,21 @@ class AcademicActivationService
         }
 
         try {
+            // The term in session, or during a holiday the term just closed;
+            // the label names the period itself ("December Holiday").
+            $periods = new AcademicPeriodService($this->db);
+            [, $termId] = $periods->recordTerm($yearId);
             $term = $this->db->prepare(
                 "SELECT term_id, opening_date, closing_date, status
-                 FROM academic_year_terms
-                 WHERE academic_year_id = ?
-                 ORDER BY CASE WHEN status = 'current' THEN 0 ELSE 1 END, closing_date
-                 LIMIT 1"
+                 FROM academic_year_terms WHERE id = ? LIMIT 1"
             );
-            $term->execute([$yearId]);
+            $term->execute([$termId]);
             $row = $term->fetch(PDO::FETCH_ASSOC);
             if ($row) {
-                $summary['current_term'] = 'Term ' . (int) $row['term_id'];
+                $now = $periods->currentPeriod();
+                $summary['current_term'] = ($now && (int) $now['academic_year_id'] === $yearId)
+                    ? $now['name']
+                    : 'Term ' . (int) $row['term_id'];
                 $summary['term_end_date'] = (string) $row['closing_date'];
                 $summary['term_status'] = (string) $row['status'];
             }

@@ -1267,7 +1267,7 @@ class ParentPortalManager extends BaseAPI
                         c.name AS class_name, sn.name AS stream_name
                  FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.id = " . (int) ($this->recordTermId() ?? 0) . "
                  JOIN terms t ON t.id = ayt.term_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
@@ -1365,7 +1365,7 @@ class ParentPortalManager extends BaseAPI
                         c.name AS class_name, sn.name AS stream_name
                  FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.id = " . (int) ($this->recordTermId() ?? 0) . "
                  JOIN terms t ON t.id = ayt.term_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
@@ -1518,7 +1518,7 @@ class ParentPortalManager extends BaseAPI
                         c.name AS class_name, sn.name AS stream_name
                  FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.id = " . (int) ($this->recordTermId() ?? 0) . "
                  JOIN terms t ON t.id = ayt.term_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
@@ -3228,10 +3228,11 @@ class ParentPortalManager extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT term_id AS id, term_name AS name, term_code AS term_number, year_code AS year
              FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
-             WHERE term_period_status = 'current'
+             WHERE academic_year_term_id = ?
              LIMIT 1"
         );
-        $stmt->execute();
+        // The term in session, or during a holiday the term just closed.
+        $stmt->execute([(int) ($this->recordTermId() ?? 0)]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
     }

@@ -417,21 +417,18 @@ class StudentsAPI extends BaseAPI
             ];
         }
 
+        // The term in session, or during a holiday the term just closed: the
+        // position existing learners are brought in at.
         $termStmt = $this->db->prepare(
             "SELECT academic_year_term_id AS id,
                     term_id AS term_number,
                     term_code AS code,
                     term_name AS name
              FROM " . ReadReplicaService::qualifiedRef("academic_term_terms") . "
-             WHERE academic_year_id = ?
-               AND (
-                   term_period_status = 'current'
-                   OR CURDATE() BETWEEN opening_date AND closing_date
-               )
-             ORDER BY CASE WHEN term_period_status = 'current' THEN 0 ELSE 1 END, term_id
+             WHERE academic_year_term_id = ?
              LIMIT 1"
         );
-        $termStmt->execute([(int) $year['id']]);
+        $termStmt->execute([(int) ($this->recordTermId((int) $year['id']) ?? 0)]);
         $term = $termStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
         $termsStmt = $this->db->prepare(
@@ -503,7 +500,7 @@ class StudentsAPI extends BaseAPI
              LEFT JOIN student_types st ON st.id = afs.student_type_id
              JOIN fee_catalog fc ON fc.id = afs.fee_catalog_id
              WHERE afs.academic_year_id = ?
-               AND afs.status = 'active'
+               AND afs.status IN ('active', 'inactive')
              ORDER BY ayc.class_id, afs.student_type_id, t.id, fc.code"
         );
         $scheduleStmt->execute([(int) $year['id']]);
@@ -971,63 +968,21 @@ class StudentsAPI extends BaseAPI
         return $scope;
     }
 
+    /**
+     * Term a transfer or a new learner's payment belongs to: the term in
+     * session, or during a holiday the next term to open (fees paid in the
+     * April Holiday are for Term 2). $academicYear is the calendar year the
+     * academic year starts in (e.g. 2026 for 2026/2027).
+     */
     private function getCurrentTermId($academicYear = null)
     {
+        $yearId = null;
         if ($academicYear !== null) {
-            $stmt = $this->db->prepare("
-                SELECT ayt.id
-                FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
-                WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
-                  AND ayt.status = 'current'
-                ORDER BY (SELECT code FROM terms WHERE id = ayt.term_id) ASC
-                LIMIT 1
-            ");
-            $stmt->execute([$academicYear]);
-            $termId = $stmt->fetchColumn();
-            if ($termId) {
-                return (int) $termId;
-            }
-
-            $stmt = $this->db->prepare("
-                SELECT ayt.id
-                FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
-                WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
-                ORDER BY (SELECT code FROM terms WHERE id = ayt.term_id) DESC
-                LIMIT 1
-            ");
-            $stmt->execute([$academicYear]);
-            $termId = $stmt->fetchColumn();
-            if ($termId) {
-                return (int) $termId;
-            }
+            $stmt = $this->db->prepare("SELECT id FROM academic_years WHERE year_code LIKE ? ORDER BY id LIMIT 1");
+            $stmt->execute([(int) $academicYear . '%']);
+            $yearId = (int) ($stmt->fetchColumn() ?: 0) ?: null;
         }
-
-        $stmt = $this->db->query("
-            SELECT ayt.id
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-            WHERE ayt.status = 'current'
-            ORDER BY ayt.academic_year_id DESC,
-                     (SELECT code FROM terms WHERE id = ayt.term_id) ASC
-            LIMIT 1
-        ");
-        $termId = $stmt->fetchColumn();
-        if ($termId) {
-            return (int) $termId;
-        }
-
-        $stmt = $this->db->query("
-            SELECT ayt.id
-            FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-            ORDER BY ayt.academic_year_id DESC,
-                     (SELECT code FROM terms WHERE id = ayt.term_id) DESC
-            LIMIT 1
-        ");
-
-        $termId = $stmt->fetchColumn();
-
-        return $termId ? (int) $termId : null;
+        return $this->planningTermId($yearId);
     }
 
     private function normalizePaymentMethod($method)
@@ -1536,26 +1491,13 @@ private function getCurrentStudentTransport(int $studentId): array
             return 0;
         }
 
-        $termStmt = $this->db->prepare(
-            "SELECT MIN(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-             JOIN terms t ON t.id = ayt.term_id
-             WHERE ayt.academic_year_id = ?
-               AND ayt.status = 'current'"
-        );
-        $termStmt->execute([$academicYearId]);
-        $startTermNumber = (int) ($termStmt->fetchColumn() ?: 0);
-        if ($startTermNumber <= 0) {
-            $termStmt = $this->db->prepare(
-                "SELECT MIN(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                 JOIN terms t ON t.id = ayt.term_id
-                 WHERE ayt.academic_year_id = ?
-                   AND CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date"
-            );
-            $termStmt->execute([$academicYearId]);
-            $startTermNumber = (int) ($termStmt->fetchColumn() ?: 1);
-        }
+        // Fees start from the term the learner will attend: the term in
+        // session, or during a holiday the next term to open (a learner who
+        // joins in the August Holiday is billed from Term 3, not Term 1).
+        $startTermId = (int) ($this->planningTermId((int) $academicYearId) ?? 0);
+        $termStmt = $this->db->prepare("SELECT term_id FROM academic_year_terms WHERE id = ?");
+        $termStmt->execute([$startTermId]);
+        $startTermNumber = (int) ($termStmt->fetchColumn() ?: 1);
 
         $structureStmt = $this->db->prepare("
             SELECT ayfs.id, ayfs.academic_year_term_id AS term_id, ayfs.amount,
@@ -1567,7 +1509,7 @@ private function getCurrentStudentTransport(int $studentId): array
             WHERE ayfs.academic_year_class_id = ?
               AND ayfs.academic_year_id = ?
               AND ayfs.student_type_id = ?
-              AND ayfs.status = 'active'
+              AND ayfs.status IN ('active', 'inactive')
               AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) >= ?
             ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED) ASC, ayfs.id ASC
         ");
@@ -1589,7 +1531,8 @@ private function getCurrentStudentTransport(int $studentId): array
         // obligations immediately.
         $awardStmt = $this->db->prepare(
             "SELECT coverage_type, coverage_percentage, coverage_amount, starts_on, ends_on
-             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " student_id=? AND academic_year_id=? AND status='active'
+             FROM student_scholarship_awards
+             WHERE student_id=? AND academic_year_id=? AND status='active'
              LIMIT 1"
         );
         $awardStmt->execute([$studentId, $academicYearId]);
@@ -1766,7 +1709,7 @@ private function getCurrentStudentTransport(int $studentId): array
             WHERE ayfs.academic_year_class_id = ?
               AND ayfs.academic_year_id = ?
               AND ayfs.student_type_id = ?
-              AND ayfs.status = 'active'
+              AND ayfs.status IN ('active', 'inactive')
               AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) >= ?
             ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED) ASC, ayfs.id ASC
         ");
@@ -2803,16 +2746,17 @@ private function getCurrentStudentTransport(int $studentId): array
         $totalPaid = $tuitionPaid + min($admissionPaid, $admissionDue);
         $balance = $tuitionBalance + max(0.0, $admissionDue - $admissionPaid);
 
+        // "This term": the term in session, or during a holiday the term the
+        // coming fees are for (the April Holiday's fees are Term 2's).
+        $summaryYearId = (int) ($this->db->query("SELECT id FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
         $currentTermStmt = $this->db->prepare(
             "SELECT ayt.id AS id, t.name AS name
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
+             FROM academic_year_terms ayt
              JOIN terms t ON t.id = ayt.term_id
-             WHERE ayt.academic_year_id = (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current=1 ORDER BY id DESC LIMIT 1)
-               AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
-             ORDER BY ayt.status='current' DESC, ayt.opening_date
+             WHERE ayt.id = ?
              LIMIT 1"
         );
-        $currentTermStmt->execute();
+        $currentTermStmt->execute([(int) ($this->planningTermId($summaryYearId ?: null) ?? 0)]);
         $currentTerm = $currentTermStmt->fetch(PDO::FETCH_ASSOC) ?: null;
         $currentTermSummary = [
             'total_fees' => 0,
@@ -2927,7 +2871,7 @@ private function getCurrentStudentTransport(int $studentId): array
              JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = afs.academic_year_term_id
              WHERE afs.academic_year_id = ? AND ayc.class_id = ?
                AND (afs.student_type_id = ? OR afs.student_type_id IS NULL)
-               AND afs.status = 'active'"
+               AND afs.status IN ('active', 'inactive')"
         );
         $feesStmt->execute([$yearId, (int) $placement['class_id'], (int) $placement['student_type_id']]);
         $feeRows = $feesStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -3724,13 +3668,8 @@ private function getCurrentStudentTransport(int $studentId): array
                 ], 400);
             }
 
-            $termStmt = $this->db->prepare("
-                SELECT id FROM academic_year_terms
-                WHERE academic_year_id = ? AND status = 'current'
-                LIMIT 1
-            ");
-            $termStmt->execute([(int) $enrollment['academic_year_id']]);
-            $termId = $termStmt->fetchColumn();
+            // The term in session, or during a holiday the term just closed.
+            $termId = $this->recordTermId((int) $enrollment['academic_year_id']);
 
             $sql = "
                 INSERT INTO discipline_incidents (
@@ -5268,13 +5207,10 @@ private function getCurrentStudentTransport(int $studentId): array
             ];
 
             $termCount = 0;
-            $termStmt = $this->db->query("
-                SELECT ayt.opening_date, ayt.closing_date
-                FROM academic_year_terms ayt
-                WHERE ayt.status = 'current'
-                ORDER BY ayt.opening_date DESC
-                LIMIT 1
-            ");
+            // This term's count: the term in session, or during a holiday the
+            // term just closed.
+            $termStmt = $this->db->prepare("SELECT opening_date, closing_date FROM academic_year_terms WHERE id = ?");
+            $termStmt->execute([(int) ($this->recordTermId() ?? 0)]);
             $term = $termStmt->fetch(PDO::FETCH_ASSOC);
             if ($term) {
                 $stmt = $this->db->prepare("
@@ -6632,12 +6568,10 @@ private function getCurrentStudentTransport(int $studentId): array
         )->fetch(PDO::FETCH_ASSOC) ?: null;
         if (!$year) throw new \InvalidArgumentException('No current academic year is configured');
 
-        $termStmt = $this->db->prepare(
-            "SELECT id, term_id FROM academic_year_terms
-             WHERE academic_year_id=? AND (status='current' OR CURDATE() BETWEEN opening_date AND closing_date)
-             ORDER BY CASE WHEN status='current' THEN 0 ELSE 1 END, id LIMIT 1"
-        );
-        $termStmt->execute([(int) $year['id']]);
+        // A waiver applies from the term in session, or during a holiday from
+        // the next term to open.
+        $termStmt = $this->db->prepare("SELECT id, term_id FROM academic_year_terms WHERE id=? LIMIT 1");
+        $termStmt->execute([(int) ($this->planningTermId((int) $year['id']) ?? 0)]);
         $term = $termStmt->fetch(PDO::FETCH_ASSOC) ?: null;
         $academicYearTermId = (int) ($term['id'] ?? 0);
         $termId = (int) ($term['term_id'] ?? 0);
@@ -7182,17 +7116,9 @@ private function getCurrentStudentTransport(int $studentId): array
             throw new \InvalidArgumentException('No current academic year is configured');
         }
 
-        $termStmt = $this->db->prepare(
-            "SELECT ayt.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-             JOIN terms t ON t.id = ayt.term_id
-             WHERE ayt.academic_year_id = ?
-               AND (ayt.status = 'current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
-             ORDER BY CASE WHEN ayt.status = 'current' THEN 0 ELSE 1 END, t.id
-             LIMIT 1"
-        );
-        $termStmt->execute([(int) $year['id']]);
-        $currentTermId = (int) ($termStmt->fetchColumn() ?: 0);
+        // Position as at the term in session, or during a holiday the term
+        // just closed.
+        $currentTermId = (int) ($this->recordTermId((int) $year['id']) ?? 0);
 
         $scheduleStmt = $this->db->prepare(
             "SELECT
@@ -7203,7 +7129,7 @@ private function getCurrentStudentTransport(int $studentId): array
              WHERE afs.academic_year_id = ?
                AND ayc.class_id = ?
                AND (afs.student_type_id = ? OR afs.student_type_id IS NULL)
-               AND afs.status = 'active'"
+               AND afs.status IN ('active', 'inactive')"
         );
         $scheduleStmt->execute([
             $currentTermId,
@@ -7229,7 +7155,7 @@ private function getCurrentStudentTransport(int $studentId): array
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = afs.academic_year_term_id
                  WHERE afs.academic_year_id = ? AND ayc.class_id = ?
                    AND (afs.student_type_id = ? OR afs.student_type_id IS NULL)
-                   AND afs.status = 'active'
+                   AND afs.status IN ('active', 'inactive')
                    AND (? IS NULL OR ayt.closing_date >= ?)
                    AND (? IS NULL OR ayt.opening_date <= ?)"
             );
@@ -7311,17 +7237,8 @@ private function getCurrentStudentTransport(int $studentId): array
             throw new \InvalidArgumentException("Academic year {$yearCode} was not found");
         }
 
-        $termStmt = $this->db->prepare(
-            "SELECT ayt.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-             JOIN terms t ON t.id = ayt.term_id
-             WHERE ayt.academic_year_id = ?
-               AND (ayt.status = 'current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
-             ORDER BY ayt.status = 'current' DESC, CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
-             LIMIT 1"
-        );
-        $termStmt->execute([$academicYearId]);
-        $academicYearTermId = (int) ($termStmt->fetchColumn() ?: 0);
+        // The term in session, or during a holiday the term just closed.
+        $academicYearTermId = (int) ($this->recordTermId((int) $academicYearId) ?? 0);
 
         $academicYearPaid = round((float) ($financial['academic_year_paid_amount'] ?? 0), 2);
         $currentTermPaid = round((float) ($financial['current_term_paid_amount'] ?? 0), 2);
@@ -7419,16 +7336,17 @@ private function getCurrentStudentTransport(int $studentId): array
              WHERE student_academic_enrollment_id=? AND academic_year_id=?"
         )->execute([$enrollmentId, $academicYearId]);
 
+        // Brought-forward arrears sit on the term in session, or during a
+        // holiday on the term just closed (they were dropped between terms).
+        $referenceTermId = (int) ($this->recordTermId((int) $academicYearId) ?? 0);
         $openingArrears = max(0, round((float) ($financial['fee_arrears_amount'] ?? 0), 2));
         if ($openingArrears > 0) {
             $firstObligation = $this->db->prepare(
-                "SELECT sfo.id FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id=sfo.academic_year_term_id
-                 WHERE sfo.student_academic_enrollment_id=? AND sfo.academic_year_id=?
-                   AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
-                 ORDER BY ayt.opening_date, sfo.id LIMIT 1"
+                "SELECT id FROM student_fee_obligations
+                 WHERE student_academic_enrollment_id=? AND academic_year_id=? AND academic_year_term_id=?
+                 ORDER BY id LIMIT 1"
             );
-            $firstObligation->execute([$enrollmentId, $academicYearId]);
+            $firstObligation->execute([$enrollmentId, $academicYearId, $referenceTermId]);
             $firstId = (int) ($firstObligation->fetchColumn() ?: 0);
             if ($firstId > 0) {
                 $this->db->prepare(
@@ -7437,16 +7355,7 @@ private function getCurrentStudentTransport(int $studentId): array
             }
         }
 
-        $currentTermStmt = $this->db->prepare(
-            "SELECT ayt.id
-             FROM academic_year_terms ayt
-             WHERE ayt.academic_year_id=?
-               AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
-             ORDER BY ayt.status='current' DESC, ayt.opening_date
-             LIMIT 1"
-        );
-        $currentTermStmt->execute([$academicYearId]);
-        $currentTermId = (int) ($currentTermStmt->fetchColumn() ?: 0);
+        $currentTermId = $referenceTermId;
         $annualPaid = max(0, round((float) ($financial['academic_year_paid_amount'] ?? 0), 2));
         $currentTermPaid = max(0, round((float) ($financial['current_term_paid_amount'] ?? 0), 2));
         $preCurrentPaid = max(0, round($annualPaid - $currentTermPaid, 2));

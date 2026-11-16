@@ -220,7 +220,7 @@ class ClearanceManager extends BaseAPI
             $currentUserId = $this->getCurrentUserId();
             $clearedCount = 0;
 
-            $stmt = $this->db->prepare("SELECT student_id FROM " . ReadReplicaService::qualifiedRef("student_clearances") . " id = ?");
+            $stmt = $this->db->prepare("SELECT student_id FROM student_transitions WHERE id = ?");
             $stmt->execute([$transferId]);
             $studentId = $stmt->fetchColumn();
 

@@ -99,9 +99,11 @@ class FeeStructureAdminController {
    * Setup event listeners
    */
   setupEventListeners() {
+    // The year filter drives the whole page: the summary figures, the list
+    // and the matrix (loadFeeStructures redraws the matrix when it finishes).
     document.getElementById("adminMatrixAcademicYearFilter")?.addEventListener(
       "change",
-      () => this.loadCanonicalMatrix(),
+      () => this.loadFeeStructures(1),
     );
 
     window.exportFeeStructures = () => this.exportFeeStructures();
@@ -211,7 +213,10 @@ class FeeStructureAdminController {
       );
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = this.getAcademicYearLabel(year) || value;
+      // Say which year is current, upcoming or completed.
+      const state = Number(year.is_current) === 1 ? 'current' : String(year.state || '').toLowerCase();
+      const label = this.getAcademicYearLabel(year) || value;
+      option.textContent = ['current', 'upcoming', 'completed'].includes(state) ? `${label} (${state})` : label;
       select.appendChild(option);
     });
 
@@ -301,9 +306,15 @@ class FeeStructureAdminController {
   async loadFeeStructures(page = 1) {
     this.currentPage = page;
 
+    // Every figure on the page is for one academic year: the year in the
+    // filter, or the current year. Without it the summary added up the
+    // obligations of every year and counted a learner once per year.
     const filters = {
       page: page,
-      limit: this.itemsPerPage,
+      // A year has a few dozen schedule rows; all of them are needed for
+      // the structure counts to be right (20 rows counted only part).
+      limit: Math.max(this.itemsPerPage, 500),
+      academic_year: this.selectedMatrixYear(),
     };
 
     Object.keys(filters).forEach((key) => {
@@ -339,6 +350,13 @@ class FeeStructureAdminController {
       console.error("Failed to load fee structures:", error);
       this.showError("Failed to load fee structures. Please try again.");
     }
+  }
+
+  /** The academic year (its starting year) the page is showing. */
+  selectedMatrixYear() {
+    const years = this.academicYears || [];
+    return document.getElementById('adminMatrixAcademicYearFilter')?.value ||
+      this.parseAcademicYear(years.find(y => Number(y.is_current) === 1)?.year_code || years[0]?.year_code || '');
   }
 
   async loadCanonicalMatrix() {
@@ -599,6 +617,11 @@ class FeeStructureAdminController {
     if (activeEl) activeEl.textContent = activeCount;
     if (pendingEl) pendingEl.textContent = pendingCount;
     if (expectedEl) expectedEl.textContent = this.formatCurrency(totalExpected);
+    const yearLabelEl = document.getElementById("feeSummaryYearLabel");
+    const yearSelect = document.getElementById("adminMatrixAcademicYearFilter");
+    if (yearLabelEl && yearSelect?.selectedOptions?.[0]?.value) {
+      yearLabelEl.textContent = yearSelect.selectedOptions[0].textContent;
+    }
     if (studentsEl) studentsEl.textContent = totalStudents;
   }
 
@@ -1665,7 +1688,7 @@ class FeeStructureAdminController {
   clearFilters() {
     const year = document.getElementById("adminMatrixAcademicYearFilter");
     if (year) year.value = this.parseAcademicYear(this.academicYears.find(y => y.is_current)?.year_code || this.academicYears[0]?.year_code || '');
-    this.loadCanonicalMatrix();
+    this.loadFeeStructures(1);
   }
 
   formatCurrency(amount) {

@@ -43,6 +43,7 @@ const AssignClassTeachersController = {
     if (!window.AcademicYearFilter || !select) return;
     let mounted = false;
     await window.AcademicYearFilter.mount(select, {
+      planning: true,
       onChange: (yearId, year) => {
         this.state.yearId = yearId;
         this.state.yearLabel = year?.year_name || year?.year_code || '';

@@ -424,10 +424,22 @@ class FeeManager
 
             $params = [];
 
+            // A fee structure belongs to exactly one academic year and is
+            // never listed or totalled with another year's. The request names
+            // the year (id, code or starting year); with none it is the
+            // current year.
+            if (empty($filters['academic_year']) && !empty($filters['academic_year_id'])) {
+                $filters['academic_year'] = $filters['academic_year_id'];
+            }
+            if (empty($filters['academic_year'])) {
+                $filters['academic_year'] = (string) ($this->db->query(
+                    "SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+                )->fetchColumn() ?: '');
+            }
             if (!empty($filters['academic_year'])) {
-                $sql .= " AND (ay.year_code = ? OR YEAR(ay.start_date) = ?)";
-                $params[] = $filters['academic_year'];
-                $params[] = $filters['academic_year'];
+                $resolvedYearId = (int) $this->resolveAcademicYearId($filters['academic_year']);
+                $sql .= " AND ayfs.academic_year_id = ?";
+                $params[] = $resolvedYearId;
             }
 
             if (!empty($filters['level_id'])) {
@@ -485,7 +497,7 @@ class FeeManager
             $countParams = array_slice($params, 0, -2); // Remove limit and offset
 
             if (!empty($filters['academic_year'])) {
-                $countSql .= " AND (ay.year_code = ? OR YEAR(ay.start_date) = ?)";
+                $countSql .= " AND ayfs.academic_year_id = ?";
             }
             if (!empty($filters['level_id'])) {
                 $countSql .= " AND ayfs.academic_year_class_id IN (SELECT DISTINCT academic_year_class_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " WHERE level_id = ?)";
@@ -519,9 +531,11 @@ class FeeManager
             // enrolled learners, not fee amount multiplied by a duplicated
             // row-level student count.
             $billingSql = "
-                SELECT COUNT(DISTINCT sfo.student_academic_enrollment_id) AS billed_students,
+                SELECT COUNT(DISTINCT COALESCE(bsae.student_id, -sfo.student_academic_enrollment_id)) AS billed_students,
                        COALESCE(SUM(sfo.amount_due), 0) AS billed_amount
                 FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " bsae
+                  ON bsae.id = sfo.student_academic_enrollment_id
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
                   ON ayfs.id = sfo.academic_year_fee_schedule_id
                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayfs.academic_year_id
@@ -530,12 +544,9 @@ class FeeManager
                 WHERE sfo.status NOT IN ('cancelled', 'void')";
             $billingParams = [];
 
-            if (!empty($filters['academic_year'])) {
-                $billingSql .= " AND (ay.year_code = ? OR YEAR(ay.start_date) = ? OR ay.id = ?)";
-                $billingParams[] = $filters['academic_year'];
-                $billingParams[] = $filters['academic_year'];
-                $billingParams[] = $filters['academic_year'];
-            }
+            // Always one year: the same year as the list above.
+            $billingSql .= " AND ayfs.academic_year_id = ?";
+            $billingParams[] = (int) ($resolvedYearId ?? 0);
             if (!empty($filters['level_id'])) {
                 $billingSql .= " AND c.level_id = ?";
                 $billingParams[] = $filters['level_id'];
@@ -600,8 +611,9 @@ class FeeManager
         }
 
         if (empty($termId)) {
-            $stmt = $this->db->query("SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 AND term_period_status = 'current' LIMIT 1");
-            $termId = $stmt->fetchColumn();
+            // In session, or during a holiday the next term of the year.
+            [, $termId] = (new \App\API\Services\AcademicPeriodService($this->db))->planningTerm((int) $academicYearId);
+            $termId = $termId ?: null;
         }
 
         return [$academicYearId, $termId];
@@ -2158,7 +2170,7 @@ class FeeManager
                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ayfs.academic_year_term_id
                 JOIN terms t ON t.id = ayt.term_id
-                WHERE ayfs.academic_year_id = ? AND ayfs.status = 'active'
+                WHERE ayfs.academic_year_id = ? AND ayfs.status IN ('active', 'inactive')
                   AND c.id BETWEEN ? AND ?
             ";
             $params = [$academicYearId, $fromId, $toId];
@@ -3521,7 +3533,9 @@ class FeeManager
                 if (!$yearId) {
                     return formatResponse(true, ['bundles' => [], 'pagination' => ['total' => 0, 'page' => $page, 'limit' => $limit, 'pages' => 0]]);
                 }
-                $where .= " AND ay.id = ?";
+                // A named year lists its own structure even after the year is
+                // completed and the structure is closed ('inactive').
+                $where = "WHERE ayfs.status IN ('active', 'inactive') AND ayfs.academic_year_class_id IS NOT NULL AND ay.id = ?";
                 $params[] = $yearId;
             }
             if (!empty($filters['term_id'])) {

@@ -132,7 +132,7 @@ return $this->formatError('An internal error occurred.', 500);
             }
 
             // Check uniform item exists and size available
-            $sizeSql = "SELECT quantity_available, unit_price FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " item_id = ? AND size = ?";
+            $sizeSql = "SELECT quantity_available, unit_price FROM uniform_sizes WHERE item_id = ? AND size = ?";
             $sizeStmt = $this->dbQuery($sizeSql, [$item_id, $size]);
             $sizeData = $sizeStmt->fetch(PDO::FETCH_ASSOC);
 

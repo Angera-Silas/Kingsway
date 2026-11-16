@@ -39,6 +39,7 @@ class BaseAPI extends FileLifecycleBase
         return ApiResponse::error($message, $statusCode, $errors);
     }
     protected $db;
+    private ?\App\API\Services\AcademicPeriodService $academicPeriodService = null;
     protected $user_id;
     protected $module;
     protected $request_id;
@@ -581,6 +582,42 @@ class BaseAPI extends FileLifecycleBase
      * Use this instead of $this->db->query($sql, $params) which calls PDO::query()
      * (PDO::query() does not accept a params array as its 2nd argument).
      */
+    /**
+     * The school year as it runs: terms, half terms and holidays (April,
+     * August, December). Between terms no term is "current"; use these two
+     * rules instead of looking for status = 'current'.
+     */
+    protected function academicPeriods(): \App\API\Services\AcademicPeriodService
+    {
+        return $this->academicPeriodService ??= new \App\API\Services\AcademicPeriodService($this->db);
+    }
+
+    /**
+     * Term for records and reports (discipline, fee summaries, waivers):
+     * in session, else the term just closed (in the year, when given).
+     */
+    protected function recordTermId(?int $yearId = null): ?int
+    {
+        // Within the current academic year unless another is named, so the
+        // term always belongs to the year being shown.
+        if (!$yearId) {
+            $yearId = (int) ($this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0) ?: null;
+        }
+        [, $termId] = $this->academicPeriods()->recordTerm((int) $yearId);
+        return $termId ?: null;
+    }
+
+    /**
+     * Term for work being prepared or taking effect (payments for the coming
+     * term, transfers, allocations, schemes): in session, else during a
+     * holiday the next term to open (in the year, when given).
+     */
+    protected function planningTermId(?int $yearId = null): ?int
+    {
+        [, $termId] = $this->academicPeriods()->planningTerm((int) $yearId);
+        return $termId ?: null;
+    }
+
     protected function dbQuery(string $sql, array $params = []): \PDOStatement
     {
         $stmt = $this->db->prepare($sql);

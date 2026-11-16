@@ -337,7 +337,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $method = strtolower((string) ($data['payment_method'] ?? 'cash'));
             $supplierPayment = null;
             if (in_array($method, ['bank_transfer', 'kcb_bank'], true)) {
-                $supplierCheck = $this->db->prepare("SELECT vendor_id FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " id = ? LIMIT 1");
+                $supplierCheck = $this->db->prepare("SELECT vendor_id FROM expenses WHERE id = ? LIMIT 1");
                 $supplierCheck->execute([$expenseId]);
                 $vendorId = $supplierCheck->fetchColumn();
                 if ($vendorId) {

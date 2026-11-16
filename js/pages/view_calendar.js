@@ -15,11 +15,30 @@ const ViewCalendarController = (() => {
         meeting: 'info', sports: 'warning', extracurricular: 'secondary', other: 'dark'
     };
 
+    // Open the month grid on the academic year being viewed: its first dated
+    // entry for another year, today's month for the current year.
+    let shownYearScope = '';
+    function focusSelectedYear() {
+        const scope = String(window.KingswayYearScope?.requestParams?.().academic_year_id || '');
+        if (scope === shownYearScope) return;
+        shownYearScope = scope;
+        const now = new Date();
+        let target = now;
+        if (scope) {
+            const first = events.map((e) => e.start_date || e.date || e.event_date).filter(Boolean).sort()[0];
+            const parsed = first ? new Date(first) : null;
+            if (parsed && !Number.isNaN(parsed.getTime())) target = parsed;
+        }
+        currentMonth = target.getMonth();
+        currentYear = target.getFullYear();
+    }
+
     async function loadData() {
         try {
             const response = await window.API.schedules.getEvents();
             const data = response?.data || response || [];
             events = Array.isArray(data) ? data : (data.events || data.data || []);
+            focusSelectedYear();
 
             renderStats(events);
             renderCalendar();
@@ -290,6 +309,8 @@ const ViewCalendarController = (() => {
     }
 
     async function init() {
+        // Switching the academic year reloads the calendar in place.
+        window.KingswayYearScope?.onYearChange?.(loadData);
         initYearDropdown();
         attachListeners();
         await loadData();

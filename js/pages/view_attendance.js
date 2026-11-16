@@ -188,11 +188,14 @@ const viewAttendanceController = {
       const response = await window.API.academic.listTerms();
       const payload = response?.data?.data ?? response?.data ?? response ?? [];
       this.sessionTerms = Array.isArray(payload) ? payload : (payload.terms || payload.rows || []);
+      // In session, or during a holiday the term just closed.
+      const defaultSessionTerm = window.AcademicYearFilter?.defaultTerm?.(this.sessionTerms);
       select.innerHTML = this.sessionTerms.map(term => {
         const id = Number(term.id || term.academic_year_term_id);
         const label = [term.year_name || term.year_code || term.academic_year, term.term_name || term.name].filter(Boolean).join(' · ') || `Term ${id}`;
-        const current = term.status === 'current' || term.is_current == 1;
-        return `<option value="${id}" ${current ? 'selected' : ''}>${this.escapeHtml(label)}${current ? ' (Current)' : ''}</option>`;
+        const inSession = term.status === 'current' || term.is_current == 1;
+        const chosen = defaultSessionTerm ? Number(defaultSessionTerm.id || defaultSessionTerm.academic_year_term_id) === id : inSession;
+        return `<option value="${id}" ${chosen ? 'selected' : ''}>${this.escapeHtml(label)}${inSession ? ' (Current)' : ''}</option>`;
       }).join('');
       this.sessionConfigTermId = Number(select.value) || null;
       if (!select.dataset.bound) {
