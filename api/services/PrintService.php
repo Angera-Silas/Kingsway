@@ -455,6 +455,71 @@ final class PrintService
 
 
     /**
+     * A learner's exit document as a portrait A4 PDF: the school leaving
+     * certificate (graduates, withdrawals) or the transfer letter (to the
+     * receiving school). $context comes from LearnerExitDocumentService.
+     */
+    public function printLearnerExitDocument(string $type, array $context): string
+    {
+        $templates = [
+            'leaving_certificate' => 'school_leaving_certificate',
+            'transfer_letter' => 'transfer_letter',
+        ];
+        if (!isset($templates[$type])) {
+            throw new InvalidArgumentException("Unknown exit document: {$type}");
+        }
+        $templatePath = $this->certificatesPath . $templates[$type] . '.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Exit document template was not found: {$templatePath}");
+        }
+        $db = $this->getDb();
+        $director = '';
+        try {
+            $director = (string) ($db->query(
+                "SELECT full_name FROM " . ReadReplicaService::qualifiedRef('person_directory') . "
+                  WHERE staff_position LIKE '%Director%' AND staff_status = 'active' ORDER BY staff_id LIMIT 1"
+            )->fetchColumn() ?: '');
+        } catch (\Throwable $e) {
+            $director = '';
+        }
+        $profile = [];
+        try {
+            $profile = $db->query("SELECT school_code, address, city, postal_code FROM school_profile LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (\Throwable $e) {
+            $profile = [];
+        }
+        $html = $this->renderPhpTemplate($templatePath, [
+            'school' => [
+                'name' => $this->schoolConfig['name'],
+                'motto' => $this->schoolConfig['motto'],
+                'address' => $this->schoolConfig['address'],
+                'phone' => $this->schoolConfig['phone'],
+                'email' => $this->schoolConfig['email'],
+                'website' => $this->schoolConfig['website'],
+                'code' => (string) ($profile['school_code'] ?? $this->schoolConfig['code']),
+                'logo' => $this->resolvePdfAsset((string) $this->schoolConfig['logo']),
+            ],
+            'coatOfArms' => $this->resolvePdfAsset('images/kenya_coat_of_arms.png'),
+            'colors' => ['primary' => '#0d4f2a', 'accent' => '#f9c80e', 'soft' => '#e8f3ec'],
+            'headteacher' => [
+                'name' => $this->schoolConfig['principal'],
+                'title' => $this->schoolConfig['principal_title'] ?: 'Headteacher',
+            ],
+            'director' => ['name' => $director, 'title' => 'Director'],
+            'learner' => $context['learner'] ?? [],
+            'facts' => $context['facts'] ?? [],
+            'document' => $context['document'] ?? [],
+        ]);
+        $serial = $this->safeFilename((string) ($context['document']['serial_no'] ?? date('Ymd_His')));
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $type . '_' . $serial,
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
      * Generate student ID cards using the correct template for the selected
      * printer/output mode.
      *

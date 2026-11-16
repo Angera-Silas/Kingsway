@@ -1424,12 +1424,12 @@ class AcademicAPI extends BaseAPI
                             JOIN vw_teacher_effective_stream_learning_areas tscope ON tscope.academic_year_class_stream_id = aycs.id AND tscope.scope_type = 'class_teacher'
                             JOIN staff scoped_staff ON scoped_staff.id = tscope.staff_id
                             JOIN users scoped_user ON scoped_user.person_id = scoped_staff.person_id
-                            WHERE scoped_user.id = ? AND sae.enrollment_status = 'active'
+                            WHERE scoped_user.id = ? AND sae.enrollment_status IN ('active', 'completed', 'graduated')
                         ))
                         OR (pmt.target_type = 'parent' AND pmt.target_id IN (
                             SELECT sp.parent_id
                             FROM " . ReadReplicaService::qualifiedRef("parent_meeting_targets") . "
-                            JOIN student_academic_enrollments sae ON sae.student_id = sp.student_id AND sae.enrollment_status = 'active'
+                            JOIN student_academic_enrollments sae ON sae.student_id = sp.student_id AND sae.enrollment_status IN ('active', 'completed', 'graduated')
                             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
@@ -7280,8 +7280,10 @@ return errorResponse($e->getMessage(), 400);
                 FROM " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd
                 LEFT JOIN school_levels sl ON sl.id = csd.level_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx ON sctx.staff_id = csd.class_teacher_id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_placement") . " lp
-                       ON lp.aycs_id = csd.id
+                -- The stream's roll in its own year (active, completed or
+                -- graduated), not only learners still active.
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_placement_history") . " lp
+                       ON lp.aycs_id = csd.id AND lp.enrollment_status IN ('active', 'completed', 'graduated')
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY csd.id
                 ORDER BY csd.academic_year_id DESC, sl.code, csd.class_name, csd.stream_name
@@ -7727,7 +7729,7 @@ return errorResponse($e->getMessage(), 400);
                 : (!empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : $this->resolveCurrentAcademicYearId());
 
             $tss = ReadReplicaService::qualifiedRef('term_subject_scores');
-            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $lp = ReadReplicaService::qualifiedRef('learner_placement_history');
             $academicTerm = ReadReplicaService::qualifiedRef('academic_term');
             $studentDirectory = ReadReplicaService::qualifiedRef('student_directory');
             $la = ReadReplicaService::qualifiedRef('learning_areas');

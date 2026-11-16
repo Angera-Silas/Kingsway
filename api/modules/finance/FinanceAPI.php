@@ -2434,7 +2434,7 @@ class FinanceAPI extends BaseAPI
                             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
                             LEFT JOIN " . ReadReplicaService::qualifiedRef("student_directory") . " sd
                                 ON sd.student_id = st.id AND sd.academic_year_id = ?
-                                AND sd.enrollment_status = 'active'
+                                AND sd.enrollment_status IN ('active', 'completed', 'graduated')
                             LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
                                 ON vfb.student_id = st.id
                                 AND vfb.academic_year = (SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ? LIMIT 1)
