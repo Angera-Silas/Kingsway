@@ -212,7 +212,10 @@ class StudentService
                 $conditions = array_merge($conditions, $scopeConditions);
             }
 
-            $placementView = ReadReplicaService::qualifiedRef('learner_placement');
+            // The learner's class in the selected (default current) year, in any
+            // enrolment state: after promotion the current year's rows are
+            // completed/graduated, which the active-only placement leaves out.
+            $placementView = ReadReplicaService::qualifiedRef('learner_placement_history');
             $academicYear = trim((string)($filters['academic_year'] ?? ''));
             $placementYear = $academicYear !== ''
                 ? '?'
@@ -347,7 +350,10 @@ class StudentService
             if ($scopeConditions) {
                 $conditions = array_merge($conditions, $scopeConditions);
             }
-            $placementView = ReadReplicaService::qualifiedRef('learner_placement');
+            // The learner's class in the selected (default current) year, in any
+            // enrolment state: after promotion the current year's rows are
+            // completed/graduated, which the active-only placement leaves out.
+            $placementView = ReadReplicaService::qualifiedRef('learner_placement_history');
             $academicYear = trim((string)($filters['academic_year'] ?? ''));
             $placementYear = $academicYear !== ''
                 ? '?'

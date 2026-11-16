@@ -541,7 +541,7 @@ class ParentPortalManager extends BaseAPI
                  JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("student_directory") . " sd
                         ON sd.student_id = s.id
-                       AND sd.enrollment_status = 'active'
+                       AND sd.enrollment_status IN ('active', 'completed', 'graduated')
                        AND sd.is_current_year = 1
                  LEFT JOIN school_levels sl ON sl.id = sd.level_id
                  WHERE sp.parent_id = ?
@@ -1273,7 +1273,7 @@ class ParentPortalManager extends BaseAPI
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sn ON sn.id = aycs.stream_id
-                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                 WHERE sae.student_id = ? AND sae.enrollment_status IN ('active', 'completed', 'graduated')
                  LIMIT 1"
             );
             $context->execute([$studentId]);
@@ -1371,7 +1371,7 @@ class ParentPortalManager extends BaseAPI
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sn ON sn.id = aycs.stream_id
-                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                 WHERE sae.student_id = ? AND sae.enrollment_status IN ('active', 'completed', 'graduated')
                  LIMIT 1"
             );
             $context->execute([$studentId]);
@@ -1411,7 +1411,7 @@ class ParentPortalManager extends BaseAPI
                           WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
                           ORDER BY ap.submitted_at DESC LIMIT 1) AS is_graded
                  FROM assignments a
-                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " a2s ON a2s.student_id = ? AND a2s.enrollment_status IN ('active', 'completed', 'graduated') AND a2s.academic_year_id = (SELECT ayc0.id FROM academic_years ayc0 WHERE ayc0.is_current = 1 ORDER BY ayc0.id DESC LIMIT 1)
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = a2s.academic_year_class_stream_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
@@ -1524,7 +1524,7 @@ class ParentPortalManager extends BaseAPI
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sn ON sn.id = aycs.stream_id
-                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                 WHERE sae.student_id = ? AND sae.enrollment_status IN ('active', 'completed', 'graduated')
                  LIMIT 1"
             );
             $context->execute([$studentId]);
@@ -1577,7 +1577,7 @@ class ParentPortalManager extends BaseAPI
                           WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
                           ORDER BY ap.submitted_at DESC LIMIT 1) AS is_graded
                  FROM assignments a
-                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " a2s ON a2s.student_id = ? AND a2s.enrollment_status IN ('active', 'completed', 'graduated') AND a2s.academic_year_id = (SELECT ayc0.id FROM academic_years ayc0 WHERE ayc0.is_current = 1 ORDER BY ayc0.id DESC LIMIT 1)
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = a2s.academic_year_class_stream_id
                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id

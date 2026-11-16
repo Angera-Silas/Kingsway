@@ -778,7 +778,7 @@ final class AssessmentAggregationService
                        JOIN persons p ON p.id = s.person_id
                        JOIN vw_class_stream_directory csd ON csd.id = sae.academic_year_class_stream_id
                        {$scopeJoin}
-                       WHERE sae.enrollment_status = 'active' AND csd.academic_year_id =
+                       WHERE sae.enrollment_status IN ('active', 'completed', 'graduated') AND csd.academic_year_id =
                              (SELECT academic_year_id FROM academic_year_terms WHERE id = :tid) {$scopeWhere}";
         if ($search !== '') {
             $learnerSql .= ' AND (p.first_name LIKE :q OR p.middle_name LIKE :q OR p.last_name LIKE :q OR s.admission_no LIKE :q)';

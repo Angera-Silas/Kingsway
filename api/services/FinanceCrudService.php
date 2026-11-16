@@ -532,7 +532,7 @@ final class FinanceCrudService
              FROM fee_discounts_waivers fdw
              JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = fdw.student_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
-             LEFT JOIN student_academic_enrollments sae ON sae.student_id = fdw.student_id AND sae.enrollment_status = 'active'
+             LEFT JOIN student_academic_enrollments sae ON sae.student_id = fdw.student_id AND sae.academic_year_id = fdw.academic_year_id AND sae.enrollment_status IN ('active', 'completed', 'graduated')
              LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id

@@ -2207,6 +2207,80 @@ class StudentsController extends BaseController
         ), 'Clearance updated');
     }
 
+    /**
+     * GET /api/students/clearance-document?student_id=&academic_year_id=
+     * The learner's exit document (leaving certificate or transfer letter):
+     * what it will print, the stored head teacher's report and defaults.
+     */
+    public function getClearanceDocument($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['students_view', 'students_view_all', 'students_edit', 'students_manage'])) {
+            return $this->forbidden('You cannot view exit documents');
+        }
+        $data = is_array($data) ? $data : [];
+        return $this->clearanceCall(function ($service, $db) use ($data) {
+            return (new \App\API\Services\LearnerExitDocumentService($db))->context(
+                (int) ($data['student_id'] ?? 0),
+                (int) ($data['academic_year_id'] ?? 0)
+            );
+        }, 'Exit document loaded');
+    }
+
+    /**
+     * POST /api/students/clearance-document-issue
+     * {student_id, academic_year_id, academic_report, conduct, co_curricular, leaving_date,
+     *  destination_school, destination_school_code, destination_county, destination_sub_county, reason}
+     * Issues (or reprints) the leaving certificate or transfer letter once the
+     * learner is cleared, and returns the PDF.
+     */
+    public function postClearanceDocumentIssue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['students_edit', 'students_manage', 'students_create'])) {
+            return $this->forbidden('You cannot issue exit documents');
+        }
+        if (method_exists($this, 'userCanPrint') && !$this->userCanPrint('students')) {
+            return $this->forbidden('You do not have permission to print');
+        }
+        $data = is_array($data) ? $data : [];
+        return $this->clearanceCall(function ($service, $db) use ($data) {
+            $issued = (new \App\API\Services\LearnerExitDocumentService($db))->issue(
+                (int) ($data['student_id'] ?? 0),
+                (int) ($data['academic_year_id'] ?? 0),
+                $data,
+                (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0) ?: null
+            );
+            $url = (new \App\API\Services\DownloadService())->printUrlForAbsolutePath($issued['path'], 1800);
+            return [
+                'serial_no' => $issued['serial_no'],
+                'document_type' => $issued['document_type'],
+                'filename' => basename($issued['path']),
+                'mime_type' => 'application/pdf',
+                'url' => $url,
+                'download_url' => $url,
+            ];
+        }, 'Document issued');
+    }
+
+    /**
+     * POST /api/students/clearance-transfer-complete {student_id, academic_year_id, nemis_released_at}
+     * Completes a transfer after clearance and the transfer letter.
+     */
+    public function postClearanceTransferComplete($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['students_edit', 'students_manage', 'students_transfers_approve', 'students_transfers_edit'])) {
+            return $this->forbidden('You cannot complete a transfer');
+        }
+        $data = is_array($data) ? $data : [];
+        return $this->clearanceCall(function ($service, $db) use ($data) {
+            return (new \App\API\Services\LearnerExitDocumentService($db))->completeTransfer(
+                (int) ($data['student_id'] ?? 0),
+                (int) ($data['academic_year_id'] ?? 0),
+                !empty($data['nemis_released_at']) ? (string) $data['nemis_released_at'] : null,
+                (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0) ?: null
+            );
+        }, 'Transfer completed');
+    }
+
     private function clearanceCall(callable $run, string $message)
     {
         try {

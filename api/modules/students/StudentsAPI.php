@@ -4808,6 +4808,10 @@ private function getCurrentStudentTransport(int $studentId): array
                 'transfer_reason' => $reason,
                 'request_date' => date('Y-m-d H:i:s'),
                 'transfer_to_school' => $transferToSchool,
+                'destination_school_code' => $data['destination_school_code'] ?? null,
+                'destination_county' => $data['destination_county'] ?? null,
+                'destination_sub_county' => $data['destination_sub_county'] ?? null,
+                'expected_leaving_date' => $data['expected_leaving_date'] ?? null,
             ]);
 
             if (empty($result['success'])) {
@@ -5456,7 +5460,7 @@ private function getCurrentStudentTransport(int $studentId): array
                     FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . " vws
                     GROUP BY vws.student_id
                 ) sa ON sa.student_id = lp.student_id
-                WHERE lp.class_id = ? AND lp.student_status = 'active' AND lp.is_current_year = 1 AND lp.enrollment_status = 'active'
+                WHERE lp.class_id = ? AND lp.is_current_year = 1 AND lp.enrollment_status IN ('active', 'completed', 'graduated')
                 GROUP BY lp.student_id, lp.admission_no, lp.first_name, lp.last_name,
                          lp.middle_name, lp.gender, lp.dob, lp.photo_url,
                          lp.stream_name, lp.class_name,
