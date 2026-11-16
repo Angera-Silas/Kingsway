@@ -19,7 +19,9 @@
  * lifetime record, a learner's growth) must never be listed.
  *
  * Add a route: { term: true } when the page shows one term at a time,
- * { term: false } for whole-year pages. The route's endpoints must honour
+ * { term: false } for whole-year pages. Add planning: true for pages that
+ * prepare work: during a holiday they open on the next term to open (and its
+ * year), not on the term just closed. The route's endpoints must honour
  * academic_year_id (BaseAPI::normalizeYearFilters / YearScope::fromRequest).
  */
 (function (window, document) {
@@ -29,11 +31,11 @@
     // Phase 1 batch 5: teacher workspace (lesson plans)
     all_lesson_plans: { term: true },
     approved_lesson_plans: { term: true },
-    lesson_plan_approval: { term: true },
+    lesson_plan_approval: { term: true, planning: true },
     lesson_plans_by_class: { term: false },
-    manage_lesson_plans: { term: true },
+    manage_lesson_plans: { term: true, planning: true },
     // its own term filter is the term number within the selected year
-    schemes_of_work: { term: false },
+    schemes_of_work: { term: false, planning: true },
     // Phase 2: learners
     manage_students: { term: false },
     // Phase 2: attendance, boarding, welfare, discipline (record/history pages;
@@ -50,6 +52,15 @@
     boarding_reports: { term: false },
     // Phase 3: finance (fee pages pick their own year; payroll is by calendar month)
     payment_reports: { term: false },
+    // Academic setup: a year's own streams and their capacity
+    class_streams: { term: false },
+    class_capacity: { term: false },
+    // Events and calendar: one academic year's events, holidays and exam
+    // dates at a time (the year calendar and academic calendar pages mount
+    // their own year filter)
+    school_events: { term: false },
+    view_calendar: { term: false },
+    manage_holidays: { term: false },
     // Learner lists built on students/student_context_view.php (the year
     // picks each learner's class; other years list that year's roll only)
     academic_students: { term: false },
@@ -119,14 +130,27 @@
     if (!cfg || attachedFor === route || !window.AcademicYearFilter?.mountBar) return;
     attachedFor = route;
     let first = true;
+    const shownYear = String(urlValue(YEAR) || '');
+    const shownTerm = String(urlValue(TERM) || '');
     await window.AcademicYearFilter.mountBar({
       term: Boolean(cfg.term),
+      planning: Boolean(cfg.planning),
       allTermsLabel: cfg.term ? 'All terms' : '',
       allTermsDefault: false,
       onChange: () => {
         // The first call reports the year already shown; later calls are the
         // user's choice: reload the route, whose URL the filter has updated.
-        if (first) { first = false; return; }
+        // A planning page may open on another year (the next term's during a
+        // holiday): then its data is refreshed for that year once.
+        if (first) {
+          first = false;
+          const yearMoved = String(urlValue(YEAR) || '') !== shownYear;
+          // In term time the server's default term is the running one, which
+          // is what the bar shows; during a holiday it is not.
+          const termMoved = String(urlValue(TERM) || '') !== shownTerm
+            && !window.AcademicContext?.isTermInSession?.();
+          if (!cfg.planning || (!yearMoved && !termMoved)) return;
+        }
         // Refresh the page in place: the filter has already put the year in
         // the URL, and api.js adds it to the page's requests. Re-opening the
         // same route forced a full page reload (soft navigation reloads any

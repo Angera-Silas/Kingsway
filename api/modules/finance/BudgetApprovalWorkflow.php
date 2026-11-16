@@ -76,7 +76,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             // Get budget line items count
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as item_count, SUM(allocated_amount) as total_amount
-                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " budget_id = ?
+                FROM budget_line_items
+                WHERE budget_id = ?
             ");
             $stmt->execute([$budgetId]);
             $lineItems = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -83,12 +83,29 @@ class AcademicCalendarService
                 );
             }
 
-            $yearStmt = $this->db->prepare('SELECT year_code FROM academic_years WHERE id = ?');
+            // Bring the national holiday dates into the registry for every
+            // calendar year this academic year touches. The registry stays the
+            // source of truth: when the holiday source cannot be reached, the
+            // calendar is still built from the holidays already recorded
+            // instead of failing the whole rebuild.
+            $yearStmt = $this->db->prepare('SELECT year_code, start_date, end_date FROM academic_years WHERE id = ?');
             $yearStmt->execute([$academicYearId]);
-            $yearCode = (string) $yearStmt->fetchColumn();
-            $yearStart = (int) substr($yearCode, 0, 4);
-            if ($yearStart > 0) {
-                $this->syncKenyanPublicHolidays($yearStart);
+            $yearRow = $yearStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $holidayYears = [];
+            $codeYear = (int) substr((string) ($yearRow['year_code'] ?? ''), 0, 4);
+            $firstYear = (int) substr((string) ($yearRow['start_date'] ?? ''), 0, 4) ?: $codeYear;
+            $lastYear = (int) substr((string) ($yearRow['end_date'] ?? ''), 0, 4) ?: $firstYear;
+            for ($y = $firstYear; $y > 0 && $y <= $lastYear && count($holidayYears) < 3; $y++) {
+                $holidayYears[] = $y;
+            }
+            foreach ($holidayYears as $holidayYear) {
+                try {
+                    $this->syncKenyanPublicHolidays($holidayYear);
+                } catch (\Throwable $e) {
+                    \App\API\Services\Logger::legacyError(
+                        '[AcademicCalendarService] Public holiday refresh skipped for ' . $holidayYear . ': ' . $e->getMessage()
+                    );
+                }
             }
 
             $manualDays = $this->getManualDays($academicYearId);
@@ -223,6 +240,150 @@ class AcademicCalendarService
         return (int) $stmt->fetchColumn() === 4;
     }
 
+    /**
+     * Day rows of a year (its term weeks, and the year-wide non-manual rows
+     * in its date span) as id => date.
+     *
+     * @return array<int,string>
+     */
+    private function calendarDayDates(int $academicYearId, string $start, string $end): array
+    {
+        $rows = [];
+        $termDays = $this->db->prepare(
+            'SELECT d.id, d.date FROM academic_year_calendar_days d
+               JOIN academic_year_calendar c ON c.id = d.academic_year_calendar_id
+               JOIN academic_year_terms t ON t.id = c.academic_year_term_id
+              WHERE t.academic_year_id = ?'
+        );
+        $termDays->execute([$academicYearId]);
+        foreach ($termDays->fetchAll(PDO::FETCH_KEY_PAIR) as $id => $date) $rows[(int) $id] = (string) $date;
+        $baseDays = $this->db->prepare(
+            'SELECT id, date FROM academic_year_calendar_days
+              WHERE academic_year_calendar_id = 0 AND is_manual = 0 AND date BETWEEN ? AND ?'
+        );
+        $baseDays->execute([$start, $end]);
+        foreach ($baseDays->fetchAll(PDO::FETCH_KEY_PAIR) as $id => $date) $rows[(int) $id] = (string) $date;
+        return $rows;
+    }
+
+    /**
+     * Records that pointed at a replaced day row (attendance registers,
+     * assessments, lesson plans, chapel sessions, events) are relinked to the
+     * new row for the same date: a term day first, else the year-wide row.
+     * Same rule as sp_rebuild_academic_year_calendar.
+     *
+     * @param array<int,string> $oldDays id => date
+     */
+    private function relinkCalendarDays(array $oldDays, int $academicYearId, string $start, string $end): void
+    {
+        $current = $this->calendarDayDates($academicYearId, $start, $end);
+        $stale = array_diff_key($oldDays, $current);
+        if ($stale === []) {
+            return;
+        }
+        $newByDate = [];
+        $termDays = $this->db->prepare(
+            'SELECT d.date, d.id FROM academic_year_calendar_days d
+               JOIN academic_year_calendar c ON c.id = d.academic_year_calendar_id
+               JOIN academic_year_terms t ON t.id = c.academic_year_term_id
+              WHERE t.academic_year_id = ?'
+        );
+        $termDays->execute([$academicYearId]);
+        foreach ($termDays->fetchAll(PDO::FETCH_ASSOC) as $row) $newByDate[(string) $row['date']] ??= (int) $row['id'];
+        $baseDays = $this->db->prepare('SELECT date, id FROM academic_year_calendar_days WHERE academic_year_calendar_id = 0 AND date BETWEEN ? AND ?');
+        $baseDays->execute([$start, $end]);
+        foreach ($baseDays->fetchAll(PDO::FETCH_ASSOC) as $row) $newByDate[(string) $row['date']] ??= (int) $row['id'];
+
+        $targets = [
+            ['attendance_registers', 'academic_year_calendar_day_id', ''],
+            ['assessments', 'academic_year_calendar_day_id', ''],
+            ['lesson_plans', 'academic_year_calendar_day_id', ''],
+            ['chapel_program_sessions', 'calendar_day_id', ''],
+            // One event per day (unique): user events first; a clashing
+            // calendar-generated copy is pruned and regenerated by the sync.
+            ['school_events', 'calendar_day_id', " AND source <> 'calendar'"],
+            ['school_events', 'calendar_day_id', " AND source = 'calendar'"],
+        ];
+        foreach ($targets as [$table, $column, $extra]) {
+            $ignore = $table === 'school_events' ? 'IGNORE ' : '';
+            $stmt = $this->db->prepare("UPDATE {$ignore}{$table} SET {$column} = ? WHERE {$column} = ?{$extra}");
+            foreach ($stale as $oldId => $date) {
+                if (isset($newByDate[$date])) {
+                    $stmt->execute([$newByDate[$date], $oldId]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Weeks a term no longer has (shorter term, dates removed): their schemes
+     * move to the term's last remaining week, then the week is removed unless
+     * a scheme workbook still needs it.
+     *
+     * @param int[] $keptWeekIds
+     */
+    private function retireSurplusWeeks(int $academicYearId, array $keptWeekIds): void
+    {
+        $weeks = $this->db->prepare(
+            'SELECT c.id, c.academic_year_term_id, c.week_number FROM academic_year_calendar c
+               JOIN academic_year_terms t ON t.id = c.academic_year_term_id
+              WHERE t.academic_year_id = ?'
+        );
+        $weeks->execute([$academicYearId]);
+        $kept = array_fill_keys(array_map('intval', $keptWeekIds), true);
+        $lastKept = [];
+        $surplus = [];
+        foreach ($weeks->fetchAll(PDO::FETCH_ASSOC) as $week) {
+            $id = (int) $week['id'];
+            $term = (int) $week['academic_year_term_id'];
+            if (isset($kept[$id])) {
+                if (!isset($lastKept[$term]) || (int) $week['week_number'] > $lastKept[$term][1]) {
+                    $lastKept[$term] = [$id, (int) $week['week_number']];
+                }
+            } else {
+                $surplus[$id] = $term;
+            }
+        }
+        if ($surplus === []) {
+            return;
+        }
+        $moveSchemes = $this->db->prepare('UPDATE schemes_of_work SET academic_year_calendar_week_id = ? WHERE academic_year_calendar_week_id = ?');
+        $moveWorkbookWeeks = $this->db->prepare('UPDATE IGNORE scheme_workbook_weeks SET academic_year_calendar_week_id = ? WHERE academic_year_calendar_week_id = ?');
+        $stillUsed = $this->db->prepare('SELECT 1 FROM scheme_workbook_weeks WHERE academic_year_calendar_week_id = ? LIMIT 1');
+        $deleteDays = $this->db->prepare('DELETE FROM academic_year_calendar_days WHERE academic_year_calendar_id = ?');
+        $deleteWeek = $this->db->prepare('DELETE FROM academic_year_calendar WHERE id = ?');
+        foreach ($surplus as $id => $term) {
+            $target = $lastKept[$term][0] ?? null;
+            $moveSchemes->execute([$target, $id]);
+            if ($target !== null) {
+                $moveWorkbookWeeks->execute([$target, $id]);
+            }
+            $stillUsed->execute([$id]);
+            if (!$stillUsed->fetchColumn()) {
+                $deleteDays->execute([$id]);
+                $deleteWeek->execute([$id]);
+            }
+        }
+    }
+
+    /**
+     * Name of the holiday a non-term date belongs to: the holiday after the
+     * term that closed last before it (April, August, December Holiday), or
+     * the December Holiday carried into the year before Term 1 opens. Same
+     * rule as AcademicPeriodService.
+     */
+    private function holidayNameFor(string $date, array $terms): string
+    {
+        $after = null;
+        foreach ($terms as $term) {
+            $closing = (string) ($term['closing_date'] ?? '');
+            if ($closing !== '' && $closing < $date && ($after === null || $closing > (string) $after['closing_date'])) {
+                $after = $term;
+            }
+        }
+        return \App\API\Services\AcademicPeriodService::holidayNameAfterTerm($after ? (int) $after['term_id'] : 3);
+    }
+
     /** Generate calendar dates using the target year's real weekday sequence. */
     private function generateCalendarLocally(int $academicYearId, array $terms, array $weekCounts): void
     {
@@ -249,8 +410,15 @@ class AcademicCalendarService
                  JOIN academic_year_calendar c ON c.id=d.academic_year_calendar_id
                  WHERE c.academic_year_term_id=?'
             );
-            $deleteWeeks = $this->db->prepare('DELETE FROM academic_year_calendar WHERE academic_year_term_id=?');
+            // Week rows are kept and updated in place by (term, week number) so
+            // their ids never change: schemes and workbooks stay linked.
+            $existingWeeks = $this->db->prepare('SELECT week_number, id FROM academic_year_calendar WHERE academic_year_term_id=?');
+            $updateWeek = $this->db->prepare('UPDATE academic_year_calendar SET week_start=?, week_end=? WHERE id=?');
             $insertWeek = $this->db->prepare('INSERT INTO academic_year_calendar (academic_year_term_id,week_number,week_start,week_end) VALUES (?,?,?,?)');
+            $keptWeeks = [];
+            // Every day row about to be replaced, by date: the records that
+            // point at it are relinked to its replacement at the end.
+            $oldDays = $this->calendarDayDates($academicYearId, (string) $year['start_date'], (string) $year['end_date']);
             $insertDay = $this->db->prepare('INSERT INTO academic_year_calendar_days (academic_year_calendar_id,date,calendar_day_type_id,title) VALUES (?,?,?,?)');
 
             // Fill the complete target-year range as well. Dates between terms
@@ -291,7 +459,7 @@ class AcademicCalendarService
                     0,
                     $date->format('Y-m-d'),
                     (int) $types[$weekend ? 'weekend' : 'school_holiday'],
-                    $weekend ? 'Weekend' : 'School Holiday',
+                    $weekend ? 'Weekend' : $this->holidayNameFor($ymd, $terms),
                 ]);
             }
 
@@ -300,7 +468,8 @@ class AcademicCalendarService
                 $opening = (string) $term['opening_date'];
                 $closing = (string) $term['closing_date'];
                 $deleteDays->execute([$termId]);
-                $deleteWeeks->execute([$termId]);
+                $existingWeeks->execute([$termId]);
+                $weekIds = array_map('intval', $existingWeeks->fetchAll(PDO::FETCH_KEY_PAIR));
                 if ($opening === '' || $closing === '' || $closing < $opening) continue;
 
                 $cursor = new \DateTimeImmutable($opening);
@@ -320,15 +489,21 @@ class AcademicCalendarService
                         && $weekEnd < $closeDate
                         && $closeDate <= $weekEnd->modify('+2 days');
                     if ($trailingWeekendClose) $weekEnd = $closeDate;
-                    $insertWeek->execute([$termId, $weekNo, $cursor->format('Y-m-d'), $weekEnd->format('Y-m-d')]);
-                    $calendarId = (int) $this->db->lastInsertId();
+                    if (isset($weekIds[$weekNo])) {
+                        $calendarId = $weekIds[$weekNo];
+                        $updateWeek->execute([$cursor->format('Y-m-d'), $weekEnd->format('Y-m-d'), $calendarId]);
+                    } else {
+                        $insertWeek->execute([$termId, $weekNo, $cursor->format('Y-m-d'), $weekEnd->format('Y-m-d')]);
+                        $calendarId = (int) $this->db->lastInsertId();
+                    }
+                    $keptWeeks[$calendarId] = true;
                     for ($day = $cursor; $day <= $weekEnd; $day = $day->modify('+1 day')) {
                         $date = $day->format('Y-m-d');
                         $isHalfTerm = !empty($term['half_term_start']) && !empty($term['half_term_end'])
                             && $date >= $term['half_term_start'] && $date <= $term['half_term_end'];
                         $isWeekend = (int) $day->format('N') >= 6;
                         $typeId = (int) ($types[$isHalfTerm ? 'school_holiday' : ($isWeekend ? 'weekend' : 'school_day')]);
-                        $title = $isHalfTerm ? 'Half Term Break' : ($isWeekend ? 'Weekend' : null);
+                        $title = $isHalfTerm ? 'Term ' . (int) $term['term_id'] . ' Half Term' : ($isWeekend ? 'Weekend' : null);
                         if ($date === $opening) $title = 'Term ' . (int) $term['term_id'] . ' Opening Day';
                         if ($date === $closing) $title = 'Term ' . (int) $term['term_id'] . ' Closing Day';
                         $insertDay->execute([$calendarId, $date, $typeId, $title]);
@@ -359,7 +534,10 @@ class AcademicCalendarService
                 // ranges only label days outside terms (the base rows below),
                 // so a range overlapping a term never turns school days into
                 // holidays. Same rule as sp_rebuild_academic_year_calendar.
-                if ($isPublic) {
+                // A holiday the school itself declares (type "school", e.g. a
+                // closure or a prayer day) also closes the term days it falls
+                // on, so student and staff registers treat it as a holiday.
+                if ($isPublic || $holiday['holiday_type'] === 'school') {
                     $applyHoliday->execute([(int) $types[$type], $holiday['name'], $academicYearId, $holiday['start_date'], $holiday['end_date']]);
                 }
                 $this->db->prepare(
@@ -369,6 +547,8 @@ class AcademicCalendarService
                        AND date BETWEEN ? AND ?"
                 )->execute([(int) $types[$type], $holiday['name'], $holiday['start_date'], $holiday['end_date']]);
             }
+            $this->retireSurplusWeeks($academicYearId, array_keys($keptWeeks));
+            $this->relinkCalendarDays($oldDays, $academicYearId, (string) $year['start_date'], (string) $year['end_date']);
             $this->db->prepare('INSERT INTO school_week_config (academic_year_id) VALUES (?) ON DUPLICATE KEY UPDATE academic_year_id=VALUES(academic_year_id)')
                 ->execute([$academicYearId]);
             if ($ownsTransaction) {
@@ -409,39 +589,58 @@ class AcademicCalendarService
     }
 
     /**
-     * Snapshot manually-marked calendar days for a year so regeneration can
-     * re-apply them (the stored procedure rebuilds every term day).
+     * Snapshot manually-marked term days for a year so regeneration can
+     * re-apply them. Read from the primary store with keyed lookups: the
+     * read projection lags, and a manual day (an exam date, a closure) marked
+     * a moment ago must not be lost by a rebuild.
      */
     private function getManualDays(int $academicYearId): array
     {
+        $weekIds = $this->yearWeekIds($academicYearId);
+        if ($weekIds === []) {
+            return [];
+        }
         $stmt = $this->db->prepare(
-            "SELECT d.id, d.date, d.calendar_day_type_id, d.title, d.description
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " c ON c.id = d.academic_year_calendar_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = c.academic_year_term_id
-             WHERE ayt.academic_year_id = ? AND d.is_manual = 1"
+            'SELECT id, date, calendar_day_type_id, title, description
+             FROM academic_year_calendar_days
+             WHERE is_manual = 1 AND academic_year_calendar_id IN (' . implode(',', $weekIds) . ')'
         );
-        $stmt->execute([$academicYearId]);
+        $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** Calendar week ids of a year, from the primary store. */
+    private function yearWeekIds(int $academicYearId): array
+    {
+        $ids = [];
+        $weeks = $this->db->prepare('SELECT id FROM academic_year_calendar WHERE academic_year_term_id = ?');
+        foreach ($this->getYearTerms($academicYearId) as $term) {
+            $weeks->execute([(int) $term['id']]);
+            foreach ($weeks->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                $ids[] = (int) $id;
+            }
+        }
+        return $ids;
     }
 
     /**
      * Re-apply manually-marked days onto the freshly generated calendar by
-     * matching each one to the regenerated day row for its date.
+     * matching each one to the regenerated day row for its date. The new rows
+     * exist only in the primary store at this point.
      */
     private function reapplyManualDays(int $academicYearId, array $days): void
     {
         if (empty($days)) {
             return;
         }
+        $weekIds = $this->yearWeekIds($academicYearId);
+        if ($weekIds === []) {
+            return;
+        }
 
         $find = $this->db->prepare(
-            "SELECT d.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " c ON c.id = d.academic_year_calendar_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = c.academic_year_term_id
-             WHERE ayt.academic_year_id = ? AND d.date = ?
-             LIMIT 1"
+            'SELECT id FROM academic_year_calendar_days
+             WHERE date = ? AND academic_year_calendar_id IN (' . implode(',', $weekIds) . ') LIMIT 1'
         );
         $update = $this->db->prepare(
             "UPDATE academic_year_calendar_days
@@ -450,7 +649,7 @@ class AcademicCalendarService
         );
 
         foreach ($days as $day) {
-            $find->execute([$academicYearId, $day['date']]);
+            $find->execute([$day['date']]);
             $id = $find->fetchColumn();
             if ($id) {
                 $update->execute([

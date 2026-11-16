@@ -190,7 +190,7 @@ class StudentTransportStatusManager
         $sql = "
             SELECT COALESCE(SUM(p.amount), 0) AS total_paid,
                    (SELECT COALESCE(SUM(expected_amount), 0)
-                      FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " student_id = ? AND status = 'active') AS total_expected,
+                      FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " WHERE student_id = ? AND status = 'active') AS total_expected,
                    COALESCE(SUM(p.amount), 0) - (SELECT COALESCE(SUM(expected_amount), 0)
                       FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " WHERE student_id = ? AND status = 'active') AS balance
             FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b

@@ -429,12 +429,18 @@ class FeePaymentReceiptNotifier
     private function feeBalances(int $studentId): array
     {
         try {
-            $current = $this->db->query(
+            // The term the payment is for: in session, or during a holiday
+            // the next term of the current year.
+            $yearId = (int) ($this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
+            [, $termId] = (new \App\API\Services\AcademicPeriodService($this->db))->planningTerm($yearId);
+            $currentStmt = $this->db->prepare(
                 "SELECT academic_year_term_id AS ayt_id, year_code AS ay_code
                    FROM " . ReadReplicaService::masterSourceRef('academic_term') . "
-                  WHERE is_current_year = 1 AND term_period_status = 'current'
+                  WHERE academic_year_term_id = ?
                   LIMIT 1"
-            )->fetch(PDO::FETCH_ASSOC);
+            );
+            $currentStmt->execute([$termId]);
+            $current = $currentStmt->fetch(PDO::FETCH_ASSOC);
             if (!$current) {
                 return [null, null, null, null];
             }

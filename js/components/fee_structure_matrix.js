@@ -21,7 +21,15 @@
       const students = Array.isArray(studentsResponse?.data) ? studentsResponse.data : list(studentsResponse, 'students');
       const parentsPayload = parentsResponse?.data?.data || parentsResponse?.data || parentsResponse;
       const parents = Array.isArray(parentsPayload) ? parentsPayload : (parentsPayload?.parents || parentsPayload?.items || []);
-      const yearRow = years.find(y => String(y.year_code || y.year_name || y.id) === String(academicYear));
+      // Fee structures name their year by its starting year ("2026") while
+      // the year list carries the full code ("2026/2027"). Comparing the two
+      // as written never matched, so the year's extra charges were never
+      // loaded. Match on the exact code or id first, then on the start year.
+      const startYear = (value) => (String(value ?? '').match(/\d{4}/) || [''])[0];
+      const wanted = String(academicYear ?? '');
+      const yearRow = years.find(y => [y.year_code, y.year_name].some(v => String(v ?? '') === wanted))
+        || (/^\d{1,3}$/.test(wanted) ? years.find(y => String(y.id) === wanted) : null)
+        || (startYear(wanted) ? years.find(y => startYear(y.year_code || y.year_name) === startYear(wanted)) : null);
       const chargesResponse = yearRow ? await window.API.finance.listExtraCharges({ academic_year: yearRow.id, status: 'active' }).catch(() => ({ charges: [] })) : { charges: [] };
       const ids = (studentTypeIds || types.map(t => t.id)).map(Number);
       const response = await window.API.apiCall(`/finance/fees-bundle-grid?academic_year=${encodeURIComponent(academicYear)}&from_id=${classes[0]?.id}&to_id=${classes[classes.length - 1]?.id}&student_type_ids=${ids.join(',')}`, 'GET');

@@ -5030,6 +5030,9 @@ window.API = {
   academic: {
     index: async () => apiCall("/academic/index", "GET"),
     getContext: async () => apiCall("/academic/context", "GET"),
+    // Terms, half terms and holidays of a year, in order (default: current year).
+    getPeriods: async (params = {}) => apiCall("/academic/periods", "GET", null, params),
+    getCurrentPeriod: async () => apiCall("/academic/current-period", "GET"),
     // Self-scoped teacher directory for the student/parent staff viewer.
     myTeachers: async () => apiCall("/academic/my-teachers", "GET"),
     parentClassTeachers: async () =>
@@ -5368,8 +5371,8 @@ window.API = {
     requestSchemeWorkbookRevision: async (id, data = {}) => apiCall(`/academic/scheme-workbook-request-revision/${id}`, "POST", data),
     reopenSchemeWorkbookRevision: async (id, data = {}) => apiCall(`/academic/scheme-workbook-reopen-revision/${id}`, "POST", data),
     approveSchemeWorkbook: async (id, data = {}) => apiCall(`/academic/scheme-workbook-approve/${id}`, "POST", data),
-    getTeacherPlanningContext: async () =>
-      apiCall("/academic/teacher-planning-context", "GET"),
+    getTeacherPlanningContext: async (params = {}) =>
+      apiCall("/academic/teacher-planning-context", "GET", null, params),
     queueAiSchemeDraft: async (data) =>
       apiCall("/academic/ai-scheme-draft-queue", "POST", data),
     getAiSchemeDrafts: async (scope = "own") =>
@@ -7652,7 +7655,12 @@ window.API = {
         : apiCall("/schedules/events-get", "GET"),
     createEvent: async (data) =>
       apiCall("/schedules/events-create", "POST", data),
-    syncEvents: async () => apiCall("/schedules/events-sync", "POST", {}),
+    // Reconciles the academic year being viewed (the current year by default).
+    syncEvents: async (data = {}) =>
+      apiCall("/schedules/events-sync", "POST", {
+        ...(window.KingswayYearScope?.requestParams?.() || {}),
+        ...data,
+      }),
     markExamWeek: async (data) =>
       apiCall("/schedules/calendar-mark-exam-week", "POST", data),
 

@@ -99,6 +99,16 @@
                     this.state.termStartDate = response.term_start_date || null;
                     this.state.termEndDate = response.term_end_date || null;
                     this.state.calendarPeriod = response.calendar_period;
+                    // A school year is its terms, half terms and holidays:
+                    // currentPeriod is today's (e.g. "December Holiday"),
+                    // termId is the term in session or the one just closed,
+                    // planningTermId the term to prepare (next to open).
+                    this.state.currentPeriod = response.current_period || null;
+                    this.state.nextPeriod = response.next_period || null;
+                    this.state.termInSession = Boolean(response.term_in_session);
+                    this.state.planningTermId = response.planning_term_id || null;
+                    this.state.planningAcademicYearId = response.planning_academic_year_id || null;
+                    this.state.planningTermLabel = response.planning_term_label || null;
                     this.state.schoolWeek = response.school_week;
                     this.state.isAcademicOperationsOpen = response.operations_open || false;
                     this.state.isGradingOpen = response.grading_open || false;
@@ -153,6 +163,31 @@
          */
         getTermId() {
             return this.state.termId;
+        },
+
+        /** Today's period of the school year: a term, half term or holiday. */
+        getCurrentPeriod() {
+            return this.state.currentPeriod || null;
+        },
+
+        /** The period after today's (after the December Holiday: next year's Term 1). */
+        getNextPeriod() {
+            return this.state.nextPeriod || null;
+        },
+
+        /** True while a term is in session (false during a holiday). */
+        isTermInSession() {
+            return Boolean(this.state.termInSession);
+        },
+
+        /** The term to prepare: in session, or during a holiday the next to open. */
+        getPlanningTermId() {
+            return this.state.planningTermId || this.state.termId || null;
+        },
+
+        /** Academic year of the planning term (next year's during the December Holiday). */
+        getPlanningAcademicYearId() {
+            return this.state.planningAcademicYearId || this.state.academicYearId || null;
         },
 
         /**

@@ -124,6 +124,8 @@
             this.ensureAddButton();
             this.ensureModal();
             this.bindEvents();
+            // Switching the academic year reloads the events in place.
+            window.KingswayYearScope?.onYearChange?.(() => this.loadData());
             await this.loadData();
         },
 
@@ -244,6 +246,9 @@
             var statusFilter = document.getElementById("filterEventStatus");
             if (statusFilter) statusFilter.addEventListener("change", function () { self.applyFilters(); });
 
+            var periodFilter = document.getElementById("filterEventPeriod");
+            if (periodFilter) periodFilter.addEventListener("change", function () { self.applyFilters(); });
+
             document.addEventListener("click", function (e) {
                 var addBtn = e.target.closest("#addEventBtn");
                 if (addBtn) { self.openAddModal(); }
@@ -276,11 +281,48 @@
             });
         },
 
-        loadData: async function () {
+        /** The selected year's terms, half terms and holidays for the period filter. */
+        loadPeriods: async function () {
+            var select = document.getElementById("filterEventPeriod");
+            if (!select || !window.API?.academic?.getPeriods) return;
+            var previous = select.value;
             try {
-                await window.API.schedules.syncEvents().catch(() => null);
+                var params = {};
+                var scope = window.KingswayYearScope && window.KingswayYearScope.requestParams();
+                if (scope && scope.academic_year_id) params.academic_year_id = scope.academic_year_id;
+                var res = await window.API.academic.getPeriods(params);
+                this.periods = (res && (res.periods || (res.data && res.data.periods))) || [];
+            } catch (e) {
+                this.periods = [];
+            }
+            select.innerHTML = '<option value="">Whole academic year</option>' + this.periods.map(function (p) {
+                var dates = formatDateDisplay(p.start_date) + " – " + formatDateDisplay(p.end_date);
+                var indent = p.kind === "half_term" ? "\u00a0\u00a0" : "";
+                return '<option value="' + esc(p.key) + '">' + indent + esc(p.name) + " (" + esc(dates) + ")" + (p.status === "current" ? " · now" : "") + "</option>";
+            }).join("");
+            select.value = this.periods.some(function (p) { return p.key === previous; }) ? previous : "";
+        },
+
+        loadData: async function () {
+            this.loadPeriods();
+            try {
+                // The list request reconciles the selected year's calendar
+                // itself, so no separate sync call is made first.
                 var response = await window.API.schedules.getEvents(null);
                 this.data = extractList(response);
+                // Open the month grid on the year being viewed.
+                var scope = String((window.KingswayYearScope && window.KingswayYearScope.requestParams().academic_year_id) || "");
+                if (scope !== (this.shownYearScope || "")) {
+                    this.shownYearScope = scope;
+                    var target = new Date();
+                    if (scope) {
+                        var first = this.data.map(function (e) { return e.start_date || e.date; }).filter(Boolean).sort()[0];
+                        var parsed = first ? new Date(first) : null;
+                        if (parsed && !isNaN(parsed.getTime())) target = parsed;
+                    }
+                    this.currentMonth = target.getMonth();
+                    this.currentYear = target.getFullYear();
+                }
             } catch (err) {
                 console.error("school_events: loadData error", err);
                 showToast("Failed to load events", "error");
@@ -311,10 +353,19 @@
         applyFilters: function () {
             var typeFilter = (document.getElementById("filterEventType")?.value || "").toLowerCase();
             var statusFilter = (document.getElementById("filterEventStatus")?.value || "").toLowerCase();
+            var periodKey = document.getElementById("filterEventPeriod")?.value || "";
+            var period = periodKey ? (this.periods || []).find(function (p) { return p.key === periodKey; }) : null;
             var now = new Date();
 
             this.filtered = this.data.filter(function (ev) {
                 if (typeFilter && (ev.type || ev.event_type || "other").toLowerCase() !== typeFilter) return false;
+                // An event belongs to a period when any of its days fall in it
+                // (a half term is inside its term).
+                if (period) {
+                    var evStart = String(ev.start_date || ev.date || "").slice(0, 10);
+                    var evEnd = String(ev.end_date || evStart).slice(0, 10);
+                    if (!evStart || evEnd < period.start_date || evStart > period.end_date) return false;
+                }
 
                 if (statusFilter) {
                     var evDate = new Date(parseDate(ev));
@@ -404,7 +455,12 @@
                     : statusNorm === "cancelled" ? "danger"
                     : "success";
                 var venue = ev.location || ev.venue || "—";
-                var termLabel = ev.term_name ? (ev.term_name + (ev.week_number ? " · Wk " + ev.week_number : "")) : "—";
+                // The period of the school year: a term (with its week), a half
+                // term or a holiday (April, August, December).
+                var periodName = ev.period_name || ev.term_name || "";
+                var termLabel = periodName
+                    ? (periodName + (ev.period_kind === "term" && ev.week_number ? " · Wk " + ev.week_number : ""))
+                    : "—";
                 var isMerged = Array.isArray(ev.ids) && ev.ids.length > 1;
                 var hasId = ev.id != null || (Array.isArray(ev.ids) && ev.ids.length > 0);
 

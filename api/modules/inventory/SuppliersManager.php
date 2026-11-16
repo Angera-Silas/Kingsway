@@ -139,7 +139,7 @@ class SuppliersManager extends BaseAPI
     public function updateSupplier($id, $data)
     {
         try {
-            $stmt = $this->db->prepare("SELECT id, supplier_name FROM " . ReadReplicaService::qualifiedRef("suppliers") . " id = ?");
+            $stmt = $this->db->prepare("SELECT id, supplier_name FROM suppliers WHERE id = ?");
             $stmt->execute([$id]);
             $supplier = $stmt->fetch(PDO::FETCH_ASSOC);
 

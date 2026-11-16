@@ -61,6 +61,7 @@ const timetableController = (() => {
     if (window.AcademicYearFilter && yearSelect && termSelect) {
       await window.AcademicYearFilter.mount(yearSelect, {
         termSelect,
+        planning: true,
         onChange: (yearId, _year, termId) => {
           const yearChanged = currentAcademicYear !== yearId;
           currentAcademicYear = yearId;
@@ -88,8 +89,10 @@ const timetableController = (() => {
       }
       
       // Get current academic context
-      currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      currentTerm = window.AcademicContext.getTermId();
+      // A timetable is prepared for the term in session, or during a holiday
+      // for the next term to open.
+      currentAcademicYear = window.AcademicContext.getPlanningAcademicYearId?.() || window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getPlanningTermId?.() || window.AcademicContext.getTermId();
     }
     
     // Gate edit controls — only users with schedules_create can modify the timetable

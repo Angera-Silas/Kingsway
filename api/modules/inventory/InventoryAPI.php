@@ -703,7 +703,7 @@ class InventoryAPI extends BaseAPI
                 "SELECT ii.name AS item_name, ii.code AS item_code,
                         COUNT(*) AS qty_sold, SUM(us.quantity) AS units_sold,
                         SUM(us.unit_price * us.quantity) AS revenue,
-                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " WHERE up.sale_id = us.id)), 0) AS collected
+                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " up WHERE up.sale_id = us.id)), 0) AS collected
                  FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                  WHERE {$ws}

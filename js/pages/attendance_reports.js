@@ -50,8 +50,9 @@ const attendanceReportsController = {
       ? terms.filter((term) => String(term.academic_year_id) === String(scoped.academic_year_id))
       : [];
     const current = (scoped.academic_year_term_id && terms.find((term) => String(term.id) === String(scoped.academic_year_term_id)))
+      || window.AcademicYearFilter?.defaultTerm?.(yearTerms)
       || yearTerms[yearTerms.length - 1]
-      || terms.find((term) => String(term.status || '').toLowerCase() === 'current' || Number(term.is_current) === 1);
+      || window.AcademicYearFilter?.defaultTerm?.(terms);
     if (current && (current.opening_date || current.start_date) && (current.closing_date || current.end_date)) {
       this.state.termRange = { date_from: current.opening_date || current.start_date, date_to: current.closing_date || current.end_date };
     }

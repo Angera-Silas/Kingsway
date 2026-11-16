@@ -1072,7 +1072,7 @@ class DataImporter
         $id = $stmt->fetchColumn();
         if ($id) return (int)$id;
         $stmt = $this->db->prepare(
-            'INSERT INTO academic_year_classes (academic_year_id, class_id, status) VALUES (:a,:c,"planning")'
+            'INSERT INTO academic_year_classes (academic_year_id, class_id, status) VALUES (:a,:c,"active")'
         );
         $stmt->execute([':a' => $ayId, ':c' => $classId]);
         return (int)$this->db->lastInsertId();

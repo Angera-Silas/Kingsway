@@ -296,6 +296,15 @@ class AcademicYearManager
                   WHERE id = ?"
             )->execute([$userId, $yearId]);
 
+            // A completed year's fee structure is closed with it: it stays
+            // on record for that year's statements and printouts but is no
+            // longer an active structure. The current and upcoming years
+            // each have their own.
+            $this->db->prepare(
+                "UPDATE academic_year_fee_schedules SET status = 'inactive'
+                  WHERE academic_year_id = ? AND status = 'active'"
+            )->execute([$yearId]);
+
             $this->db->commit();
             return true;
         } catch (Exception $e) {
@@ -463,8 +472,16 @@ class AcademicYearManager
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /** The term in session, or during a holiday the term just closed, of the current year. */
+    private function recordTermIdOfCurrentYear(): int
+    {
+        $yearId = (int) ($this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
+        [, $termId] = (new \App\API\Services\AcademicPeriodService($this->db))->recordTerm($yearId);
+        return (int) $termId;
+    }
+
     /**
-     * Get current active term
+     * Get current active term (during a holiday: the term just closed)
      */
     public function getCurrentTerm(): ?array
     {
@@ -480,7 +497,7 @@ class AcademicYearManager
                 term_period_status AS status,
                 SUBSTRING(term_code, 2) AS term_number
             FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
-            WHERE term_period_status = 'current'
+            WHERE academic_year_term_id = " . (int) $this->recordTermIdOfCurrentYear() . "
             LIMIT 1
         ");
         $term = $stmt->fetch(PDO::FETCH_ASSOC);

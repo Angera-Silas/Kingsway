@@ -186,7 +186,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 FROM academic_year_fee_schedules fs
                 JOIN " . ReadReplicaService::masterSourceRef('academic_year_classes') . " ayc ON ayc.id = fs.academic_year_class_id
                 JOIN " . ReadReplicaService::masterSourceRef('student_types') . " st ON st.id = fs.student_type_id
-                WHERE fs.academic_year_id = ? AND fs.status = 'active' AND fs.amount > 0
+                WHERE fs.academic_year_id = ? AND fs.status IN ('active', 'inactive') AND fs.amount > 0
                   AND st.code IN ('DAY', 'BOARD')
                 UNION
                 SELECT ayc.class_id, st.code

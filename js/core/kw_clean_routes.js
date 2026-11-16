@@ -14,6 +14,8 @@
   'use strict';
 
   const ROUTES = new Set([
+    // Academic setup and calendar pages
+    "manage_classes", "class_streams", "manage_holidays", "school_events",
     "academic_students", "activity_achievements", "activity_participants", "adjustments", "all_students", "all_teachers",
     "alumni_management", "assign_class_teachers", "assign_subjects_to_teachers", "audit_logs", "bank_accounts", "bank_transactions",
     "budget_actuals", "budget_overview", "catalog_orders_management", "catering_boarding_students", "class_records", "detailed_payslip",

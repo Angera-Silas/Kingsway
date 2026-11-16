@@ -197,8 +197,9 @@ const ClassAttendanceHistoryController = {
         option.value = term.id;
         option.textContent = term.name || term.code || `Term ${term.term_number || ''}`.trim();
         select.appendChild(option);
-        if (String(term.status) === 'current') current = term.id;
       });
+      // In session, or during a holiday the term just closed.
+      current = (window.AcademicYearFilter?.defaultTerm?.(terms) || terms.find((term) => String(term.status) === 'current') || {}).id || current;
       if (terms.length === 1) current = terms[0].id;
       if (current) select.value = current;
     } catch (error) {

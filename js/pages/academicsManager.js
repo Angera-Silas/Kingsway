@@ -417,7 +417,10 @@ const academicsManager = {
             
             if (data) {
                 this.state.terms = data;
-                this.state.currentTerm = data.find((term) => term.status === 'current') || null;
+                // In session, or during a holiday the next term to open: this
+                // page plans lessons.
+                this.state.currentTerm = window.AcademicYearFilter?.defaultTerm?.(data, { planning: true })
+                    || data.find((term) => term.status === 'current') || null;
                 this.renderTerms();
             }
         } catch (error) {
@@ -1901,7 +1904,7 @@ const academicsManager = {
             lesson_date: document.getElementById('planDate')?.value || null,
             duration: parseInt(document.getElementById('planDuration')?.value || '0', 10) || null,
             status: 'draft',
-            term_id: this.state.currentTerm?.id || this.state.terms.find((term) => term.status === 'current')?.id || null,
+            term_id: this.state.currentTerm?.id || window.AcademicYearFilter?.defaultTerm?.(this.state.terms, { planning: true })?.id || null,
             academic_year_id: this.state.currentYear?.id || null,
         };
 

@@ -259,9 +259,9 @@ final class TeacherScopeService
     private function currentTermId(?int $yearId): ?int
     {
         if (!$yearId) return null;
-        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? ORDER BY (status = 'current') DESC, id DESC LIMIT 1");
-        $stmt->execute([$yearId]);
-        $id = $stmt->fetchColumn();
-        return $id ? (int)$id : null;
+        // The term in session; during a holiday (or for the incoming year)
+        // the next term to open; for a finished year its last term.
+        [, $termId] = (new AcademicPeriodService($this->db))->planningTerm($yearId);
+        return $termId ?: null;
     }
 }

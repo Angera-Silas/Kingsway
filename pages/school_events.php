@@ -77,6 +77,11 @@
                     </select>
                 </div>
                 <div class="col-md-4">
+                    <select class="form-select" id="filterEventPeriod" aria-label="Period of the academic year">
+                        <option value="">Whole academic year</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mt-2 mt-md-0">
                     <select class="form-select" id="filterEventStatus">
                         <option value="">All Status</option>
                         <option value="upcoming">Upcoming</option>
@@ -94,7 +99,7 @@
                         <tr>
                             <th scope="col">Event Name</th>
                             <th scope="col">Type</th>
-                            <th scope="col">Term / Week</th>
+                            <th scope="col">Period / Week</th>
                             <th scope="col">Date</th>
                             <th scope="col">Time</th>
                             <th scope="col">Venue</th>

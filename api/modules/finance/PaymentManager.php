@@ -1364,13 +1364,19 @@ return formatResponse(false, null, 'An internal error occurred.');
             $hasCurrentTerm = false;
             if ($contextYear !== '') {
                 $academicTerms = ReadReplicaService::qualifiedRef('academic_term');
+                // The term being paid for: in session, or during a holiday the
+                // next term of the year (the April Holiday pays for Term 2).
+                $ctxYearId = (int) ($this->db->query(
+                    "SELECT id FROM academic_years WHERE year_code = " . $this->db->quote($contextYear) . " LIMIT 1"
+                )->fetchColumn() ?: 0);
+                [, $ctxTermId] = (new \App\API\Services\AcademicPeriodService($this->db))->planningTerm($ctxYearId);
                 $ctxStmt = $this->db->prepare(
                     "SELECT CAST(SUBSTRING(term_code, 2) AS UNSIGNED)
                      FROM {$academicTerms}
-                     WHERE year_code = ? AND term_period_status = 'current'
+                     WHERE academic_year_term_id = ?
                      LIMIT 1"
                 );
-                $ctxStmt->execute([$contextYear]);
+                $ctxStmt->execute([$ctxYearId ? $ctxTermId : 0]);
                 $currentTermNumber = (int) ($ctxStmt->fetchColumn() ?: 0);
                 $hasCurrentTerm = $currentTermNumber > 0;
                 if (!$hasCurrentTerm) {

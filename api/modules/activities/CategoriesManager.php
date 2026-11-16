@@ -183,7 +183,7 @@ class CategoriesManager extends BaseAPI
 
             // Check for duplicate name if name is being updated
             if (isset($data['name']) && $data['name'] !== $category['name']) {
-                $stmt = $this->db->prepare("SELECT id FROM " . ReadReplicaService::qualifiedRef("activity_categories") . " name = ? AND id != ?");
+                $stmt = $this->db->prepare("SELECT id FROM activity_categories WHERE name = ? AND id != ?");
                 $stmt->execute([$data['name'], $id]);
                 if ($stmt->fetch()) {
                     throw new Exception('A category with this name already exists');

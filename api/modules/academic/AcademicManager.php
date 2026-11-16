@@ -2216,10 +2216,9 @@ if ($classId) {
             // academic_year_terms.id; the page sends the term it is showing.
             $termId = $data['academic_year_term_id'] ?? $data['term_id'] ?? null;
             if (!$termId) {
-                $termId = $this->dbQuery(
-                    "SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
-                     WHERE is_current_year = 1 AND term_period_status = 'current' LIMIT 1"
-                )->fetchColumn();
+                // The term in session, or during a holiday the term just closed
+                // (marks are still entered for it).
+                $termId = $this->recordTermId();
             }
 
             $required = ['max_marks'];
@@ -3212,8 +3211,11 @@ if ($classId) {
         try {
             $resultMode = strtolower(trim($resultMode));
             if (!in_array($resultMode, ['summative','formative','both'], true)) return $this->errorResponse('Choose formative, summative, or both report sources.', 422);
-            $termWhere  = $termId ? 'WHERE academic_year_term_id=:tid LIMIT 1' : "WHERE term_period_status='current' LIMIT 1";
-            $termParams = $termId ? [':tid' => $termId] : [];
+            // No term named: the term in session, or during a holiday the
+            // term just closed.
+            $termId = $termId ?: (int) ($this->recordTermId() ?? 0);
+            $termWhere  = 'WHERE academic_year_term_id=:tid LIMIT 1';
+            $termParams = [':tid' => $termId];
             $termRef = \App\API\Services\ReadReplicaService::qualifiedRef('academic_term');
             $term = $this->dbQuery(
                 "SELECT academic_year_term_id AS id, term_id, academic_year_id,
@@ -4199,6 +4201,10 @@ if ($classId) {
                     // continuing learners can be enrolled. Copy the current
                     // academic setup, including existing stream assignments;
                     // staff may revise these later in Class Assignments.
+                    // They are saved as 'active': the incoming year is set up
+                    // (class teachers, subject teachers, timetables, registers)
+                    // before it opens, and every list reads active rows. Saving
+                    // them as 'planning' hid the whole year from those pages.
                     $classMap = [];
                     $sourceClasses = $this->dbQuery(
                         "SELECT id, class_id FROM academic_year_classes
@@ -4208,7 +4214,7 @@ if ($classId) {
                     foreach ($sourceClasses as $sourceClass) {
                         $this->dbQuery(
                             "INSERT INTO academic_year_classes (academic_year_id, class_id, status)
-                             VALUES (?, ?, 'planning')",
+                             VALUES (?, ?, 'active')",
                             [$newYearId, (int) $sourceClass['class_id']]
                         );
                         $classMap[(int) $sourceClass['id']] = (int) $this->db->lastInsertId();
@@ -4225,7 +4231,7 @@ if ($classId) {
                         $this->dbQuery(
                             "INSERT INTO academic_year_class_streams
                                 (academic_year_class_id, stream_id, room_id, class_teacher_id, status)
-                             VALUES (?, ?, ?, ?, 'planning')",
+                             VALUES (?, ?, ?, ?, 'active')",
                             [
                                 $classMap[(int) $sourceStream['academic_year_class_id']],
                                 (int) $sourceStream['stream_id'],
@@ -6330,11 +6336,10 @@ la.learning_area_family_id, la.name AS learning_area_family,
      */
     /**
      * Split an academic year into its periods (each term and each holiday
-     * break between them) and return a lookup: date => period fields.
-     *
-     * Holiday breaks take the name of the inter-term holiday record that
-     * overlaps them most ("April Holiday"); otherwise "Holiday after Term 1"
-     * or "Holiday before Term 1".
+     * between and after them: April, August, December Holiday) and return a
+     * lookup: date => period fields. The periods come from the shared
+     * AcademicPeriodService, so every page names them the same way; a half
+     * term stays inside its term here (its days carry "Term N Half Term").
      *
      * @return callable(string):array{term_id:?int,term_name:?string,period_type:?string,week_number:?int,period_start:?string,period_end:?string}
      */
@@ -6342,50 +6347,19 @@ la.learning_area_family_id, la.name AS learning_area_family,
     {
         $periods = [];
         $day = static fn (string $date): \DateTimeImmutable => new \DateTimeImmutable($date);
-        $yearStart = $day((string) $yearRow['start_date']);
-        $yearEnd = $day((string) $yearRow['end_date']);
-
-        $holidays = $this->dbQuery(
-            "SELECT name, start_date, end_date FROM school_holidays
-             WHERE is_active = 1 AND holiday_type = 'inter_term' AND end_date >= ? AND start_date <= ?",
-            [$yearRow['start_date'], $yearRow['end_date']]
-        )->fetchAll(PDO::FETCH_ASSOC);
-        $holidayName = static function (\DateTimeImmutable $from, \DateTimeImmutable $to, string $fallback) use ($holidays, $day): string {
-            $best = null;
-            $bestDays = 0;
-            foreach ($holidays as $holiday) {
-                $start = max($from, $day((string) $holiday['start_date']));
-                $end = min($to, $day((string) $holiday['end_date']));
-                $overlap = $end >= $start ? (int) $start->diff($end)->days + 1 : 0;
-                if ($overlap > $bestDays) {
-                    $bestDays = $overlap;
-                    $best = (string) $holiday['name'];
-                }
+        $service = new \App\API\Services\AcademicPeriodService($this->db);
+        foreach ($service->periodsForYear((int) $yearRow['id']) as $period) {
+            if ($period['kind'] === \App\API\Services\AcademicPeriodService::KIND_HALF_TERM) {
+                continue;
             }
-            return $best ?? $fallback;
-        };
-        $addHoliday = static function (\DateTimeImmutable $from, \DateTimeImmutable $to, string $fallback) use (&$periods, $holidayName): void {
-            if ($to < $from) return;
-            $periods[] = ['type' => 'holiday', 'term_id' => null, 'name' => $holidayName($from, $to, $fallback), 'start' => $from, 'end' => $to];
-        };
-
-        $terms = array_values(array_filter($termRows, static fn (array $t): bool =>
-            !empty($t['opening_date']) && !empty($t['closing_date']) && $t['closing_date'] >= $t['opening_date']));
-        $cursor = $yearStart;
-        foreach ($terms as $index => $term) {
-            $label = (string) ($term['term_name'] ?: 'Term ' . (int) $term['term_id']);
-            $opening = $day((string) $term['opening_date']);
-            $closing = $day((string) $term['closing_date']);
-            $fallback = $index === 0
-                ? 'Holiday before ' . $label
-                : 'Holiday after ' . ((string) ($terms[$index - 1]['term_name'] ?: 'Term ' . (int) $terms[$index - 1]['term_id']));
-            $addHoliday($cursor, $opening->modify('-1 day'), $fallback);
-            $periods[] = ['type' => 'term', 'term_id' => (int) $term['term_id'], 'name' => $label, 'start' => $opening, 'end' => $closing];
-            $cursor = $closing->modify('+1 day');
-        }
-        if ($terms !== []) {
-            $last = end($terms);
-            $addHoliday($cursor, $yearEnd, 'Holiday after ' . ((string) ($last['term_name'] ?: 'Term ' . (int) $last['term_id'])));
+            $isTerm = $period['kind'] === \App\API\Services\AcademicPeriodService::KIND_TERM;
+            $periods[] = [
+                'type' => $isTerm ? 'term' : 'holiday',
+                'term_id' => $isTerm ? (int) $period['term_number'] : null,
+                'name' => $period['name'],
+                'start' => $day($period['start_date']),
+                'end' => $day($period['end_date']),
+            ];
         }
 
         return static function (string $date) use ($periods, $day): array {
@@ -6864,25 +6838,11 @@ la.learning_area_family_id, la.name AS learning_area_family,
             $yearId = max(0, (int) ($query['academic_year_id'] ?? 0));
             $termId = max(0, (int) ($query['term_id'] ?? 0));
             if ($termId <= 0) {
-                $where = ["ayt.status = 'current'"];
-                $params = [];
-                if ($yearId > 0) {
-                    $where[] = 'ayt.academic_year_id = :year_id';
-                    $params[':year_id'] = $yearId;
-                } else {
-                    $where[] = 'ay.is_current = 1';
-                }
-                $currentTerm = $this->dbQuery(
-                    'SELECT ayt.id, ayt.academic_year_id
-                     FROM ' . ReadReplicaService::qualifiedRef('academic_year_terms') . ' ayt
-                     JOIN ' . ReadReplicaService::qualifiedRef('academic_years') . ' ay ON ay.id = ayt.academic_year_id
-                     WHERE ' . implode(' AND ', $where) . '
-                     ORDER BY ayt.id DESC LIMIT 1',
-                    $params
-                )->fetch(PDO::FETCH_ASSOC);
-                if ($currentTerm) {
-                    $termId = (int) $currentTerm['id'];
-                    $yearId = (int) $currentTerm['academic_year_id'];
+                // The term in session, or during a holiday the term just
+                // closed, of the chosen (or current) year.
+                $termId = (int) ($this->recordTermId($yearId ?: null) ?? 0);
+                if ($termId > 0) {
+                    $yearId = (int) ($this->dbQuery('SELECT academic_year_id FROM academic_year_terms WHERE id = ?', [$termId])->fetchColumn() ?: $yearId);
                 }
             }
             if ($termId <= 0) {
