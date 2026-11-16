@@ -112,8 +112,8 @@ if ($navBase === '.') $navBase = '';
 <div class="admin-bulk-actions" id="bulkActions" style="display: none;">
     <span class="selected-count"><span id="selectedCount">0</span> selected</span>
     <button class="btn btn-outline-sm" onclick="bulkExport()">📥 Export Selected</button>
-    <button class="btn btn-outline-sm" onclick="bulkEmail()">📧 Send Email</button>
-    <button class="btn btn-warning-sm" onclick="bulkDeactivate()">⏸️ Deactivate Selected</button>
+    <button class="btn btn-outline-sm" onclick="bulkEmail()" data-year-write>📧 Send Email</button>
+    <button class="btn btn-warning-sm" onclick="bulkDeactivate()" data-year-write>⏸️ Deactivate Selected</button>
 </div>
 
 <!-- Data Table -->
@@ -160,7 +160,7 @@ if ($navBase === '.') $navBase = '';
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('staffModal')">Close</button>
-                <button class="btn btn-primary" id="editStaffBtn" onclick="editStaff()">Edit</button>
+                <button class="btn btn-primary" id="editStaffBtn" onclick="editStaff()" data-year-write>Edit</button>
             </div>
         </div>
     </div>

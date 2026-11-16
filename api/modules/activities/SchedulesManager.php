@@ -387,7 +387,8 @@ class SchedulesManager extends BaseAPI
         try {
             $sql = "
                 SELECT * 
-                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " activity_id = ?
+                FROM activity_schedule
+                WHERE activity_id = ?
                 ORDER BY 
                     FIELD(day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'),
                     start_time

@@ -90,7 +90,7 @@ const welfareFUController = {
               <button class="btn btn-sm btn-success me-1" onclick="welfareFUController.complete(${f.id})" title="Mark complete">
                 <i class="bi bi-check-lg"></i>
               </button>` : ''}
-            <button class="btn btn-sm btn-outline-secondary" onclick="welfareFUController.editItem(${f.id})" title="Edit">
+            <button class="btn btn-sm btn-outline-secondary" onclick="welfareFUController.editItem(${f.id})" title="Edit" data-year-write>
               <i class="bi bi-pencil"></i>
             </button>
           </td>

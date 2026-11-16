@@ -1380,7 +1380,7 @@ class DashboardController extends BaseController
         }
         try {
             $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
-            $kpis = $analytics->getSummaryKPIs();
+            $kpis = $analytics->getSummaryKPIs(array_merge($_GET, is_array($data) ? $data : []));
 
             return $this->success([
                 'kpis' => $kpis,
@@ -2091,7 +2091,9 @@ class DashboardController extends BaseController
 
             if ($pivotType) {
                 // Return pivot table data
-                $academicYear = preg_match('/^\d{4}$/', $filters['academic_year'] ?? '') ? $filters['academic_year'] : date('Y');
+                // An id, stored code or bare year; ReportingManager::resolveYear
+                // defaults to the current year (a bare date('Y') matched nothing).
+                $academicYear = $filters['academic_year_id'] ?? $filters['academic_year'] ?? null;
                 $termId = isset($filters['term_id']) ? (int)$filters['term_id'] : null;
 
                 switch ($pivotType) {
@@ -2649,8 +2651,9 @@ class DashboardController extends BaseController
     {
         try {
             $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
-            $students = $service->getActiveStudentsStats();
-            $classDistribution = $service->getClassDistributionStats();
+            $filters = is_array($data) ? $data : [];
+            $students = $service->getActiveStudentsStats($filters);
+            $classDistribution = $service->getClassDistributionStats($filters);
             return $this->success([
                 'students' => $students,
                 'class_distribution' => $classDistribution
@@ -2709,7 +2712,7 @@ class DashboardController extends BaseController
     {
         try {
             $service = $this->contract('App\API\Services\SchoolAdminAnalyticsService');
-            return $this->success($service->getStudentAdmissionsStats(), 'Admission stats retrieved');
+            return $this->success($service->getStudentAdmissionsStats(array_merge($_GET, is_array($data) ? $data : [])), 'Admission stats retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
 

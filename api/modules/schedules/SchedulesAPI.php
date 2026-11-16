@@ -331,11 +331,18 @@ class SchedulesAPI extends BaseAPI {
                 $where[] = "cs.teacher_id = ?";
                 $bindings[] = (int) $params['teacher_id'];
             }
-            if (!empty($params['academic_year_id'])) {
-                $where[] = "ayc.academic_year_id = ?";
-                $bindings[] = (int) $params['academic_year_id'];
-            }
             $termId = $params['academic_year_term_id'] ?? $params['term_id'] ?? null;
+            // A timetable belongs to one year. A term or a stream-in-year
+            // already names it; otherwise the chosen year, or the current one,
+            // so lessons of different years never show on one grid.
+            $yearId = (int) ($params['academic_year_id'] ?? 0);
+            if (!$yearId && empty($termId) && empty($params['academic_year_class_stream_id'])) {
+                $yearId = $this->getCurrentAcademicYearId();
+            }
+            if ($yearId > 0) {
+                $where[] = "ayc.academic_year_id = ?";
+                $bindings[] = $yearId;
+            }
             if (!empty($termId)) {
                 $where[] = "cs.academic_year_term_id = ?";
                 $bindings[] = (int) $termId;
@@ -1129,7 +1136,10 @@ class SchedulesAPI extends BaseAPI {
 
     public function getEvents($params = []) {
         try {
-            $events = $this->calendarSync->getUnifiedEvents();
+            // One academic year at a time: the chosen year, or the current
+            // year. Events of different years are never listed together.
+            $yearId = (int) ($this->normalizeYearFilters((array) $params)['academic_year_id'] ?? 0);
+            $events = $this->calendarSync->getUnifiedEvents(true, $yearId > 0 ? $yearId : null);
 
             if (!empty($params['type'])) {
                 $type = strtolower($params['type']);
@@ -1285,7 +1295,8 @@ class SchedulesAPI extends BaseAPI {
      */
     public function syncEvents($params = []) {
         try {
-            $synced = $this->calendarSync->syncAcademicYear(null);
+            $yearId = (int) ($this->normalizeYearFilters((array) $params)['academic_year_id'] ?? 0);
+            $synced = $this->calendarSync->syncAcademicYear($yearId > 0 ? $yearId : null);
             $normalized = $this->calendarSync->normalizeStatuses();
 
             return successResponse([
@@ -1337,10 +1348,26 @@ class SchedulesAPI extends BaseAPI {
         try {
             $where = '1=1';
             $bindings = [];
+            // The registry is listed one academic year at a time (the chosen
+            // year, or the current one): holidays that fall inside its dates.
+            // all_years=1 lists the whole registry.
+            if (empty($params['all_years']) && empty($params['year'])) {
+                $yearId = (int) ($this->normalizeYearFilters((array) $params)['academic_year_id'] ?? 0);
+                if ($yearId > 0) {
+                    $span = $this->db->prepare('SELECT start_date, end_date FROM academic_years WHERE id = ?');
+                    $span->execute([$yearId]);
+                    $range = $span->fetch(PDO::FETCH_ASSOC);
+                    if ($range) {
+                        $where .= ' AND start_date <= ? AND end_date >= ?';
+                        $bindings = [$range['end_date'], $range['start_date']];
+                    }
+                }
+            }
             if (!empty($params['year'])) {
                 $year = (int) $params['year'];
                 $where .= ' AND (YEAR(start_date) = ? OR YEAR(end_date) = ?)';
-                $bindings = [$year, $year];
+                $bindings[] = $year;
+                $bindings[] = $year;
             }
             if (isset($params['active']) && $params['active'] !== '') {
                 $where .= ' AND is_active = ?';
@@ -1478,10 +1505,19 @@ class SchedulesAPI extends BaseAPI {
      */
     public function applyHolidays($params = []) {
         try {
+            // The chosen year, or the current one. A holiday saved a moment
+            // ago is applied to the year its dates fall in.
             $yearId = (int) ($params['academic_year_id'] ?? 0);
+            if (!$yearId && !empty($params['date'])) {
+                $byDate = $this->db->prepare(
+                    'SELECT id FROM academic_years WHERE start_date <= ? AND end_date >= ? ORDER BY id DESC LIMIT 1'
+                );
+                $byDate->execute([$params['date'], $params['date']]);
+                $yearId = (int) $byDate->fetchColumn();
+            }
             if (!$yearId) {
                 $yearId = (int) $this->db->query(
-                    "SELECT id FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " is_current = 1 ORDER BY id DESC LIMIT 1"
+                    "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
                 )->fetchColumn();
             }
             if (!$yearId) {
@@ -1490,10 +1526,14 @@ class SchedulesAPI extends BaseAPI {
 
             $calendarService = $this->contract('App\API\Modules\academic\AcademicCalendarService', $this->db);
             $result = $calendarService->generateYearCalendar($yearId);
+            if ((int) ($result['code'] ?? 200) >= 400 || ($result['status'] ?? '') === 'error') {
+                return errorResponse($result['message'] ?? 'The calendar could not be rebuilt', 400);
+            }
             $this->calendarSync->syncAcademicYear($yearId);
 
             return successResponse([
                 'message' => 'Holidays applied to the calendar',
+                'academic_year_id' => $yearId,
                 'calendar' => $result['data'] ?? null,
             ]);
         } catch (Exception $e) {
@@ -1777,15 +1817,10 @@ class SchedulesAPI extends BaseAPI {
                 return $found;
             }
         }
-        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1");
-        $stmt->execute([$academicYearId]);
-        $found = (int) $stmt->fetchColumn();
-        if ($found > 0) {
-            return $found;
-        }
-        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'upcoming' ORDER BY opening_date LIMIT 1");
-        $stmt->execute([$academicYearId]);
-        return (int) $stmt->fetchColumn();
+        // The term in session, or during a holiday the next term of the
+        // year (its last term once the year is over).
+        [, $found] = (new \App\API\Services\AcademicPeriodService($this->db))->planningTerm((int) $academicYearId);
+        return (int) $found;
     }
 
     /**
@@ -1848,7 +1883,9 @@ class SchedulesAPI extends BaseAPI {
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = aycla.learning_area_id
                 WHERE ayc.academic_year_id = ? AND aycs.status IN ('planning','active')
                 ORDER BY c.id, stream_name, la.name";
-        $params = [(int)($filters['academic_year_id'] ?? 0)];
+        // The chosen year, or the current one when the page has not named one
+        // yet; a year id of 0 would match nothing and show an empty list.
+        $params = [(int)($filters['academic_year_id'] ?? 0) ?: $this->getCurrentAcademicYearId()];
         if (array_key_exists('_scope_stream_ids', $filters)) {
             $allowed = array_values(array_filter(array_map('intval', (array)$filters['_scope_stream_ids']), static function ($id) { return $id > 0; }));
             if (!$allowed) return successResponse([]);

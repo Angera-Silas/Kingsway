@@ -44,11 +44,13 @@
   <div class="card border-0 shadow-sm mb-4">
     <div class="card-body py-3">
       <div class="row g-2 align-items-end">
-        <div class="col-md-3">
-          <label class="form-label small fw-semibold mb-1">Term <span class="text-danger">*</span></label>
-          <select id="compTermSelect" class="form-select form-select-sm" onchange="compCtrl.loadSheet()">
-            <option value="">— Select term —</option>
-          </select>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold mb-1" for="compYearSelect">Academic year</label>
+          <select id="compYearSelect" class="form-select form-select-sm"></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold mb-1" for="compTermSelect">Term <span class="text-danger">*</span></label>
+          <select id="compTermSelect" class="form-select form-select-sm"></select>
         </div>
         <div class="col-md-3">
           <label class="form-label small fw-semibold mb-1">Class <span class="text-danger">*</span></label>
@@ -57,7 +59,7 @@
           </select>
         </div>
         <div class="col-auto">
-          <button class="btn btn-success" onclick="compCtrl.saveAll()">
+          <button class="btn btn-success" onclick="compCtrl.saveAll()" data-year-write>
             <i class="bi bi-floppy me-1"></i> Save Ratings
           </button>
         </div>

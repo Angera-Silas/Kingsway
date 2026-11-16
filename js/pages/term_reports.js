@@ -35,11 +35,14 @@ const termReportsCtrl = {
       ]);
       this.years = this.array(yearsResponse);
       this.classes = this.array(classesResponse);
-      this.populateYears();
       this.populateClasses();
-      const currentYear = this.years.find((year) => year.is_current || year.status === 'active');
-      if (currentYear) document.getElementById('academicYear').value = String(currentYear.id);
-      await this.loadTerms();
+      // The shared year/term selector (current year, running term by default)
+      // loads the report-card status now and on every change.
+      const mounted = await window.AcademicYearFilter?.mount(document.getElementById('academicYear'), {
+        termSelect: document.getElementById('term'),
+        onChange: () => this.loadReports(),
+      });
+      if (!mounted) this.render();
     } catch (error) {
       console.error('Term reports initialization failed:', error);
       this.showError(error.message || 'Could not initialize term reports.');
@@ -48,8 +51,6 @@ const termReportsCtrl = {
   },
 
   bindEvents() {
-    document.getElementById('academicYear')?.addEventListener('change', () => this.loadTerms());
-    document.getElementById('term')?.addEventListener('change', () => this.loadReports());
     document.getElementById('classFilter')?.addEventListener('change', () => this.loadReports());
     document.getElementById('selectAll')?.addEventListener('change', (event) => {
       document.querySelectorAll('#reportsTbody [data-student-select]').forEach((box) => { box.checked = event.target.checked; });
@@ -58,46 +59,12 @@ const termReportsCtrl = {
     document.getElementById('bulkPrint')?.addEventListener('click', () => this.bulkPrint());
   },
 
-  populateYears() {
-    const select = document.getElementById('academicYear');
-    if (!select) return;
-    select.innerHTML = '<option value="">Select Year</option>' + this.years.map((year) =>
-      `<option value="${Number(year.id)}">${this.esc(year.year_name || year.name || year.year_code)}</option>`,
-    ).join('');
-  },
-
   populateClasses() {
     const select = document.getElementById('classFilter');
     if (!select) return;
     select.innerHTML = '<option value="">All Classes</option>' + this.classes.map((item) =>
       `<option value="${Number(item.id)}">${this.esc(item.name || item.class_name)}</option>`,
     ).join('');
-  },
-
-  async loadTerms() {
-    const yearId = document.getElementById('academicYear')?.value;
-    const select = document.getElementById('term');
-    if (!select) return;
-    select.innerHTML = '<option value="">Loading terms…</option>';
-    if (!yearId) {
-      select.innerHTML = '<option value="">Select Term</option>';
-      this.students = []; this.releases = []; this.render();
-      return;
-    }
-    try {
-      const response = await window.API.academic.listTerms({ academic_year_id: yearId });
-      this.terms = this.array(response);
-      select.innerHTML = '<option value="">Select Term</option>' + this.terms.map((term) =>
-        `<option value="${Number(term.id)}">${this.esc(term.name || term.term_name)}${term.status === 'current' ? ' (Current)' : ''}</option>`,
-      ).join('');
-      const current = this.terms.find((term) => term.status === 'current' || term.is_current);
-      if (current) select.value = String(current.id);
-      await this.loadReports();
-    } catch (error) {
-      console.error('Could not load terms for report cards:', error);
-      select.innerHTML = '<option value="">Terms unavailable</option>';
-      this.showError(error.message || 'Could not load terms.');
-    }
   },
 
   async loadStudents(yearId, classId) {
@@ -120,7 +87,8 @@ const termReportsCtrl = {
   },
 
   async loadReports() {
-    if (this.loading) return;
+    // A year/term change during a load runs again afterwards (never dropped).
+    if (this.loading) { this.reloadPending = true; return; }
     const yearId = document.getElementById('academicYear')?.value;
     const termId = document.getElementById('term')?.value;
     const classId = document.getElementById('classFilter')?.value;
@@ -145,6 +113,7 @@ const termReportsCtrl = {
       this.renderError(error.message || 'Could not load report card status.');
     } finally {
       this.loading = false;
+      if (this.reloadPending) { this.reloadPending = false; this.loadReports(); }
     }
   },
 

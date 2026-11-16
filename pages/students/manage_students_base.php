@@ -15,7 +15,7 @@
  */
 ?>
 
-<div class="card shadow-sm">
+<div class="card shadow-sm kw-clean">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-people-fill"></i> Student Management</h4>
@@ -678,4 +678,5 @@
 
 <!-- Link Controller Script -->
 <?php asset_script($appBase, 'public/vendor/sheetjs/xlsx.full.min.js'); ?>
+<?php asset_script($appBase, 'js/components/learner_record.js'); ?>
 <?php asset_script($appBase, 'js/pages/manage_students.js'); ?>

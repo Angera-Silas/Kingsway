@@ -8,7 +8,7 @@
       <small class="text-muted">Staff salary advance requests, approvals, and payroll deduction tracking</small>
     </div>
     <button class="btn btn-sm btn-warning" id="addAdvanceBtn" style="display:none"
-            onclick="salaryAdvancesController.showModal()">
+            onclick="salaryAdvancesController.showModal()" data-year-write>
       <i class="bi bi-plus-circle me-1"></i> Request Advance
     </button>
   </div>
@@ -152,7 +152,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-warning" onclick="salaryAdvancesController.save()">Submit Request</button>
+        <button class="btn btn-warning" onclick="salaryAdvancesController.save()" data-year-write>Submit Request</button>
       </div>
     </div>
   </div>
@@ -189,7 +189,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn" id="approveAdvBtn" onclick="salaryAdvancesController.confirmApproval()">Confirm</button>
+        <button class="btn" id="approveAdvBtn" onclick="salaryAdvancesController.confirmApproval()" data-year-write>Confirm</button>
       </div>
     </div>
   </div>

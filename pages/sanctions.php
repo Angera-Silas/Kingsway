@@ -182,7 +182,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" onclick="sanctionsController.confirmLift()">Resolve Case</button>
+        <button type="button" class="btn btn-success" onclick="sanctionsController.confirmLift()" data-year-write>Resolve Case</button>
       </div>
     </div>
   </div>

@@ -39,6 +39,7 @@ class BaseAPI extends FileLifecycleBase
         return ApiResponse::error($message, $statusCode, $errors);
     }
     protected $db;
+    private ?\App\API\Services\AcademicPeriodService $academicPeriodService = null;
     protected $user_id;
     protected $module;
     protected $request_id;
@@ -137,6 +138,118 @@ class BaseAPI extends FileLifecycleBase
         }
 
         return $resolved;
+    }
+
+    /**
+     * Refuse a write into a completed academic year unless the current user
+     * may edit it (see CompletedYearWriteGuard). Returns null when the write
+     * may go ahead, otherwise a 403 error response to return as is:
+     *
+     *   if ($denied = $this->requireWritableYear($yearId)) return $denied;
+     */
+    protected function requireWritableYear(int $yearId): ?array
+    {
+        $userId = (int) ($this->getCurrentUserId() ?? 0);
+        $guard = \App\API\Services\CompletedYearWriteGuard::check(
+            $yearId,
+            $this->currentRoleNames(),
+            $this->db,
+            $userId > 0 ? $userId : null
+        );
+        return $guard['allowed'] ? null : $this->errorResponse($guard['reason'], 403);
+    }
+
+    /**
+     * Same check for a write that names a year-term (academic_year_terms.id).
+     */
+    protected function requireWritableYearTerm(int $yearTermId): ?array
+    {
+        $stmt = $this->db->prepare('SELECT academic_year_id FROM academic_year_terms WHERE id = ? LIMIT 1');
+        $stmt->execute([$yearTermId]);
+        $yearId = (int) ($stmt->fetchColumn() ?: 0);
+        if ($yearId <= 0) {
+            return $this->errorResponse('Academic term not found', 404);
+        }
+        return $this->requireWritableYear($yearId);
+    }
+
+    /**
+     * Year metadata for year-scoped responses, so the page knows whether to
+     * show the year read-only: {id, label, state, is_current, editable}.
+     */
+    protected function yearMeta(int $yearId): ?array
+    {
+        $userId = (int) ($this->getCurrentUserId() ?? 0);
+        $guard = \App\API\Services\CompletedYearWriteGuard::check(
+            $yearId,
+            $this->currentRoleNames(),
+            $this->db,
+            $userId > 0 ? $userId : null
+        );
+        if (!$guard['year']) return null;
+        return [
+            'id' => (int) $guard['year']['id'],
+            'label' => (string) $guard['year']['year_code'],
+            'state' => (string) $guard['year']['state'],
+            'is_current' => (int) $guard['year']['is_current'] === 1,
+            'editable' => $guard['allowed'],
+        ];
+    }
+
+    /**
+     * Resolve the year (and term) a read shows: academic_year_id /
+     * academic_year_term_id from the request, defaulting to the current year
+     * (see App\API\Services\YearScope for the rules and term modes).
+     *
+     * @return array{year_id:int, year_term_id:?int, year:array, term:?array}
+     * @throws \InvalidArgumentException code 404/422 for an unknown or mismatched year/term
+     */
+    protected function yearScope(array $data, int $termMode = \App\API\Services\YearScope::TERM_NONE): array
+    {
+        return (new \App\API\Services\YearScope($this->db))->fromRequest($data, $termMode);
+    }
+
+    /**
+     * Normalise a read's year/term filters for legacy query code.
+     *
+     * Accepts the standard keys (academic_year_id, academic_year_term_id) and
+     * the legacy ones (year_id; term_id where it already meant
+     * academic_year_terms.id) and sets BOTH spellings, so existing WHERE
+     * builders keep working. With $defaultToCurrentYear, a request naming no
+     * year and no term reads the current year instead of every year.
+     */
+    protected function normalizeYearFilters(array $data, bool $defaultToCurrentYear = true): array
+    {
+        $termId = (int) ($data['academic_year_term_id'] ?? 0) ?: (int) ($data['term_id'] ?? 0);
+        $yearId = (int) ($data['academic_year_id'] ?? 0) ?: (int) ($data['year_id'] ?? 0);
+        if ($termId > 0) {
+            $data['academic_year_term_id'] = $data['term_id'] = $termId;
+        }
+        if ($yearId <= 0 && $termId <= 0 && $defaultToCurrentYear) {
+            $yearId = (new \App\API\Services\YearScope($this->db))->currentYearId();
+        }
+        if ($yearId > 0) {
+            $data['academic_year_id'] = $data['year_id'] = $yearId;
+        }
+        return $data;
+    }
+
+    /**
+     * Add {year: {id, label, state, is_current, editable}} to a successful
+     * response whose data is an object (associative array). List payloads are
+     * returned unchanged so existing callers keep their shape; pages learn
+     * editability from YearMode in that case.
+     */
+    protected function withYearMeta(array $response, int $yearId): array
+    {
+        $data = $response['data'] ?? null;
+        if (is_array($data) && !array_is_list($data) && !isset($data['year'])) {
+            $meta = $this->yearMeta($yearId);
+            if ($meta) {
+                $response['data']['year'] = $meta;
+            }
+        }
+        return $response;
     }
 
     protected function getCurrentUserId()
@@ -469,6 +582,42 @@ class BaseAPI extends FileLifecycleBase
      * Use this instead of $this->db->query($sql, $params) which calls PDO::query()
      * (PDO::query() does not accept a params array as its 2nd argument).
      */
+    /**
+     * The school year as it runs: terms, half terms and holidays (April,
+     * August, December). Between terms no term is "current"; use these two
+     * rules instead of looking for status = 'current'.
+     */
+    protected function academicPeriods(): \App\API\Services\AcademicPeriodService
+    {
+        return $this->academicPeriodService ??= new \App\API\Services\AcademicPeriodService($this->db);
+    }
+
+    /**
+     * Term for records and reports (discipline, fee summaries, waivers):
+     * in session, else the term just closed (in the year, when given).
+     */
+    protected function recordTermId(?int $yearId = null): ?int
+    {
+        // Within the current academic year unless another is named, so the
+        // term always belongs to the year being shown.
+        if (!$yearId) {
+            $yearId = (int) ($this->db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0) ?: null;
+        }
+        [, $termId] = $this->academicPeriods()->recordTerm((int) $yearId);
+        return $termId ?: null;
+    }
+
+    /**
+     * Term for work being prepared or taking effect (payments for the coming
+     * term, transfers, allocations, schemes): in session, else during a
+     * holiday the next term to open (in the year, when given).
+     */
+    protected function planningTermId(?int $yearId = null): ?int
+    {
+        [, $termId] = $this->academicPeriods()->planningTerm((int) $yearId);
+        return $termId ?: null;
+    }
+
     protected function dbQuery(string $sql, array $params = []): \PDOStatement
     {
         $stmt = $this->db->prepare($sql);

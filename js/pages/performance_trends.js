@@ -39,7 +39,7 @@ const PerformanceTrendsController = {
       document.getElementById("exportAnalysis") ||
       document.querySelector('[onclick*="analyze"]');
     // Year/class/subject filter changes
-    ["academicYear", "classFilter", "subjectFilter", "analysisType"].forEach(
+    ["classFilter", "subjectFilter", "analysisType"].forEach(
       (id) => {
         const el = document.getElementById(id);
         if (el) el.addEventListener("change", () => this.analyze());
@@ -57,7 +57,6 @@ const PerformanceTrendsController = {
       ]);
 
       this.state.years = yearsRes || [];
-      this.populateSelect("#academicYear", this.state.years, "id", "name");
       this.state.classes = classesRes || [];
       this.populateSelect("#classFilter", this.state.classes, "id", "name");
       this.state.subjects = subjectsRes || [];
@@ -68,8 +67,17 @@ const PerformanceTrendsController = {
         "name",
       );
 
-      // Auto-analyze with defaults
-      this.analyze();
+      // The shared year selector (current year by default) analyses now and
+      // on every change; it is mounted once.
+      if (!this.yearMounted) {
+        this.yearMounted = true;
+        const mounted = await window.AcademicYearFilter?.mount(document.getElementById("academicYear"), {
+          onChange: () => this.analyze(),
+        });
+        if (!mounted) this.analyze();
+      } else {
+        this.analyze();
+      }
     } catch (error) {
       console.error("Error loading filters:", error);
     }

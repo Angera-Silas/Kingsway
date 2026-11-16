@@ -73,6 +73,11 @@ class DashboardRouter
         'create_assessment' => 'my_cats',
         'create_subject_cat' => 'my_cats',
         'my_subject_cats' => 'my_cats',
+        // Free-form "class + subject + term" marks pages: marks belong to an
+        // assessment, and these posted to a workflow endpoint that never
+        // accepted them. Summative marks are entered per exam here.
+        'enter_results' => 'enter_exam_results',
+        'add_results' => 'enter_exam_results',
         'staff_onboarding' => 'manage_staff',
         'staff_lifecycle' => 'manage_staff',
         'import_existing_staff' => 'manage_staff',
@@ -305,7 +310,7 @@ private const ROUTE_ROLES = [
     'my_subject_syllabus' => [8],  // 1 role(s)
     'my_subjects_overview' => [8],  // 1 role(s)
     'my_vehicle' => [23],  // 1 role(s)
-    'national_exams' => [6],  // 1 role(s)
+    'national_exams' => [3, 4, 5, 6],  // 4 role(s)
     'observation_feedback' => [9],  // 1 role(s)
     'observation_schedule' => [9],  // 1 role(s)
     'parent_meeting_records' => [7, 24, 63],  // 3 role(s)
@@ -390,6 +395,7 @@ private const ROUTE_ROLES = [
     'student_fund_transfers' => [3, 4],  // 2 role(s)
     'student_health' => [4, 5, 18],  // 3 role(s)
     'student_id_cards' => [4],  // 1 role(s)
+    'photo_capture' => [4],  // 1 role(s)
     'student_leadership' => [3, 4, 5, 6, 7, 8, 9, 24, 63],  // 9 role(s)
     'student_performance' => [3, 5, 6],  // 3 role(s)
     'student_portfolio' => [4, 5, 6, 7, 8],  // 5 role(s)
@@ -535,6 +541,17 @@ private const ROUTE_ROLES = [
     {
         $key = trim($key);
         return self::DASHBOARD_ALIASES[$key] ?? $key;
+    }
+
+    /**
+     * The route whose page is rendered: dashboard aliases, then retired
+     * pages that resolve to their replacement (ROUTE_ALIASES), so an old
+     * bookmark opens the working page instead of the retired template.
+     */
+    public static function renderedRoute(string $key): string
+    {
+        $key = self::normalizeDashboardKey($key);
+        return self::ROUTE_ALIASES[$key] ?? $key;
     }
 
     public static function getDefaultDashboard(): string

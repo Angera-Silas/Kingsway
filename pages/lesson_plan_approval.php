@@ -14,7 +14,7 @@
             <small class="text-muted">Review, approve, or reject submitted lesson plans</small>
         </div>
         <div class="btn-group">
-            <button class="btn btn-outline-success btn-sm" id="bulkApproveBtn">
+            <button class="btn btn-outline-success btn-sm" id="bulkApproveBtn" data-year-write>
                 <i class="bi bi-check-all"></i> Bulk Approve
             </button>
             <button class="btn btn-outline-primary btn-sm" id="exportApprovalBtn">
@@ -149,10 +149,10 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" id="rejectPlanBtn">
+                <button type="button" class="btn btn-danger" id="rejectPlanBtn" data-year-write>
                     <i class="bi bi-x-circle"></i> Reject
                 </button>
-                <button type="button" class="btn btn-success" id="approvePlanBtn">
+                <button type="button" class="btn btn-success" id="approvePlanBtn" data-year-write>
                     <i class="bi bi-check-circle"></i> Approve
                 </button>
             </div>

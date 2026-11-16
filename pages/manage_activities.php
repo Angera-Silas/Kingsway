@@ -18,7 +18,7 @@
       <button class="btn btn-outline-secondary btn-sm" onclick="activitiesController.loadAll()">
         <i class="bi bi-arrow-clockwise"></i> Refresh
       </button>
-      <button class="btn btn-primary" onclick="activitiesController.showAddModal()">
+      <button class="btn btn-primary" onclick="activitiesController.showAddModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Add Activity
       </button>
     </div>
@@ -237,7 +237,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveActivity()">Save Activity</button>
+        <button class="btn btn-primary" onclick="activitiesController.saveActivity()" data-year-write>Save Activity</button>
       </div>
     </div>
   </div>
@@ -264,7 +264,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveCategory()">Save Category</button>
+        <button class="btn btn-primary" onclick="activitiesController.saveCategory()" data-year-write>Save Category</button>
       </div>
     </div>
   </div>
@@ -294,7 +294,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveParticipant()">Register</button>
+        <button class="btn btn-primary" onclick="activitiesController.saveParticipant()" data-year-write>Register</button>
       </div>
     </div>
   </div>
@@ -335,7 +335,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveSchedule()">Save</button>
+        <button class="btn btn-primary" onclick="activitiesController.saveSchedule()" data-year-write>Save</button>
       </div>
     </div>
   </div>
@@ -382,7 +382,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveResource()">Save</button>
+        <button class="btn btn-primary" onclick="activitiesController.saveResource()" data-year-write>Save</button>
       </div>
     </div>
   </div>

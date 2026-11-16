@@ -1,0 +1,177 @@
+/**
+ * KingswayYearScope: year switching for pages that have no year select of
+ * their own.
+ *
+ * A route listed in ROUTES shows one academic year's data. For such a route
+ * the shell:
+ *   1. adds the shared year (and optionally term) bar at the top of the page
+ *      (AcademicYearFilter.mountBar); the current year is the default and a
+ *      chosen year is kept in the URL (?academic_year_id=), so it survives a
+ *      reload, a shared link and navigation to the next page;
+ *   2. lets js/api.js add that academic_year_id (and academic_year_term_id) to
+ *      the page's GET requests that do not name a year themselves, so the
+ *      page's existing loaders read the chosen year without changes;
+ *   3. reloads the page when the user picks another year or term.
+ *
+ * A completed year is shown read-only for users who may not edit it (YearMode,
+ * applied by the filter). Pages that mount their own AcademicYearFilter are
+ * NOT listed here. Pages that must show every year at once (a learner's
+ * lifetime record, a learner's growth) must never be listed.
+ *
+ * Add a route: { term: true } when the page shows one term at a time,
+ * { term: false } for whole-year pages. Add planning: true for pages that
+ * prepare work: during a holiday they open on the next term to open (and its
+ * year), not on the term just closed. The route's endpoints must honour
+ * academic_year_id (BaseAPI::normalizeYearFilters / YearScope::fromRequest).
+ */
+(function (window, document) {
+  'use strict';
+
+  const ROUTES = Object.freeze({
+    // Phase 1 batch 5: teacher workspace (lesson plans)
+    all_lesson_plans: { term: true },
+    approved_lesson_plans: { term: true },
+    lesson_plan_approval: { term: true, planning: true },
+    lesson_plans_by_class: { term: false },
+    manage_lesson_plans: { term: true, planning: true },
+    // its own term filter is the term number within the selected year
+    schemes_of_work: { term: false, planning: true },
+    // Phase 2: learners
+    manage_students: { term: false },
+    // Phase 2: attendance, boarding, welfare, discipline (record/history pages;
+    // the operational "today" pages - roll calls, marking, sick bay - are not listed)
+    attendance_reports: { term: true },
+    chronic_absenteeism: { term: false },
+    discipline_cases: { term: false },
+    discipline_reports: { term: false },
+    student_welfare: { term: false },
+    welfare_records: { term: false },
+    welfare_summary: { term: false },
+    exeat_history: { term: false },
+    exeat_reports: { term: false },
+    boarding_reports: { term: false },
+    // Phase 3: finance (fee pages pick their own year; payroll is by calendar month)
+    payment_reports: { term: false },
+    // Academic setup: a year's own streams and their capacity
+    class_streams: { term: false },
+    class_capacity: { term: false },
+    // Events and calendar: one academic year's events, holidays and exam
+    // dates at a time (the year calendar and academic calendar pages mount
+    // their own year filter)
+    school_events: { term: false },
+    view_calendar: { term: false },
+    manage_holidays: { term: false },
+    // Learner lists built on students/student_context_view.php (the year
+    // picks each learner's class; other years list that year's roll only)
+    academic_students: { term: false },
+    all_students: { term: false },
+    discipline_students: { term: false },
+    my_students_list: { term: false },
+    students_by_class: { term: false },
+    students_overview: { term: false },
+    subject_students_list: { term: false },
+    view_class_lists: { term: false },
+  });
+
+  const YEAR = 'academic_year_id';
+  const TERM = 'academic_year_term_id';
+
+  function currentRoute() {
+    try {
+      return window.REQUESTED_ROUTE || new URLSearchParams(window.location.search).get('route') || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function config() {
+    return ROUTES[currentRoute()] || null;
+  }
+
+  function urlValue(name) {
+    try {
+      const value = new URLSearchParams(window.location.search).get(name);
+      return value && /^\d+$/.test(value) ? value : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /**
+   * Query parameters api.js adds to a GET on a year-scoped route. Empty for
+   * the current year (the server defaults to it) and on every other route.
+   */
+  function requestParams() {
+    const cfg = config();
+    if (!cfg) return {};
+    const params = {};
+    const year = urlValue(YEAR);
+    if (year) params[YEAR] = year;
+    if (cfg.term) {
+      const term = urlValue(TERM);
+      if (term) params[TERM] = term;
+    }
+    return params;
+  }
+
+  // Pages that can reload their own data for another year register it here
+  // (KingswayYearScope.onYearChange(fn)); others are reloaded in full so
+  // they never show the previous year's data.
+  const handlers = new Map();
+  function onYearChange(fn) {
+    const route = currentRoute();
+    if (route && typeof fn === 'function') handlers.set(route, fn);
+  }
+
+  let attachedFor = '';
+  async function attach() {
+    const route = currentRoute();
+    const cfg = ROUTES[route];
+    if (!cfg || attachedFor === route || !window.AcademicYearFilter?.mountBar) return;
+    attachedFor = route;
+    let first = true;
+    const shownYear = String(urlValue(YEAR) || '');
+    const shownTerm = String(urlValue(TERM) || '');
+    await window.AcademicYearFilter.mountBar({
+      term: Boolean(cfg.term),
+      planning: Boolean(cfg.planning),
+      allTermsLabel: cfg.term ? 'All terms' : '',
+      allTermsDefault: false,
+      onChange: () => {
+        // The first call reports the year already shown; later calls are the
+        // user's choice: reload the route, whose URL the filter has updated.
+        // A planning page may open on another year (the next term's during a
+        // holiday): then its data is refreshed for that year once.
+        if (first) {
+          first = false;
+          const yearMoved = String(urlValue(YEAR) || '') !== shownYear;
+          // In term time the server's default term is the running one, which
+          // is what the bar shows; during a holiday it is not.
+          const termMoved = String(urlValue(TERM) || '') !== shownTerm
+            && !window.AcademicContext?.isTermInSession?.();
+          if (!cfg.planning || (!yearMoved && !termMoved)) return;
+        }
+        // Refresh the page in place: the filter has already put the year in
+        // the URL, and api.js adds it to the page's requests. Re-opening the
+        // same route forced a full page reload (soft navigation reloads any
+        // page whose controller is already loaded), so only a page with no
+        // registered loader is reloaded.
+        const handler = handlers.get(route);
+        if (!handler) { window.location.reload(); return; }
+        Promise.resolve(handler()).catch(() => window.location.reload());
+      },
+    });
+  }
+
+  window.addEventListener('kingsway:page-will-load', () => { attachedFor = ''; });
+  window.addEventListener('kingsway:page-loaded', () => { attach(); });
+  document.addEventListener('DOMContentLoaded', () => { attach(); });
+
+  window.KingswayYearScope = Object.freeze({
+    routes: ROUTES,
+    isYearScoped: (route) => Boolean(ROUTES[route || currentRoute()]),
+    requestParams,
+    attach,
+    onYearChange,
+  });
+})(window, document);

@@ -16,8 +16,6 @@ const studentSubjectPerformanceController = {
       const first = select.options[0]?.outerHTML || '<option value="">All</option>';
       select.innerHTML = first + items.map((item) => `<option value="${Number(item.id)}" ${current(item) ? 'selected' : ''}>${this.esc(label(item))}</option>`).join('');
     };
-    fill('yearFilter', years, (x) => x.year_name || x.year_code || x.name, (x) => Boolean(x.is_current));
-    fill('termFilter', terms, (x) => `${x.name || x.term_name || 'Term'}${x.year_name ? ` (${x.year_name})` : ''}`, (x) => x.status === 'current' || x.is_current);
     fill('subjectFilter', subjects, (x) => x.name || x.subject_name, () => false);
   },
   async load() {
@@ -26,7 +24,7 @@ const studentSubjectPerformanceController = {
     if (loading) loading.style.display = ''; if (content) content.style.display = 'none';
     const params = {};
     const year = document.getElementById('yearFilter')?.value; const term = document.getElementById('termFilter')?.value; const subject = document.getElementById('subjectFilter')?.value;
-    if (year) params.year_id = year; if (term) params.term_id = term; if (subject) params.subject_id = subject;
+    if (year) { params.academic_year_id = year; params.year_id = year; } if (term) params.term_id = term; if (subject) params.subject_id = subject;
     params.subject_teacher_only = true;
     try {
       const response = await this.api('GET', '/api/academic/results', null, params);
@@ -83,9 +81,16 @@ const studentSubjectPerformanceController = {
     document.getElementById('loadPerformanceBtn')?.remove();
     document.getElementById('exportBtn')?.addEventListener('click', () => this.exportCSV());
     document.getElementById('printBtn')?.addEventListener('click', () => this.print());
-    ['yearFilter', 'termFilter', 'subjectFilter'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.load()));
+    ['subjectFilter'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.load()));
     try { await this.loadFilters(); } catch (error) { console.error('Could not load subject performance filters:', error); }
-    await this.load();
+    // The shared year/term selector (current year, running term by default).
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+      termSelect: document.getElementById('termFilter'),
+      allTermsLabel: 'All terms',
+      allTermsDefault: false,
+      onChange: () => this.load(),
+    });
+    if (!mounted) await this.load();
     window.APIRealtime?.register?.('student_subject_performance', { refresh: () => this.load() }, ['students', 'academic']);
   },
 };

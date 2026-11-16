@@ -30,7 +30,7 @@ $appBase = app_base_path();
                     <button class="btn btn-outline-light btn-sm" id="printBtn" type="button">
                         <i class="bi bi-printer"></i> Print
                     </button>
-                    <button class="btn btn-light btn-sm" id="addRecordBtn">
+                    <button class="btn btn-light btn-sm" id="addRecordBtn" data-year-write>
                         <i class="bi bi-plus-circle"></i> Add Record
                     </button>
                 </div>
@@ -303,13 +303,13 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-success" id="addClinicVisitBtn">
+                <button class="btn btn-success" id="addClinicVisitBtn" data-year-write>
                     <i class="bi bi-plus-circle me-1"></i> Add Clinic Visit
                 </button>
-                <button class="btn btn-warning" id="addMedicationBtn">
+                <button class="btn btn-warning" id="addMedicationBtn" data-year-write>
                     <i class="bi bi-pill me-1"></i> Add Medication Note
                 </button>
-                <button class="btn btn-info" id="markReviewedBtn">
+                <button class="btn btn-info" id="markReviewedBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Mark Reviewed
                 </button>
             </div>

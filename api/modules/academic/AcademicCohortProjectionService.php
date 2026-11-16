@@ -219,9 +219,10 @@ return $this->errorResponse('An internal error occurred.');
         }
         $term = null;
         if ($year) {
+            // The term in session, or during a holiday the term just closed.
             $term = $this->fetchRow(
-                "SELECT * FROM academic_year_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1",
-                [$year['id']]
+                "SELECT * FROM academic_year_terms WHERE id = ? LIMIT 1",
+                [(int) ($this->recordTermId((int) $year['id']) ?? 0)]
             );
         }
         return [

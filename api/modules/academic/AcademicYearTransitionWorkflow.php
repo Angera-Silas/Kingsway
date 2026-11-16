@@ -44,6 +44,34 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     }
 
     /** MariaDB ROW_COUNT() reports affected rows for the preceding write on this connection. */
+    /**
+     * The rollover only ever moves FORWARD. Re-running an earlier stage (a
+     * setup tab, a second promotion save, baselines again) used to move the
+     * shared pointer back to that stage, so every later stage showed "not
+     * done" and finished stages had to be repeated. A move to the current or
+     * an earlier stage now keeps the position and only saves the stage's
+     * data (merged, so newer keys written meanwhile are kept).
+     */
+    public function advanceStage($instance_id, $to_stage, $action, $action_data = [])
+    {
+        $row = $this->db->prepare(
+            'SELECT wi.current_stage,
+                    (SELECT ws.sequence FROM workflow_stages ws WHERE ws.workflow_id = wi.workflow_id AND ws.code = wi.current_stage LIMIT 1) AS current_seq,
+                    (SELECT ws.sequence FROM workflow_stages ws WHERE ws.workflow_id = wi.workflow_id AND ws.code = ? LIMIT 1) AS target_seq
+             FROM workflow_instances wi WHERE wi.id = ? LIMIT 1'
+        );
+        $row->execute([(string) $to_stage, (int) $instance_id]);
+        $pos = $row->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($pos && $pos['current_seq'] !== null && $pos['target_seq'] !== null
+            && (int) $pos['target_seq'] <= (int) $pos['current_seq']) {
+            if (is_array($action_data) && $action_data) {
+                $this->mergeInstanceData((int) $instance_id, $action_data);
+            }
+            return true;
+        }
+        return parent::advanceStage($instance_id, $to_stage, $action, $action_data);
+    }
+
     private function lastAffectedRows(): int
     {
         return (int) $this->db->query('SELECT ROW_COUNT()')->fetchColumn();
@@ -122,11 +150,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     sourceClass.level_id, sourceClass.id AS target_class_id,
                     sourceClass.name AS target_class_name, aycs.id AS source_stream_id,
                     stream.name AS stream_name, stream.capacity AS current_capacity
-             FROM " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc
-             JOIN " . ReadReplicaService::qualifiedRef('classes') . " sourceClass ON sourceClass.id = ayc.class_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs
+             FROM " . ReadReplicaService::masterSourceRef('academic_year_classes') . " ayc
+             JOIN " . ReadReplicaService::masterSourceRef('classes') . " sourceClass ON sourceClass.id = ayc.class_id
+             LEFT JOIN " . ReadReplicaService::masterSourceRef('academic_year_class_streams') . " aycs
                ON aycs.academic_year_class_id = ayc.id AND aycs.status IN ('planning','active')
-             LEFT JOIN " . ReadReplicaService::qualifiedRef('streams') . " stream ON stream.id = aycs.stream_id
+             LEFT JOIN " . ReadReplicaService::masterSourceRef('streams') . " stream ON stream.id = aycs.stream_id
              WHERE ayc.academic_year_id = ? AND ayc.status IN ('planning','active')
              ORDER BY sourceClass.id, stream.name"
         );
@@ -156,18 +184,18 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             "SELECT available.class_id, available.code FROM (
                 SELECT ayc.class_id, st.code
                 FROM academic_year_fee_schedules fs
-                JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc ON ayc.id = fs.academic_year_class_id
-                JOIN " . ReadReplicaService::qualifiedRef('student_types') . " st ON st.id = fs.student_type_id
-                WHERE fs.academic_year_id = ? AND fs.status = 'active' AND fs.amount > 0
+                JOIN " . ReadReplicaService::masterSourceRef('academic_year_classes') . " ayc ON ayc.id = fs.academic_year_class_id
+                JOIN " . ReadReplicaService::masterSourceRef('student_types') . " st ON st.id = fs.student_type_id
+                WHERE fs.academic_year_id = ? AND fs.status IN ('active', 'inactive') AND fs.amount > 0
                   AND st.code IN ('DAY', 'BOARD')
                 UNION
                 SELECT ayc.class_id, st.code
-                FROM " . ReadReplicaService::qualifiedRef('student_academic_enrollments') . " sae
-                JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs ON aycs.id = sae.academic_year_class_stream_id
-                JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
-                JOIN " . ReadReplicaService::qualifiedRef('students') . " s ON s.id = sae.student_id
-                JOIN " . ReadReplicaService::qualifiedRef('student_types') . " st ON st.id = s.student_type_id
-                WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('active', 'pending')
+                FROM " . ReadReplicaService::masterSourceRef('student_academic_enrollments') . " sae
+                JOIN " . ReadReplicaService::masterSourceRef('academic_year_class_streams') . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN " . ReadReplicaService::masterSourceRef('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN " . ReadReplicaService::masterSourceRef('students') . " s ON s.id = sae.student_id
+                JOIN " . ReadReplicaService::masterSourceRef('student_types') . " st ON st.id = s.student_type_id
+                WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('active', 'pending', 'completed', 'graduated')
                   AND st.code IN ('DAY', 'BOARD')
             ) available ORDER BY available.class_id, available.code"
         );
@@ -329,7 +357,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
              FROM (
                  SELECT staff_id, last_name, first_name,
                         COALESCE(NULLIF(full_name, ''), CONCAT_WS(' ', first_name, last_name)) AS name
-                 FROM " . ReadReplicaService::qualifiedRef('staff_directory') . "
+                 FROM " . ReadReplicaService::masterSourceRef('staff_directory') . "
                  WHERE staff_status = 'active'
                    AND staff_id IS NOT NULL
                    AND COALESCE(data_scope, 'live') <> 'test'
@@ -1035,7 +1063,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
              WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('pending','active')
                AND NOT EXISTS (SELECT 1 FROM student_transitions st
                                WHERE st.from_student_academic_enrollment_id = sae.id
-                                 AND st.academic_year_id = ?)"
+                                 AND (st.academic_year_id = ? OR st.transition_type = 'graduation'))"
         );
         $remaining->execute([$fromYearId, $toYearId]);
         if ((int) $remaining->fetchColumn() > 0) return false;
@@ -1146,11 +1174,22 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 'year_end_date' => $year['end_date'], 'terms' => $terms, 'term_ids' => $termIds,
                 'new_classes' => [], 'migrated_baselines' => [], 'validation_results' => [],
             ];
-            $instanceId = $this->startWorkflow($this->getWorkflowDefinitionCode(), $yearId, $data);
-            $this->advanceStage($instanceId, 'create_next_year', 'Existing target academic year selected', $data);
-            $this->advanceStage($instanceId, 'enter_year_term_dates', 'Existing year and term dates confirmed', $data);
-            $this->advanceStage($instanceId, 'generate_calendar', 'Target-year calendar generated from recorded dates', $data);
-            $this->advanceStage($instanceId, 'configure_classes_streams', 'Target-year calendar prepared; classes and streams are next', $data);
+            // One step: the workflow and its first stage moves are created
+            // together, so a failure cannot leave a half-started rollover
+            // parked on an early stage (the calendar above is regenerable).
+            $ownTransaction = !$this->db->inTransaction();
+            if ($ownTransaction) $this->db->beginTransaction();
+            try {
+                $instanceId = $this->startWorkflow($this->getWorkflowDefinitionCode(), $yearId, $data);
+                $this->advanceStage($instanceId, 'create_next_year', 'Existing target academic year selected', $data);
+                $this->advanceStage($instanceId, 'enter_year_term_dates', 'Existing year and term dates confirmed', $data);
+                $this->advanceStage($instanceId, 'generate_calendar', 'Target-year calendar generated from recorded dates', $data);
+                $this->advanceStage($instanceId, 'configure_classes_streams', 'Target-year calendar prepared; classes and streams are next', $data);
+                if ($ownTransaction) $this->db->commit();
+            } catch (\Throwable $e) {
+                if ($ownTransaction && $this->db->inTransaction()) $this->db->rollBack();
+                throw $e;
+            }
             return formatResponse(true, ['instance_id' => (int) $instanceId, 'workflow_data' => $data], 'Existing academic year added to rollover.');
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -1466,9 +1505,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             ];
 
             // Start workflow
+            // The instance references the target academic_years.id, as the
+            // start-for-an-existing-year path does (it used to store the
+            // calendar year, e.g. 2027, which later lookups read as an id).
             $instance = $this->startWorkflow(
                 $this->getWorkflowDefinitionCode(),
-                $toYear,
+                $academicYearId,
                 $workflowData
             );
 
@@ -1500,15 +1542,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     /**
      * Close the outgoing year.
      *
-     * Marking a year completed is NOT archiving, and no archiving vocabulary
-     * belongs anywhere in this workflow. Closing only moves the year to
-     * active - completed: every read path and every ordinary user still sees
-     * its data, and only school admin / system admin / director may write to
-     * it. Nothing is moved, copied, sealed or deleted.
-     *
-     * Archiving is a separate, deliberate, system-administrator-only action
-     * (see AcademicYearManager::archiveYear) that permanently hides a year.
-     * It is never reachable from here.
+     * Closing only moves the year to active - completed: every read path and
+     * every user still sees its data, and only school admin / system admin /
+     * director, or a user granted academic_years_edit_completed, may write to
+     * it. Nothing is moved, copied, sealed or deleted. The system has no
+     * archiving.
      */
     public function closeOutgoingYear(int $instance_id): array
     {
@@ -1525,13 +1563,15 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 throw new Exception('Source academic year could not be resolved');
             }
 
-            // advanceStage() records this step in workflow_stage_history, which
-            // is the durable record that closing happened. Nothing needs to be
-            // written to workflow_instances here.
+            // advanceStage() records this step in workflow_stage_history, the
+            // durable record that closing was confirmed, and moves on to
+            // certification (it used to "advance" to close_outgoing_year
+            // itself, so the rollover stayed on this stage). The year itself
+            // becomes completed at the cutover on the new year's start date.
             $this->advanceStage(
                 $instance_id,
-                'close_outgoing_year',
-                "Closed year {$fromYear} as active - completed",
+                'activate_new_year_term_one',
+                "Closing of {$fromYear} confirmed; it completes at cutover",
                 $data
             );
 
@@ -1586,36 +1626,36 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     targetEnrollment.academic_year_class_stream_id AS target_stream_id,
                     targetAyc.class_id AS existing_target_class_id,
                     (SELECT st.transition_type FROM student_transitions st
-                      WHERE st.from_student_academic_enrollment_id = sae.id AND st.academic_year_id = ?
+                      WHERE st.from_student_academic_enrollment_id = sae.id AND (st.academic_year_id = ? OR st.transition_type = 'graduation')
                       ORDER BY st.id DESC LIMIT 1) AS transition_type,
                     (SELECT COUNT(DISTINCT tss.term_id)
-                       FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
-                       JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " resultTerm
+                       FROM " . ReadReplicaService::masterSourceRef("term_subject_scores") . " tss
+                       JOIN " . ReadReplicaService::masterSourceRef("academic_year_terms") . " resultTerm
                          ON resultTerm.term_id = tss.term_id AND resultTerm.academic_year_id = sae.academic_year_id
                       WHERE tss.student_id = s.id) AS finalized_result_terms,
                     (SELECT COALESCE(SUM(fb.balance), 0)
-                       FROM " . ReadReplicaService::qualifiedRef("student_fee_balances") . " fb
+                       FROM " . ReadReplicaService::masterSourceRef("student_fee_balances") . " fb
                       WHERE fb.student_academic_enrollment_id = sae.id) AS outstanding_balance
-             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
-             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
-             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " srcAycs ON srcAycs.id = sae.academic_year_class_stream_id
-             JOIN " . ReadReplicaService::qualifiedRef("streams") . " srcStream ON srcStream.id = srcAycs.stream_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " srcAyc ON srcAyc.id = srcAycs.academic_year_class_id
-             JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = srcAyc.class_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_class_progression") . " prog
+             FROM " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::masterSourceRef("students") . " s ON s.id = sae.student_id
+             JOIN " . ReadReplicaService::masterSourceRef("persons") . " p ON p.id = s.person_id
+             JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " srcAycs ON srcAycs.id = sae.academic_year_class_stream_id
+             JOIN " . ReadReplicaService::masterSourceRef("streams") . " srcStream ON srcStream.id = srcAycs.stream_id
+             JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " srcAyc ON srcAyc.id = srcAycs.academic_year_class_id
+             JOIN " . ReadReplicaService::masterSourceRef("classes") . " c ON c.id = srcAyc.class_id
+             LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_class_progression") . " prog
                ON prog.source_class_id = c.id AND prog.active = 1
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " targetClass ON targetClass.id = prog.target_class_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " targetEnrollment
+             LEFT JOIN " . ReadReplicaService::masterSourceRef("classes") . " targetClass ON targetClass.id = prog.target_class_id
+             LEFT JOIN " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " targetEnrollment
                ON targetEnrollment.student_id = s.id AND targetEnrollment.academic_year_id = ?
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " targetAycs
+             LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " targetAycs
                ON targetAycs.id = targetEnrollment.academic_year_class_stream_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " targetAyc
+             LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " targetAyc
                ON targetAyc.id = targetAycs.academic_year_class_id
              WHERE sae.academic_year_id = ?
                AND (sae.enrollment_status IN ('pending','active') OR EXISTS
                     (SELECT 1 FROM student_transitions st
-                     WHERE st.from_student_academic_enrollment_id = sae.id AND st.academic_year_id = ?))
+                     WHERE st.from_student_academic_enrollment_id = sae.id AND (st.academic_year_id = ? OR st.transition_type = 'graduation')))
                AND s.status = 'active'
              ORDER BY c.id, p.last_name, p.first_name"
         );
@@ -1669,13 +1709,37 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     }
 
     /** Complete a canonical non-mutating gate after its dedicated setup page has been used. */
+    /**
+     * Complete one rollover stage, all or nothing: the stage's own writes
+     * (fee approval, finance steps) and the move to the next stage commit
+     * together, and the workflow row is locked meanwhile, so a double click
+     * or two administrators at once cannot run a stage twice or leave it
+     * half done.
+     */
     public function completeCanonicalStage(int $instance_id, string $stageCode, string $notes = ''): array
+    {
+        $ownTransaction = !$this->db->inTransaction();
+        if ($ownTransaction) $this->db->beginTransaction();
+        try {
+            $result = $this->completeCanonicalStageLocked($instance_id, $stageCode, $notes);
+            if ($ownTransaction) {
+                // formatResponse(): success is an HTTP code below 400
+                ((int) ($result['code'] ?? 500)) < 400 ? $this->db->commit() : $this->db->rollBack();
+            }
+            return $result;
+        } catch (\Throwable $e) {
+            if ($ownTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    private function completeCanonicalStageLocked(int $instance_id, string $stageCode, string $notes = ''): array
     {
         try {
             // Workflow position controls writes and must reflect the primary
             // database, not a delayed materialized reporting snapshot.
             $instanceStmt = $this->db->prepare(
-                'SELECT * FROM workflow_instances WHERE id = ? LIMIT 1'
+                'SELECT * FROM workflow_instances WHERE id = ? LIMIT 1 FOR UPDATE'
             );
             $instanceStmt->execute([$instance_id]);
             $instance = $instanceStmt->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -1853,8 +1917,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             return ['fee_bundles_processed'=>$processed];
         }
         $records=$this->db->prepare(
-            "SELECT r.*, ay.year_code FROM " . ReadReplicaService::qualifiedRef("student_fee_rollover_balances") . " r
-             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=r.to_academic_year_id
+            "SELECT r.*, ay.year_code FROM " . ReadReplicaService::masterSourceRef("student_fee_rollover_balances") . " r
+             JOIN " . ReadReplicaService::masterSourceRef("academic_years") . " ay ON ay.id=r.to_academic_year_id
              WHERE r.from_academic_year_id=? AND r.to_academic_year_id=? AND r.reconciled_at IS NULL"
         );
         $records->execute([$fromId,$toId]);
@@ -1864,9 +1928,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $target=$this->db->prepare(
                 "SELECT MIN(sfo.id) AS id,GREATEST(COALESCE(vfb.balance,0),0) AS outstanding,
                         sfo.academic_year_term_id
-                 FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id=sfo.student_academic_enrollment_id
+                 FROM " . ReadReplicaService::masterSourceRef("student_fee_obligations") . " sfo JOIN " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " sae ON sae.id=sfo.student_academic_enrollment_id
                  LEFT JOIN vw_student_fee_balances vfb ON vfb.student_academic_enrollment_id=sae.id AND vfb.academic_year_term_id=sfo.academic_year_term_id
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id=sfo.academic_year_term_id
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_terms") . " ayt ON ayt.id=sfo.academic_year_term_id
                  WHERE sae.student_id=? AND sae.academic_year_id=? AND sae.enrollment_status='active'
                  GROUP BY sfo.academic_year_term_id,vfb.balance
                  ORDER BY ayt.opening_date,MIN(sfo.id)"
@@ -2176,10 +2240,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $decisionsStmt = $this->db->prepare(
                 "SELECT st.transition_type, COUNT(*) AS n
                  FROM student_transitions st
-                 WHERE st.academic_year_id = ?
+                 WHERE (st.academic_year_id = ? AND st.transition_type <> 'graduation')
+                    OR (st.academic_year_id = ? AND st.transition_type = 'graduation')
                  GROUP BY st.transition_type"
             );
-            $decisionsStmt->execute([$toYearId]);
+            $decisionsStmt->execute([$toYearId, $fromYearId]);
             foreach ($decisionsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $decisions[(string) $row['transition_type']] = (int) $row['n'];
             }
@@ -2372,13 +2437,13 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $this->advanceStage($instance_id, 'review_promotion_candidates', 'Term operations deferred to active-term setup; promotion review started', $data);
         }
 
-        // A closed (active - completed) year is readable by everyone but only
-        // school admin / system admin / director may write to it, so promotion
-        // writes into such a year must carry an authorised role.
+        // A completed year is readable by everyone; promotion writes into it
+        // need an editing role or the edit-completed permission.
         $writeGuard = \App\API\Services\CompletedYearWriteGuard::check(
             $toYearId,
             $this->currentRoleNames(),
-            $this->db
+            $this->db,
+            (int) ($this->getCurrentUserId() ?? 0) ?: null
         );
         if (!$writeGuard['allowed']) {
             return formatResponse(false, null, $writeGuard['reason']);
@@ -2416,7 +2481,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                  WHERE sae.student_id = ? AND sae.academic_year_id = ?
                    AND (sae.enrollment_status IN ('pending','active') OR EXISTS
                         (SELECT 1 FROM student_transitions st
-                         WHERE st.from_student_academic_enrollment_id = sae.id AND st.academic_year_id = ?))
+                         WHERE st.from_student_academic_enrollment_id = sae.id AND (st.academic_year_id = ? OR st.transition_type = 'graduation')))
                  ORDER BY sae.id DESC LIMIT 1"
             );
             $target = $this->db->prepare(
@@ -2432,7 +2497,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                  WHERE source_class_id = ? AND target_class_id = ? AND active = 1"
             );
             $transition = $this->db->prepare(
-                "SELECT id FROM student_transitions WHERE student_id = ? AND academic_year_id = ?
+                "SELECT id FROM student_transitions WHERE student_id = ?
+                 AND (academic_year_id = ? OR transition_type = 'graduation')
                  AND from_student_academic_enrollment_id = ? LIMIT 1"
             );
             foreach ($assignments as $assignment) {
@@ -2460,17 +2526,19 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     $existingTransitionId = (int) ($transition->fetchColumn() ?: 0);
                     if ($existingTransitionId) {
                         $this->db->prepare(
-                            "UPDATE student_transitions SET to_student_academic_enrollment_id = NULL,
+                            "UPDATE student_transitions SET to_student_academic_enrollment_id = NULL, academic_year_id = ?,
                              transition_type = 'graduation', reason = 'Administrator graduated learner',
                              decided_by = ?, decided_at = NOW(), executed_at = NOW() WHERE id = ?"
-                        )->execute([$this->user_id, $existingTransitionId]);
+                        )->execute([$fromYearId, $this->user_id, $existingTransitionId]);
                     } else {
                         $this->db->prepare(
                             "INSERT INTO student_transitions
                                 (student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
                                  academic_year_id, transition_type, reason, decided_by, decided_at, executed_at)
                              VALUES (?, ?, NULL, ?, 'graduation', 'Administrator graduated learner', ?, NOW(), NOW())"
-                        )->execute([$studentId, (int) $sourceRow['id'], $toYearId, $this->user_id]);
+                        )->execute([$studentId, (int) $sourceRow['id'], $fromYearId, $this->user_id]);
+                        // A learner graduates IN the outgoing year (the Grade 9
+                        // class of 2026/2027 is the "graduating class of 2026").
                     }
                     $saved++;
                     // Graduation is not billed for the new year; the
@@ -2533,8 +2601,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())"
                     )->execute([$studentId, (int) $sourceRow['id'], $targetEnrollmentId, $toYearId, $decision === 'retain' ? 'retention' : 'promotion', $decision === 'retain' ? 'Administrator retained learner in the same class' : 'Administrator promoted learner', $this->user_id]);
                 } else {
-                    $this->db->prepare("UPDATE student_transitions SET to_student_academic_enrollment_id=?, transition_type=?, reason=?, decided_by=?, decided_at=NOW(), executed_at=NOW() WHERE id=?")
-                        ->execute([$targetEnrollmentId, $decision === 'retain' ? 'retention' : 'promotion', $decision === 'retain' ? 'Administrator retained learner in the same class' : 'Administrator promoted learner', $this->user_id, $existingTransitionId]);
+                    $this->db->prepare("UPDATE student_transitions SET to_student_academic_enrollment_id=?, academic_year_id=?, transition_type=?, reason=?, decided_by=?, decided_at=NOW(), executed_at=NOW() WHERE id=?")
+                        ->execute([$targetEnrollmentId, $toYearId, $decision === 'retain' ? 'retention' : 'promotion', $decision === 'retain' ? 'Administrator retained learner in the same class' : 'Administrator promoted learner', $this->user_id, $existingTransitionId]);
                 }
                 // The target-year obligations were billed by
                 // trg_create_student_obligations when the enrollment was
@@ -2556,7 +2624,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('pending','active')
                    AND NOT EXISTS (SELECT 1 FROM student_transitions st
                                    WHERE st.from_student_academic_enrollment_id = sae.id
-                                     AND st.academic_year_id = ?)"
+                                     AND (st.academic_year_id = ? OR st.transition_type = 'graduation'))"
             );
             $remaining->execute([$fromYearId, $toYearId]);
             $unassigned = (int) $remaining->fetchColumn();
@@ -3322,9 +3390,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             $data['migrated_baselines'] = $migratedBaselines;
 
+            // Next stage: close the outgoing year (it used to "advance" to
+            // migrate_baselines itself, so the rollover never moved on).
             $this->advanceStage(
                 $instance_id,
-                'migrate_baselines',
+                'close_outgoing_year',
                 "Migrated {$migratedBaselines['total_baselines']} competency baselines",
                 $data
             );
@@ -3400,8 +3470,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 4: Every active target class has at least one stream.
             $streamGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
+                "SELECT COUNT(*) FROM " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc
+                 LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs
                     ON aycs.academic_year_class_id = ayc.id
                  WHERE ayc.academic_year_id = ? AND ayc.status = 'active'
                    AND aycs.id IS NULL"
@@ -3415,9 +3485,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 5: Classes that require CBC curriculum have learning areas.
             $learningAreaGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
-                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " acla
+                "SELECT COUNT(*) FROM " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc
+                 JOIN " . ReadReplicaService::masterSourceRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_learning_areas") . " acla
                     ON acla.academic_year_class_id = ayc.id
                  WHERE ayc.academic_year_id = ? AND ayc.status = 'active'
                    AND c.name NOT IN ('Playgroup', 'Grade 0')
@@ -3432,8 +3502,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 6: Calendar exists for every target term.
             $calendarGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " aycal
+                "SELECT COUNT(*) FROM " . ReadReplicaService::masterSourceRef("academic_year_terms") . " ayt
+                 LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_calendar") . " aycal
                     ON aycal.academic_year_term_id = ayt.id
                  WHERE ayt.academic_year_id = ? AND aycal.id IS NULL"
             );
@@ -3448,8 +3518,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $calendarStructureStmt = $this->db->prepare(
                 "SELECT COUNT(*) FROM (
                      SELECT aycal.academic_year_term_id
-                     FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " aycal
-                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aycal.academic_year_term_id
+                     FROM " . ReadReplicaService::masterSourceRef("academic_year_calendar") . " aycal
+                     JOIN " . ReadReplicaService::masterSourceRef("academic_year_terms") . " ayt ON ayt.id = aycal.academic_year_term_id
                      WHERE ayt.academic_year_id = ?
                      GROUP BY aycal.academic_year_term_id
                      HAVING COUNT(*) <> COUNT(DISTINCT aycal.week_number)
@@ -3511,7 +3581,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                      WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('pending','active')
                        AND NOT EXISTS (SELECT 1 FROM student_transitions st
                                        WHERE st.from_student_academic_enrollment_id = sae.id
-                                         AND st.academic_year_id = ?)"
+                                         AND (st.academic_year_id = ? OR st.transition_type = 'graduation'))"
                 );
                 $unresolvedStmt->execute([$sourceYearId, $yearId]);
                 $unresolvedLearners = (int) $unresolvedStmt->fetchColumn();
@@ -3555,10 +3625,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $feeCountStmt->execute([$yearId]);
             $activeFees = (int) $feeCountStmt->fetchColumn();
             $feeGapStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
-                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ayc.academic_year_id
+                "SELECT COUNT(*) FROM " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ayc.academic_year_id
                  JOIN student_types st ON st.status = 'active'
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " fs
+                 LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_fee_schedules") . " fs
                    ON fs.academic_year_id = ayc.academic_year_id
                   AND fs.academic_year_class_id = ayc.id
                   AND fs.academic_year_term_id = ayt.id
@@ -3579,8 +3649,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // This is idempotent and keeps the stored procedure as the single
             // billing authority.
             $unseededStmt = $this->db->prepare(
-                "SELECT sae.id FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
+                "SELECT sae.id FROM " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " sae
+                 LEFT JOIN " . ReadReplicaService::masterSourceRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status = 'active'
                    AND fo.id IS NULL"
             );
@@ -3598,8 +3668,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // one obligation unless it is a graduating/no-fee exception.
             $enrollmentCount = 0;
             $enrollmentGapStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
+                "SELECT COUNT(*) FROM " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " sae
+                 LEFT JOIN " . ReadReplicaService::masterSourceRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status = 'active'
                    AND fo.id IS NULL"
             );

@@ -27,7 +27,7 @@ $appBase = app_base_path();
                     <button class="btn btn-outline-light btn-sm" id="printRecordsBtn">
                         <i class="bi bi-printer"></i> Print
                     </button>
-                    <button class="btn btn-light btn-sm" id="addRecordBtn" data-permission="students_create">
+                    <button class="btn btn-light btn-sm" id="addRecordBtn" data-permission="students_create" data-year-write>
                         <i class="bi bi-plus-circle"></i> Add IEP
                     </button>
                 </div>
@@ -81,116 +81,20 @@ $appBase = app_base_path();
                     </div>
                 </div>
 
+                <!-- Filters load on change; no Apply button (Hard Rule 6). -->
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-info w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
-                    </button>
+                    <button type="button" class="btn btn-link btn-sm text-secondary px-0" id="resetFiltersBtn">Clear filters</button>
                 </div>
             </div>
 
-            <!-- Summary cards -->
-            <div class="row g-3 mb-4">
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="bi bi-people"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Total IEPs</small>
-                                    <h4 class="mb-0" id="totalIEPs">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="bi bi-check-lg-circle"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Active IEPs</small>
-                                    <h4 class="mb-0" id="activeIEPs">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="bi bi-pencil"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Draft</small>
-                                    <h4 class="mb-0" id="draftIEPs">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="bi bi-mortarboard"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Completed</small>
-                                    <h4 class="mb-0" id="completedIEPs">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="bi bi-heartbeat"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Health Records</small>
-                                    <h4 class="mb-0" id="healthRecords">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-xl-2 col-md-4">
-                    <div class="card border-0 bg-light h-100">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="bi bi-archive"></i>
-                                </div>
-                                <div>
-                                    <small class="text-muted">Archived</small>
-                                    <h4 class="mb-0" id="archivedIEPs">0</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <!-- Summary: one strip of figures (css/kw-clean.css) -->
+            <div class="row mb-4">
+                <div class="col-xl-2 col-md-4 col-6"><div class="card"><div class="card-body text-center"><h6>Total IEPs</h6><h3 class="mb-0" id="totalIEPs">0</h3></div></div></div>
+                <div class="col-xl-2 col-md-4 col-6"><div class="card"><div class="card-body text-center"><h6>Active</h6><h3 class="mb-0" id="activeIEPs">0</h3></div></div></div>
+                <div class="col-xl-2 col-md-4 col-6"><div class="card"><div class="card-body text-center"><h6>Draft</h6><h3 class="mb-0" id="draftIEPs">0</h3></div></div></div>
+                <div class="col-xl-2 col-md-4 col-6"><div class="card"><div class="card-body text-center"><h6>Completed</h6><h3 class="mb-0" id="completedIEPs">0</h3></div></div></div>
+                <div class="col-xl-2 col-md-4 col-6"><div class="card"><div class="card-body text-center"><h6>Health records</h6><h3 class="mb-0" id="healthRecords">0</h3></div></div></div>
+                <div class="col-xl-2 col-md-4 col-6"><div class="card"><div class="card-body text-center"><h6>Archived</h6><h3 class="mb-0" id="archivedIEPs">0</h3></div></div></div>
             </div>
 
             <!-- States -->
@@ -463,7 +367,7 @@ $appBase = app_base_path();
 
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-info" id="addIepSaveBtn">
+                <button type="button" class="btn btn-info" id="addIepSaveBtn" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Create IEP
                 </button>
             </div>

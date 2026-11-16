@@ -165,13 +165,13 @@ const myCatsCtrl = (() => {
                     <td>${Number(cat.student_count) || 0}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="myCatsCtrl.editCat(${cat.id})">
+                            <button class="btn btn-outline-primary" onclick="myCatsCtrl.editCat(${cat.id})" data-year-write>
                                 <i class="bi bi-pencil"></i>
                             </button>
                             <button class="btn btn-outline-success" onclick="myCatsCtrl.enterMarks(${cat.id})">
                                 <i class="bi bi-check-circle"></i>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="myCatsCtrl.deleteCat(${cat.id})">
+                            <button class="btn btn-outline-danger" onclick="myCatsCtrl.deleteCat(${cat.id})" data-year-write>
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -228,7 +228,14 @@ const myCatsCtrl = (() => {
     async function saveCat() {
         try {
             const catId = document.getElementById('catId').value;
+            // A new CAT belongs to the term the page is showing, never "now".
+            if (!catId && !state.currentTerm) {
+                toast('Choose the term this CAT belongs to in the Term filter first.', 'warning');
+                return;
+            }
             const data = {
+                academic_year_id: state.currentAcademicYear,
+                ...(catId ? {} : { academic_year_term_id: state.currentTerm, term_id: state.currentTerm }),
                 name: document.getElementById('catName').value,
                 type: document.getElementById('catType').value,
                 class_id: document.getElementById('catClass').value,
@@ -296,7 +303,14 @@ const myCatsCtrl = (() => {
         // in the URL), which loads the CATs now and on every change.
         const yearSelect = document.getElementById('yearFilter');
         const mounted = window.AcademicYearFilter && yearSelect
-            ? await window.AcademicYearFilter.mount(yearSelect, { termSelect: document.getElementById('termFilter'), onChange: () => loadCats() })
+            ? await window.AcademicYearFilter.mount(yearSelect, {
+                termSelect: document.getElementById('termFilter'),
+                onChange: (yearId, year, termId) => {
+                    state.currentAcademicYear = yearId;
+                    state.currentTerm = termId;
+                    loadCats();
+                },
+            })
             : null;
         if (!mounted) await loadCats();
     }

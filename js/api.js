@@ -915,12 +915,37 @@ const AuthContext = (() => {
    * @param {string} roleName
    * @returns {boolean}
    */
+  // Page templates gate controls with short role codes (data-role="admin,
+  // school_admin,hr_manager,..."), but the roles table holds full names
+  // ("School Administrator", "Accountant", ...). Map each code to the real
+  // roles it means, so a School Administrator is not shown a page without its
+  // buttons. The server still checks permissions on every action.
+  const ROLE_CODE_ALIASES = {
+    admin: ["system_administrator", "school_administrator"],
+    system_admin: ["system_administrator"],
+    school_admin: ["school_administrator"],
+    registrar: ["school_administrator"],
+    secretary: ["school_administrator"],
+    hr_manager: ["school_administrator"],
+    dh_academic: ["deputy_head_academic"],
+    deputy_head: ["deputy_head_academic", "deputy_head_discipline"],
+    bursar: ["accountant"],
+    school_accountant: ["accountant"],
+    hod: ["talent_development"],
+    intern: ["intern/student_teacher"],
+    store_manager: ["uniform_store_manager", "food_store_manager"],
+    inventory_manager: ["uniform_store_manager", "food_store_manager"],
+    cook: ["cateress", "kitchen_staff"],
+    counselor: ["chaplain"],
+    matron: ["boarding_master"],
+  };
+
   function hasRole(roleName) {
     if (!currentUser) return false;
     const normalizedRoleName = normalizeRoleName(roleName);
+    const wanted = new Set([normalizedRoleName, ...(ROLE_CODE_ALIASES[normalizedRoleName] || [])]);
     return roles.some(
-      (role) =>
-        role === roleName || normalizeRoleName(role) === normalizedRoleName,
+      (role) => role === roleName || wanted.has(normalizeRoleName(role)),
     );
   }
 
@@ -1698,6 +1723,21 @@ function dataStoreKeysForRoute(route = "") {
 }
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+// POST endpoints that read, log or suggest and change no school data. Treating
+// them as mutations broadcast an invalidation for every telemetry flush, AI
+// suggestion and Node read, and each one refreshed the open page again.
+const NON_MUTATING_POSTS = new Set([
+  "system/client-log",
+  "dashboard/agent-suggest",
+  "node/view",
+]);
+
+function isDataMutation(method, endpoint) {
+  if (!MUTATION_METHODS.has(String(method).toUpperCase())) return false;
+  const path = String(endpoint || "").split("?")[0].replace(/^\/+/, "").replace(/^api\//, "");
+  return !NON_MUTATING_POSTS.has(path);
+}
 const PERMISSION_ACTIONS = [
   "view",
   "create",
@@ -1955,7 +1995,6 @@ const ENDPOINT_PERMISSIONS = {
   "/students/academic-year-create-next": "students_promote",
   "/students/academic-year-set-current": "students_promote",
   "/students/academic-year-update-status": "students_promote",
-  "/students/academic-year-archive": "students_promote",
   "/students/my-profile": ["students_view_own", "students_view"],
   "/students/my-children": [
     "students_view_own",
@@ -2266,6 +2305,7 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/index": "finance_view",
   "/finance": "finance_view",
   "/finance/students/payment-status": "finance_view",
+  "/finance/student-fee-accounts": "finance_view",
   "/finance/payroll": {
     GET: "finance_view",
     POST: "finance_create",
@@ -2651,6 +2691,7 @@ const ENDPOINT_PERMISSIONS = {
   "/reports/communication-logs": ["communications_view", "communications_manage", "reports_view"],
   "/reports/academic": "reports_view",
   "/reports/catalogue": "analytics_catalogue_view",
+  "/reports/year-comparison": "analytics_catalogue_view",
   "/reports/definition": "analytics_catalogue_view",
   "/reports/metrics": "analytics_catalogue_view",
   "/reports/execute": "analytics_report_execute",
@@ -3604,6 +3645,23 @@ async function apiCallDirect(
         url.searchParams.append(key, value);
       }
     });
+    // Year-scoped pages (js/core/year_scope.js): a GET that names no year
+    // reads the year (and term) the user chose in the page's year bar. Year
+    // and term pickers always list every year; imports always use the
+    // current year's context.
+    if (upperMethod === "GET" && window.KingswayYearScope?.requestParams
+        && !/\/(?:years?|terms?|year-access|context|academic-years?|academic-year-terms)(?:[\/?]|-list|$)/i.test(normalizedEndpoint)
+        && !/import/i.test(normalizedEndpoint)) {
+      const scoped = window.KingswayYearScope.requestParams();
+      if (scoped.academic_year_id && !url.searchParams.has("academic_year_id") && !url.searchParams.has("year_id")) {
+        url.searchParams.set("academic_year_id", scoped.academic_year_id);
+        url.searchParams.set("year_id", scoped.academic_year_id);
+      }
+      if (scoped.academic_year_term_id && !url.searchParams.has("academic_year_term_id") && !url.searchParams.has("term_id")) {
+        url.searchParams.set("academic_year_term_id", scoped.academic_year_term_id);
+        url.searchParams.set("term_id", scoped.academic_year_term_id);
+      }
+    }
     const requestUrl = url.toString();
 
     // Check if token exists
@@ -3929,7 +3987,7 @@ async function apiCallDirect(
     }
 
     // Auto-invalidate cached data on mutations
-    if (MUTATION_METHODS.has(String(method).toUpperCase())) {
+    if (isDataMutation(method, endpoint)) {
       const routeTargets = (options.invalidate || [inferResourceKey(endpoint)])
         .filter(Boolean);
       // Drop both the route-scoped key and the DataStore policy keys controllers
@@ -4010,7 +4068,7 @@ async function apiCallDirect(
     // reconnect. This is what makes the /js/sync/sync_queue.js engine actually
     // get fed instead of sitting dormant. Only mutations are queued — a failed
     // GET is just a cache miss and the SW serves the last good response.
-    const isMutation = MUTATION_METHODS.has(String(method).toUpperCase());
+    const isMutation = isDataMutation(method, endpoint);
     const isOffline =
       navigator.onLine === false ||
       (typeof error === "object" &&
@@ -4697,10 +4755,10 @@ window.API = {
       );
       const payload = resp?.data?.data ?? resp?.data ?? resp;
       const stats = payload?.data ?? payload;
-      const success =
-        resp?.status === "success" ||
-        payload?.status === "success" ||
-        payload?.status_code === 200;
+      // apiCall throws on a failed request and returns the unwrapped data,
+      // so a reply with figures is a success (it has no status field left).
+      const success = !!stats && typeof stats === "object"
+        && (resp?.status === undefined || resp?.status === "success" || payload?.status === "success");
       return { success, data: stats, raw: resp };
     },
     getEnrollmentHistory: async (studentId) =>
@@ -4909,8 +4967,6 @@ window.API = {
         year_id: yearId,
         status,
       }),
-    archiveAcademicYear: async (yearId) =>
-      apiCall("/students/academic-year-archive", "POST", { year_id: yearId }),
     getAcademicYearTerms: async (yearId) =>
       apiCall(`/students/academic-year-terms?year_id=${yearId}`, "GET"),
     getCurrentTerm: async () =>
@@ -4974,6 +5030,9 @@ window.API = {
   academic: {
     index: async () => apiCall("/academic/index", "GET"),
     getContext: async () => apiCall("/academic/context", "GET"),
+    // Terms, half terms and holidays of a year, in order (default: current year).
+    getPeriods: async (params = {}) => apiCall("/academic/periods", "GET", null, params),
+    getCurrentPeriod: async () => apiCall("/academic/current-period", "GET"),
     // Self-scoped teacher directory for the student/parent staff viewer.
     myTeachers: async () => apiCall("/academic/my-teachers", "GET"),
     parentClassTeachers: async () =>
@@ -5312,8 +5371,8 @@ window.API = {
     requestSchemeWorkbookRevision: async (id, data = {}) => apiCall(`/academic/scheme-workbook-request-revision/${id}`, "POST", data),
     reopenSchemeWorkbookRevision: async (id, data = {}) => apiCall(`/academic/scheme-workbook-reopen-revision/${id}`, "POST", data),
     approveSchemeWorkbook: async (id, data = {}) => apiCall(`/academic/scheme-workbook-approve/${id}`, "POST", data),
-    getTeacherPlanningContext: async () =>
-      apiCall("/academic/teacher-planning-context", "GET"),
+    getTeacherPlanningContext: async (params = {}) =>
+      apiCall("/academic/teacher-planning-context", "GET", null, params),
     queueAiSchemeDraft: async (data) =>
       apiCall("/academic/ai-scheme-draft-queue", "POST", data),
     getAiSchemeDrafts: async (scope = "own") =>
@@ -5371,6 +5430,9 @@ window.API = {
       apiCall("/academic/syllabus", "GET", null, params),
     getMySyllabus: async (params = {}) =>
       apiCall("/academic/my-syllabus", "GET", null, params),
+    // Whether the signed-in user may edit a year's records; omit yearId for the current year.
+    getYearAccess: async (yearId) => apiCall("/academic/year-access", "GET", null,
+      yearId ? { academic_year_id: yearId } : {}),
     // One academic year's calendar; omit yearId for the current year.
     getYearCalendar: async (yearId) => apiCall("/academic/year-calendar", "GET", null,
       yearId ? { academic_year_id: yearId } : {}),
@@ -6493,6 +6555,9 @@ window.API = {
     // Students
     getStudentPaymentStatusList: async (params = {}) =>
       apiCall("/finance/students/payment-status", "GET", null, params),
+    // One row per learner for one academic year, per-term columns.
+    getStudentFeeAccounts: async (params = {}) =>
+      apiCall("/finance/student-fee-accounts", "GET", null, params),
     getStudentPaymentHistory: async (studentId, params) =>
       apiCall(
         `/finance/students-payment-history?student_id=${studentId}`,
@@ -7590,7 +7655,12 @@ window.API = {
         : apiCall("/schedules/events-get", "GET"),
     createEvent: async (data) =>
       apiCall("/schedules/events-create", "POST", data),
-    syncEvents: async () => apiCall("/schedules/events-sync", "POST", {}),
+    // Reconciles the academic year being viewed (the current year by default).
+    syncEvents: async (data = {}) =>
+      apiCall("/schedules/events-sync", "POST", {
+        ...(window.KingswayYearScope?.requestParams?.() || {}),
+        ...data,
+      }),
     markExamWeek: async (data) =>
       apiCall("/schedules/calendar-mark-exam-week", "POST", data),
 
@@ -7729,6 +7799,9 @@ window.API = {
     // Governed enterprise analytics
     getCatalogue: async (params = {}) =>
       apiCall("/reports/catalogue", "GET", null, params),
+    // Outgoing vs incoming year/term (or previous vs current); no parameters.
+    getYearComparison: async () =>
+      apiCall("/reports/year-comparison", "GET"),
     getDefinition: async (code) =>
       apiCall(`/reports/definition/${encodeURIComponent(code)}`, "GET"),
     getMetrics: async (params = {}) =>

@@ -142,7 +142,9 @@ const classStreamsController = (() => {
     }
     try {
       const path = id ? `/academic/streams/update/${Number(id)}` : '/academic/streams/create';
-      await window.API.apiCall(path, id ? 'PUT' : 'POST', payload, {}, { checkPermission: false });
+      // A new stream belongs to the academic year being viewed.
+      const body = id ? payload : { ...payload, ...(window.KingswayYearScope?.requestParams?.() || {}) };
+      await window.API.apiCall(path, id ? 'PUT' : 'POST', body, {}, { checkPermission: false });
       bootstrap.Modal.getInstance(document.getElementById('formModal'))?.hide();
       window.showNotification?.('Class stream saved.', 'success');
       await load();

@@ -19,7 +19,7 @@
                     <h4 class="mb-1"><i class="bi bi-list-ul-ol me-2"></i>Manage Terms</h4>
                     <p class="text-muted mb-0">View and manage academic terms and dates</p>
                 </div>
-                <button class="btn btn-primary" onclick="ManageTermsController.showAddModal()"><i class="bi bi-plus-lg me-1"></i> Add New</button>
+                <button class="btn btn-primary" onclick="ManageTermsController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add New</button>
             </div>
         </div>
     </div>
@@ -74,7 +74,7 @@
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term Name</th><th scope="col">Academic Year</th><th scope="col">Start Date</th><th scope="col">End Date</th><th scope="col">Weeks</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
                     <tbody id="mtTermsBody"><tr id="mtTermsState"><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                 </table>
-                <template id="mtTermRowTemplate"><tr data-term-row><td class="small" data-fill="number"></td><td class="small" data-fill="name"></td><td class="small" data-fill="year"></td><td class="small" data-fill="start"></td><td class="small" data-fill="end"></td><td class="small" data-fill="weeks"></td><td class="small"><span class="badge" data-fill="status"></span></td><td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit term" data-action="edit"><i class="bi bi-pencil"></i></button></td></tr></template>
+                <template id="mtTermRowTemplate"><tr data-term-row><td class="small" data-fill="number"></td><td class="small" data-fill="name"></td><td class="small" data-fill="year"></td><td class="small" data-fill="start"></td><td class="small" data-fill="end"></td><td class="small" data-fill="weeks"></td><td class="small"><span class="badge" data-fill="status"></span></td><td><button class="btn btn-sm btn-outline-primary" type="button" title="Edit term" data-action="edit" data-year-write><i class="bi bi-pencil"></i></button></td></tr></template>
             </div>
         </div>
     </div>
@@ -94,7 +94,7 @@
         </div>
         <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="upcoming">Upcoming</option><option value="current">Current</option><option value="completed">Completed</option></select></div>
     </form></div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="ManageTermsController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="ManageTermsController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>
 
 <script src="<?= $appBase ?>/js/pages/manage_terms.js?v=<?php echo asset_version('js/pages/manage_terms.js'); ?>"></script>

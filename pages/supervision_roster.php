@@ -20,7 +20,7 @@
             <button class="btn btn-outline-info btn-sm" id="autoGenerateBtn">
                 <i class="bi bi-magic"></i> Auto-Generate
             </button>
-            <button class="btn btn-success btn-sm" id="addSupervisionBtn">
+            <button class="btn btn-success btn-sm" id="addSupervisionBtn" data-year-write>
                 <i class="bi bi-plus-circle"></i> Add Slot
             </button>
         </div>
@@ -188,7 +188,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveSupervisionBtn">Save</button>
+                <button type="button" class="btn btn-primary" id="saveSupervisionBtn" data-year-write>Save</button>
             </div>
         </div>
     </div>

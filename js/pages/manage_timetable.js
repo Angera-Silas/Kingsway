@@ -61,6 +61,7 @@ const timetableController = (() => {
     if (window.AcademicYearFilter && yearSelect && termSelect) {
       await window.AcademicYearFilter.mount(yearSelect, {
         termSelect,
+        planning: true,
         onChange: (yearId, _year, termId) => {
           const yearChanged = currentAcademicYear !== yearId;
           currentAcademicYear = yearId;
@@ -88,8 +89,10 @@ const timetableController = (() => {
       }
       
       // Get current academic context
-      currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      currentTerm = window.AcademicContext.getTermId();
+      // A timetable is prepared for the term in session, or during a holiday
+      // for the next term to open.
+      currentAcademicYear = window.AcademicContext.getPlanningAcademicYearId?.() || window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getPlanningTermId?.() || window.AcademicContext.getTermId();
     }
     
     // Gate edit controls — only users with schedules_create can modify the timetable
@@ -689,8 +692,8 @@ const timetableController = (() => {
       <select class="form-select form-select-sm mb-1 edit-teacher">${teachOpts}</select>
       <select class="form-select form-select-sm mb-1 edit-room">${roomOpts}</select>
       <div class="d-flex gap-1 mt-1">
-        <button class="btn btn-sm btn-primary flex-fill" onclick="timetableController.saveCell('${day}','${startTime}','${endTime}',this.closest('td'))"><i class="bi bi-check"></i></button>
-        <button class="btn btn-sm btn-danger flex-fill" onclick="timetableController.removeCell('${day}','${startTime}','${entryId}',this.closest('td'))"><i class="bi bi-trash"></i></button>
+        <button class="btn btn-sm btn-primary flex-fill" onclick="timetableController.saveCell('${day}','${startTime}','${endTime}',this.closest('td'))" data-year-write><i class="bi bi-check"></i></button>
+        <button class="btn btn-sm btn-danger flex-fill" onclick="timetableController.removeCell('${day}','${startTime}','${entryId}',this.closest('td'))" data-year-write><i class="bi bi-trash"></i></button>
         <button class="btn btn-sm btn-secondary flex-fill" onclick="timetableController.loadTimetable()"><i class="bi bi-x"></i></button>
       </div>`;
   }
@@ -883,9 +886,9 @@ const timetableController = (() => {
     </div>
 
     <div class="modal-footer">
-      <button class="btn btn-primary" onclick="timetableController.saveMatrixDraft()">Save Draft</button>
-      <button class="btn btn-outline-secondary" onclick="timetableController.cancelMatrixDraft()">Cancel</button>
-      ${lowerPrimaryClassTeacher ? '' : `<button class="btn btn-success" onclick="timetableController.submitMatrixDraft()">Submit for Review</button>`}
+      <button class="btn btn-primary" onclick="timetableController.saveMatrixDraft()" data-year-write>Save Draft</button>
+      <button class="btn btn-outline-secondary" onclick="timetableController.cancelMatrixDraft()" data-year-write>Cancel</button>
+      ${lowerPrimaryClassTeacher ? '' : `<button class="btn btn-success" onclick="timetableController.submitMatrixDraft()" data-year-write>Submit for Review</button>`}
     </div>
   </div></div>`;
     document.body.appendChild(modal);
@@ -1476,7 +1479,7 @@ const timetableController = (() => {
       }
       return `<tr class="${r.result_deleted_at ? 'table-secondary' : ''}"><td>${esc(r.class_name)}${r.stream_name ? ` · ${esc(r.stream_name)}` : ''}</td><td>${esc(r.learning_area)}</td><td>${esc(r.admission_no)}</td><td>${esc(r.learner_name)}</td><td>${esc(r.marks_obtained ?? '—')}</td><td>${esc(r.max_marks)}</td><td>${esc(r.grade || '—')}</td><td>${esc(r.entry_status || 'Not entered')}</td><td>${esc(r.assessment_status)}</td>${canReview ? `<td>${reviewAction}</td>` : ''}${!mine && canManage() && r.result_id ? `<td>${r.result_deleted_at ? `<button class="btn btn-sm btn-outline-success" data-result-restore="${Number(r.result_id)}">Restore</button>` : `<button class="btn btn-sm btn-outline-primary" data-result-edit="${Number(r.resultEdit)}" data-marks="${esc(r.marks_obtained ?? '')}" data-entry="${esc(r.entry_status || 'present')}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-result-delete="${Number(r.result_id)}">Delete</button>`}</td>` : ''}</tr>`;
     }).join('');
-    root.querySelector('.modal-dialog').innerHTML = `<div class="modal-content"><div class="modal-header"><div><h4 class="modal-title fs-5">${esc(p.title)} · ${mine ? 'My teaching results' : 'School results'}</h4><small class="text-muted">${mine ? 'Results are limited to assigned streams and learning areas.' : 'Leadership view across selected classes and learning areas.'}</small></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="d-flex gap-2 mb-2"><button class="btn btn-sm btn-outline-secondary" id="examResultsCsv">Export CSV</button><button class="btn btn-sm btn-outline-secondary" id="examResultsPrint">Print / PDF</button>${!mine && canManage() ? `<button class="btn btn-sm btn-outline-warning" id="toggleDeletedResults">${includeDeleted ? 'Hide deleted results' : 'Show deleted results'}</button>` : ''}</div><div class="table-responsive"><table class="table table-sm table-striped" id="examPeriodResultsTable"><thead><tr><th>Class / stream</th><th>Learning area</th><th>Admission no.</th><th>Learner</th><th>Mark</th><th>Out of</th><th>Grade</th><th>Entry</th><th>Assessment</th>${canReview ? '<th>Class-teacher review</th>' : ''}${!mine && canManage() ? '<th>Admin actions</th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="10" class="text-center text-muted">No results found for this period and teaching assignment.</td></tr>'}</tbody></table></div></div></div>`;
+    root.querySelector('.modal-dialog').innerHTML = `<div class="modal-content"><div class="modal-header"><div><h4 class="modal-title fs-5">${esc(p.title)} · ${mine ? 'My teaching results' : 'School results'}</h4><small class="text-muted">${mine ? 'Results are limited to assigned streams and learning areas.' : 'Leadership view across selected classes and learning areas.'}</small></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="d-flex gap-2 mb-2"><button class="btn btn-sm btn-outline-secondary" id="examResultsCsv">Export CSV</button><button class="btn btn-sm btn-outline-secondary" id="examResultsPrint">Print / PDF</button>${!mine && canManage() ? `<button class="btn btn-sm btn-outline-warning" id="toggleDeletedResults" data-year-write>${includeDeleted ? 'Hide deleted results' : 'Show deleted results'}</button>` : ''}</div><div class="table-responsive"><table class="table table-sm table-striped" id="examPeriodResultsTable"><thead><tr><th>Class / stream</th><th>Learning area</th><th>Admission no.</th><th>Learner</th><th>Mark</th><th>Out of</th><th>Grade</th><th>Entry</th><th>Assessment</th>${canReview ? '<th>Class-teacher review</th>' : ''}${!mine && canManage() ? '<th>Admin actions</th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="10" class="text-center text-muted">No results found for this period and teaching assignment.</td></tr>'}</tbody></table></div></div></div>`;
     bootstrap.Modal.getOrCreateInstance(root).show();
     const exportAllowed = typeof window.AuthContext?.canExport !== 'function' || window.AuthContext.canExport('academic');
     const printAllowed = typeof window.AuthContext?.canPrint !== 'function' || window.AuthContext.canPrint('academic');

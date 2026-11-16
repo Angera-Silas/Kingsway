@@ -41,7 +41,7 @@ class TransportBillingManager
         }
 
         // Get route fee
-        $stmt = $this->db->prepare("SELECT fee, name FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " id = :id LIMIT 1");
+        $stmt = $this->db->prepare("SELECT fee, name FROM transport_routes WHERE id = :id LIMIT 1");
         $stmt->execute([':id' => $routeId]);
         $route = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$route) throw new Exception("Route {$routeId} not found");

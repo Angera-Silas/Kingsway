@@ -144,10 +144,10 @@
                     <td><span class="badge bg-${badge}">${status}</span></td>
                     <td>${currency(item.unit_price || 0)}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary me-1" onclick="ManageInventoryController.openEditModal(${JSON.stringify(item).replace(/"/g,"&quot;")})" title="Edit">
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="ManageInventoryController.openEditModal(${JSON.stringify(item).replace(/"/g,"&quot;")})" title="Edit" data-year-write>
                             <i class="bi bi-pencil"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="ManageInventoryController.deleteItem('${esc(item.id)}')" title="Delete">
+                        <button class="btn btn-sm btn-outline-danger" onclick="ManageInventoryController.deleteItem('${esc(item.id)}')" title="Delete" data-year-write>
                             <i class="bi bi-trash"></i>
                         </button>
                     </td>

@@ -25,8 +25,8 @@
                     <p class="text-muted mb-0">Master holiday registry - national, religious (moon-based), inter-term (April/August/December) and school holidays</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-outline-success" onclick="ManageHolidaysController.applyToCalendar()" title="Regenerate the academic calendar + events from this registry"><i class="bi bi-lightning-charge me-1"></i> Apply to Calendar</button>
-                    <button class="btn btn-primary" onclick="ManageHolidaysController.showAddModal()"><i class="bi bi-plus-lg me-1"></i> Add Holiday</button>
+                    <button class="btn btn-outline-success" onclick="ManageHolidaysController.applyToCalendar()" title="Regenerate the academic calendar + events from this registry" data-year-write><i class="bi bi-lightning-charge me-1"></i> Apply to Calendar</button>
+                    <button class="btn btn-primary" onclick="ManageHolidaysController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add Holiday</button>
                 </div>
             </div>
         </div>
@@ -100,8 +100,8 @@
                         <td data-field="days"></td>
                         <td><span class="badge" data-field="active"></span></td>
                         <td>
-                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit / re-date"><i class="fas fa-edit"></i></button>
-                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete"><i class="fas fa-trash"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit" title="Edit / re-date" data-year-write><i class="fas fa-edit"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
                         </td>
                     </tr>
                 </template>
@@ -130,9 +130,9 @@
         <div class="mb-3"><label class="form-label">Description / Notes</label><textarea class="form-control" id="recordDescription" rows="2" placeholder="e.g., Approximate date - subject to moon sighting"></textarea></div>
     </form></div>
     <div class="modal-footer">
-        <button type="button" class="btn btn-outline-success me-auto" onclick="ManageHolidaysController.saveAndApply()"><i class="bi bi-lightning-charge me-1"></i> Save &amp; Apply to Calendar</button>
+        <button type="button" class="btn btn-outline-success me-auto" onclick="ManageHolidaysController.saveAndApply()" data-year-write><i class="bi bi-lightning-charge me-1"></i> Save &amp; Apply to Calendar</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="ManageHolidaysController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button>
+        <button type="button" class="btn btn-primary" onclick="ManageHolidaysController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button>
     </div>
 </div></div></div>
 

@@ -339,10 +339,41 @@ return $this->error('An internal error occurred.');
         }
     }
 
+    /**
+     * GET /api/academic/periods?academic_year_id=
+     * The periods of one academic year in order: each term, its half term and
+     * the holiday after it (April, August, December). Default: current year.
+     */
+    public function getPeriods($id = null, $data = [], $segments = [])
+    {
+        try {
+            $periods = new \App\API\Services\AcademicPeriodService($this->db);
+            $yearId = (int) ($id ?? ($_GET['academic_year_id'] ?? ($data['academic_year_id'] ?? 0)));
+            if ($yearId <= 0) {
+                $yearId = (int) ($this->contextService->getCurrentAcademicYear()['id'] ?? 0);
+            }
+            return $this->success(['academic_year_id' => $yearId, 'periods' => $periods->periodsForYear($yearId)]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->error('An internal error occurred.');
+        }
+    }
+
+    /** GET /api/academic/current-period: today's period, the next one and the term to plan for. */
+    public function getCurrentPeriod($id = null, $data = [], $segments = [])
+    {
+        try {
+            return $this->success((new \App\API\Services\AcademicPeriodService($this->db))->snapshot());
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->error('An internal error occurred.');
+        }
+    }
+
     /** GET /api/academic/teacher-planning-context */
     public function getTeacherPlanningContext($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->api->getTeacherPlanningContext());
+        return $this->handleResponse($this->api->getTeacherPlanningContext(array_merge($_GET, is_array($data) ? $data : [])));
     }
 
     /** GET /api/academic/lesson-planning-context/{schemeId} */
@@ -4277,6 +4308,60 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($this->academicManager->postNationalExams(is_array($data) ? $data : [], $userId));
     }
 
+    /** GET /api/academic/national-sittings: KPSEA / KJSEA sittings and the default one. */
+    public function getNationalSittings($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_view', 'assessments_view', 'results_view'])) return $guard;
+        return $this->nationalSittingResponse(fn ($s) => $s->sittings(), 'National assessment sittings loaded');
+    }
+
+    /** GET /api/academic/national-sitting?exam_type=KJSEA_G9&academic_year_id=1 */
+    public function getNationalSitting($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_view', 'assessments_view', 'results_view'])) return $guard;
+        $data = is_array($data) ? $data : [];
+        return $this->nationalSittingResponse(
+            fn ($s) => $s->sitting((string) ($data['exam_type'] ?? ''), (int) ($data['academic_year_id'] ?? 0)),
+            'National assessment results loaded'
+        );
+    }
+
+    /**
+     * POST /api/academic/national-sitting-import
+     * Body: {exam_type, academic_year_id, rows: [{header: value}], file_name, dry_run}
+     * dry_run = true returns the preview only.
+     */
+    public function postNationalSittingImport($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) return $guard;
+        $data = is_array($data) ? $data : [];
+        $userId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0) ?: null;
+        $dryRun = filter_var($data['dry_run'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        return $this->nationalSittingResponse(
+            fn ($s) => $s->import(
+                (string) ($data['exam_type'] ?? ''),
+                (int) ($data['academic_year_id'] ?? 0),
+                is_array($data['rows'] ?? null) ? $data['rows'] : [],
+                $dryRun,
+                $userId,
+                isset($data['file_name']) ? (string) $data['file_name'] : null
+            ),
+            $dryRun ? 'File checked' : 'National assessment results saved'
+        );
+    }
+
+    private function nationalSittingResponse(callable $run, string $message)
+    {
+        try {
+            return $this->success($run(new \App\API\Services\NationalResultsService($this->getDb()->getConnection())), $message);
+        } catch (\InvalidArgumentException $e) {
+            return $e->getCode() === 404 ? $this->notFound($e->getMessage()) : $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] national results: ' . $e->getMessage());
+            return $this->serverError('Failed to process national assessment results', 'An internal error occurred.');
+        }
+    }
+
     // ==================== CBC: STRANDS ====================
 
     /**
@@ -4357,6 +4442,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getStudentAssessmentHistory($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getStudentAssessmentHistory($filters));
     }
@@ -4367,8 +4453,146 @@ return $this->serverError('An internal error occurred.');
      */
     public function getStudentGrowthTrend($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getStudentGrowthTrend($filters));
+    }
+
+    /**
+     * GET /api/academic/learner-record/{studentId}
+     * The learner's academic record from the year they joined to now: each
+     * year in that year's class, every learning area with Terms 1-3, approved
+     * summative results and formative evidence by strand and sub-strand.
+     */
+    public function getLearnerRecord($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
+        $studentId = (int) ($id ?? $data['student_id'] ?? $_GET['student_id'] ?? 0);
+        if ($studentId <= 0) {
+            return $this->badRequest('student_id is required');
+        }
+        try {
+            return $this->success(
+                (new \App\API\Services\LearnerAcademicRecordService($this->getDb()->getConnection()))->forStudent($studentId),
+                'Learner academic record loaded'
+            );
+        } catch (\RuntimeException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] learner record: ' . $e->getMessage());
+            return $this->serverError('Failed to load the learner record', 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * GET /api/academic/class-record-streams?academic_year_id=
+     * The class streams of a year (default: current year) the user may open
+     * as class records, each named "Grade 1 A · Class of 2026". Teachers see
+     * the classes they taught (any year) and teach now; whole-school roles
+     * see every class.
+     */
+    public function getClassRecordStreams($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
+        $filters = is_array($data) ? $data : [];
+        try {
+            $db = $this->getDb()->getConnection();
+            $yearId = (int) \App\API\Services\YearScope::listYear($db, $filters)['year_id'];
+            $allowed = $this->classRecordStreamScope($db);
+            return $this->success([
+                'academic_year_id' => $yearId,
+                'streams' => (new \App\API\Services\ClassAcademicRecordService($db))->streamsForYear($yearId, $allowed),
+                'scope' => $allowed === null ? 'all_classes' : 'own_classes',
+            ], 'Class record classes loaded');
+        } catch (\InvalidArgumentException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] class record streams: ' . $e->getMessage());
+            return $this->serverError('Failed to load classes', 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * GET /api/academic/class-record/{academic_year_class_stream_id}
+     * One class stream in its year: every learner on the roll against every
+     * learning area, Terms 1-3, with class averages and grade bands.
+     */
+    public function getClassRecord($id = null, $data = [], $segments = [])
+    {
+        return $this->classRecordResponse($id, $data, 'forStream', 'Class record loaded');
+    }
+
+    /**
+     * GET /api/academic/class-cohort-history/{academic_year_class_stream_id}
+     * The class's learners followed through every year they were enrolled:
+     * their class and class teacher each year, and their averages per
+     * learning area and term (a class teacher keeps a cohort for Grades 1-3,
+     * 4-6 or 7-9).
+     */
+    public function getClassCohortHistory($id = null, $data = [], $segments = [])
+    {
+        return $this->classRecordResponse($id, $data, 'cohortHistory', 'Class history loaded');
+    }
+
+    private function classRecordResponse($id, $data, string $method, string $message)
+    {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
+        $streamId = (int) ($id ?? (is_array($data) ? ($data['academic_year_class_stream_id'] ?? 0) : 0));
+        if ($streamId <= 0) {
+            return $this->badRequest('academic_year_class_stream_id is required');
+        }
+        try {
+            $db = $this->getDb()->getConnection();
+            $allowed = $this->classRecordStreamScope($db);
+            if ($allowed !== null && !in_array($streamId, $allowed, true)) {
+                return $this->forbidden('You can open the records of classes you teach or have taught.');
+            }
+            $record = (new \App\API\Services\ClassAcademicRecordService($db))->{$method}($streamId);
+            return $this->success($record, $message);
+        } catch (\RuntimeException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] class record: ' . $e->getMessage());
+            return $this->serverError('Failed to load the class record', 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * null = every class (whole-school roles); otherwise the
+     * academic_year_class_streams ids a teacher taught in any year, as class
+     * or subject teacher, plus the streams they teach this year.
+     *
+     * @return int[]|null
+     */
+    private function classRecordStreamScope(\PDO $db): ?array
+    {
+        $permissions = new \App\API\Modules\students\StudentPermissionService();
+        $context = $permissions->defaultContextForUser($this->user);
+        if (in_array($context, ['full_management', 'oversight', 'academic', 'discipline', 'welfare'], true)) {
+            return null;
+        }
+        $teacher = new \App\API\Services\TeacherScopeService($db);
+        $ids = $teacher->streamIdsAllYears($this->user);
+        $current = $teacher->forUser($this->user);
+        foreach (array_merge($current['class_teacher_stream_ids'] ?? [], $current['visible_stream_ids'] ?? []) as $sid) {
+            $ids[] = (int) $sid;
+        }
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /**
+     * Staff access to any learner's academic history. Parents read their own
+     * children's records through the parent portal, which checks the link.
+     */
+    private function requireLearnerRecordAccess(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny(['students_view', 'academic_view'])) {
+            return $this->forbidden('Learner academic records are not available for this account');
+        }
+        return null;
     }
 
     // ==================== HELPERS ====================
@@ -5167,6 +5391,17 @@ return $this->serverError('An internal error occurred.');
     /**
      * GET /api/academic/year-calendar — current year's calendar days.
      */
+    /**
+     * GET /api/academic/year-access?academic_year_id=N (default: current year)
+     * Tells the page whether the signed-in user may edit that year's records.
+     * Any signed-in user may ask about themselves; nothing else is returned.
+     */
+    public function getYearAccess($id = null, $data = [], $segments = [])
+    {
+        $yearId = (int) ($id ?: ($data['academic_year_id'] ?? 0));
+        return $this->handleResponse($this->api->yearAccess($yearId > 0 ? $yearId : null));
+    }
+
     public function getYearCalendar($id = null, $data = [], $segments = [])
     {
         // GET /api/academic/year-calendar?academic_year_id=N (default: current year)

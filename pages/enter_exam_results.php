@@ -71,10 +71,10 @@
                 <div class="d-flex gap-2">
                     <button id="examRegisterCsv" class="btn btn-outline-secondary" type="button">Export CSV</button>
                     <button id="examRegisterPrint" class="btn btn-outline-secondary" type="button">Print / PDF</button>
-                    <button id="saveDraftBtn" class="btn btn-outline-primary" type="button">
+                    <button id="saveDraftBtn" class="btn btn-outline-primary" type="button" data-year-write>
                         <i class="bi bi-save me-1"></i>Save progress
                     </button>
-                    <button id="submitResultsBtn" class="btn btn-primary" type="button">
+                    <button id="submitResultsBtn" class="btn btn-primary" type="button" data-year-write>
                         <i class="bi bi-send-check me-1"></i>Submit for moderation
                     </button>
                 </div>

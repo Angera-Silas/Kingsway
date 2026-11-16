@@ -57,15 +57,14 @@ const ExamScheduleController = (() => {
     ]);
   }
 
-  function syncAcademicContext() {
-    if (!window.AcademicContext) return;
-
-    state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-    state.currentTerm = window.AcademicContext.getTermId();
-    filters.term = state.currentTerm ? String(state.currentTerm) : "";
-
-    const termFilter = document.getElementById("termFilter");
-    if (termFilter) termFilter.value = filters.term;
+  /**
+   * The schedule list follows the page's shared year/term selector (the exam
+   * periods panel mounts AcademicYearFilter on these selects).
+   */
+  function selectedYearTerm() {
+    const year = document.getElementById("examPeriodYearFilter")?.value || "";
+    const term = document.getElementById("examPeriodTermFilter")?.value || "";
+    return { year, term };
   }
 
   // ---- Helpers ----
@@ -235,7 +234,9 @@ const ExamScheduleController = (() => {
         limit: state.pagination.limit,
       });
 
-      if (filters.term) params.append("term", filters.term);
+      const scope = selectedYearTerm();
+      if (scope.year) { params.append("academic_year_id", scope.year); params.append("year_id", scope.year); }
+      if (scope.term || filters.term) params.append("term_id", scope.term || filters.term);
       if (filters.class_id) params.append("class_id", filters.class_id);
       if (filters.subject) params.append("subject_id", filters.subject);
       if (filters.status) params.append("status", filters.status);
@@ -324,11 +325,11 @@ const ExamScheduleController = (() => {
             <td>
               <div class="btn-group btn-group-sm">
                 ${state.canManageSchedules && !exam.exam_period_id ? `
-                <button class="btn btn-outline-primary" onclick="ExamScheduleController.editExam(${exam.id})" title="Edit">
+                <button class="btn btn-outline-primary" onclick="ExamScheduleController.editExam(${exam.id})" title="Edit" data-year-write>
                   <i class="bi bi-pencil"></i>
                 </button>` : ''}
                 ${state.canDeleteSchedules && !exam.exam_period_id ? `
-                <button class="btn btn-outline-danger" onclick="ExamScheduleController.deleteExam(${exam.id})" title="Delete">
+                <button class="btn btn-outline-danger" onclick="ExamScheduleController.deleteExam(${exam.id})" title="Delete" data-year-write>
                   <i class="bi bi-trash"></i>
                 </button>` : ''}
               </div>
@@ -587,7 +588,11 @@ const ExamScheduleController = (() => {
       .getElementById("printScheduleBtn")
       ?.addEventListener("click", () => printSchedule());
 
-    // Filters
+    // Filters: the shared year/term selector reloads the schedule too.
+    document.addEventListener("kingsway:academic-year", (event) => {
+      const id = event.detail?.select?.id;
+      if (id === "examPeriodYearFilter") loadData(1);
+    });
     document.getElementById("termFilter")?.addEventListener("change", (e) => {
       filters.term = e.target.value;
       loadData(1);
@@ -620,25 +625,6 @@ const ExamScheduleController = (() => {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-
-      syncAcademicContext();
-
-      // Subscribe only after initial context loading so initialization does not
-      // trigger an unfiltered request immediately before the scoped request.
-      window.AcademicContext.subscribe((context, event) => {
-        if (["yearChanged", "termChanged", "refreshed"].includes(event)) {
-          syncAcademicContext();
-          loadData(1);
-        }
-      });
-    }
-
     state.canManageSchedules = canManageSchedules();
     state.canDeleteSchedules = canDeleteSchedules();
 

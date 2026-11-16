@@ -46,15 +46,11 @@ return;
                         <div class="row mb-3">
                             <div class="col-md-4">
                                 <label class="form-label">Academic Year *</label>
-                                <select class="form-select" id="yearFilter" data-permission="academic_view">
-                                    <option value="">Select Year</option>
-                                </select>
+                                <select class="form-select" id="yearFilter" data-permission="academic_view" aria-label="Academic year"></select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Term *</label>
-                                <select class="form-select" id="termFilter" data-permission="academic_view">
-                                    <option value="">Select Term</option>
-                                </select>
+                                <select class="form-select" id="termFilter" data-permission="academic_view" aria-label="Term"></select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Class *</label>
@@ -110,10 +106,10 @@ return;
 
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
-                                <button id="createAssessmentBtn" class="btn btn-primary" data-permission="assessments_create">
+                                <button id="createAssessmentBtn" class="btn btn-primary" data-permission="assessments_create" data-year-write>
                                     <i class="bi bi-plus-circle me-1"></i>Create Assessment
                                 </button>
-                                <button id="resetBtn" class="btn btn-outline-secondary">
+                                <button id="resetBtn" class="btn btn-outline-secondary" data-year-write>
                                     <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Form
                                 </button>
                             </div>

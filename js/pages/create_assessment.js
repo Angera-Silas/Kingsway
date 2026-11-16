@@ -47,50 +47,31 @@ const createAssessmentCtrl = (() => {
         }
     }
 
-    async function loadYears() {
-        try {
-            const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
-            const select = document.getElementById('yearFilter');
-            if (select) {
-                select.innerHTML = '<option value="">Select Year</option>';
-                state.years.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year.id;
-                    option.textContent = year.year_name;
-                    if (year.is_current) option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load years:', error);
-        }
+    /** Rows from an unwrapped API payload (list or {data|items|...}). */
+    function rowsOf(payload, key = '') {
+        if (Array.isArray(payload)) return payload;
+        if (key && Array.isArray(payload?.[key])) return payload[key];
+        return payload?.data || payload?.items || payload?.assessments || payload?.students || payload?.subjects || payload?.exams || [];
     }
 
-    async function loadTerms() {
-        try {
-            const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
-            const select = document.getElementById('termFilter');
-            if (select) {
-                select.innerHTML = '<option value="">Select Term</option>';
-                state.terms.forEach(term => {
-                    const option = document.createElement('option');
-                    option.value = term.id;
-                    option.textContent = `${term.name} (${term.year_code || ''})`;
-                    if (term.status === 'current') option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load terms:', error);
-        }
+    /** The shared year/term selector; the current year (and running term) by default. */
+    async function mountYearFilter() {
+        await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+            termSelect: document.getElementById('termFilter'),
+            allTermsLabel: 'All terms',
+            allTermsDefault: false,
+            onChange: (yearId, year, termId) => {
+                state.currentAcademicYear = yearId;
+                state.currentTerm = termId;
+                loadRecentAssessments();
+            },
+        });
     }
 
     async function loadClasses() {
         try {
             const response = await apiCall('academic/classes-list');
-            state.classes = response.data || [];
+            state.classes = rowsOf(response);
             const select = document.getElementById('classFilter');
             if (select) {
                 select.innerHTML = '<option value="">Select Class</option>';
@@ -109,7 +90,7 @@ const createAssessmentCtrl = (() => {
     async function loadSubjects() {
         try {
             const response = await apiCall('academic/subjects-list');
-            state.subjects = response.data || [];
+            state.subjects = rowsOf(response);
             const select = document.getElementById('subjectFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Subjects</option>';
@@ -127,16 +108,19 @@ const createAssessmentCtrl = (() => {
 
     async function loadRecentAssessments() {
         try {
-            const yearId = document.getElementById('yearFilter')?.value || '';
-            const termId = document.getElementById('termFilter')?.value || '';
+            const yearId = state.currentAcademicYear;
+            if (!yearId) return;
+            const termId = state.currentTerm || '';
 
-            const response = await apiCall('academic/formative-assessments', 'GET', {
+            const response = await window.API.apiCall('academic/formative-assessments', 'GET', null, {
+                academic_year_id: yearId,
                 year_id: yearId,
+                academic_year_term_id: termId,
                 term_id: termId,
                 limit: 10
-            });
+            }, { checkPermission: false });
 
-            state.assessments = response.data || [];
+            state.assessments = rowsOf(response);
             renderRecentAssessments();
             updateStats();
         } catch (error) {
@@ -174,10 +158,10 @@ const createAssessmentCtrl = (() => {
                     <td><span class="badge bg-${statusClass}">${statusText}</span></td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="createAssessmentCtrl.viewAssessment(${assessment.id})">
+                            <button class="btn btn-outline-primary" onclick="createAssessmentCtrl.viewAssessment(${assessment.id})" data-year-write>
                                 <i class="bi bi-eye"></i> View
                             </button>
-                            <button class="btn btn-outline-success" onclick="createAssessmentCtrl.enterMarks(${assessment.id})">
+                            <button class="btn btn-outline-success" onclick="createAssessmentCtrl.enterMarks(${assessment.id})" data-year-write>
                                 <i class="bi bi-pencil"></i> Marks
                             </button>
                         </div>
@@ -185,11 +169,13 @@ const createAssessmentCtrl = (() => {
                 </tr>
             `;
         }).join('');
+        // A completed year stays read-only for users who may not edit it.
+        window.YearMode?.refresh(tbody);
     }
 
     function updateStats() {
-        const yearId = document.getElementById('yearFilter')?.value || '';
-        const termId = document.getElementById('termFilter')?.value || '';
+        const yearId = state.currentAcademicYear;
+        const termId = state.currentTerm || '';
 
         const yearAssessments = state.assessments.filter(a => a.year_id == yearId).length;
         const termAssessments = state.assessments.filter(a => a.term_id == termId).length;
@@ -202,8 +188,8 @@ const createAssessmentCtrl = (() => {
         try {
             const assessmentName = document.getElementById('assessmentName')?.value;
             const assessmentType = document.getElementById('assessmentType')?.value;
-            const yearId = document.getElementById('yearFilter')?.value;
-            const termId = document.getElementById('termFilter')?.value;
+            const yearId = state.currentAcademicYear;
+            const termId = state.currentTerm || '';
             const classId = document.getElementById('classFilter')?.value;
             const subjectId = document.getElementById('subjectFilter')?.value;
             const maxMarks = document.getElementById('maxMarks')?.value;
@@ -226,7 +212,9 @@ const createAssessmentCtrl = (() => {
             const assessmentData = {
                 name: assessmentName,
                 type: assessmentType,
+                academic_year_id: yearId,
                 year_id: yearId,
+                academic_year_term_id: termId,
                 term_id: termId,
                 class_id: classId,
                 subject_id: subjectId || null,
@@ -246,7 +234,7 @@ const createAssessmentCtrl = (() => {
             await loadRecentAssessments();
         } catch (error) {
             console.error('Failed to create assessment:', error);
-            toast('Failed to create assessment', 'error');
+            toast(error?.message || 'Failed to create assessment', 'error');
         } finally {
             const createBtn = document.getElementById('createAssessmentBtn');
             createBtn.disabled = false;
@@ -277,9 +265,6 @@ const createAssessmentCtrl = (() => {
     function bindEvents() {
         document.getElementById('createAssessmentBtn')?.addEventListener('click', createAssessment);
         document.getElementById('resetBtn')?.addEventListener('click', resetForm);
-        
-        document.getElementById('yearFilter')?.addEventListener('change', loadRecentAssessments);
-        document.getElementById('termFilter')?.addEventListener('change', loadRecentAssessments);
     }
 
     async function init() {
@@ -292,27 +277,23 @@ const createAssessmentCtrl = (() => {
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadYears();
-                    loadTerms();
-                    loadRecentAssessments();
-                }
+                if (event === 'refreshed') loadRecentAssessments();
             });
 
             if (!window.AcademicContext.isLoaded()) {
                 await window.AcademicContext.init();
             }
-
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
         }
 
         document.getElementById('assessmentLoading').style.display = 'none';
         document.getElementById('assessmentContent').style.display = 'block';
 
-        await Promise.all([loadYears(), loadTerms(), loadClasses(), loadSubjects()]);
-        await loadRecentAssessments();
+        await Promise.all([loadClasses(), loadSubjects()]);
+
         bindEvents();
+
+        await mountYearFilter(); // loads data for the default year/term
+
     }
 
     return {

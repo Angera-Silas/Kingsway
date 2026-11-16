@@ -43,7 +43,16 @@ const attendanceReportsController = {
     const response = await this.API('GET', '/api/academic/terms-list');
     const value = this.data(response);
     const terms = Array.isArray(value) ? value : (Array.isArray(value.data) ? value.data : []);
-    const current = terms.find((term) => String(term.status || '').toLowerCase() === 'current' || Number(term.is_current) === 1);
+    // "This term" is the term chosen in the year bar (js/core/year_scope.js):
+    // the selected term, else the selected year's last term, else today's.
+    const scoped = window.KingswayYearScope?.requestParams?.() || {};
+    const yearTerms = scoped.academic_year_id
+      ? terms.filter((term) => String(term.academic_year_id) === String(scoped.academic_year_id))
+      : [];
+    const current = (scoped.academic_year_term_id && terms.find((term) => String(term.id) === String(scoped.academic_year_term_id)))
+      || window.AcademicYearFilter?.defaultTerm?.(yearTerms)
+      || yearTerms[yearTerms.length - 1]
+      || window.AcademicYearFilter?.defaultTerm?.(terms);
     if (current && (current.opening_date || current.start_date) && (current.closing_date || current.end_date)) {
       this.state.termRange = { date_from: current.opening_date || current.start_date, date_to: current.closing_date || current.end_date };
     }
@@ -110,6 +119,8 @@ const attendanceReportsController = {
       ['Classes','Chronic','Trends'].forEach((name) => document.getElementById(`arTab${name}`)?.classList.toggle('d-none', name.toLowerCase() !== button.dataset.tab));
     }));
     document.getElementById('printAttendanceReport')?.addEventListener('click', () => { if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('attendance')) window.print(); });
+    // Shared year bar: reload this page's data in place for the chosen year.
+    window.KingswayYearScope?.onYearChange?.(() => this.load());
     window.APIRealtime?.register?.('attendance_reports', { refresh: () => this.load() }, ['attendance']);
     return this.load();
   }

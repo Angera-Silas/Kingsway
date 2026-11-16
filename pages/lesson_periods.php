@@ -120,9 +120,9 @@
         <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h6 class="mb-0">Periods</h6>
             <div class="d-flex gap-2 lp-no-print" id="lpEditActions" hidden>
-                <button type="button" class="btn btn-outline-primary btn-sm" id="lpAdd"><i class="bi bi-plus-lg me-1"></i>Add period</button>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="lpAdd" data-year-write><i class="bi bi-plus-lg me-1"></i>Add period</button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="lpDiscard" disabled>Discard changes</button>
-                <button type="button" class="btn btn-primary btn-sm" id="lpSave" disabled>Save periods</button>
+                <button type="button" class="btn btn-primary btn-sm" id="lpSave" disabled data-year-write>Save periods</button>
             </div>
         </div>
         <div class="card-body p-0">
@@ -166,7 +166,7 @@
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="wlExport"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
                     <span class="d-flex gap-2" id="wlEditActions" hidden>
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="wlDiscard" disabled>Discard changes</button>
-                        <button type="button" class="btn btn-primary btn-sm" id="wlSave" disabled>Save weekly lessons</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="wlSave" disabled data-year-write>Save weekly lessons</button>
                     </span>
                 </div>
             </div>

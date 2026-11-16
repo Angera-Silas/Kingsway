@@ -40,54 +40,18 @@ const SubjectSchemesOfWorkController = {
       return;
     }
     
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadSchemes();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this.state.currentTerm = window.AcademicContext.getTermId();
-    }
     
     await this.loadReferencesComposed();
     this.bindEvents();
-    await this.loadAcademicYears();
     await this.loadSubjects();
-    await this.loadSchemes();
-    window.APIRealtime?.register?.("subject_schemes_of_work", { refresh: async () => { await this.loadReferencesComposed(); await this.loadAcademicYears(); await this.loadSubjects(); await this.loadSchemes(); } }, ["academic"]);
+    // The shared year/term selector (view only: it never changes the
+    // school's current year). Current year and running term by default.
+    await this.mountYearFilter();
+    window.APIRealtime?.register?.("subject_schemes_of_work", { refresh: async () => { await this.loadReferencesComposed(); await this.loadSubjects(); await this.loadSchemes(); } }, ["academic"]);
   },
 
   bindEvents() {
-    // Academic year selector
-    const yearSelect = document.getElementById('academicYearSelect');
-    if (yearSelect) {
-      yearSelect.addEventListener('change', async (e) => {
-        this.state.currentAcademicYear = e.target.value;
-        if (window.AcademicContext) {
-          await window.AcademicContext.setCurrentAcademicYear(e.target.value);
-        }
-        await this.loadSchemes();
-      });
-    }
 
-    // Term selector
-    const termSelect = document.getElementById('termSelect');
-    if (termSelect) {
-      termSelect.addEventListener('change', async (e) => {
-        this.state.currentTerm = e.target.value;
-        await this.loadSchemes();
-      });
-    }
 
     // Subject selector
     const subjectSelect = document.getElementById('subjectSelect');
@@ -99,23 +63,20 @@ const SubjectSchemesOfWorkController = {
     }
   },
 
-  async loadAcademicYears() {
-    try {
-      const years = (this.referenceCache?.years ?? (await window.API.academic.listYears())) || [];
-      const yearSelect = document.getElementById('academicYearSelect');
-      if (yearSelect) {
-        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-        
-        // Set current academic year if available
-        if (this.state.currentAcademicYear) {
-          yearSelect.value = this.state.currentAcademicYear;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading academic years:', error);
-    }
+  async mountYearFilter() {
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('academicYearSelect'), {
+      termSelect: document.getElementById('termSelect'),
+      allTermsLabel: 'All terms',
+      allTermsDefault: false,
+      onChange: (yearId, year, termId) => {
+        this.state.currentAcademicYear = yearId;
+        this.state.currentTerm = termId;
+        this.loadSchemes();
+      },
+    });
+    if (!mounted) await this.loadSchemes();
   },
+
 
   async loadSubjects() {
     try {
@@ -199,10 +160,10 @@ const SubjectSchemesOfWorkController = {
               <button class="btn btn-outline-primary" onclick="SubjectSchemesOfWorkController.viewScheme(${scheme.id})" title="View Scheme">
                 <i class="bi bi-eye"></i>
               </button>
-              <button class="btn btn-outline-secondary" onclick="SubjectSchemesOfWorkController.editScheme(${scheme.id})" title="Edit Scheme">
+              <button class="btn btn-outline-secondary" onclick="SubjectSchemesOfWorkController.editScheme(${scheme.id})" title="Edit Scheme" data-year-write>
                 <i class="bi bi-pencil"></i>
               </button>
-              <button class="btn btn-outline-success" onclick="SubjectSchemesOfWorkController.submitForApproval(${scheme.id})" title="Submit for Approval">
+              <button class="btn btn-outline-success" onclick="SubjectSchemesOfWorkController.submitForApproval(${scheme.id})" title="Submit for Approval" data-year-write>
                 <i class="bi bi-send"></i>
               </button>
             </div>
@@ -292,7 +253,6 @@ const SubjectSchemesOfWorkController = {
   },
 
   async refresh() {
-    await this.loadAcademicYears();
     await this.loadSubjects();
     await this.loadSchemes();
   },

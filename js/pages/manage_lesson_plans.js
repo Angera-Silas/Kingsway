@@ -244,9 +244,9 @@ const lessonPlansController = (() => {
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-primary" onclick="lessonPlansController.viewPlan(${Number(p.id) || 0})" title="View"><i class="bi bi-eye"></i></button>
-                        ${personalMode && p.status !== "archived" ? `<button class="btn btn-outline-warning" onclick="lessonPlansController.editPlan(${Number(p.id) || 0})" title="Edit"><i class="bi bi-pencil"></i></button>` : ""}
-                        ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-danger" onclick="lessonPlansController.deletePlan(${Number(p.id) || 0})" title="Archive"><i class="bi bi-trash"></i></button>` : ""}
-                        ${personalMode ? `<button class="btn btn-outline-secondary" onclick="lessonPlansController.duplicatePlan(${Number(p.id) || 0})" title="Duplicate"><i class="bi bi-files"></i></button>` : ""}
+                        ${personalMode && p.status !== "archived" ? `<button class="btn btn-outline-warning" onclick="lessonPlansController.editPlan(${Number(p.id) || 0})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>` : ""}
+                        ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-danger" onclick="lessonPlansController.deletePlan(${Number(p.id) || 0})" title="Archive" data-year-write><i class="bi bi-trash"></i></button>` : ""}
+                        ${personalMode ? `<button class="btn btn-outline-secondary" onclick="lessonPlansController.duplicatePlan(${Number(p.id) || 0})" title="Duplicate" data-year-write><i class="bi bi-files"></i></button>` : ""}
                     </div>
                 </td>
             </tr>`;
@@ -342,8 +342,8 @@ const lessonPlansController = (() => {
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-outline-primary" onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'draft')"><i class="bi bi-save"></i> Save Draft</button>
-                <button class="btn btn-primary" onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'published')"><i class="bi bi-send"></i> ${isEdit ? "Update & Publish" : "Publish Lesson Plan"}</button>
+                <button class="btn btn-outline-primary" onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'draft')" data-year-write><i class="bi bi-save"></i> Save Draft</button>
+                <button class="btn btn-primary" onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'published')" data-year-write><i class="bi bi-send"></i> ${isEdit ? "Update & Publish" : "Publish Lesson Plan"}</button>
             </div>
         </div></div></div>`;
     document.body.appendChild(m);
@@ -584,3 +584,6 @@ document.addEventListener("DOMContentLoaded", () =>
 );
 
 window.lessonPlansController = lessonPlansController;
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => lessonPlansController.loadPlans());

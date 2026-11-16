@@ -46,10 +46,10 @@ window.yearRolloverController = {
     // Billing and balance carry-forward now happen at promotion time, so the
     // finance phase only closes the outgoing year, migrates baselines and
     // performs the final cutover.
-    // Archiving is deliberately NOT a rollover step. The outgoing year is
-    // CLOSED (active - completed, readable by all, editable only by school
-    // admin / system admin / director) during the final cutover; archiving is
-    // a separate system-admin action.
+    // The outgoing year is CLOSED (active - completed: readable by all,
+    // editable by school admin / system admin / director or a user granted
+    // academic_years_edit_completed) during the final cutover. The system has
+    // no archiving; every year stays visible.
     finance: ['migrate_baselines', 'close_outgoing_year', 'activate_new_year_term_one'],
   },
 
@@ -78,7 +78,7 @@ window.yearRolloverController = {
     ['assign_target_streams', 'Assign each learner to a target class and stream', 'Assign in batches; saved progress can be resumed later.', 'bi-diagram-2', 'primary'],
     ['create_new_year_enrollments', 'Create new-year enrollments', 'Create target-year enrollment records without overwriting history.', 'bi-person-plus', 'info'],
     ['migrate_baselines', 'Migrate competency baselines', 'Carry CBC competency baselines into the new year.', 'bi-graph-up-arrow', 'primary'],
-    ['close_outgoing_year', 'Close the outgoing year', 'Mark the outgoing year completed: readable by every user, editable only by school admin, system admin or director. Nothing is archived or hidden.', 'bi-folder-check', 'secondary'],
+    ['close_outgoing_year', 'Close the outgoing year', 'Confirm the closing. The outgoing year stays current until its last day; on the new year\'s start date it becomes completed (readable by everyone, editable by school admin, system admin or director).', 'bi-folder-check', 'secondary'],
     ['activate_new_year_term_one', 'Certify the new academic year', 'Run every readiness check. The system then switches to the new year on its start date — the outgoing year stays operational until its last day.', 'bi-patch-check', 'success'],
   ].map(([code, label, desc, icon, color]) => ({ code, label, desc, icon, color })),
 
@@ -354,7 +354,7 @@ window.yearRolloverController = {
           '/academic/workflow/status?workflow_type=year-transition&instance_id=' + encodeURIComponent(stored),
           'GET',
         );
-        const inst = r?.data || r;
+        const inst = this._instanceFrom(r);
         const storedTarget = String(inst?.data?.to_year_code || inst?.data?.to_year || '').replace(/\s/g, '');
         const selectedTarget = String(this._targetYear?.year_code || '').replace(/\s/g, '');
         if (inst?.id && (!selectedTarget || storedTarget === selectedTarget)) {
@@ -371,11 +371,23 @@ window.yearRolloverController = {
     if (!targetCode) return;
     try {
       const r = await callAPI('/academic/year-transition/active?to_year=' + encodeURIComponent(targetCode), 'GET');
-      const inst = r?.data || r;
+      const inst = this._instanceFrom(r);
       if (inst?.id) this._adoptInstance(inst);
     } catch (e) {
       console.warn('Could not find active rollover for target year:', e);
     }
+  },
+
+  /**
+   * The workflow instance from an API reply. callAPI already unwraps the
+   * envelope, so the reply IS {id, current_stage, data}; taking `.data`
+   * returned the workflow's inner data (no id), so the page never adopted
+   * the rollover and opened on a default tab.
+   */
+  _instanceFrom: function (r) {
+    if (r?.id) return r;
+    if (r?.data?.id) return r.data;
+    return null;
   },
 
   _adoptInstance: function (inst) {
@@ -392,6 +404,19 @@ window.yearRolloverController = {
     }
     localStorage.setItem(this._STORE_KEY, String(this._instanceId));
     this._importWorkflowLog();
+  },
+
+  /**
+   * Move the page's position FORWARD only. Re-saving an earlier stage (a
+   * setup tab, promotions again) must never send the position back, or every
+   * later stage shows "not done" and finished stages become runnable again.
+   * The server applies the same rule.
+   */
+  _moveTo: function (code) {
+    const target = this._stages.findIndex(s => s.code === code);
+    const current = this._stages.findIndex(s => s.code === this._currentStage);
+    if (target < 0) return;
+    if (current < 0 || target > current) this._currentStage = code;
   },
 
   _canonicalStage: function (code) {
@@ -1294,12 +1319,52 @@ window.yearRolloverController = {
       tab.dataset.bound = '1';
       tab.addEventListener('click', () => this.navigatePhase(tab.dataset.yrPhase));
     });
-    let storedPhase = null;
-    try { storedPhase = localStorage.getItem(`${this._PHASE_STORE_KEY}_${this._targetYear?.id || 'no-target'}`); } catch (_) {}
-    const currentPhase = this._phaseOrder.includes(storedPhase) ? storedPhase
-      : Object.entries(this._phaseStages).find(([, codes]) => codes.includes(this._currentStage))?.[0]
-        || (this._targetYear ? 'classes' : 'year');
-    this._activatePhase(currentPhase);
+    // Open where the workflow IS, never on the last tab looked at: a
+    // certified rollover opens on the final tab with what was certified;
+    // otherwise the tab of the current stage.
+    this._activatePhase(this._landingPhase());
+  },
+
+  _isCertified: function () {
+    const d = this._workflowData || {};
+    return !!(d.certified_at || d.ready_for_new_year);
+  },
+
+  _landingPhase: function () {
+    if (!this._instanceId) return this._targetYear ? 'classes' : 'year';
+    if (this._isCertified()) return 'finance';
+    return Object.entries(this._phaseStages).find(([, codes]) => codes.includes(this._currentStage))?.[0]
+      || (this._targetYear ? 'classes' : 'year');
+  },
+
+  /** The checks that were certified, under the hand-over card. */
+  _renderCertification: function () {
+    const anchor = document.getElementById('yrHandoverPanel');
+    if (!anchor) return;
+    let box = document.getElementById('yrCertifiedChecks');
+    if (!this._isCertified()) { box?.remove(); return; }
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'yrCertifiedChecks';
+      box.className = 'card border mb-3';
+      anchor.insertAdjacentElement('afterend', box);
+    }
+    const d = this._workflowData || {};
+    const checks = d.validation_results || {};
+    const label = (k) => k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+    const items = Object.entries(checks).map(([k, c]) => {
+      const ok = (c?.status || '') !== 'fail';
+      return `<li class="list-group-item d-flex justify-content-between align-items-center px-0">
+          <span>${this._esc(label(k))}</span>
+          <span class="${ok ? 'text-success' : 'text-danger'} small fw-semibold"><i class="bi ${ok ? 'bi-check2' : 'bi-x'} me-1"></i>${ok ? 'Passed' : 'Failed'}</span>
+        </li>`;
+    }).join('');
+    const when = d.certified_at ? new Date(String(d.certified_at).replace(' ', 'T')).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    box.innerHTML = `<div class="card-body">
+        <h6 class="mb-1"><i class="bi bi-patch-check text-success me-1"></i>${this._esc(d.to_year_code || 'New year')} is certified</h6>
+        <p class="small text-muted mb-2">${when ? `Certified ${this._esc(when)}. ` : ''}${d.switch_date ? `The school switches to it on ${this._esc(this._fmtDate(d.switch_date))}.` : 'The school switches to it on its start date.'}</p>
+        ${items ? `<ul class="list-group list-group-flush">${items}</ul>` : ''}
+      </div>`;
   },
 
   _activatePhase: function (phase) {
@@ -1325,13 +1390,10 @@ window.yearRolloverController = {
     const s = this._status || {};
     const badge = document.getElementById('yrCurrentYearBadge');
     if (badge) {
-      // Every year is active unless archived; the sub-state says where it sits.
+      // Every year is active; the sub-state says where it sits.
       const current = s.current_year || null;
       const state = current?.state || 'current';
-      const status = current?.status || 'active';
-      badge.textContent = status === 'archived'
-        ? `Archived · ${current?.year_name || '—'}`
-        : `active - ${state} · ${current?.year_name || this._currentYear?.year_name || '—'}`;
+      badge.textContent = `active - ${state} · ${current?.year_name || this._currentYear?.year_name || '—'}`;
     }
 
     const setCheck = (iconId, statusId, ok, trueText, falseText) => {
@@ -1367,6 +1429,7 @@ window.yearRolloverController = {
   },
 
   _renderStages: function () {
+    this._renderCertification();
     const done = {};
     this._log.forEach(l => { if (l.status === 'completed') done[l.stage] = true; });
 
@@ -1568,7 +1631,7 @@ window.yearRolloverController = {
         const classStageIndex = this._stages.findIndex(item => item.code === 'configure_classes_streams');
         const currentStageIndex = this._stages.findIndex(item => item.code === this._currentStage);
         if (currentStageIndex < 0 || currentStageIndex <= classStageIndex) {
-          this._currentStage = 'configure_learning_areas';
+          this._moveTo('configure_learning_areas');
         }
         this._workflowData = {
           ...(this._workflowData || {}),
@@ -1587,7 +1650,7 @@ window.yearRolloverController = {
           instance_id: this._instanceId,
           stage_code: code,
         });
-        this._currentStage = data.current_stage || this._currentStage;
+        if (data.current_stage) this._moveTo(this._canonicalStage(data.current_stage));
         const financeDetails = data.finance_rollover?.[code] || data[code] || {};
         this._log.push({ stage: code, status: 'completed', details: financeDetails.learners_recorded != null
           ? `${financeDetails.learners_recorded} learner balances recorded.`
@@ -1596,14 +1659,13 @@ window.yearRolloverController = {
               : 'Stage completed and progress saved.', performed: new Date().toISOString() });
         showNotification(`${stage?.label || code} completed.`, 'success');
       } else if (code === 'close_outgoing_year') {
-        // Closing is NOT archiving. The outgoing year becomes active - completed:
-        // readable by every user, writable only by school admin / system admin /
-        // director. Archiving is a separate system-admin action and never
-        // happens here, so no archive options are sent.
+        // The outgoing year becomes active - completed: readable by every user,
+        // writable by school admin / system admin / director or a user granted
+        // academic_years_edit_completed.
         data = await callAPI('/academic/year-transition/close-year', 'POST', {
           instance_id: this._instanceId,
         });
-        this._currentStage = 'activate_new_year_term_one';
+        this._moveTo('activate_new_year_term_one');
         this._log.push({
           stage: code, status: 'completed',
           details: `Outgoing year closed as active - completed · assessments, attendance and competencies retained and readable`,
@@ -1619,7 +1681,7 @@ window.yearRolloverController = {
         data = await callAPI('/academic/year-transition/migrate-competency-baselines', 'POST', {
           instance_id: this._instanceId,
         });
-        this._currentStage = 'close_outgoing_year';
+        this._moveTo('close_outgoing_year');
         this._log.push({
           stage: 'migrate_baselines', status: 'completed',
           details: `${data.total_baselines ?? 0} baselines · ${data.students_tracked ?? 0} students · ${data.competencies_tracked ?? 0} competencies`,
@@ -1914,7 +1976,7 @@ window.yearRolloverController = {
         ].filter(Boolean).join(' · '),
         performed: new Date().toISOString()
       });
-      if (res.complete) this._currentStage = 'migrate_baselines';
+      if (res.complete) this._moveTo('migrate_baselines');
       await this.loadPromotionBoard();
       this._renderStages();
       this._renderLog();

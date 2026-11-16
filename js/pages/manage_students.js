@@ -51,6 +51,8 @@ window.studentsManagementController = window.studentsManagementController || {
       return;
     }
     window.APIRealtime?.register?.("manageStudents", this, ["students"]);
+    // The shared year bar: reload the list and figures in place.
+    window.KingswayYearScope?.onYearChange?.(() => this.loadStudents(1));
     await GradingScale.preload();
     await this.loadInitialData();
     await this.loadStudents();
@@ -802,9 +804,7 @@ window.studentsManagementController = window.studentsManagementController || {
                 }</td>
                 <td>${this.formatGender(s.gender)}</td>
                 <td>${contactValue}</td>
-                <td><span class="badge bg-${
-                  s.status === "active" ? "success" : "secondary"
-                }">${s.status || "unknown"}</span><div class="mt-1">${entrySource}</div></td>
+                <td>${this.statusCell(s, entrySource)}</td>
                 <td>${actionsHtml}</td>
             </tr>
         `;
@@ -852,6 +852,23 @@ window.studentsManagementController = window.studentsManagementController || {
     const limit = Math.min(100, Math.max(1, Number.parseInt(value, 10) || 10));
     this.data.pagination.limit = limit;
     this.loadStudents(1);
+  },
+
+  /**
+   * Status for the listed year. After the year's promotion the learner's
+   * outcome is shown in words ("Promoted to Grade 3 A (2027/2028)",
+   * "Graduated, class of 2026", "Transferred: …"); otherwise the learner's
+   * status (Active, Suspended, …).
+   */
+  statusCell: function (s, entrySource) {
+    const outcome = s.year_outcome;
+    if (outcome) {
+      const tone = /^Graduated/.test(outcome) ? "info" : /^Promoted/.test(outcome) ? "success"
+        : /^(Transferred|Withdrawn)/.test(outcome) ? "danger" : "warning";
+      return `<span class="badge bg-${tone}">${this.escapeHtml(outcome)}</span>`;
+    }
+    const label = s.status ? s.status.charAt(0).toUpperCase() + s.status.slice(1) : "Unknown";
+    return `<span class="badge bg-${s.status === "active" ? "success" : "secondary"}">${this.escapeHtml(label)}</span><div class="mt-1">${entrySource}</div>`;
   },
 
   updateStatistics: async function (statistics = null) {
@@ -1447,6 +1464,22 @@ window.studentsManagementController = window.studentsManagementController || {
     }
   },
 
+  /** Learner academic record (every year, in that year's class). */
+  loadLearnerRecord: async function (studentId) {
+    const host = document.querySelector(`[data-learner-record="${Number(studentId)}"]`)?.parentElement;
+    if (!host) return;
+    host.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Loading academic record…</div>';
+    try {
+      const response = await window.API.apiCall(`/academic/learner-record/${Number(studentId)}`, "GET", null, {}, { checkPermission: false });
+      const record = response?.data ?? response;
+      window.LearnerRecordView.render(host, record, {
+        onPrint: () => window.PrintManager.printLearnerRecord({ student_id: Number(studentId), download: false }),
+      });
+    } catch (error) {
+      host.innerHTML = `<div class="alert alert-danger">${this.escapeHtml ? this.escapeHtml(error?.message || "The academic record could not be loaded.") : "The academic record could not be loaded."}</div>`;
+    }
+  },
+
   viewStudent: async function (id) {
     try {
       const content = document.getElementById("viewStudentContent");
@@ -1469,7 +1502,9 @@ window.studentsManagementController = window.studentsManagementController || {
         window.API.students.get(id),
         window.API.students.getParents(id),
         window.API.students.getFees(id),
-        window.API.students.getAttendance(id, { academic_year: new Date().getFullYear() }),
+        // The selected academic year (js/core/year_scope.js adds it); the
+        // current year by default. Never the calendar year.
+        window.API.students.getAttendance(id, {}),
         window.API.students.getPerformance(id),
         window.API.students.getDiscipline(id),
       ]);
@@ -1530,6 +1565,7 @@ window.studentsManagementController = window.studentsManagementController || {
               ${showFinance ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-fees" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabFees"><i class="bi bi-cash-coin" aria-hidden="true"></i> Fees</a></li>' : ""}
               <li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-attendance" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabAttendance"><i class="bi bi-calendar-check" aria-hidden="true"></i> Attendance</a></li>
               <li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-performance" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabPerformance"><i class="bi bi-graph-up" aria-hidden="true"></i> Performance</a></li>
+              <li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-record" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabAcademicRecord"><i class="bi bi-journal-text" aria-hidden="true"></i> Academic record</a></li>
               ${showSensitive ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-discipline" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabDiscipline"><i class="bi bi-shield-exclamation" aria-hidden="true"></i> Discipline</a></li>' : ""}
               ${showContact ? '<li class="nav-item" role="presentation"><a class="nav-link" id="student-tab-parents" role="tab" aria-selected="false" data-bs-toggle="tab" href="#tabParents"><i class="bi bi-people" aria-hidden="true"></i> Parents</a></li>' : ""}
             </ul>
@@ -1631,6 +1667,11 @@ window.studentsManagementController = window.studentsManagementController || {
                 ${this._renderPerformanceTab(performance)}
               </div>
 
+              <!-- Academic record: every year in that year's class -->
+              <div class="tab-pane fade" id="tabAcademicRecord">
+                <div class="text-center text-muted py-4" data-learner-record="${Number(id)}">Open this tab to load the learner's record from the year they joined.</div>
+              </div>
+
               <!-- Discipline Tab -->
               ${
                 showSensitive
@@ -1652,6 +1693,13 @@ window.studentsManagementController = window.studentsManagementController || {
               }
             </div>
       `;
+
+      // The academic record loads the first time its tab is opened.
+      content.querySelector("#student-tab-record")?.addEventListener(
+        "shown.bs.tab",
+        () => this.loadLearnerRecord(Number(id)),
+        { once: true },
+      );
     } catch (error) {
       console.error("Error viewing student:", error);
       this.showError("Failed to load student details");

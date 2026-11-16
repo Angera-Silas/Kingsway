@@ -60,8 +60,14 @@ class CalendarSyncService
 
     /**
      * Reconcile a single calendar day against school_events + exam_schedules.
+     *
+     * An exam day on the calendar is a planning entry: it records that exams
+     * will run on that date and shows on every calendar. It does not create
+     * exam_schedules rows, so marking next term's or next year's exam dates
+     * never starts the exams workflow (timetables, candidates, results). The
+     * exams module creates those when the period is actually prepared.
      */
-    public function syncDay(int $dayId, bool $createExamScheduleRows = true): array
+    public function syncDay(int $dayId, bool $createExamScheduleRows = false): array
     {
         $day = $this->fetchDay($dayId);
         if (!$day) {
@@ -229,11 +235,14 @@ class CalendarSyncService
 
         $newDate = $data['start_date'] ?? $data['date'] ?? $ev['date'];
         $newTitle = $data['name'] ?? $data['title'] ?? null;
-        $newType = $data['type'] ?? $ev['type'];
+        $newType = strtolower(trim((string) ($data['type'] ?? $ev['type'])));
         $dayTypeCode = self::EVENT_TO_DAY_TYPE[$newType] ?? null;
 
         if ($ev['calendar_day_id']) {
             $this->updateLinkedDay($ev['calendar_day_id'], $newDate, $newTitle, $data['description'] ?? null, $dayTypeCode);
+            if ($dayTypeCode !== null && !empty($data['end_date'])) {
+                $this->markRange($newDate, (string) $data['end_date'], $newTitle ?? $ev['title'], $data['description'] ?? null, $dayTypeCode);
+            }
             return ['event' => $eventId, 'calendar_day' => $ev['calendar_day_id']];
         }
 
@@ -246,10 +255,63 @@ class CalendarSyncService
             return ['event' => $eventId, 'calendar_day' => null];
         }
 
-        $this->updateLinkedDay($dayId, $newDate, $newTitle, $data['description'] ?? null, $dayTypeCode);
-        $this->db->prepare("UPDATE school_events SET calendar_day_id = ?, source = 'manual' WHERE id = ?")
-            ->execute([$dayId, $eventId]);
+        $title = $newTitle ?? $ev['title'];
+        // Link the event to its first day before the day is updated, so the
+        // day adopts this event instead of creating a second entry for the
+        // same date. The first day carries the event as a one-day entry; the
+        // remaining days of the range get their own calendar entry below, and
+        // the events list folds the run back into one dated range.
+        $link = $this->db->prepare(
+            "UPDATE school_events SET calendar_day_id = ?, source = 'manual',
+                    end_at = CONCAT(DATE(start_at), ' 23:59:59') WHERE id = ?"
+        );
+        $link->execute([$dayId, $eventId]);
+        $this->updateLinkedDay($dayId, $newDate, $title, $data['description'] ?? null, $dayTypeCode);
+        $this->db->prepare("UPDATE school_events SET source = 'manual' WHERE id = ?")->execute([$eventId]);
+
+        $endDate = (string) ($data['end_date'] ?? $ev['end_date'] ?? $newDate);
+        $this->markRange($newDate, $endDate, $title, $data['description'] ?? null, $dayTypeCode);
         return ['event' => $eventId, 'calendar_day' => $dayId];
+    }
+
+    /**
+     * Mark the days after $from, up to $to, with the same day type and title:
+     * an exam period, a holiday or a special event that runs for several days.
+     * Weekends stay weekends unless the entry is a holiday, and a day that
+     * already holds a different manual entry is left alone.
+     */
+    private function markRange(string $from, string $to, ?string $title, ?string $description, string $dayTypeCode): void
+    {
+        if ($to <= $from) {
+            return;
+        }
+        $isHoliday = in_array($dayTypeCode, ['school_holiday', 'public_holiday', 'holiday'], true);
+        $limit = (new \DateTimeImmutable($from))->modify('+120 days')->format('Y-m-d');
+        $to = min($to, $limit);
+        $cursor = (new \DateTimeImmutable($from))->modify('+1 day');
+        $end = new \DateTimeImmutable($to);
+        for (; $cursor <= $end; $cursor = $cursor->modify('+1 day')) {
+            if (!$isHoliday && (int) $cursor->format('N') >= 6) {
+                continue;
+            }
+            $date = $cursor->format('Y-m-d');
+            $dayId = $this->findDayForDate($date);
+            if (!$dayId) {
+                continue;
+            }
+            $day = $this->fetchDay($dayId);
+            if (!$day) {
+                continue;
+            }
+            $taken = (int) $day['is_manual'] === 1
+                && !in_array((string) $day['day_type'], self::PLAIN_DAY_TYPES, true)
+                && trim((string) $day['title']) !== ''
+                && trim((string) $day['title']) !== trim((string) $title);
+            if ($taken) {
+                continue;
+            }
+            $this->updateLinkedDay($dayId, $date, $title, $description, $dayTypeCode);
+        }
     }
 
     /**
@@ -297,7 +359,7 @@ class CalendarSyncService
     {
         $this->normalizeStatuses();
         if ($sync) {
-            $this->syncAcademicYear(null);
+            $this->syncAcademicYear($yearId);
         }
 
         // No year: the current year's terms plus every unlinked day and free
@@ -309,16 +371,20 @@ class CalendarSyncService
         $yearBind = [];
         $freeBind = [];
         if ($yearId !== null) {
-            $span = $this->db->prepare("SELECT YEAR(start_date) AS y0, YEAR(end_date) AS y1 FROM academic_years WHERE id = ?");
+            $span = $this->db->prepare("SELECT start_date, end_date FROM academic_years WHERE id = ?");
             $span->execute([$yearId]);
             $years = $span->fetch(PDO::FETCH_ASSOC);
             if (!$years) {
                 return [];
             }
-            $yearWhere = '(aterm.academic_year_id = ? OR (d.academic_year_calendar_id = 0 AND YEAR(d.date) BETWEEN ? AND ?))';
-            $yearBind = [$yearId, (int) $years['y0'], (int) $years['y1']];
-            $freeWhere = ' AND YEAR(start_at) BETWEEN ? AND ?';
-            $freeBind = [(int) $years['y0'], (int) $years['y1']];
+            // The year's own start and end dates bound everything that is not
+            // tied to one of its terms. Matching on the calendar year number
+            // listed the neighbouring year's events as well whenever a year
+            // did not run exactly January to December.
+            $yearWhere = '(aterm.academic_year_id = ? OR (d.academic_year_calendar_id = 0 AND d.date BETWEEN ? AND ?))';
+            $yearBind = [$yearId, $years['start_date'], $years['end_date']];
+            $freeWhere = ' AND DATE(start_at) <= ? AND DATE(COALESCE(end_at, start_at)) >= ?';
+            $freeBind = [$years['end_date'], $years['start_date']];
         }
 
         $rows = [];
@@ -376,6 +442,22 @@ class CalendarSyncService
             return strcmp($a['start_date'], $b['start_date']);
         });
 
+        // Every event sits in a period of the academic year: a term, a half
+        // term or a holiday (April, August, December). Holiday days have no
+        // term week, so their year comes from the period too.
+        $periods = new AcademicPeriodService($this->db);
+        foreach ($rows as &$row) {
+            $period = $periods->periodForDate((string) ($row['date'] ?? $row['start_date'] ?? ''));
+            $row['period_key'] = $period['key'] ?? null;
+            $row['period_kind'] = $period['kind'] ?? null;
+            $row['period_name'] = $period['name'] ?? null;
+            $row['period_label'] = $period['label'] ?? null;
+            if (empty($row['academic_year_id']) && $period) {
+                $row['academic_year_id'] = (int) $period['academic_year_id'];
+            }
+        }
+        unset($row);
+
         // Collapse contiguous same-title/type days (e.g. a multi-week holiday)
         // into ONE event row carrying the full start -> end range, so the
         // events pages stay readable instead of listing every single day.
@@ -415,7 +497,10 @@ class CalendarSyncService
         // half-term breaks) stay separate because their term differs.
         $merged = [];
         foreach ($grouped as $row) {
-            $key = ($row['title'] ?? '') . '|' . ($row['type'] ?? '') . '|' . ($row['day_type'] ?? '') . '|' . ($row['academic_year_term_id'] ?? '');
+            // The period keeps apart same-named runs of different periods:
+            // two half terms, or the December Holiday's first days of the
+            // year and the December Holiday at its end.
+            $key = ($row['title'] ?? '') . '|' . ($row['type'] ?? '') . '|' . ($row['day_type'] ?? '') . '|' . ($row['academic_year_term_id'] ?? '') . '|' . ($row['period_key'] ?? '');
             if (isset($merged[$key])) {
                 $m = &$merged[$key];
                 if ($row['start_date'] < $m['start_date']) {
@@ -445,19 +530,34 @@ class CalendarSyncService
 
     // ==================== INTERNALS ====================
 
+    /**
+     * One calendar day, read from the primary store with keyed lookups. The
+     * read projection lags a write by a tick, and after a calendar rebuild it
+     * does not hold the new day ids yet, which left freshly generated years
+     * (and days edited a moment ago) without their events.
+     */
     private function fetchDay(int $dayId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT calendar_day_id AS id, calendar_date AS date, day_title AS title,
-                    day_description AS description, day_is_manual AS is_manual,
-                    day_type_code AS day_type, calendar_day_type_id,
-                    academic_year_term_id
-             FROM " . ReadReplicaService::qualifiedRef('calendar_day_type') . "
-             WHERE calendar_day_id = ?"
+            "SELECT id, date, title, description, is_manual, calendar_day_type_id, academic_year_calendar_id
+             FROM academic_year_calendar_days WHERE id = ?"
         );
         $stmt->execute([$dayId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ?: null;
+        if (!$row) {
+            return null;
+        }
+        $type = $this->db->prepare("SELECT code FROM calendar_day_types WHERE id = ?");
+        $type->execute([(int) $row['calendar_day_type_id']]);
+        $row['day_type'] = $type->fetchColumn() ?: null;
+        $row['academic_year_term_id'] = null;
+        if ((int) $row['academic_year_calendar_id'] > 0) {
+            $week = $this->db->prepare("SELECT academic_year_term_id FROM academic_year_calendar WHERE id = ?");
+            $week->execute([(int) $row['academic_year_calendar_id']]);
+            $termId = $week->fetchColumn();
+            $row['academic_year_term_id'] = $termId ? (int) $termId : null;
+        }
+        return $row;
     }
 
     private function currentYear(?int $yearId): ?array
@@ -592,16 +692,17 @@ class CalendarSyncService
         return $ts !== false && date('Y-m-d', $ts) === $b;
     }
 
+    /**
+     * The calendar day for a date, in whichever academic year holds it (dates
+     * never repeat across years). A term day is preferred over the year's
+     * base row for the same date. Looking only at the current year meant an
+     * event planned for the incoming year was never placed on its calendar.
+     */
     private function findDayForDate(string $date): ?int
     {
         $stmt = $this->db->prepare(
-            "SELECT d.id
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
-             WHERE d.date = ? AND (ay.is_current = 1 OR d.academic_year_calendar_id = 0)
-             LIMIT 1"
+            "SELECT id FROM academic_year_calendar_days
+             WHERE date = ? ORDER BY academic_year_calendar_id DESC LIMIT 1"
         );
         $stmt->execute([$date]);
         $id = $stmt->fetchColumn();

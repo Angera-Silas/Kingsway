@@ -446,8 +446,16 @@ class StudentInsightsService
 
     public function listDisciplineCases(array $filters = []): array
     {
-        $conditions = ["s.status = 'active'"];
-        $bindings = [];
+        // Year-aware (2026-11-15): incidents of the selected year's enrolments
+        // (the current year by default). A past year keeps graduated and
+        // transferred learners' incidents, so only the current year limits
+        // the list to active learners.
+        $year = \App\API\Services\YearScope::listYear($this->db, $filters);
+        $conditions = ['sae.academic_year_id = ?'];
+        $bindings = [$year['year_id']];
+        if ($year['is_current']) {
+            $conditions[] = "s.status = 'active'";
+        }
         $map = [
             'status' => 'di.status = ?',
             'severity' => 'di.severity = ?',

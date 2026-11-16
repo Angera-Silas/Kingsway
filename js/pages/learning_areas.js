@@ -129,10 +129,10 @@ const LearningAreasController = {
                         <button class="btn btn-outline-primary" onclick="LearningAreasController.viewSubject(${subject.id})" title="View">
                             <i class="fas fa-eye"></i>
                         </button>
-                        <button class="btn btn-outline-warning" onclick="LearningAreasController.editSubject(${subject.id})" title="Edit">
+                        <button class="btn btn-outline-warning" onclick="LearningAreasController.editSubject(${subject.id})" title="Edit" data-year-write>
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-outline-danger" onclick="LearningAreasController.deleteSubject(${subject.id})" title="Delete">
+                        <button class="btn btn-outline-danger" onclick="LearningAreasController.deleteSubject(${subject.id})" title="Delete" data-year-write>
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -212,7 +212,7 @@ const LearningAreasController = {
                 <td>${a.lessons_per_week || "--"}</td>
                 <td><span class="badge bg-${a.status === "active" ? "success" : "secondary"}">${a.status || "active"}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-danger" onclick="LearningAreasController.removeAssignment(${a.id})">
+                    <button class="btn btn-sm btn-outline-danger" onclick="LearningAreasController.removeAssignment(${a.id})" data-year-write>
                         <i class="fas fa-times"></i>
                     </button>
                 </td>

@@ -4,345 +4,49 @@
 ?>
 <div class="admin-layout fee-director-page" data-user-role="director_owner">
 <style>
-    .fee-director-page {
-        --ledger-ink: #0d1b16;
-        --ledger-green: #0f6b43;
-        --ledger-emerald: #168653;
-        --ledger-gold: #c99425;
-        --ledger-mint: #dff5e9;
-        --ledger-cream: #fbf7ec;
-        --ledger-paper: #fffdf7;
-        --ledger-line: rgba(15, 107, 67, 0.16);
-        --ledger-shadow: 0 24px 60px rgba(13, 27, 22, 0.12);
-        color: var(--ledger-ink);
-        font-family: "Aptos", "Trebuchet MS", sans-serif;
-        padding: 22px 28px 40px;
-        background:
-            radial-gradient(circle at 8% 6%, rgba(22, 134, 83, 0.08), transparent 28%),
-            linear-gradient(180deg, #fffdf7 0%, #f5f0e3 100%);
-    }
-
-    .fee-director-page .executive-hero {
-        position: relative;
-        overflow: hidden;
-        border-radius: 28px;
-        padding: 28px;
-        margin: 8px 0 22px;
-        background:
-            radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.18), transparent 28%),
-            linear-gradient(135deg, #0d1b16 0%, #104f35 48%, #178053 100%);
-        box-shadow: var(--ledger-shadow);
-        color: #fff;
-    }
-
-    .fee-director-page .executive-hero::after {
-        content: "";
-        position: absolute;
-        inset: auto -8% -55% 48%;
-        height: 260px;
-        border-radius: 999px;
-        background: rgba(201, 148, 37, 0.24);
-        filter: blur(8px);
-        transform: rotate(-8deg);
-    }
-
-    .fee-director-page .hero-eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        padding: 7px 12px;
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.1);
-        font-size: 0.78rem;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-    }
-
-    .fee-director-page .hero-title {
-        max-width: 720px;
-        margin: 16px 0 8px;
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: clamp(2rem, 3.6vw, 4rem);
-        line-height: 0.96;
-        letter-spacing: -0.05em;
-    }
-
-    .fee-director-page .hero-copy {
-        max-width: 640px;
-        margin: 0;
-        color: rgba(255, 255, 255, 0.78);
-        font-size: 1rem;
-    }
-
-    .fee-director-page .hero-actions {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        justify-content: flex-end;
-        align-items: center;
-    }
-
-    .fee-director-page .executive-btn {
-        border: 0;
-        border-radius: 999px;
-        padding: 11px 16px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.16);
-    }
-
-    .fee-director-page .executive-btn.primary {
-        background: #f4bd46;
-        color: #111b14;
-    }
-
-    .fee-director-page .executive-btn.secondary {
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.24);
-    }
-
-    .fee-director-page .metric-card {
-        position: relative;
-        overflow: hidden;
-        min-height: 128px;
-        border: 1px solid var(--ledger-line);
-        border-radius: 24px;
-        background: linear-gradient(180deg, #fff 0%, var(--ledger-paper) 100%);
-        box-shadow: 0 18px 44px rgba(13, 27, 22, 0.08);
-    }
-
-    .fee-director-page .metric-card::before {
-        content: "";
-        position: absolute;
-        inset: 0 auto 0 0;
-        width: 5px;
-        background: var(--accent, var(--ledger-green));
-    }
-
-    .fee-director-page .metric-label {
-        color: #69756f;
-        font-size: 0.75rem;
-        font-weight: 900;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
-
-    .fee-director-page .metric-value {
-        margin-top: 8px;
-        color: var(--ledger-ink);
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: clamp(1.7rem, 2.4vw, 2.55rem);
-        font-weight: 800;
-        letter-spacing: -0.05em;
-    }
-
-    .fee-director-page .metric-note {
-        color: #7d8781;
-        font-size: 0.82rem;
-    }
-
-    .fee-director-page .metrics-board {
-        display: grid;
-        grid-template-columns: minmax(320px, 1.45fr) minmax(260px, 0.85fr) minmax(300px, 1fr);
-        gap: 18px;
-        margin: 24px 0 28px;
-        align-items: stretch;
-    }
-
-    .fee-director-page .metric-stack {
-        display: grid;
-        gap: 18px;
-    }
-
-    .fee-director-page .metric-pair {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 18px;
-    }
-
-    .fee-director-page .metric-card.featured {
-        min-height: 236px;
-        padding: 30px;
-        background:
-            radial-gradient(circle at 90% 10%, rgba(244, 189, 70, 0.32), transparent 32%),
-            linear-gradient(135deg, #0d1b16 0%, #104f35 62%, #168653 100%);
-        color: #fff;
-    }
-
-    .fee-director-page .metric-card.featured::before {
-        width: 0;
-    }
-
-    .fee-director-page .metric-card.featured .metric-label,
-    .fee-director-page .metric-card.featured .metric-note {
-        color: rgba(255, 255, 255, 0.74);
-    }
-
-    .fee-director-page .metric-card.featured .metric-value {
-        color: #fff;
-        font-size: clamp(2.35rem, 4vw, 4.2rem);
-        line-height: 0.96;
-    }
-
-    .fee-director-page .metric-card.approval-focus {
-        min-height: 236px;
-        padding: 28px;
-        background:
-            linear-gradient(160deg, rgba(255, 249, 232, 0.98), #fff 62%),
-            radial-gradient(circle at 100% 0%, rgba(201, 148, 37, 0.2), transparent 36%);
-        border-color: rgba(201, 148, 37, 0.38);
-    }
-
-    .fee-director-page .approval-focus .metric-value {
-        font-size: clamp(2.4rem, 4vw, 4rem);
-        color: #9a6b08;
-    }
-
-    .fee-director-page .metric-mini {
-        min-height: 109px;
-        padding: 22px;
-    }
-
-    .fee-director-page .metric-mini .metric-value {
-        font-size: clamp(1.55rem, 2.2vw, 2.1rem);
-    }
-
-    .fee-director-page .board-caption {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 22px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.12);
-        color: rgba(255, 255, 255, 0.76);
-        font-size: 0.82rem;
-    }
-
-    @media (max-width: 1180px) {
-        .fee-director-page .metrics-board {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .fee-director-page .metric-stack {
-            grid-column: 1 / -1;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-
-    @media (max-width: 760px) {
-        .fee-director-page {
-            padding: 16px;
-        }
-
-        .fee-director-page .metrics-board,
-        .fee-director-page .metric-stack,
-        .fee-director-page .metric-pair {
-            grid-template-columns: 1fr;
-        }
-
-        .fee-director-page .hero-actions {
-            justify-content: flex-start;
-        }
-    }
-
-    .fee-director-page .console-grid {
-        display: grid;
-        grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
-        gap: 22px;
-        margin-bottom: 28px;
-    }
-
-    @media (max-width: 992px) {
-        .fee-director-page .console-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-    .fee-director-page .console-card {
-        border: 1px solid var(--ledger-line);
-        border-radius: 26px;
-        background: rgba(255, 255, 255, 0.86);
-        box-shadow: 0 18px 44px rgba(13, 27, 22, 0.08);
-        overflow: hidden;
-    }
-
-    .fee-director-page .console-card .card-header {
-        border: 0;
-        background: linear-gradient(90deg, rgba(223, 245, 233, 0.8), rgba(251, 247, 236, 0.95));
-        padding: 18px 22px;
-    }
-
-    .fee-director-page .console-card h5 {
-        margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
-        font-weight: 800;
-        letter-spacing: -0.04em;
-    }
-
-    .fee-director-page .filter-panel {
-        border: 1px solid rgba(201, 148, 37, 0.28);
-        border-radius: 26px;
-        background:
-            linear-gradient(135deg, rgba(251, 247, 236, 0.92), rgba(255, 255, 255, 0.96)),
-            repeating-linear-gradient(90deg, transparent, transparent 18px, rgba(15, 107, 67, 0.04) 19px);
-        box-shadow: 0 18px 44px rgba(13, 27, 22, 0.07);
-    }
-
-    .fee-director-page .form-label {
-        color: #536158;
-        font-size: 0.72rem;
-        font-weight: 900;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
-
-    .fee-director-page .form-select,
-    .fee-director-page .form-control {
-        border-color: rgba(15, 107, 67, 0.18);
-        border-radius: 16px;
-        min-height: 46px;
-        background-color: #fffdf8;
-        font-weight: 700;
-    }
-
-    .fee-director-page .fee-table-shell {
-        border: 1px solid var(--ledger-line);
-        border-radius: 26px;
-        overflow: hidden;
-        background: #fff;
-        box-shadow: 0 18px 44px rgba(13, 27, 22, 0.08);
-    }
-
-    .fee-director-page #feeStructuresTable {
-        margin-bottom: 0;
-        vertical-align: middle;
-    }
-
-    .fee-director-page #feeStructuresTable thead th {
-        border: 0;
-        background: #0f2c22;
-        color: rgba(255, 255, 255, 0.86);
-        font-size: 0.72rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        padding: 16px 18px;
-    }
-
-    .fee-director-page #feeStructuresTable tbody td {
-        border-color: rgba(15, 107, 67, 0.1);
-        padding: 16px 18px;
-    }
-
-    .fee-director-page .pagination-footer {
-        border: 1px solid var(--ledger-line);
-        border-radius: 18px;
-        padding: 12px 14px;
-        background: var(--ledger-cream);
-    }
+/* Fee structures: the quiet ledger look of Fee accounts (css/kw-clean.css). */
+.fee-director-page {
+    --fd-ink: #1f2a44; --fd-muted: #667085; --fd-rule: #e3e6eb; --fd-wash: #f6f7f9; --fd-paper: #fff; --fd-info: #4c5ba8;
+    color: var(--fd-ink); background: var(--fd-paper); border: 1px solid var(--fd-rule); border-radius: 10px; padding: 1.25rem;
+}
+.fee-director-page .executive-hero { padding: 0 0 .9rem; border-bottom: 2px solid var(--fd-ink); background: none; box-shadow: none; border-radius: 0; color: var(--fd-ink); margin: 0; }
+.fee-director-page .hero-eyebrow { display: none; }
+.fee-director-page .hero-title { font-size: 1.5rem; font-weight: 650; letter-spacing: -.01em; margin: 0; color: var(--fd-ink); }
+.fee-director-page .hero-copy { color: var(--fd-muted); margin: .2rem 0 0; max-width: 60ch; }
+.fee-director-page .hero-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: flex-end; }
+.fee-director-page .executive-btn { border: 1px solid var(--fd-rule); background: var(--fd-paper); color: var(--fd-ink); border-radius: 6px; font-size: .82rem; font-weight: 500; padding: .35rem .7rem; }
+.fee-director-page .executive-btn:hover { border-color: var(--fd-ink); }
+.fee-director-page .executive-btn.primary { background: var(--fd-ink); border-color: var(--fd-ink); color: #fff; }
+/* Figures: one ruled strip */
+.fee-director-page .metrics-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); border-bottom: 1px solid var(--fd-rule); margin: 0 0 1.25rem; gap: 0; }
+.fee-director-page .metric-stack, .fee-director-page .metric-pair { display: contents; }
+.fee-director-page .metric-card { background: none !important; border: 0; border-radius: 0; box-shadow: none; padding: .8rem 1rem .9rem; color: var(--fd-ink); }
+.fee-director-page .metric-card::before, .fee-director-page .metric-card::after { display: none; }
+.fee-director-page .metric-card + .metric-card, .fee-director-page .metric-stack .metric-card { border-left: 1px solid var(--fd-rule); }
+.fee-director-page .metric-card.featured { background: var(--fd-wash) !important; }
+.fee-director-page .metric-label { font-size: .78rem; color: var(--fd-muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
+.fee-director-page .metric-value { font-size: 1.35rem; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--fd-ink) !important; margin: .1rem 0; font-family: inherit; }
+.fee-director-page .metric-note { font-size: .78rem; color: var(--fd-muted) !important; }
+.fee-director-page .board-caption { display: none; }
+/* Sections and tables */
+.fee-director-page .console-grid { display: grid; gap: 1.25rem; }
+.fee-director-page .console-card { background: none; border: 0; border-radius: 0; box-shadow: none; margin-bottom: 1.25rem; }
+.fee-director-page .console-card .card-header { background: none; border-bottom: 0; padding: 0 0 .5rem; }
+.fee-director-page .console-card h5, .fee-director-page .console-card h6 { font-size: 1rem; font-weight: 600; font-family: inherit; color: var(--fd-ink); }
+.fee-director-page .console-card .badge { background: none !important; color: #9a6a00 !important; padding: 0; font-weight: 600; }
+.fee-director-page .filter-panel { background: none; border: 0; padding: 0 0 .75rem; }
+.fee-director-page .form-label { font-size: .78rem; color: var(--fd-muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
+.fee-director-page :is(.form-control, .form-select) { border-color: var(--fd-rule); font-size: .875rem; border-radius: 6px; }
+.fee-director-page .fee-table-shell { border: 0; box-shadow: none; }
+.fee-director-page .table { font-size: .875rem; --bs-table-bg: transparent; }
+.fee-director-page .table thead th, .fee-director-page #feeStructuresTable thead th { background: none !important; color: var(--fd-muted); font-size: .78rem; font-weight: 600; text-transform: none; letter-spacing: 0; border-bottom: 1px solid var(--fd-ink); white-space: nowrap; }
+.fee-director-page .table tbody td { border-color: var(--fd-rule); vertical-align: middle; }
+.fee-director-page .pagination-footer { border-top: 1px solid var(--fd-rule); padding-top: .75rem; }
+.fee-director-page :is(.btn, button, a):focus-visible { outline: 2px solid var(--fd-info); outline-offset: 2px; }
+@media (max-width: 768px) {
+    .fee-director-page .hero-actions { justify-content: flex-start; }
+    .fee-director-page .metric-card + .metric-card, .fee-director-page .metric-stack .metric-card { border-left: 0; border-top: 1px solid var(--fd-rule); }
+}
 </style>
 <!-- Fee Structure Admin Component - Full management features -->
 
@@ -355,9 +59,15 @@
         </div>
         <div class="col-lg-5">
             <div class="hero-actions">
+                <!-- One academic year at a time: current, upcoming or completed.
+                     It scopes every figure, the list and the matrix below. -->
+                <label for="adminMatrixAcademicYearFilter" class="small fw-semibold text-muted mb-0">Academic year</label>
+                <select class="form-select form-select-sm" id="adminMatrixAcademicYearFilter" style="width: 13rem" aria-label="Academic year">
+                    <option value="">Loading…</option>
+                </select>
                 <button class="executive-btn secondary" onclick="exportFeeStructures()"><i class="bi bi-download me-2"></i>Export</button>
-                <button class="executive-btn secondary" onclick="showDuplicateModal()"><i class="bi bi-files me-2"></i>Duplicate Year</button>
-                <button class="executive-btn primary" onclick="showCreateFeeStructureModal()"><i class="bi bi-plus-lg me-2"></i>Create Structure</button>
+                <button class="executive-btn secondary" onclick="showDuplicateModal()" data-year-write><i class="bi bi-files me-2"></i>Duplicate Year</button>
+                <button class="executive-btn primary" onclick="showCreateFeeStructureModal()" data-year-write><i class="bi bi-plus-lg me-2"></i>Create Structure</button>
             </div>
         </div>
     </div>
@@ -368,7 +78,7 @@
     <div class="metric-card featured">
         <div class="metric-label">Expected Revenue</div>
         <div class="metric-value" id="totalExpectedRevenue">KES 0</div>
-        <div class="metric-note">Sum of annual obligations actually billed to enrolled learners.</div>
+        <div class="metric-note">Fees billed to learners for <span id="feeSummaryYearLabel">the selected year</span>.</div>
         <div class="board-caption"><i class="bi bi-graph-up-arrow"></i> Director revenue exposure</div>
     </div>
 
@@ -467,10 +177,6 @@
             <small class="text-muted">The approved Day and Full Boarder amounts exactly as configured by grade and term.</small>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <label for="adminMatrixAcademicYearFilter" class="small fw-semibold text-muted mb-0">Academic Year</label>
-            <select class="form-select form-select-sm" id="adminMatrixAcademicYearFilter" style="width: 150px">
-                <option value="">Select year</option>
-            </select>
             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearFilters()">Reset</button>
             <button class="btn btn-sm btn-outline-primary" type="button" id="adminMatrixPrint" onclick="printActiveFeeStructure()" title="PDF of the active fee structure for the selected year"><i class="bi bi-printer me-1"></i>Print PDF</button>
             <span class="badge rounded-pill text-bg-success">Active</span>
@@ -494,7 +200,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('feeStructureModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveFeeStructure()" id="saveBtn">💾 Save</button>
+                <button class="btn btn-primary" onclick="saveFeeStructure()" id="saveBtn" data-year-write>💾 Save</button>
             </div>
         </div>
     </div>
@@ -513,8 +219,8 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
-                <button class="btn btn-warning" onclick="editFromView()" id="editFromViewBtn">✏️ Edit</button>
-                <button class="btn btn-success" onclick="approveFromView()" id="approveFromViewBtn">✅
+                <button class="btn btn-warning" onclick="editFromView()" id="editFromViewBtn" data-year-write>✏️ Edit</button>
+                <button class="btn btn-success" onclick="approveFromView()" id="approveFromViewBtn" data-year-write>✅
                     Approve</button>
             </div>
         </div>
@@ -536,7 +242,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('deleteConfirmModal')">Cancel</button>
-                <button class="btn btn-danger" onclick="confirmDelete()" id="confirmDeleteBtn">🗑️ Delete</button>
+                <button class="btn btn-danger" onclick="confirmDelete()" id="confirmDeleteBtn" data-year-write>🗑️ Delete</button>
             </div>
         </div>
     </div>
@@ -570,7 +276,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('duplicateStructureModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmDuplicate()" id="confirmDuplicateBtn">📑
+                <button class="btn btn-primary" onclick="confirmDuplicate()" id="confirmDuplicateBtn" data-year-write>📑
                     Duplicate</button>
             </div>
         </div>

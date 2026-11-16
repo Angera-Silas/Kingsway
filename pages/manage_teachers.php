@@ -248,7 +248,7 @@
                 <i class="bi bi-printer me-1"></i>Print
             </button>
         </div>
-        <button class="btn btn-light btn-sm fw-semibold" id="btnAddTeacher">
+        <button class="btn btn-light btn-sm fw-semibold" id="btnAddTeacher" data-year-write>
             <i class="bi bi-plus-circle me-1"></i>Add Teacher
         </button>
     </div>
@@ -616,7 +616,7 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                     <i class="bi bi-x-lg me-1"></i>Cancel
                 </button>
-                <button type="button" class="btn btn-academic" id="btnSaveTeacher">
+                <button type="button" class="btn btn-academic" id="btnSaveTeacher" data-year-write>
                     <i class="bi bi-check-circle me-1"></i>Save Teacher
                 </button>
             </div>
@@ -651,7 +651,7 @@
                         <small class="opacity-75 mt-1 d-block" id="viewDepartment">--</small>
                     </div>
                     <div class="text-end d-none d-md-block">
-                        <button class="btn btn-light btn-sm me-1" id="btnEditFromView" title="Edit teacher">
+                        <button class="btn btn-light btn-sm me-1" id="btnEditFromView" title="Edit teacher" data-year-write>
                             <i class="bi bi-pencil me-1"></i>Edit
                         </button>
                         <button class="btn btn-light btn-sm" id="btnPrintProfile" title="Print profile">
@@ -885,7 +885,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger btn-sm" id="btnConfirmDelete">
+                <button type="button" class="btn btn-danger btn-sm" id="btnConfirmDelete" data-year-write>
                     <i class="bi bi-trash me-1"></i>Delete
                 </button>
             </div>

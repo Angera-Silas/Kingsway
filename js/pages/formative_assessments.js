@@ -502,12 +502,12 @@ const fAssCtrl = {
               data-student="${m.student_id}" value="${m.score ?? ''}"
               min="0" max="${maxMarks}" step="0.5"
               onchange="fAssCtrl._onMarkChange(this, ${maxMarks})"
-              placeholder="/${maxMarks}">
+              placeholder="/${maxMarks}" data-year-write>
           </td>
           <td class="text-center pct-cell">${pct ? pct + '%' : '—'}</td>
           <td class="text-center grade-cell">${grade ? `<span class="${badgeCls}">${grade}</span>` : '—'}</td>
           <td><input type="text" class="form-control form-control-sm remarks-input" data-student="${m.student_id}"
-            value="${this._esc(m.remarks || '')}" placeholder="Optional remarks" maxlength="255"></td>
+            value="${this._esc(m.remarks || '')}" placeholder="Optional remarks" maxlength="255" data-year-write></td>
         </tr>`;
       }).join('');
 
@@ -517,7 +517,7 @@ const fAssCtrl = {
             <strong>${marks.length} students</strong>
             <span class="text-muted ms-2">Max marks: ${maxMarks}</span>
           </div>
-          <button class="btn btn-success" onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})">
+          <button class="btn btn-success" onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
             <i class="bi bi-floppy me-1"></i> Save All Marks
           </button>
         </div>
@@ -534,7 +534,7 @@ const fAssCtrl = {
           </table>
         </div>
         <div class="mt-3">
-          <button class="btn btn-success" onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})">
+          <button class="btn btn-success" onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
             <i class="bi bi-floppy me-1"></i> Save All Marks
           </button>
         </div>`;

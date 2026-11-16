@@ -56,7 +56,7 @@ class BudgetManager
             $stmt->execute([
                 $data['name'],
                 $data['description'] ?? null,
-                $data['fiscal_year'],
+                \App\API\Services\YearScope::legacyYear($this->db, ['academic_year_id' => $data['academic_year_id'] ?? null, 'academic_year' => $data['fiscal_year'] ?? $data['academic_year'] ?? null]),
                 $data['term'] ?? null,
                 $data['total_amount'],
                 $data['status'] ?? 'draft',
@@ -113,7 +113,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Check if budget exists and is editable
             $stmt = $this->db->prepare("
-                SELECT id, status FROM " . ReadReplicaService::qualifiedRef("budgets") . " id = ?
+                SELECT id, status FROM budgets WHERE id = ?
             ");
             $stmt->execute([$budgetId]);
             $budget = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -270,7 +270,10 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $params = [];
 
-            if (!empty($filters['fiscal_year'])) {
+            if (!empty($filters['academic_year_id'])) {
+                $sql .= " AND b.academic_year_id = ?";
+                $params[] = (int) $filters['academic_year_id'];
+            } elseif (!empty($filters['fiscal_year'])) {
                 $sql .= " AND b.academic_year = ?";
                 $params[] = $filters['fiscal_year'];
             }
@@ -299,7 +302,9 @@ return formatResponse(false, null, 'An internal error occurred.');
             $countSql = "SELECT COUNT(DISTINCT b.id) as total FROM budgets b WHERE 1=1";
             $countParams = array_slice($params, 0, -2);
 
-            if (!empty($filters['fiscal_year']))
+            if (!empty($filters['academic_year_id']))
+                $countSql .= " AND b.academic_year_id = ?";
+            elseif (!empty($filters['fiscal_year']))
                 $countSql .= " AND b.academic_year = ?";
             if (!empty($filters['status']))
                 $countSql .= " AND b.status = ?";

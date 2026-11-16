@@ -39,15 +39,11 @@
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">Academic Year</label>
-                                <select id="yearFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Years</option>
-                                </select>
+                                <select id="yearFilter" class="form-select" data-permission="academic_view" aria-label="Academic year"></select>
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">Term</label>
-                                <select id="termFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Terms</option>
-                                </select>
+                                <select id="termFilter" class="form-select" data-permission="academic_view" aria-label="Term"></select>
                             </div>
                         </div>
                         
@@ -61,10 +57,10 @@
 
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
-                                <button id="saveAllBtn" class="btn btn-primary" data-permission="assessments_edit">
+                                <button id="saveAllBtn" class="btn btn-primary" data-permission="assessments_edit" data-year-write>
                                     <i class="bi bi-save me-1"></i>Save All Marks
                                 </button>
-                                <button id="autoCalculateBtn" class="btn btn-outline-secondary">
+                                <button id="autoCalculateBtn" class="btn btn-outline-secondary" data-year-write>
                                     <i class="bi bi-calculator me-1"></i>Auto Calculate
                                 </button>
                                 <button id="exportBtn" class="btn btn-outline-success" data-permission="assessments_export">

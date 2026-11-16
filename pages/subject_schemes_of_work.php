@@ -15,7 +15,7 @@ return;
                 <button class="btn btn-light btn-sm" onclick="SubjectSchemesOfWorkController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="SubjectSchemesOfWorkController.createScheme()">
+                <button class="btn btn-outline-light btn-sm" onclick="SubjectSchemesOfWorkController.createScheme()" data-year-write>
                     <i class="bi bi-plus-circle"></i> Create Scheme
                 </button>
                 <button class="btn btn-outline-light btn-sm" onclick="SubjectSchemesOfWorkController.exportSchemes()">
@@ -65,14 +65,10 @@ return;
         <!-- Academic Year/Term Selector -->
         <div class="row mb-3">
             <div class="col-md-6">
-                <select id="academicYearSelect" class="form-select">
-                    <option value="">Select Academic Year</option>
-                </select>
+                <select id="academicYearSelect" class="form-select" aria-label="Academic year"></select>
             </div>
             <div class="col-md-6">
-                <select id="termSelect" class="form-select">
-                    <option value="">Select Term</option>
-                </select>
+                <select id="termSelect" class="form-select" aria-label="Term"></select>
             </div>
         </div>
 

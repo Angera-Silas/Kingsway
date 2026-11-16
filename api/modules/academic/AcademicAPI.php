@@ -1117,7 +1117,16 @@ class AcademicAPI extends BaseAPI
             $calendarSync = new CalendarSyncService($this->db);
             $events = $calendarSync->getUnifiedEvents(false, $current['year_id']);
 
-            if ($termId === null && $scope === 'current_term' && $current['current_term_id'] !== null) {
+            // "Now": today's period of the viewed year. During a holiday that
+            // is the holiday itself (its own dates), not a term.
+            $nowPeriod = $current['current_period'] ?? null;
+            if ($termId === null && $scope === 'current_term' && $nowPeriod && $nowPeriod['kind'] === 'holiday') {
+                $events = array_values(array_filter($events, function ($ev) use ($nowPeriod) {
+                    $start = (string) ($ev['start_date'] ?? $ev['date'] ?? '');
+                    $end = (string) ($ev['end_date'] ?? $start);
+                    return $start !== '' && $end >= $nowPeriod['start_date'] && $start <= $nowPeriod['end_date'];
+                }));
+            } elseif ($termId === null && $scope === 'current_term' && $current['current_term_id'] !== null) {
                 $termId = $current['current_term_id'];
             }
 
@@ -1239,6 +1248,28 @@ class AcademicAPI extends BaseAPI
             $context['current_term_name'] = $curRow['term_name'];
         }
 
+        // The year as it runs: terms, half terms and holidays in order, and
+        // the period of today when today is in this year (else its default
+        // term). During a holiday "now" is that holiday.
+        $periodService = new \App\API\Services\AcademicPeriodService($this->db);
+        $context['periods'] = $periodService->periodsForYear($context['year_id']);
+        $today = $periodService->periodForDate($context['today']);
+        $context['current_period'] = null;
+        if ($today && (int) $today['academic_year_id'] === $context['year_id']) {
+            $context['current_period'] = $today;
+        } elseif ($context['current_term_id']) {
+            foreach ($context['periods'] as $period) {
+                if ($period['kind'] === 'term' && (int) $period['academic_year_term_id'] === $context['current_term_id']) {
+                    $context['current_period'] = $period;
+                    break;
+                }
+            }
+        }
+        if (($context['current_period']['kind'] ?? '') === 'holiday') {
+            $context['current_term_id'] = null;
+            $context['current_term_name'] = $context['current_period']['name'];
+        }
+
         $weeksStmt = $this->db->prepare(
             "SELECT DISTINCT ac.week_number
              FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
@@ -1278,48 +1309,47 @@ class AcademicAPI extends BaseAPI
                 )->fetchColumn();
             }
 
-            $termId = !empty($data['term_id']) ? (int) $data['term_id'] : null;
-            if (!$termId) {
-                $termId = (int) $this->db->query(
-                    "SELECT id FROM academic_year_terms WHERE status = 'current' ORDER BY id DESC LIMIT 1"
-                )->fetchColumn();
-            }
-            if (!$termId) {
-                return errorResponse('term_id is required to create a calendar event');
-            }
-
-            $calendarId = (int) $this->queryScalar(
-                "SELECT ac.id FROM academic_year_calendar ac
-                 WHERE ac.academic_year_term_id = ? AND ? BETWEEN ac.week_start AND ac.week_end
-                 ORDER BY ac.week_number LIMIT 1",
-                [$termId, $date]
-            );
-            if (!$calendarId) {
+            // Where the event's day lives. A date inside a term is a school
+            // week day of that term (next term and the incoming year too).
+            // Events also happen in the holidays, after a term closes and
+            // before the next one opens: those dates are the year-wide base
+            // rows (academic_year_calendar_id = 0) that hold every break day,
+            // saved as manual so rebuilding the calendar keeps them.
+            $termId = !empty($data['term_id']) ? (int) $data['term_id'] : 0;
+            $calendarId = 0;
+            if ($termId) {
                 $calendarId = (int) $this->queryScalar(
-                    "SELECT ac.id FROM academic_year_calendar ac WHERE ac.academic_year_term_id = ? ORDER BY ac.week_number LIMIT 1",
-                    [$termId]
+                    "SELECT id FROM academic_year_calendar
+                      WHERE academic_year_term_id = ? AND ? BETWEEN week_start AND week_end
+                      ORDER BY week_number LIMIT 1",
+                    [$termId, $date]
+                );
+            } else {
+                $calendarId = (int) $this->queryScalar(
+                    "SELECT id FROM academic_year_calendar WHERE ? BETWEEN week_start AND week_end
+                      ORDER BY id DESC LIMIT 1",
+                    [$date]
                 );
             }
             if (!$calendarId) {
-                $term = $this->queryRow(
-                    "SELECT opening_date, closing_date FROM academic_year_terms WHERE id = ?",
-                    [$termId]
+                $inYear = (int) $this->queryScalar(
+                    "SELECT id FROM academic_years WHERE ? BETWEEN start_date AND end_date ORDER BY id DESC LIMIT 1",
+                    [$date]
                 );
-                $this->runQuery(
-                    "INSERT INTO academic_year_calendar (academic_year_term_id, week_number, week_start, week_end) VALUES (?, 1, ?, ?)",
-                    [$termId, $term['opening_date'] ?: $date, $term['closing_date'] ?: $date]
-                );
-                $calendarId = (int) $this->db->lastInsertId();
+                if (!$inYear) {
+                    return errorResponse('No academic year covers this date; set up the academic year first');
+                }
             }
 
             $stmt = $this->db->prepare("
                 INSERT INTO academic_year_calendar_days (
-                    academic_year_calendar_id, date, calendar_day_type_id, title, description
-                ) VALUES (?, ?, ?, ?, ?)
+                    academic_year_calendar_id, date, calendar_day_type_id, title, description, is_manual
+                ) VALUES (?, ?, ?, ?, ?, 1)
                 ON DUPLICATE KEY UPDATE
                     calendar_day_type_id = VALUES(calendar_day_type_id),
                     title = VALUES(title),
-                    description = VALUES(description)
+                    description = VALUES(description),
+                    is_manual = 1
             ");
             $stmt->execute([
                 $calendarId,
@@ -1759,6 +1789,8 @@ SELECT
     {
         try {
             [$page, $limit, $offset] = $this->getPaginationParams();
+            // Year-aware (2026-11-15): standard keys; the current year by default.
+            $params = $this->normalizeYearFilters(is_array($params) ? $params : []);
 
             // Build WHERE clause
             $where = ["1=1"];
@@ -2344,17 +2376,16 @@ SELECT
             return null;
         }
 
-        // Teachers are always bound to the active year/term. Leaders may
+        // Teachers plan lessons for the running term or one still to come
+        // (next term, the incoming year), never a closed term. Leaders may
         // review historical material but still cannot create against an
         // unconfigured stream-learning-area context.
         if (!$leader) {
-            $current = $this->db->query(
-                "SELECT ayt.academic_year_term_id AS id, ayt.academic_year_id
-                 FROM " . ReadReplicaService::qualifiedRef("academic_term") . " ayt
-                 WHERE ayt.is_current_year = 1 AND ayt.term_period_status = 'current'
-                 ORDER BY ayt.academic_year_term_id DESC LIMIT 1"
-            )->fetch(PDO::FETCH_ASSOC);
-            if (!$current || (int) $current['id'] !== (int) $row['academic_year_term_id']) {
+            $termStatus = (string) $this->queryScalar(
+                "SELECT status FROM academic_year_terms WHERE id = ? LIMIT 1",
+                [(int) $row['academic_year_term_id']]
+            );
+            if (!in_array($termStatus, ['current', 'upcoming'], true)) {
                 return null;
             }
             if ((int) $row['teacher_id'] !== $teacherId || !$this->teacherCanUseStreamLearningArea((int) $row['stream_learning_area_id'], $teacherId)) {
@@ -2888,16 +2919,52 @@ return errorResponse($e->getMessage(), 400);
                 ], 400);
             }
 
-            // Check if year is current
-            $stmt = $this->db->prepare("SELECT is_current FROM academic_years WHERE id = ?");
+            // Every year's data matters (user, 2026-11-14): only an upcoming
+            // year created by mistake, still holding no learners, results or
+            // fees, may be deleted. Current and completed years never are.
+            $stmt = $this->db->prepare("SELECT is_current, state, year_code FROM academic_years WHERE id = ?");
             $stmt->execute([$yearId]);
             $year = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($year && $year['is_current']) {
+            if (!$year) {
+                return errorResponse(['status' => 'error', 'message' => 'Academic year not found'], 404);
+            }
+            if ((int) $year['is_current'] === 1 || (string) $year['state'] !== 'upcoming') {
                 return errorResponse([
                     'status' => 'error',
-                    'message' => 'Cannot delete current academic year'
-                ], 400);
+                    'message' => $year['year_code'] . ' cannot be deleted: only an upcoming year that holds no records can be deleted. '
+                        . 'Current and completed years keep their records permanently.'
+                ], 409);
+            }
+            foreach ([
+                'student_academic_enrollments' => 'academic_year_id',
+                'student_fee_obligations' => 'academic_year_id',
+            ] as $table => $column) {
+                $check = $this->db->prepare("SELECT 1 FROM {$table} WHERE {$column} = ? LIMIT 1");
+                $check->execute([$yearId]);
+                if ($check->fetchColumn()) {
+                    return errorResponse([
+                        'status' => 'error',
+                        'message' => $year['year_code'] . ' already holds learner or fee records and cannot be deleted.'
+                    ], 409);
+                }
+            }
+            $terms = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ?");
+            $terms->execute([$yearId]);
+            $termIds = array_map('intval', $terms->fetchAll(PDO::FETCH_COLUMN) ?: []);
+            $hasAssessments = false;
+            if ($termIds) {
+                $check = $this->db->prepare(
+                    'SELECT 1 FROM assessments WHERE academic_year_term_id IN (' . implode(',', array_fill(0, count($termIds), '?')) . ') LIMIT 1'
+                );
+                $check->execute($termIds);
+                $hasAssessments = (bool) $check->fetchColumn();
+            }
+            if ($hasAssessments) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => $year['year_code'] . ' already holds assessments and cannot be deleted.'
+                ], 409);
             }
 
             $stmt = $this->db->prepare("DELETE FROM academic_years WHERE id = ?");
@@ -3109,6 +3176,11 @@ return errorResponse($e->getMessage(), 400);
         try {
             $id = is_scalar($params) ? (int) $params : (int) ($params['id'] ?? 0);
             $filters = is_array($params) ? $params : [];
+            // Year-aware (2026-11-15): a list reads the selected year (the
+            // current year by default); one scheme by id is read in any year.
+            if ($id <= 0) {
+                $filters = $this->normalizeYearFilters($filters);
+            }
             $where = ['1=1'];
             $bindings = [];
 
@@ -3149,33 +3221,30 @@ return errorResponse($e->getMessage(), 400);
 
             if (!$this->isAcademicLeader()) {
                 $staffId = $this->getCurrentStaffId();
-                $scope = (new \App\API\Services\TeacherScopeService($this->db))->forUser(
-                    ['user_id' => $this->getCurrentUserId()],
-                    $this->resolveCurrentAcademicYearId(),
-                    null
-                );
                 $where[] = 'slc.teacher_id = ?';
                 $bindings[] = (int) $staffId;
-                // The scheme_lesson_context projection stores calendar_week_id;
-                // its term is resolved through academic_year_calendar below.
-                $where[] = 'ayt.id = ?';
-                $currentTermId = $this->db->query(
-                    "SELECT id FROM academic_year_terms
-                     WHERE academic_year_id = " . (int) $this->resolveCurrentAcademicYearId() . " AND status = 'current'
-                     ORDER BY id DESC LIMIT 1"
-                )->fetchColumn();
-                $bindings[] = (int) $currentTermId;
-                $parts = [];
-                foreach ((array) ($scope['class_stream_ids'] ?? []) as $stream) {
-                    $parts[] = 'slad.academic_year_class_stream_id = ?';
-                    $bindings[] = (int) $stream;
+                // A teacher's list is the selected year and term (set above
+                // from the filters), so next term's and the incoming year's
+                // schemes are visible while they are prepared. One scheme read
+                // by id needs only ownership: it may belong to any year.
+                if ($id <= 0) {
+                    $scope = (new \App\API\Services\TeacherScopeService($this->db))->forUser(
+                        ['user_id' => $this->getCurrentUserId()],
+                        (int) ($filters['academic_year_id'] ?? 0) ?: null,
+                        !empty($filters['term_id']) ? (int) $filters['term_id'] : null
+                    );
+                    $parts = [];
+                    foreach ((array) ($scope['class_stream_ids'] ?? []) as $stream) {
+                        $parts[] = 'slad.academic_year_class_stream_id = ?';
+                        $bindings[] = (int) $stream;
+                    }
+                    foreach ((array) ($scope['subject_assignments'] ?? []) as $assignment) {
+                        $parts[] = '(slad.academic_year_class_stream_id = ? AND slc.learning_area_id = ?)';
+                        $bindings[] = (int) ($assignment['stream_id'] ?? 0);
+                        $bindings[] = (int) ($assignment['learning_area_id'] ?? 0);
+                    }
+                    $where[] = $parts ? '(' . implode(' OR ', $parts) . ')' : '1 = 0';
                 }
-                foreach ((array) ($scope['subject_assignments'] ?? []) as $assignment) {
-                    $parts[] = '(slad.academic_year_class_stream_id = ? AND slc.learning_area_id = ?)';
-                    $bindings[] = (int) ($assignment['stream_id'] ?? 0);
-                    $bindings[] = (int) ($assignment['learning_area_id'] ?? 0);
-                }
-                $where[] = $parts ? '(' . implode(' OR ', $parts) . ')' : '1 = 0';
             }
 
             $slc = ReadReplicaService::qualifiedRef('scheme_lesson_context');
@@ -3249,14 +3318,20 @@ return errorResponse($e->getMessage(), 400);
     }
 
     /** Current, exact teacher planning context for the weekly scheme builder. */
-    public function getTeacherPlanningContext()
+    public function getTeacherPlanningContext(array $params = [])
     {
         try {
-            $yearId = $this->resolveCurrentAcademicYearId();
-            $term = $this->db->prepare("SELECT ayt.academic_year_term_id AS id, ayt.term_name, ayt.year_code FROM " . ReadReplicaService::qualifiedRef("academic_term") . " ayt WHERE ayt.academic_year_id=? AND ayt.term_period_status='current' LIMIT 1");
-            $term->execute([$yearId]);
+            // The year and term chosen on the page, so next term's and the
+            // incoming year's schemes can be prepared ahead of time.
+            [$yearId, $termId] = $this->resolvePlanningPeriod(
+                (int) ($params['academic_year_id'] ?? 0),
+                (int) ($params['academic_year_term_id'] ?? $params['term_id'] ?? 0)
+            );
+            if (!$termId) return errorResponse('No term is set up for the selected academic year', 409);
+            $term = $this->db->prepare("SELECT ayt.academic_year_term_id AS id, ayt.term_name, ayt.year_code, ayt.term_period_status FROM " . ReadReplicaService::qualifiedRef("academic_term") . " ayt WHERE ayt.academic_year_term_id=? LIMIT 1");
+            $term->execute([$termId]);
             $termRow = $term->fetch(PDO::FETCH_ASSOC);
-            if (!$termRow) return errorResponse('No current academic term is configured', 409);
+            if (!$termRow) return errorResponse('No term is set up for the selected academic year', 409);
             $scope = (new \App\API\Services\TeacherScopeService($this->db))->forUser(['user_id' => $this->getCurrentUserId()], $yearId, (int) $termRow['id']);
             $classStreams = array_values(array_filter(array_map('intval', (array) ($scope['class_stream_ids'] ?? []))));
             $subjectPairs = [];
@@ -3347,7 +3422,7 @@ return errorResponse($e->getMessage(), 400);
                 }
             }
             $draftsStmt=$this->db->prepare("SELECT id,academic_year_class_stream_learning_area_id,title,payload,updated_at FROM scheme_workbooks WHERE academic_year_term_id=? AND teacher_id=? AND status='draft'"); $draftsStmt->execute([(int)$termRow['id'],(int)$this->getCurrentStaffId()]); $drafts=$draftsStmt->fetchAll(PDO::FETCH_ASSOC); foreach($drafts as &$draft)$draft['payload']=json_decode((string)$draft['payload'],true) ?: [];
-            return successResponse(['academic_year_id'=>$yearId,'academic_year_term_id'=>(int)$termRow['id'],'year_code'=>$termRow['year_code'],'term_name'=>$termRow['term_name'],'streams'=>array_values($streams),'weeks'=>$weeksStmt->fetchAll(PDO::FETCH_ASSOC),'curriculum'=>$curriculum,'drafts'=>$drafts]);
+            return successResponse(['academic_year_id'=>$yearId,'academic_year_term_id'=>(int)$termRow['id'],'year_code'=>$termRow['year_code'],'term_name'=>$termRow['term_name'],'term_status'=>$termRow['term_period_status'],'streams'=>array_values($streams),'weeks'=>$weeksStmt->fetchAll(PDO::FETCH_ASSOC),'curriculum'=>$curriculum,'drafts'=>$drafts]);
         } catch (Exception $e) { return $this->handleException($e); }
     }
 
@@ -3460,13 +3535,14 @@ return errorResponse($e->getMessage(), 400);
             $leader = $this->isAcademicLeader();
             if (!$leader && $this->getCurrentStaffId()) {
                 $data['teacher_id'] = $this->getCurrentStaffId();
-                $data['academic_year_id'] = $this->resolveCurrentAcademicYearId();
-                $currentTerm = $this->db->query(
-                    "SELECT id FROM academic_year_terms
-                     WHERE academic_year_id = " . (int) $data['academic_year_id'] . " AND status = 'current'
-                     ORDER BY id DESC LIMIT 1"
-                )->fetchColumn();
-                $data['term_id'] = (int) ($currentTerm ?: 0);
+                // The chosen year and term (next term, the incoming year), or
+                // the running term, else the next one to open.
+                [$planYear, $planTerm] = $this->resolvePlanningPeriod(
+                    (int) ($data['academic_year_id'] ?? 0),
+                    (int) ($data['academic_year_term_id'] ?? $data['term_id'] ?? 0)
+                );
+                $data['academic_year_id'] = $planYear;
+                $data['term_id'] = $planTerm;
             }
             $required = ['learning_area_id', 'class_id', 'teacher_id', 'term_id', 'week_number', 'title'];
             if (!$leader) $required[] = 'stream_id';
@@ -3541,12 +3617,24 @@ return errorResponse($e->getMessage(), 400);
             $classId = (int)($data['class_id'] ?? 0); $streamId = (int)($data['stream_id'] ?? 0); $areaId = (int)($data['learning_area_id'] ?? 0);
             $staffId = $this->getCurrentStaffId();
             if (!$classId || !$streamId || !$areaId || !$staffId || !$entries) return errorResponse('Stream, learning area and at least one planned week are required',400);
-            if (!$this->isAcademicLeader()) {
-                $yearId=$this->resolveCurrentAcademicYearId();
-                $termId=(int)($this->db->query("SELECT id FROM academic_year_terms WHERE academic_year_id=".(int)$yearId." AND status='current' ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
-                $data['academic_year_id']=$yearId; $data['term_id']=$termId; $data['teacher_id']=$staffId;
-            } else { $yearId=(int)($data['academic_year_id']??$this->resolveCurrentAcademicYearId()); $termId=(int)($data['term_id']??0); }
-            if (!$termId) return errorResponse('No current academic term is configured',409);
+            // A workbook's schemes belong to the workbook's own year and term
+            // (it may be next term or the incoming year); otherwise the chosen
+            // period, defaulting to the running or next term.
+            $bookPeriod = null;
+            if ($workbookId) {
+                $bp=$this->db->prepare("SELECT academic_year_id, academic_year_term_id FROM scheme_workbooks WHERE id=? LIMIT 1"); $bp->execute([$workbookId]);
+                $bookPeriod=$bp->fetch(PDO::FETCH_ASSOC) ?: null;
+            }
+            if ($bookPeriod) {
+                $yearId=(int)$bookPeriod['academic_year_id']; $termId=(int)$bookPeriod['academic_year_term_id'];
+            } elseif (!$this->isAcademicLeader()) {
+                [$yearId,$termId]=$this->resolvePlanningPeriod((int)($data['academic_year_id']??0),(int)($data['academic_year_term_id']??0));
+            } else {
+                $yearId=(int)($data['academic_year_id']??0) ?: (int)$this->resolveCurrentAcademicYearId(); $termId=(int)($data['term_id']??$data['academic_year_term_id']??0);
+                if (!$termId) [$yearId,$termId]=$this->resolvePlanningPeriod($yearId);
+            }
+            if (!$this->isAcademicLeader()) { $data['academic_year_id']=$yearId; $data['term_id']=$termId; $data['teacher_id']=$staffId; }
+            if (!$termId) return errorResponse('No term is set up for the selected academic year',409);
             $aycsId=$this->resolveAcademicYearClassStreamId($classId,$streamId,$yearId); $streamAreaId=$this->resolveStreamLearningAreaId($aycsId,$areaId);
             if (!$streamAreaId || !$this->teacherCanUseStreamLearningArea($streamAreaId,$staffId)) return errorResponse('You are not assigned to this stream and learning area',403);
             $ayClassId=$this->resolveAcademicYearClassId($classId,$yearId); $ayclaId=$this->resolveClassLearningAreaId($ayClassId,$areaId);
@@ -3654,9 +3742,21 @@ return errorResponse($e->getMessage(), 400);
     public function saveSchemeWorkbook($data)
     {
         try {
-            $staff=$this->getCurrentStaffId(); $year=$this->resolveCurrentAcademicYearId(); $term=(int)($this->db->query("SELECT id FROM academic_year_terms WHERE academic_year_id=".(int)$year." AND status='current' ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
+            $staff=$this->getCurrentStaffId();
+            // A saved draft keeps the term it was started in; a new draft is
+            // for the year and term the planning context was loaded for.
+            $existingId=(int)($data['workbook_id']??0);
+            if($existingId){
+                $own=$this->db->prepare("SELECT academic_year_id, academic_year_term_id FROM scheme_workbooks WHERE id=? AND teacher_id=? LIMIT 1"); $own->execute([$existingId,(int)$staff]);
+                $book=$own->fetch(PDO::FETCH_ASSOC); if(!$book) return errorResponse('Only an editable draft workbook can be changed',409);
+                $year=(int)$book['academic_year_id']; $term=(int)$book['academic_year_term_id'];
+            } else {
+                [$year,$term]=$this->resolvePlanningPeriod((int)($data['academic_year_id']??0),(int)($data['academic_year_term_id']??$data['term_id']??0));
+            }
             $streamArea=(int)($data['stream_learning_area_id']??0); $payload=$data['weeks']??[];
             if(!$staff||!$streamArea||!is_array($payload)) return errorResponse('Planning context and weekly payload are required',400);
+            if(!$term) return errorResponse('No term is set up for the selected academic year',409);
+            if($this->streamLearningAreaYearId($streamArea)!==$year) return errorResponse('This stream and learning area are not part of the selected academic year',422);
             if(!$this->teacherCanUseStreamLearningArea($streamArea,$staff)) return errorResponse('You are not assigned to this stream-learning-area',403);
             $check=$this->db->prepare("SELECT 1 FROM academic_year_class_stream_learning_areas WHERE id=? AND status <> 'skipped'"); $check->execute([$streamArea]); if(!$check->fetchColumn()) return errorResponse('Invalid stream-learning-area context',400);
             $this->db->beginTransaction();
@@ -3820,18 +3920,14 @@ return errorResponse($e->getMessage(), 400);
                 $termId = $this->resolveAcademicYearTermId($academicYearId, $termNumber);
             }
             if (!$termId) {
-                $stmt = $this->db->prepare("
-                    SELECT ayt.academic_year_term_id AS id, SUBSTRING(ayt.term_code, 2) AS term_number, ayt.academic_year_id
-                    FROM " . ReadReplicaService::qualifiedRef("academic_term") . " ayt
-                    WHERE ayt.term_period_status = 'current'
-                    ORDER BY ayt.academic_year_term_id DESC LIMIT 1
-                ");
-                $stmt->execute();
-                $current = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($current) {
-                    $termId = (int) $current['id'];
-                    $termNumber = (int) $current['term_number'];
-                    if (!$academicYearId) $academicYearId = (int) $current['academic_year_id'];
+                // The chosen (or current) year's running term, else the next
+                // one to open, so schemes can be generated between terms and
+                // for the incoming year.
+                [$planYear, $planTerm] = $this->resolvePlanningPeriod((int) ($academicYearId ?? 0), (int) ($data['academic_year_term_id'] ?? 0));
+                if ($planTerm) {
+                    $termId = $planTerm;
+                    if (!$academicYearId) $academicYearId = $planYear;
+                    $termNumber = (int) $this->queryScalar("SELECT term_id FROM academic_year_terms WHERE id = ?", [$planTerm]) ?: $termNumber;
                 }
             }
             if (!$termId) {
@@ -4461,7 +4557,7 @@ return errorResponse($e->getMessage(), 400);
             }
 
             // Get topics for this unit
-            $sql = "SELECT * FROM " . ReadReplicaService::qualifiedRef("strands") . " strand_id = ? AND status = 'active' ORDER BY sort_order";
+            $sql = "SELECT * FROM sub_strands WHERE strand_id = ? AND status = 'active' ORDER BY sort_order";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
             $unit['topics'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -4838,6 +4934,8 @@ return errorResponse($e->getMessage(), 400);
     {
         try {
             [$page, $limit, $offset] = $this->getPaginationParams();
+            // Year-aware (2026-11-14): standard keys; the current year by default.
+            $params = $this->normalizeYearFilters(is_array($params) ? $params : []);
 
             $examSchedules = ReadReplicaService::qualifiedRef('exam_schedules');
             $academicYearTerms = ReadReplicaService::qualifiedRef('academic_year_terms');
@@ -5543,17 +5641,13 @@ return errorResponse($e->getMessage(), 400);
     public function autoGenerateSupervisionRoster($data)
     {
         try {
-            $termId = $data['term_id'] ?? null;
+            $termId = $data['term_id'] ?? $data['academic_year_term_id'] ?? null;
             if (empty($termId)) {
-                $stmt = $this->db->query(
-                    "SELECT ayt.academic_year_term_id FROM " . ReadReplicaService::qualifiedRef("academic_term") . " ayt
-                     WHERE ayt.is_current_year = 1 AND ayt.term_period_status = 'current'
-                     LIMIT 1"
-                );
-                $termId = $stmt->fetchColumn();
+                // The running term, or during a holiday the next term to open.
+                [, $termId] = $this->resolvePlanningPeriod((int) ($data['academic_year_id'] ?? 0));
             }
             if (empty($termId)) {
-                return errorResponse('No current term found to generate a roster for');
+                return errorResponse('No term is set up for the selected academic year');
             }
 
             // Upcoming/scheduled exams in the term with no roster row yet and a supervisor.
@@ -6771,12 +6865,19 @@ return errorResponse($e->getMessage(), 400);
     public function listClassStreams($classId = null, $params = [])
     {
         try {
-            $where = ["aycs.status = 'active'"];
+            // 'planning' streams belong to an incoming year being set up.
+            $where = ["aycs.status IN ('active', 'planning')"];
             $bindings = [];
 
             if (!empty($params['status'])) {
                 $where = ["aycs.status = ?"];
                 $bindings[] = $params['status'];
+            }
+
+            // One academic year at a time: the chosen year, else the current
+            // one. all_years=1 is the explicit opt-in to every year.
+            if (empty($params['academic_year_id']) && empty($params['all_years']) && empty($params['teacher_id'])) {
+                $params['academic_year_id'] = (new \App\API\Services\YearScope($this->db))->currentYearId();
             }
 
             if (!empty($classId)) {
@@ -6959,6 +7060,21 @@ return errorResponse($e->getMessage(), 400);
 
             // Teaching staff + leadership that handles academic assignments
             $where[] = "(s.staff_type_id = 1 OR LOWER(s.position) REGEXP 'teacher|head|academic|deputy')";
+            // Test accounts never appear in a live user's teacher lists
+            // (class teacher and subject teacher pickers, the classes page).
+            // A test account still sees them so test flows keep working.
+            $caller = $_SERVER['auth_user'] ?? [];
+            $callerIsTest = (int) ($caller['is_test_user'] ?? 0) === 1 || ($caller['account_type'] ?? '') === 'test';
+            if (!$callerIsTest) {
+                $where[] = "s.id NOT IN (
+                    SELECT sd.staff_id FROM " . ReadReplicaService::qualifiedRef('staff_directory') . " sd
+                    WHERE sd.staff_id IS NOT NULL
+                      AND (COALESCE(sd.data_scope, 'live') = 'test'
+                           OR COALESCE(sd.person_data_scope, 'live') = 'test'
+                           OR COALESCE(sd.is_test_user, 0) = 1
+                           OR COALESCE(sd.account_type, 'real') = 'test')
+                )";
+            }
             $whereClause = implode(' AND ', $where);
 
             $sql = "
@@ -7015,8 +7131,11 @@ return errorResponse($e->getMessage(), 400);
     public function listClasses($params = [])
     {
         try {
-            $page = $params['page'] ?? 1;
-            $limit = $params['limit'] ?? 20;
+            // The school has about a dozen classes per year. A small default
+            // page silently dropped classes, so callers that never paginate
+            // (nearly all of them) now get the full list.
+            $page = max(1, (int) ($params['page'] ?? 1));
+            $limit = max(1, min(500, (int) ($params['limit'] ?? 200)));
             $offset = ($page - 1) * $limit;
 
             $where = ['1=1'];
@@ -7027,19 +7146,39 @@ return errorResponse($e->getMessage(), 400);
                 $bindings[] = $params['level_id'];
             }
 
-            if (!empty($params['academic_year_id'])) {
+            // Each row is one class in one academic year, and the row id is
+            // the class id. Without a year scope a class appears once per
+            // year, so pages keyed by class id counted its learners twice
+            // (772 shown for 454 learners). Default to the current year;
+            // all_years=1 is the explicit opt-in to the cross-year list.
+            $yearId = $params['academic_year_id'] ?? $params['year_id'] ?? null;
+            if (!empty($yearId) && ctype_digit((string) $yearId)) {
                 $where[] = 'ayc.academic_year_id = ?';
-                $bindings[] = $params['academic_year_id'];
+                $bindings[] = (int) $yearId;
             } elseif (!empty($params['academic_year'])) {
                 $where[] = 'ay.year_code = ?';
                 $bindings[] = $params['academic_year'];
+            } elseif (empty($params['all_years'])) {
+                $currentYearStmt = $this->db->prepare(
+                    "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY start_date DESC, id DESC LIMIT 1"
+                );
+                $currentYearStmt->execute();
+                $currentYearId = $currentYearStmt->fetchColumn();
+                if ($currentYearId) {
+                    $where[] = 'ayc.academic_year_id = ?';
+                    $bindings[] = (int) $currentYearId;
+                }
             }
 
+            // An incoming year's classes and streams are created in 'planning'
+            // and become 'active' when the year opens. Both are listed, so the
+            // incoming year can be set up (class teachers, subject teachers,
+            // timetables, registers) before the school reopens.
             if (!empty($params['status'])) {
                 $where[] = 'ayc.status = ?';
                 $bindings[] = $params['status'];
             } else {
-                $where[] = "ayc.status = 'active'";
+                $where[] = "ayc.status IN ('active', 'planning')";
             }
 
             $whereClause = implode(' AND ', $where);
@@ -7064,7 +7203,7 @@ return errorResponse($e->getMessage(), 400);
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.class_id = c.id
                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id AND aycs.status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id AND aycs.status IN ('active', 'planning')
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON aycs.stream_id = st.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active' AND sae.student_id IN (SELECT id FROM " . ReadReplicaService::qualifiedRef("students") . ")
                 WHERE {$whereClause}
@@ -7356,6 +7495,51 @@ return errorResponse($e->getMessage(), 400);
     /**
      * Resolve the current academic year id (is_current = 1, else latest).
      */
+    /**
+     * Whether the current user may edit records of a year (default: the
+     * current year): {id, label, state, is_current, editable}. Pages use it
+     * to show a completed year read-only.
+     */
+    public function yearAccess(?int $yearId = null): array
+    {
+        $yearId = $yearId ?: (int) ($this->resolveCurrentAcademicYearId() ?: 0);
+        $meta = $yearId > 0 ? $this->yearMeta($yearId) : null;
+        return $meta
+            ? $this->successResponse($meta)
+            : $this->errorResponse('Academic year not found', 404);
+    }
+
+    /**
+     * The academic year and term a teacher plans for (schemes of work,
+     * workbooks): the term the user chose, else the running term of the
+     * chosen (or current) year, else that year's next upcoming term, else its
+     * latest term. With nothing chosen and the current year finished, the
+     * next upcoming term of any year is used, so planning for the incoming
+     * year works between years. A term outside the chosen year is refused.
+     *
+     * @return array{0:int,1:int} [academic_year_id, academic_year_term_id]; [0,0] when none.
+     */
+    private function resolvePlanningPeriod(int $yearId = 0, int $termId = 0): array
+    {
+        // One rule for the whole system (AcademicPeriodService): during a
+        // holiday the term to prepare is the next one to open.
+        return (new \App\API\Services\AcademicPeriodService($this->db))->planningTerm($yearId, $termId);
+    }
+
+    /** Academic year of a stream-learning-area row, by keyed reads (0 when unknown). */
+    private function streamLearningAreaYearId(int $streamLearningAreaId): int
+    {
+        $read = function (string $sql, int $id): int {
+            if ($id <= 0) return 0;
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$id]);
+            return (int) ($stmt->fetchColumn() ?: 0);
+        };
+        $aycsId = $read("SELECT academic_year_class_stream_id FROM academic_year_class_stream_learning_areas WHERE id = ?", $streamLearningAreaId);
+        $aycId = $read("SELECT academic_year_class_id FROM academic_year_class_streams WHERE id = ?", $aycsId);
+        return $read("SELECT academic_year_id FROM academic_year_classes WHERE id = ?", $aycId);
+    }
+
     private function resolveCurrentAcademicYearId()
     {
         static $cached = null;
@@ -7667,11 +7851,15 @@ return errorResponse($e->getMessage(), 400);
     public function getResultsAnalysis($params = [])
     {
         try {
-            $where = ["1=1"];
+            // Only rows that hold a mark. The roll-up also stores empty
+            // placeholder rows (assessment_count 0, no percentage); counting
+            // them reported 411 learners assessed when 3 had been marked.
+            $where = ["tss.overall_percentage IS NOT NULL", "tss.assessment_count > 0"];
             $bindings = [];
 
             if (!empty($params['term_id'])) {
-                $where[] = "tss.term_id = (SELECT term_id FROM academic_year_terms WHERE id = ?)";
+                // term_id here is academic_year_terms.id (one term of one year).
+                $where[] = "tss.academic_year_term_id = ?";
                 $bindings[] = (int) $params['term_id'];
             }
             if (!empty($params['class_id'])) {
@@ -7691,11 +7879,16 @@ return errorResponse($e->getMessage(), 400);
                 ? (int) $params['year_id']
                 : (!empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : $this->resolveCurrentAcademicYearId());
 
+            // Each score row already names its academic-year term and the
+            // stream the learner sat in that term, so scope by those keys.
+            // Matching on the term number crossed years, and requiring an
+            // 'active' enrollment dropped every score once a year was
+            // promoted (enrollments become completed/graduated), so a year
+            // with 3,584 scores reported "No scores".
             $scoreJoins = "
                 JOIN students s ON s.id = tss.student_id
-                JOIN academic_year_terms ayt ON ayt.term_id = tss.term_id AND ayt.academic_year_id = {$currentYearId}
-                JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.academic_year_id = {$currentYearId} AND sae.enrollment_status IN ('pending', 'active')
-                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN academic_year_terms ayt ON ayt.id = tss.academic_year_term_id AND ayt.academic_year_id = {$currentYearId}
+                JOIN academic_year_class_streams aycs ON aycs.id = tss.academic_year_class_stream_id
                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 JOIN classes c ON c.id = ayc.class_id
                 LEFT JOIN school_levels sl ON sl.id = c.level_id
@@ -7759,8 +7952,18 @@ return errorResponse($e->getMessage(), 400);
             // Fallback to assessment_results if rollup table has no records.
             if (empty($classMetrics) && empty($subjectMetrics)) {
                 $source = 'assessment_results';
-                $fallbackWhere = ["1=1"];
-                $fallbackBindings = [];
+                // Always scope to the selected academic year; without it a
+                // year with no results showed other years' assessments. Only
+                // approved results count: draft marks on an exam still
+                // pending submission are not results.
+                $fallbackWhere = [
+                    "ayc.academic_year_id = ?",
+                    "a.status = 'approved'",
+                    "ar.is_submitted = 1",
+                    "ar.is_approved = 1",
+                    "ar.deleted_at IS NULL",
+                ];
+                $fallbackBindings = [(int) $currentYearId];
 
                 if (!empty($params['term_id'])) {
                     $fallbackWhere[] = "a.academic_year_term_id = ?";
@@ -8086,12 +8289,12 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                 LEFT JOIN annual_scores ans
                     ON ans.student_id = s.id
-                   AND ans.academic_year = ?
+                   AND ans.academic_year_id = ?
                 {$attendanceJoin}
                 WHERE s.id = ?
                 LIMIT 1
             ";
-            $studentBindings = array_merge([$yearValue], $attendanceBindings, [$studentId]);
+            $studentBindings = array_merge([$yearId], $attendanceBindings, [$studentId]);
             $studentStmt = $this->db->prepare($studentSql);
             $studentStmt->execute($studentBindings);
             $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
@@ -8114,11 +8317,9 @@ return errorResponse($e->getMessage(), 400);
                             sae2.academic_year_class_stream_id AS aycs_id,
                             ROUND(AVG(t2.overall_percentage), 2) AS class_average
                         FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " t2
-                        JOIN academic_year_terms ayt2
-                            ON ayt2.term_id = t2.term_id AND ayt2.academic_year_id = {$yearId}
                         JOIN student_academic_enrollments sae2
                             ON sae2.student_id = t2.student_id AND sae2.academic_year_id = {$yearId}
-                        WHERE t2.term_id = (SELECT term_id FROM academic_year_terms WHERE id = ?)
+                        WHERE t2.academic_year_term_id = ?
                         GROUP BY t2.subject_id, sae2.academic_year_class_stream_id
                     ) class_subject_avg
                         ON class_subject_avg.subject_id = tss.subject_id
@@ -8141,12 +8342,11 @@ return errorResponse($e->getMessage(), 400);
                         class_subject_avg.class_average
                     FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = tss.subject_id
-                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.term_id = tss.term_id AND ayt.academic_year_id = {$yearId}
                     JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                         ON sae.student_id = tss.student_id AND sae.academic_year_id = {$yearId}
                     {$classAverageJoin}
                     WHERE tss.student_id = ?
-                      AND tss.term_id = (SELECT term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " class_subject_avg WHERE id = ?)
+                      AND tss.academic_year_term_id = ?
                     ORDER BY subject_name ASC
                 ";
                 $scoresStmt = $this->db->prepare($scoresSql);
@@ -8323,9 +8523,7 @@ return errorResponse($e->getMessage(), 400);
                             ROUND(AVG(t2.overall_percentage), 2) AS term_average,
                             MAX(t2.overall_grade) AS term_grade
                         FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " t2
-                        JOIN academic_year_terms ayt2
-                            ON ayt2.term_id = t2.term_id AND ayt2.academic_year_id = {$yearId}
-                        WHERE ayt2.id = ?
+                        WHERE t2.academic_year_term_id = ?
                         GROUP BY t2.student_id
                     ) term_scores ON term_scores.student_id = s.id
                 ";
@@ -8459,7 +8657,9 @@ return errorResponse($e->getMessage(), 400);
                     COALESCE(att.days_absent, 0) AS days_absent
                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
-                LEFT JOIN (
+                -- The year's population is the learners enrolled in that
+                -- year; an outer join counted learners never enrolled in it.
+                JOIN (
                     SELECT sae2.*
                     FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae2
                     JOIN (
@@ -8475,7 +8675,7 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                 LEFT JOIN annual_scores ans
                     ON ans.student_id = s.id
-                   AND ans.academic_year = ?
+                   AND ans.academic_year_id = ?
                 {$attendanceJoin}
                 {$termJoin}
                 {$feeJoin}
@@ -8484,7 +8684,13 @@ return errorResponse($e->getMessage(), 400);
                 LIMIT ? OFFSET ?
             ";
 
-            $queryBindings = array_merge($attendanceBindings, $termBindings, [$yearValue], $feeBindings, $bindings, [$limit, $offset]);
+            // Class, stream and school totals are aggregated here from the
+            // learner rows, so they must see every learner, not one page.
+            if ($viewMode !== 'students') {
+                $limit = 100000;
+                $offset = 0;
+            }
+            $queryBindings = array_merge($attendanceBindings, $termBindings, [$yearId], $feeBindings, $bindings, [$limit, $offset]);
             $stmt = $this->db->prepare($sql);
             $stmt->execute($queryBindings);
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -8805,13 +9011,13 @@ return errorResponse($e->getMessage(), 400);
             LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
             LEFT JOIN annual_scores ans
                 ON ans.student_id = s.id
-               AND ans.academic_year = ?
+               AND ans.academic_year_id = ?
             WHERE {$whereClause}
             ORDER BY c.name, p.first_name, p.last_name
         ";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(array_merge($bindings, [$yearValue]));
+        $stmt->execute(array_merge($bindings, [$academicYearId]));
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

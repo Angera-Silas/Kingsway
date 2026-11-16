@@ -78,7 +78,7 @@
             Record and submit student assessment marks
         </small>
     </div>
-    <button class="btn btn-light btn-sm" type="submit" form="resultsForm">
+    <button class="btn btn-light btn-sm" type="submit" form="resultsForm" data-year-write>
         <i class="bi bi-check2-circle me-1"></i>Submit Results
     </button>
 </div>
@@ -103,20 +103,13 @@
             </div>
             <div class="col-md-4">
                 <label class="form-label fw-semibold">Academic Year</label>
-                <select id="yearSelect" class="form-select" required>
-                    <option value="">-- Select Year --</option>
-                </select>
+                <select id="yearSelect" class="form-select" required aria-label="Academic year"></select>
             </div>
         </div>
         <div class="row g-3 mt-1">
             <div class="col-md-4">
                 <label class="form-label fw-semibold">Term</label>
-                <select id="termSelect" class="form-select" required>
-                    <option value="">-- Select Term --</option>
-                    <option value="Term 1">Term 1</option>
-                    <option value="Term 2">Term 2</option>
-                    <option value="Term 3">Term 3</option>
-                </select>
+                <select id="termSelect" class="form-select" required aria-label="Term"></select>
             </div>
             <div class="col-md-4">
                 <label class="form-label fw-semibold">Assessment Type</label>
@@ -128,7 +121,7 @@
                 </select>
             </div>
             <div class="col-md-4 d-flex align-items-end">
-                <button type="submit" class="btn btn-academic w-100">
+                <button type="submit" class="btn btn-academic w-100" data-year-write>
                     <i class="bi bi-check2-circle me-1"></i>Submit Results
                 </button>
             </div>

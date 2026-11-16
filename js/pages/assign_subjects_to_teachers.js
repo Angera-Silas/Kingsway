@@ -146,8 +146,8 @@ const AssignSubjectsController = (() => {
                 <td><span class="badge bg-${a.status === 'active' ? 'success' : 'secondary'}">${esc(a.status || 'active')}</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-warning btn-sm" onclick="AssignSubjectsController.edit(${Number(a.id)}, '${a.assignment_scope === 'stream' ? 'stream' : 'class'}')" title="Edit"><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-danger btn-sm" onclick="AssignSubjectsController.remove(${Number(a.id)}, '${a.assignment_scope === 'stream' ? 'stream' : 'class'}')" title="Remove"><i class="bi bi-trash"></i></button>
+                        <button class="btn btn-warning btn-sm" onclick="AssignSubjectsController.edit(${Number(a.id)}, '${a.assignment_scope === 'stream' ? 'stream' : 'class'}')" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" onclick="AssignSubjectsController.remove(${Number(a.id)}, '${a.assignment_scope === 'stream' ? 'stream' : 'class'}')" title="Remove" data-year-write><i class="bi bi-trash"></i></button>
                     </div>
                 </td>
             </tr>
@@ -327,6 +327,7 @@ const AssignSubjectsController = (() => {
         if (!window.AcademicYearFilter || !yearSelect) return;
         await window.AcademicYearFilter.mount(yearSelect, {
             termSelect,
+            planning: true,
             onChange: (id, year, term) => {
                 yearId = id;
                 yearLabel = year?.year_name || year?.year_code || '';

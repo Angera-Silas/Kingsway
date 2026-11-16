@@ -1873,17 +1873,23 @@ if ($canViewPayment || $canRecordPayment) {
         }
     }
 
-    public function getStats(array $ctx): array
+    /**
+     * Admission statistics for one intake year: applications whose
+     * academic_year_id is the requested academic year (academic_year_id /
+     * year_id in $filters), else the current academic year.
+     */
+    public function getStats(array $ctx, array $filters = []): array
     {
         try {
             $scopeFilter = $this->buildScopeFilter('aa', 'wi', $ctx);
+            $yearId = (int) \App\API\Services\YearScope::listYear($this->db, $filters)['year_id'];
 
             $stats = [];
 
             $stmt = $this->db->query(
                 "SELECT COUNT(*) as total
                  FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " aa 
-                 WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}"
+                 WHERE aa.academic_year_id = {$yearId}{$scopeFilter}"
             );
             $stats['total_applications'] = (int) $stmt->fetchColumn();
 
@@ -1891,7 +1897,7 @@ if ($canViewPayment || $canRecordPayment) {
                 "SELECT aa.status, COUNT(*) as count
                  FROM admission_applications aa
                  LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                 WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}
+                 WHERE aa.academic_year_id = {$yearId}{$scopeFilter}
                  GROUP BY aa.status"
             );
             $stats['by_status'] = $stmt->fetchAll(\PDO::FETCH_KEY_PAIR);
@@ -1899,7 +1905,7 @@ if ($canViewPayment || $canRecordPayment) {
             $stmt = $this->db->query(
                 "SELECT grade_applying_for, COUNT(*) as count
                  FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " aa 
-                 WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}
+                 WHERE aa.academic_year_id = {$yearId}{$scopeFilter}
                  GROUP BY grade_applying_for"
             );
             $stats['by_grade'] = $stmt->fetchAll(\PDO::FETCH_KEY_PAIR);

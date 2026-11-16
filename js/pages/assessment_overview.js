@@ -34,7 +34,19 @@ const assessmentOverviewCtrl = {
       this._loadReferencesComposed(),
       this._loadClasses(),
     ]);
-    await this.reload();
+    // The shared year/term selector (current year, running term by default)
+    // reloads the overview now and on every change.
+    const mounted = await window.AcademicYearFilter?.mount(document.getElementById('aoYearFilter'), {
+      termSelect: document.getElementById('aoTermFilter'),
+      allTermsLabel: 'All terms',
+      allTermsDefault: false,
+      onChange: (yearId, year, termId) => {
+        this._yearId = yearId;
+        this._currentTermId = termId;
+        this.reload();
+      },
+    });
+    if (!mounted) await this.reload();
     window.APIRealtime?.register?.("assessment_overview", { refresh: async () => { await this._loadReferencesComposed(); await this.reload(); } }, ["academic"]);
   },
 
@@ -47,12 +59,12 @@ const assessmentOverviewCtrl = {
       const sources = response?.data?.sources || response?.sources || {};
       const pick = (v) => (Array.isArray(v?.data) ? v.data : (Array.isArray(v) ? v : []));
       this._terms = pick(sources.terms);
-      const current = this._terms.find(t => (t.status || '') === 'current');
+      const current = window.AcademicYearFilter?.defaultTerm?.(this._terms) || this._terms.find(t => (t.status || '') === 'current');
       if (current) this._currentTermId = current.id;
-      const termOpts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year||''}</option>`).join('');
-      ['aoTermFilter','aoTermModal'].forEach(id => {
+      const termOpts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year_name||t.year_code||t.year||''}</option>`).join('');
+      ['aoTermModal'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.innerHTML = '<option value="">Current Term</option>' + termOpts;
+        if (el) el.innerHTML = '<option value="">Select term</option>' + termOpts;
       });
       this._types = pick(sources.types);
       const fmEl  = document.getElementById('aoTypeFormative');
@@ -69,13 +81,13 @@ const assessmentOverviewCtrl = {
     try {
       const r = await callAPI('/academic/terms-list', 'GET');
       this._terms = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const current = this._terms.find(t => (t.status || '') === 'current');
+      const current = window.AcademicYearFilter?.defaultTerm?.(this._terms) || this._terms.find(t => (t.status || '') === 'current');
       if (current) this._currentTermId = current.id;
 
-      const opts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year||''}</option>`).join('');
-      ['aoTermFilter','aoTermModal'].forEach(id => {
+      const opts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year_name||t.year_code||t.year||''}</option>`).join('');
+      ['aoTermModal'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.innerHTML = '<option value="">Current Term</option>' + opts;
+        if (el) el.innerHTML = '<option value="">Select term</option>' + opts;
       });
     } catch (e) { console.warn('Terms failed:', e); }
   },
@@ -131,10 +143,11 @@ const assessmentOverviewCtrl = {
 
   reload: async function () {
     const classId = document.getElementById('aoClassFilter')?.value || '';
-    const termId  = document.getElementById('aoTermFilter')?.value  || this._currentTermId || '';
+    const termId  = this._currentTermId || '';
     const params  = new URLSearchParams();
     if (classId) params.set('class_id', classId);
     if (termId)  params.set('term_id',  termId);
+    if (this._yearId) { params.set('academic_year_id', this._yearId); params.set('year_id', this._yearId); }
 
     try {
       const r = await callAPI('/academic/assessments-list?' + params.toString(), 'GET');
@@ -306,6 +319,9 @@ const assessmentOverviewCtrl = {
     const err = document.getElementById('aoCreateError');
     if (err) { err.classList.add('d-none'); err.textContent = ''; }
     this._loadLearningAreas();
+    // A new assessment belongs to the term the page is showing.
+    const termModal = document.getElementById('aoTermModal');
+    if (termModal && this._currentTermId) termModal.value = String(this._currentTermId);
     const outcomeSel = document.getElementById('aoOutcome');
     if (outcomeSel) outcomeSel.innerHTML = '<option value="">— Select learning outcome —</option>';
     this._createModal.show();
@@ -348,8 +364,8 @@ const assessmentOverviewCtrl = {
     const notes   = document.getElementById('aoInstructions')?.value.trim();
     const errEl   = document.getElementById('aoCreateError');
 
-    if (!title || !type || !cls || !la || !date || !max) {
-      if (errEl) { errEl.textContent = 'All required fields must be filled.'; errEl.classList.remove('d-none'); }
+    if (!title || !type || !cls || !la || !date || !max || !termId) {
+      if (errEl) { errEl.textContent = 'All required fields must be filled, including the term.'; errEl.classList.remove('d-none'); }
       return;
     }
     if (errEl) errEl.classList.add('d-none');
@@ -424,7 +440,7 @@ const assessmentOverviewCtrl = {
           <input type="number" class="form-control form-control-sm ao-score-input" min="0"
                  max="${this._marksMaxMarks}" step="0.5" value="${score}"
                  data-student-id="${s.id}"
-                 oninput="assessmentOverviewCtrl.onScoreInput(this, ${this._marksMaxMarks})">
+                 oninput="assessmentOverviewCtrl.onScoreInput(this, ${this._marksMaxMarks})" data-year-write>
         </td>
         <td class="text-center small fw-semibold" id="aoMrkPct_${s.id}">${pct ? pct + '%' : '—'}</td>
         <td class="text-center" id="aoMrkGrade_${s.id}">
@@ -432,7 +448,7 @@ const assessmentOverviewCtrl = {
         </td>
         <td>
           <input type="text" class="form-control form-control-sm ao-remark-input" placeholder="Optional remark"
-                 data-student-id="${s.id}" value="${this._esc(existing?.remarks || '')}">
+                 data-student-id="${s.id}" value="${this._esc(existing?.remarks || '')}" data-year-write>
         </td>
       </tr>`;
     }).join('');

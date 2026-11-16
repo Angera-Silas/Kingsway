@@ -66,8 +66,28 @@ const StudentFeesController = {
 
     this.cacheDom();
     await this.loadInitialData();
-    await this.loadPaymentStatus();
     this.attachEvents();
+    // Year and term: the shared filter (default: the current year, whole
+    // year; kept in the URL; a completed year is read-only). It loads the
+    // accounts now and on every change. Years are never added together:
+    // each year's first term already carries the balance brought forward.
+    const mounted = window.AcademicYearFilter && this.ui.yearFilter
+      ? await window.AcademicYearFilter.mount(this.ui.yearFilter, {
+        termSelect: this.ui.termFilter,
+        allTermsLabel: "Whole year (all terms)",
+        allTermsDefault: true,
+        onChange: async (yearId, year, termId, term) => {
+          this.filters.academic_year_id = yearId;
+          this.filters.academic_year = year?.year_code || "";
+          this.filters.academic_year_term_id = termId || "";
+          this.filters.term_number = term ? String(term.term_number || term.term_id || "") : "";
+          this.filters.page = 1;
+          await this.loadTermsForYear(this.filters.academic_year).catch(() => []);
+          await this.loadPaymentStatus();
+        },
+      })
+      : null;
+    if (!mounted) await this.loadPaymentStatus();
     this.bindRealtimeCollaboration();
     window.APIRealtime?.register?.("student_fees", {
       refresh: async () => {
@@ -193,18 +213,6 @@ const StudentFeesController = {
       selectAllFeeStudents: document.getElementById("selectAllFeeStudents"),
       tableBody: document.querySelector("#feesTable tbody"),
       pagination: document.getElementById("pagination"),
-      totalExpected: document.getElementById("totalExpected"),
-      totalCollected: document.getElementById("totalCollected"),
-      totalOutstanding: document.getElementById("totalOutstanding"),
-      collectionRate: document.getElementById("collectionRate"),
-      expectedPeriodLabel: document.getElementById("expectedPeriodLabel"),
-      collectedPeriodLabel: document.getElementById("collectedPeriodLabel"),
-      outstandingPeriodLabel: document.getElementById("outstandingPeriodLabel"),
-      ratePeriodLabel: document.getElementById("ratePeriodLabel"),
-      expectedTermLine: document.getElementById("expectedTermLine"),
-      collectedTermLine: document.getElementById("collectedTermLine"),
-      outstandingTermLine: document.getElementById("outstandingTermLine"),
-      rateTermLine: document.getElementById("rateTermLine"),
       yearFilter: document.getElementById("yearFilter"),
       perPageFilter: document.getElementById("perPageFilter"),
       paymentModal: document.getElementById("paymentModal"),
@@ -315,35 +323,11 @@ const StudentFeesController = {
       });
     }
 
-    if (this.ui.termFilter) {
-      this.ui.termFilter.addEventListener("change", (event) => {
-        const value = event.target.value;
-        this.filters.term_number = value ? value : "";
-        this.filters.page = 1;
-        this.loadPaymentStatus();
-      });
-    }
-
     if (this.ui.perPageFilter) {
       this.ui.perPageFilter.addEventListener("change", (event) => {
         const value = Number(event.target.value);
         this.filters.limit = value > 0 ? value : 25;
         this.filters.page = 1;
-        this.loadPaymentStatus();
-      });
-    }
-
-    if (this.ui.yearFilter) {
-      this.ui.yearFilter.addEventListener("change", async (event) => {
-        const value = event.target.value;
-        this.filters.academic_year = value ? value : "";
-        this.filters.page = 1;
-        try {
-          await this.loadTermsForYear(this.filters.academic_year);
-        } catch (error) {
-          console.error("Failed to load terms for year:", error);
-          this.populateTermFilter([]);
-        }
         this.loadPaymentStatus();
       });
     }
@@ -367,7 +351,7 @@ const StudentFeesController = {
       this.ui.waiveFeesBtn.addEventListener("click", () => this.openWaiverModal());
     }
     if (this.ui.printSelectedFeesBtn) this.ui.printSelectedFeesBtn.addEventListener("click", () => this.printSelectedFeeAccounts());
-    if (this.ui.selectAllFeeStudents) this.ui.selectAllFeeStudents.addEventListener("change", (event) => this.toggleAllStudents(event.target.checked));
+    // The select-all box is rebuilt with the table header (renderTable).
 
     if (this.ui.paymentStudent) {
       this.ui.paymentStudent.addEventListener("change", async (event) => {
@@ -471,25 +455,6 @@ const StudentFeesController = {
 
     if (years.length) {
       this.data.years = years;
-      this.populateYearFilter(years);
-      const currentYear = years.find(
-        (year) => year.is_current == 1 || year.is_current === "1",
-      );
-      const active = this.normalizeAcademicYearValue(
-        (this.ui.yearFilter && this.ui.yearFilter.value) ||
-          (currentYear &&
-            (currentYear.year_code || currentYear.year || currentYear.name)) ||
-          "",
-      );
-      this.filters.academic_year = active;
-    }
-
-    try {
-      await this.loadTermsForYear(this.filters.academic_year);
-    } catch (error) {
-      errors.push("terms");
-      console.error("Failed to load terms:", error);
-      this.populateTermFilter([]);
     }
 
     if (errors.length) {
@@ -526,24 +491,17 @@ const StudentFeesController = {
 
   loadPaymentStatus: async function () {
     try {
-      const params = { ...this.filters };
-
-      // The class picker carries the class id; send it under the key the
-      // ledger filters on so a "Grade 8" selection is matched by identity
-      // rather than by a label that varies with the stream.
-      if (params.class_name && this.ui.classFilter) {
-        const option = this.ui.classFilter.selectedOptions?.[0];
-        const className = option?.dataset?.className || params.class_name;
-        if (option && option.value && /^\d+$/.test(option.value)) {
-          params.class_id = Number(option.value);
-          delete params.class_name;
-        } else if (className && className !== params.class_name) {
-          params.class_name = className;
-        }
-      }
-
-      const response =
-        await window.API.finance.getStudentPaymentStatusList(params);
+      const classValue = this.ui.classFilter?.value || "";
+      const params = {
+        academic_year_id: this.filters.academic_year_id || undefined,
+        academic_year_term_id: this.filters.academic_year_term_id || undefined,
+        class_id: /^\d+$/.test(classValue) ? Number(classValue) : undefined,
+        status: this.filters.status || undefined,
+        search: this.filters.search || undefined,
+        page: this.filters.page,
+        limit: this.filters.limit,
+      };
+      const response = await window.API.finance.getStudentFeeAccounts(params);
       const payload = response?.data ?? response;
       const items = payload?.items ?? payload?.data?.items ?? [];
       const pagination = payload?.pagination ??
@@ -552,6 +510,8 @@ const StudentFeesController = {
         payload?.summary ?? payload?.data?.summary ?? this.data.summary;
 
       this.data.rows = Array.isArray(items) ? items : [];
+      this.data.feeTerms = Array.isArray(payload?.terms) ? payload.terms : [];
+      this.data.currentTermNumber = payload?.summary?.current_term_number ?? null;
       this.data.pagination = {
         page: pagination.page || 1,
         limit: pagination.limit || this.filters.limit,
@@ -579,106 +539,65 @@ const StudentFeesController = {
     }
   },
 
+  /**
+   * The account line: the selection's position read left to right as the
+   * bursar's balance. Opening balance (arrears brought forward less last
+   * year's overpayment carried as credit) + fees billed − scholarships −
+   * waivers − other credits − money received = balance (owed or in credit).
+   */
   renderSummary: function () {
-    const summary = this.data.summary || {};
-    // Everything comes from the database context tables (academic_year_*):
-    // the year label, the current term and the per-term figures. Nothing is
-    // hardcoded — the school runs for years and the workspace follows the
-    // calendar data.
-    const yearLabel = summary.academic_year || "";
-    const currentTerm = Number(summary.current_term_number || 0);
-    const hasCurrent = summary.has_current_term === true || Number(summary.has_current_term || 0) === 1;
-    const period = summary.period_label || "Whole Year";
-    const setPeriod = (el, text) => {
-      if (el) el.textContent = text;
-    };
-    setPeriod(this.ui.expectedPeriodLabel, yearLabel || period);
-    setPeriod(this.ui.collectedPeriodLabel, yearLabel || period);
-    setPeriod(this.ui.outstandingPeriodLabel, yearLabel || period);
-    setPeriod(this.ui.ratePeriodLabel, yearLabel || period);
+    const s = this.data.summary || {};
+    const money = (v) => this.formatCurrency(Math.abs(Number(v || 0)));
+    const period = this.filters.academic_year_term_id ? (s.period_label || "Term") : "Whole year";
+    const periodEl = document.getElementById("faPeriod");
+    if (periodEl) {
+      periodEl.textContent = `${s.academic_year || ""}, ${period.toLowerCase()}. ${Number(s.learners || 0)} learners.`;
+    }
 
-    this.ui.totalExpected.textContent = this.formatCurrency(
-      summary.total_due || 0,
-    );
-    this.ui.totalCollected.textContent = this.formatCurrency(
-      summary.total_paid || 0,
-    );
-    this.ui.totalOutstanding.textContent = this.formatCurrency(
-      summary.total_balance || 0,
-    );
-    this.ui.collectionRate.textContent = `${summary.collection_rate || 0}%`;
-
-    // The selected-term (or current-term) figures below each annual figure —
-    // picked from the summary's terms, which come from the actual term rows of
-    // the selected year. The summary always carries every term of that year,
-    // so drilling into Term 1 still shows the whole year's annual position.
-    const terms = Array.isArray(summary.terms) ? summary.terms : [];
-    const selectedTermNumber = this.filters.term_number
-      ? this.termNumberOf(this.filters.term_number)
-      : (hasCurrent ? currentTerm : 0);
-    const selectedTerm =
-      terms.find((t) => this.termNumberOf(t.term_number) === selectedTermNumber) ||
-      null;
-    const termLine = (el, format) => {
-      if (!el) return;
-      if (!selectedTerm) {
-        el.textContent = "No term data for this year";
-        return;
-      }
-      const suffix = Number(selectedTerm.term_number) === currentTerm && hasCurrent
-        ? " (current)"
-        : (this.filters.term_number ? " (selected)" : "");
-      el.textContent = `Term ${selectedTerm.term_number}${suffix}: ${format(selectedTerm)}`;
-    };
-    termLine(this.ui.expectedTermLine, (t) => this.formatCurrency(t.total_due || 0));
-    termLine(this.ui.collectedTermLine, (t) => this.formatCurrency(t.total_paid || 0));
-    termLine(this.ui.outstandingTermLine, (t) => this.formatCurrency(t.total_balance || 0));
-    termLine(this.ui.rateTermLine, (t) => `${t.collection_rate || 0}%`);
-
-    this.renderTermProgress(summary);
+    const opening = Number(s.opening_balance || 0);
+    const balance = Number(s.total_balance || 0);
+    const owed = Number(s.total_owed || 0);
+    const inCredit = Math.max(0, owed - balance);
+    const reductions = Number(s.scholarship || 0) + Number(s.waiver || 0);
+    const step = (op, label, value, note, cls = "") =>
+      `<div class="fl-step ${cls}" data-op="${op}"><small>${label}</small><strong>${value}</strong>${note ? `<em>${note}</em>` : ""}</div>`;
+    const ledger = document.getElementById("faLedger");
+    if (ledger) {
+      ledger.innerHTML = [
+        step("", "Opening balance", `${opening < 0 ? "Credit " : ""}${money(opening)}`,
+          Number(s.credit_bf || 0) ? `Arrears ${money(s.brought_forward)} less overpayment ${money(s.credit_bf)}` : "Arrears brought forward",
+          opening > 0 ? "is-owed" : (opening < 0 ? "is-credit" : "")),
+        step("+", "Fees billed", money(s.new_fees), ""),
+        step("−", "Scholarships and waivers", money(reductions),
+          reductions ? `Scholarships ${money(s.scholarship)}, waivers ${money(s.waiver)}` : "",
+          "is-reduce"),
+        step("−", "Other credits", money(s.other_credits), "", "is-reduce"),
+        step("−", "Received", money(s.amount_received ?? s.total_paid), `${Number(s.collection_rate || 0).toFixed(1)}% collected`),
+        step("=", "Balance", `${balance < 0 ? "Credit " : ""}${money(balance)}`,
+          `${Number(s.learners_owing || 0)} owing, ${Number(s.learners_in_credit || 0)} in credit${inCredit ? ` (${money(inCredit)})` : ""}, ${Number(s.learners_cleared || 0)} cleared`,
+          `is-result ${balance > 0 ? "is-owed" : (balance < 0 ? "is-credit" : "")}`),
+      ].join("");
+    }
+    this.renderTermProgress(s);
   },
 
+  /** One column per term of the year: due, received, balance. */
   renderTermProgress: function (summary) {
-    const strip = document.getElementById("termProgressStrip");
-    if (!strip) return;
+    const box = document.getElementById("faTerms");
+    if (!box) return;
     const terms = Array.isArray(summary.terms) ? summary.terms : [];
-    if (!terms.length) {
-      strip.innerHTML =
-        '<div class="col-12 text-muted small">No term data available yet.</div>';
-      return;
-    }
-    const annual = summary.annual || {};
-    strip.innerHTML = terms
-      .map((t) => {
-        const rate = Number(t.collection_rate || 0);
-        const barColor =
-          rate >= 95 ? "bg-success" : rate >= 75 ? "bg-warning" : "bg-danger";
-        const isCurrent = Number(t.term_number) === this.data.currentTermNumber;
-        return (
-          '<div class="col-md-4 mb-2">' +
-          '<div class="d-flex justify-content-between small">' +
-          `<span>${this.esc(t.label || "Term " + t.term_number)}${isCurrent ? ' <span class="badge bg-primary">Current</span>' : ""}</span>` +
-          `<span class="text-muted">${rate.toFixed(2)}%</span>` +
-          "</div>" +
-          '<div class="progress" style="height: 8px;">' +
-          `<div class="progress-bar ${barColor}" role="progressbar" style="width:${Math.min(100, rate)}%;" aria-valuenow="${rate}" aria-valuemin="0" aria-valuemax="100"></div>` +
-          "</div>" +
-          `<div class="d-flex justify-content-between small text-muted mt-1">` +
-          `<span>Due ${this.formatCurrency(t.total_due || 0)}</span>` +
-          `<span>Paid ${this.formatCurrency(t.total_paid || 0)}</span>` +
-          `<span>Balance ${this.formatCurrency(t.total_balance || 0)}</span>` +
-          "</div>" +
-          "</div>"
-        );
-      })
-      .join("");
-    const updated = document.getElementById("termProgressUpdated");
-    if (updated && annual.total_due !== undefined) {
-      updated.textContent =
-        `Whole year: due ${this.formatCurrency(annual.total_due || 0)} · ` +
-        `paid ${this.formatCurrency(annual.total_paid || 0)} · ` +
-        `balance ${this.formatCurrency(annual.total_balance || 0)}`;
-    }
+    const selected = Number(this.filters.academic_year_term_id || 0);
+    box.innerHTML = terms.map((t) => {
+      const rate = Math.max(0, Math.min(100, Number(t.collection_rate || 0)));
+      const isCurrent = Number(t.term_number) === Number(this.data.currentTermNumber);
+      const bal = Number(t.total_balance || 0);
+      return `<div class="fl-term${Number(t.academic_year_term_id) === selected ? " is-selected" : ""}">
+          <header><span>${this.esc(t.label || `Term ${t.term_number}`)}${isCurrent ? " (now)" : ""}</span><span class="fl-num">${rate.toFixed(1)}%</span></header>
+          <div class="fl-bar" role="img" aria-label="${rate.toFixed(1)}% collected"><span style="width:${rate}%"></span></div>
+          <p class="fl-num">Due ${this.formatCurrency(t.total_due || 0)}, received ${this.formatCurrency(t.total_paid || 0)}</p>
+          <p class="fl-num ${bal > 0 ? "is-owed" : (bal < 0 ? "is-credit" : "")}">${bal < 0 ? "In credit" : "Balance"} ${this.formatCurrency(Math.abs(bal))}</p>
+        </div>`;
+    }).join("");
   },
 
   renderTable: function () {
@@ -686,13 +605,35 @@ const StudentFeesController = {
       return;
     }
 
+    // One row per learner, the same balance as the account line:
+    // opening + fees − reductions − credits − received = balance. The terms
+    // of the year open under each learner (chevron) instead of taking columns.
+    const COLS = 11;
+    const head = document.querySelector("#feesTable thead tr");
+    if (head) {
+      head.innerHTML =
+        '<th scope="col" class="text-center"><input type="checkbox" id="selectAllFeeStudents" aria-label="Select all learners"></th>' +
+        '<th scope="col">Learner</th><th scope="col">Class</th>' +
+        '<th scope="col" class="num">Opening</th><th scope="col" class="num">Fees billed</th>' +
+        '<th scope="col" class="num">Reductions</th><th scope="col" class="num">Credits</th>' +
+        '<th scope="col" class="num">Received</th><th scope="col" class="num">Balance</th>' +
+        '<th scope="col">Account</th><th scope="col"><span class="visually-hidden">Actions</span></th>';
+      const all = head.querySelector("#selectAllFeeStudents");
+      this.ui.selectAllFeeStudents = all;
+      if (all) {
+        all.checked = this.data.rows.length > 0 && this.data.rows.every((r) => this.data.selectedStudentIds.has(Number(r.id)));
+        all.addEventListener("change", (event) => this.toggleAllStudents(event.target.checked));
+      }
+    }
+
     if (!this.data.rows.length) {
       this.ui.tableBody.innerHTML =
-        '<tr><td colspan="9" class="text-center text-muted">No fee records found.</td></tr>';
+        `<tr><td colspan="${COLS}" class="text-center text-muted py-4">No accounts match this selection. Change the year, term, class or account filter.</td></tr>`;
       return;
     }
 
     const canManageAwards = this.canManageAwards();
+    const amount = (v) => (Number(v || 0) ? this.formatCurrency(v) : "—");
 
     this.ui.tableBody.innerHTML = this.data.rows
       .map((row) => {
@@ -720,19 +661,56 @@ const StudentFeesController = {
           `;
         }
 
+        const money = (v) => this.formatCurrency(Math.abs(Number(v || 0)));
+        const cell = (v, opts = {}) => {
+          const n = Number(v || 0);
+          if (!n) return '<td class="num dim">—</td>';
+          return `<td class="num ${opts.cls || ""}">${opts.prefix || ""}${money(n)}</td>`;
+        };
+        const opening = Number(row.opening_balance ?? row.brought_forward ?? 0);
+        const reductions = Number(row.scholarship || 0) + Number(row.waiver || 0);
+        const credits = Number(row.other_credits ?? row.total_credited ?? 0);
+        const state = balance < 0
+          ? { label: "In credit", cls: "is-credit" }
+          : balance === 0 ? { label: "Cleared", cls: "is-credit" }
+            : Number(row.amount_received || row.total_paid || 0) > 0 ? { label: "Part paid", cls: "is-owed" }
+              : { label: "Not yet paid", cls: "is-owed" };
+        const sponsored = Number(row.scholarship || 0) ? ' <span class="fl-state" title="Scholarship">Sponsored</span>' : "";
+        const terms = (this.data.feeTerms || []).map((t) => {
+          const x = row.terms?.[t.academic_year_term_id] || {};
+          const b = Number(x.balance || 0);
+          return `<div><b>${this.esc(t.label)}</b>Due ${this.formatCurrency(x.due || 0)}, received ${this.formatCurrency(x.paid || 0)},
+            <span class="${b > 0 ? "is-owed" : (b < 0 ? "is-credit" : "")}">${b < 0 ? "credit" : "balance"} ${money(b)}</span></div>`;
+        }).join("");
+        const parts = [
+          Number(row.brought_forward || 0) ? `Arrears brought forward ${money(row.brought_forward)}` : "",
+          Number(row.credit_bf || 0) ? `Overpayment carried from last year ${money(row.credit_bf)}` : "",
+          Number(row.scholarship || 0) ? `Scholarship ${money(row.scholarship)}` : "",
+          Number(row.waiver || 0) ? `Waiver ${money(row.waiver)}` : "",
+          credits ? `Other credits ${money(credits)}` : "",
+          Number(row.total_overpaid || 0) ? `Paid beyond the bill ${money(row.total_overpaid)}` : "",
+        ].filter(Boolean).map((t) => `<div>${t}</div>`).join("");
         return `
           <tr>
             <td class="text-center"><input type="checkbox" class="fee-student-select" value="${studentId}" ${this.data.selectedStudentIds.has(studentId) ? "checked" : ""} onchange="StudentFeesController.toggleStudent(${studentId}, this.checked)" aria-label="Select ${this.escapeHtml(studentName)}"></td>
-            <td>${admissionNo}</td>
-            <td>${studentName}</td>
-            <td>${className}</td>
-            <td>${this.formatCurrency(row.total_due || 0)}</td>
-            <td>${this.formatCurrency(row.total_paid || 0)}</td>
-            <td>${this.formatCurrency(balance)}</td>
-            <td><span class="badge ${status.badge}">${status.label}</span></td>
-            <td>
-              <div class="dropdown">
-                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <td class="fl-who"><strong>${this.esc(studentName)}</strong><span>${this.esc(admissionNo)}</span></td>
+            <td>${this.esc(className)}</td>
+            ${opening ? `<td class="num ${opening > 0 ? "is-owed" : "is-credit"}">${opening < 0 ? "Credit " : ""}${money(opening)}</td>` : '<td class="num dim">—</td>'}
+            ${cell(row.new_fees ?? row.total_due)}
+            ${cell(reductions, { cls: "is-reduce", prefix: "−" })}
+            ${cell(credits, { cls: "is-reduce", prefix: "−" })}
+            ${cell(row.amount_received ?? row.total_paid)}
+            <td class="num fw-semibold ${balance > 0 ? "is-owed" : (balance < 0 ? "is-credit" : "")}">${balance < 0 ? "Credit " : ""}${money(balance)}</td>
+            <td>${row.leaving
+              ? `<span class="fl-state ${row.leaving.to_settle ? (balance > 0 ? "is-owed" : "is-credit") : "is-credit"}">${this.esc(row.leaving.label)}</span>
+                 <div class="small text-muted">${row.leaving.to_settle
+                   ? (row.leaving.clearance === "cleared" ? "Cleared" : "Settle at clearance before leaving certificate")
+                   : (row.leaving.clearance === "cleared" ? "Cleared" : "Clearance pending")}</div>`
+              : `<span class="fl-state ${state.cls}">${state.label}</span>${sponsored}`}</td>
+            <td class="text-nowrap text-end">
+              <button type="button" class="fl-toggle" aria-expanded="false" aria-controls="faDetail${studentId}" title="Show terms" onclick="StudentFeesController.toggleDetail(this, ${studentId})"><i class="bi bi-chevron-down"></i></button>
+              <div class="dropdown d-inline-block">
+                <button class="btn btn-sm btn-link text-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for ${this.escapeHtml(studentName)}">
                   <i class="bi bi-three-dots-vertical"></i>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
@@ -740,6 +718,10 @@ const StudentFeesController = {
                 </ul>
               </div>
             </td>
+          </tr>
+          <tr class="fl-detail" id="faDetail${studentId}" hidden>
+            <td></td>
+            <td colspan="${COLS - 1}"><div class="fl-detail-grid">${terms}${parts ? `<div>${parts}</div>` : ""}</div></td>
           </tr>
         `;
       })
@@ -780,6 +762,15 @@ const StudentFeesController = {
       });
     });
     this.updateSelectionUi();
+  },
+
+  toggleDetail: function (button, studentId) {
+    const row = document.getElementById(`faDetail${studentId}`);
+    if (!row) return;
+    row.hidden = !row.hidden;
+    button.setAttribute("aria-expanded", row.hidden ? "false" : "true");
+    button.querySelector("i")?.classList.toggle("bi-chevron-up", !row.hidden);
+    button.querySelector("i")?.classList.toggle("bi-chevron-down", row.hidden);
   },
 
   toggleStudent: function (studentId, checked) {
@@ -884,7 +875,18 @@ const StudentFeesController = {
         summary.balance ?? balance.balance ?? 0,
       );
 
-      this.ui.feeBreakdownBody.innerHTML = obligations
+      // Balance brought forward from the previous academic year (arrears
+      // or an overpayment credit) is part of this year's balance.
+      const broughtForward = payload?.brought_forward || {};
+      const bfRows = [];
+      if (Number(broughtForward.arrears) > 0) {
+        bfRows.push(`<tr class="table-warning"><td>Arrears brought forward from ${this.escapeHtml ? this.escapeHtml(broughtForward.from_year || "previous year") : (broughtForward.from_year || "previous year")}</td><td>${this.formatCurrency(broughtForward.arrears)}</td><td></td></tr>`);
+      }
+      if (Number(broughtForward.credit) > 0) {
+        bfRows.push(`<tr class="table-info"><td>Credit brought forward from ${this.escapeHtml ? this.escapeHtml(broughtForward.from_year || "previous year") : (broughtForward.from_year || "previous year")}</td><td>−${this.formatCurrency(broughtForward.credit)}</td><td></td></tr>`);
+      }
+
+      this.ui.feeBreakdownBody.innerHTML = bfRows.join("") + obligations
         .map((item) => {
           const status = this.formatPaymentStatus(
             item.payment_status || "pending",
@@ -1092,41 +1094,6 @@ const StudentFeesController = {
    * year_code because that is what the fee ledger stores, and the year picker
    * is also what scopes the term list.
    */
-  populateYearFilter: function (years) {
-    if (!this.ui.yearFilter) return;
-    const list = Array.isArray(years) ? years : [];
-    this.ui.yearFilter.innerHTML =
-      '<option value="">All years</option>' +
-      list
-        .map((year) => {
-          const value =
-            year.year_code || year.year || year.name || year.id || "";
-          const isCurrent =
-            year.is_current == 1 || year.is_current === "1";
-          const label = `${value}${isCurrent ? " (current)" : ""}`;
-          return `<option value="${this.esc(String(value))}">${this.esc(label)}</option>`;
-        })
-        .join("");
-
-    // Default the selection to the current year so the first open shows a
-    // defined period instead of an unfiltered multi-year total.
-    const current = this.currentYearOptionValue(list);
-    if (current) {
-      this.ui.yearFilter.value = current;
-    }
-  },
-
-  currentYearOptionValue: function (years) {
-    const list = Array.isArray(years) ? years : [];
-    const current = list.find(
-      (year) => year.is_current == 1 || year.is_current === "1",
-    );
-    if (!current) return "";
-    return String(
-      current.year_code || current.year || current.name || current.id || "",
-    );
-  },
-
   /**
    * Classes come from the classes table, so the option carries the class id
    * and the label carries the display name. The fee ledger matches on class_id
@@ -1156,102 +1123,6 @@ const StudentFeesController = {
       option.textContent = name;
       this.ui.classFilter.appendChild(option);
     });
-  },
-
-  /**
-   * Term options come from academic_year_terms for the selected year — never
-   * from a hardcoded 1/2/3 list, because a year can be configured with a
-   * different term set and an unopened year may not be the current one.
-   *
-   * The default scope stays "Whole Year (All Terms)": the annual position and
-   * the per-term breakdown are both returned, so the first open answers the
-   * question the page is actually asked — what does this year owe, what has
-   * been paid, and what is left.
-   */
-  populateTermFilter: function (terms) {
-    if (!this.ui.termFilter) {
-      return;
-    }
-
-    const previous = this.ui.termFilter.value || this.filters.term_number || "";
-
-    this.ui.termFilter.innerHTML =
-      '<option value="">Whole Year (All Terms)</option>';
-
-    if (!Array.isArray(terms) || terms.length === 0) {
-      this.ui.termFilter.value = "";
-      return;
-    }
-
-    // Scoped to the selected year: the endpoint is year-filtered, but drop any
-    // straggler row from another year so labels can never collide.
-    const selectedYear = this.filters.academic_year || "";
-    const scoped = terms.filter((term) => {
-      if (!selectedYear) {
-        return true;
-      }
-      const code = String(term.year_code || term.year_name || "");
-      const yearId = String(term.year ?? "");
-      return (
-        code === selectedYear ||
-        yearId === selectedYear ||
-        yearId === String(this.currentYearId(selectedYear))
-      );
-    });
-
-    const unique = new Map();
-    (scoped.length ? scoped : terms).forEach((term) => {
-      const termNumber = term.term_number ?? term.code ?? null;
-      if (!termNumber) {
-        return;
-      }
-      unique.set(String(termNumber), term);
-    });
-
-    const sorted = Array.from(unique.values()).sort(
-      (a, b) =>
-        this.termNumberOf(a.term_number ?? a.code) -
-        this.termNumberOf(b.term_number ?? b.code),
-    );
-
-    sorted.forEach((term) => {
-      const option = document.createElement("option");
-      const raw = term.term_number ?? term.code;
-      option.value = String(raw);
-      const n = this.termNumberOf(raw);
-      const dates =
-        term.start_date && term.end_date
-          ? ` (${this.formatDate(term.start_date)} – ${this.formatDate(
-              term.end_date,
-            )})`
-          : "";
-      option.textContent = `Term ${n}${dates}`;
-      this.ui.termFilter.appendChild(option);
-    });
-
-    const currentTerm = sorted.find(
-      (term) =>
-        term.status === "current" ||
-        term.status === "active" ||
-        term.is_current == 1 ||
-        term.is_current === "1",
-    );
-    if (currentTerm && (currentTerm.term_number || currentTerm.code)) {
-      // The current term badges the progress strip; the default scope stays
-      // the whole year so the first open shows the complete position.
-      this.data.currentTermNumber = this.termNumberOf(
-        currentTerm.term_number || currentTerm.code,
-      );
-    }
-
-    // Keep the operator's term choice when the year changes, but only if that
-    // term still exists in the newly selected year.
-    const optionValues = Array.from(this.ui.termFilter.options).map((o) =>
-      o.value,
-    );
-    const keep = previous && optionValues.includes(previous) ? previous : "";
-    this.ui.termFilter.value = keep;
-    this.filters.term_number = keep;
   },
 
   /** 'T3' and 3 both mean Term 3. */
@@ -1284,7 +1155,6 @@ const StudentFeesController = {
     const termsResp = cache?.terms !== undefined ? cache.terms : await window.API.academic.listTerms(params);
     const terms = this.unwrapList(termsResp);
     this.data.academicYearTerms = terms;
-    this.populateTermFilter(terms);
     return terms;
   },
 

@@ -2,8 +2,8 @@
  * AcademicYearFilter: one reusable academic-year (and term) selector for any page.
  *
  * Pages were built assuming a single academic year. This component lets a
- * page show any visible year (current, upcoming or completed; archived years
- * are never listed by the API) with the current year as the default.
+ * page show any year (current, upcoming or completed) with the current year
+ * as the default.
  *
  *   AcademicYearFilter.mount(selectElement, {
  *     onChange: (yearId, year) => loadData(yearId),   // also called once on mount
@@ -22,6 +22,14 @@
  * e.g. 'All terms': that option is listed first and is the default, and
  * onChange receives termId = null while it is selected. Pass
  * allTermsDefault: false to list it but still open on the default term.
+ *
+ * Every selection (including the first) is announced as a
+ * `kingsway:academic-year` event on document ({detail: {yearId, termId, ...}})
+ * so other panels on the page can follow it.
+ *
+ * Every year change also calls YearMode.apply() (js/components/year_mode.js):
+ * a completed year shows a banner and disables `[data-year-write]` controls
+ * for users who may not edit it.
  *
  * termId is the academic_year_terms id (what timetable/exam endpoints call
  * academic_year_term_id). The choice is kept in the URL (?academic_year_id=N
@@ -87,15 +95,27 @@
     return termsPromise;
   }
 
-  /** The term running today, else the next to open, else the last one. */
-  function defaultTerm(terms) {
+  /**
+   * Default term of a year's terms (in date order). The term running today;
+   * during a holiday, for records and reports the term just closed (the
+   * April Holiday shows Term 1), for planning pages the next to open (Term 2).
+   * Same rules as the server (AcademicPeriodService recordTerm/planningTerm).
+   */
+  function defaultTerm(terms, { planning = false } = {}) {
+    if (!Array.isArray(terms) || !terms.length) return null;
+    const sorted = terms.slice().sort((a, b) => String(a.opening_date || a.start_date || '')
+      .localeCompare(String(b.opening_date || b.start_date || '')));
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const running = terms.find((term) => day(term.opening_date || term.start_date) <= today
-      && today <= day(term.closing_date || term.end_date));
+    const opens = (term) => day(term.opening_date || term.start_date);
+    const closes = (term) => day(term.closing_date || term.end_date);
+    const running = sorted.find((term) => opens(term) <= today && today <= closes(term));
     if (running) return running;
-    const next = terms.find((term) => day(term.opening_date || term.start_date) > today);
-    return next || terms[terms.length - 1];
+    if (planning) {
+      return sorted.find((term) => opens(term) > today) || sorted[sorted.length - 1];
+    }
+    const opened = sorted.filter((term) => opens(term) && opens(term) <= today);
+    return opened.length ? opened[opened.length - 1] : sorted[0];
   }
 
   async function loadYears() {
@@ -106,7 +126,26 @@
       .sort((a, b) => String(b.start_date || '').localeCompare(String(a.start_date || '')));
   }
 
-  async function mount(select, { onChange, termSelect = null, allTermsLabel = '', allTermsDefault = true } = {}) {
+  /**
+   * The year to prepare for: the year of the term in session, or during a
+   * holiday the year of the next term to open (the December Holiday leads to
+   * next year's Term 1).
+   */
+  function planningYear(years, terms, fallback) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const next = terms
+      .filter((term) => day(term.closing_date || term.end_date) >= today)
+      .sort((a, b) => String(a.opening_date || '').localeCompare(String(b.opening_date || '')))[0];
+    return (next && years.find((year) => Number(year.id) === Number(next.academic_year_id))) || fallback;
+  }
+
+  /**
+   * planning: true for pages that prepare work (timetables, allocations,
+   * schemes, rosters). Without a year in the link they open on the term
+   * being prepared: the term in session, or during a holiday the next term.
+   */
+  async function mount(select, { onChange, termSelect = null, allTermsLabel = '', allTermsDefault = true, planning = false } = {}) {
     if (!select) return null;
     select.disabled = true;
     let years = [];
@@ -122,8 +161,8 @@
 
     const current = years.find((year) => Number(year.is_current) === 1) || years[0];
     const requested = years.find((year) => Number(year.id) === fromUrl(PARAM));
-    const selected = requested || current;
-    const allTerms = termSelect ? await loadTerms() : [];
+    const allTerms = (termSelect || planning) ? await loadTerms() : [];
+    const selected = requested || (planning ? planningYear(years, allTerms, current) : current);
     let requestedTermId = fromUrl(TERM_PARAM);
 
     select.innerHTML = '';
@@ -169,7 +208,7 @@
         termSelect.value = '';
         return null;
       }
-      const wanted = fromLink || defaultTerm(terms);
+      const wanted = fromLink || defaultTerm(terms, { planning });
       requestedTermId = 0; // the URL term applies to the first fill only
       termSelect.value = String(wanted.id);
       return wanted;
@@ -187,6 +226,12 @@
         [PARAM]: Number(year.id) === Number(current.id) ? 0 : year.id,
         ...(termSelect ? { [TERM_PARAM]: term ? term.id : 0 } : {}),
       });
+      // Completed years show read-only for users who may not edit them.
+      window.YearMode?.apply(Number(year.id), select);
+      // Other panels on the page may follow the same selection.
+      document.dispatchEvent(new CustomEvent('kingsway:academic-year', {
+        detail: { yearId: Number(year.id), year, termId: term ? Number(term.id) : null, term, select },
+      }));
       if (typeof onChange === 'function') {
         onChange(Number(year.id), year, term ? Number(term.id) : null, term);
       }
@@ -195,9 +240,115 @@
     termSelect?.addEventListener('change', notify);
     fillTerms();
     notify();
+    showPeriod(termSelect || select);
 
     return { years, current, selected: selectedYear, selectedTerm };
   }
 
-  window.AcademicYearFilter = Object.freeze({ mount, label: optionText });
+  // Where the school year is today. A year is its terms, half terms and
+  // holidays (April, August, December), so a holiday is shown as such.
+  let periodPromise = null;
+  function currentPeriod() {
+    if (!periodPromise) {
+      const api = window.API?.academic;
+      periodPromise = typeof api?.getCurrentPeriod === 'function'
+        ? api.getCurrentPeriod().catch(() => null)
+        : Promise.resolve(null);
+    }
+    return periodPromise;
+  }
+
+  async function showPeriod(anchor) {
+    if (!anchor || anchor.closest('.input-group')) return;
+    const parent = anchor.parentElement;
+    if (!parent || parent.querySelector('[data-academic-period]')) return;
+    const snap = await currentPeriod();
+    const now = snap?.current_period || snap?.data?.current_period;
+    if (!now) return;
+    const next = snap.next_period || snap?.data?.next_period;
+    const badge = document.createElement('span');
+    badge.setAttribute('data-academic-period', '');
+    badge.className = `badge ${now.kind === 'term' ? 'text-bg-success' : 'text-bg-warning'} align-self-center`;
+    badge.textContent = `Today: ${now.label}`;
+    if (next) badge.title = `Next: ${next.label} (from ${next.start_date})`;
+    anchor.insertAdjacentElement('afterend', badge);
+  }
+
+  /**
+   * For pages whose template has no year select: add a small year (and
+   * optionally term) bar at the top of the page content and mount the filter
+   * on it. The bar is part of the page fragment, so soft navigation replaces
+   * it with the next page.
+   *
+   *   AcademicYearFilter.mountBar({ term: true, onChange: (yearId, year, termId) => load() });
+   */
+  /**
+   * The row that holds the page's title (and usually its buttons): the year
+   * bar belongs there, not above the page. Older pages build their header in
+   * a few ways; the first one found wins. Null when the page has no header.
+   */
+  function pageHeader(host) {
+    const selectors = [
+      '.page-header > .d-flex',
+      '.page-header',
+      '.card:not(.card .card) > .card-header > .d-flex',
+      '.card:not(.card .card) > .card-header',
+      '.fl-head',
+      '.payroll-hero .row',
+      '.executive-hero .row',
+      '.sa-header',
+      '.id-cards-hero',
+      'header',
+    ];
+    for (const selector of selectors) {
+      const el = host.querySelector(selector);
+      if (el && el.offsetParent !== null && !el.closest('.modal')) return el;
+    }
+    // Any other page: the flex row that holds its first heading.
+    const heading = [...host.querySelectorAll('h1, h2, h3, h4')]
+      .find((h) => h.offsetParent !== null && !h.closest('.modal, [data-academic-year-bar], table, .tab-pane:not(.active)'));
+    const row = heading?.closest('.d-flex');
+    return row && host.contains(row) ? row : null;
+  }
+
+  async function mountBar({ term = false, allTermsLabel = '', allTermsDefault = true, planning = false, onChange } = {}) {
+    const host = document.getElementById('main-content-segment') || document.querySelector('main') || document.body;
+    let bar = host.querySelector('[data-academic-year-bar]');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.setAttribute('data-academic-year-bar', '');
+      bar.className = 'd-flex flex-wrap align-items-center gap-2 mb-3 d-print-none';
+      const field = (id, text) => {
+        const label = document.createElement('label');
+        label.className = 'small text-muted mb-0';
+        label.htmlFor = id;
+        label.textContent = text;
+        const select = document.createElement('select');
+        select.id = id;
+        select.className = 'form-select form-select-sm';
+        select.style.width = 'auto';
+        bar.append(label, select);
+      };
+      field('ayBarYear', 'Academic year');
+      if (term) field('ayBarTerm', 'Term');
+      const header = pageHeader(host);
+      if (header) {
+        // In the page header, beside the title and its buttons.
+        bar.classList.remove('mb-3');
+        bar.classList.add('ms-auto');
+        header.appendChild(bar);
+      } else {
+        host.insertBefore(bar, host.firstChild);
+      }
+    }
+    return mount(bar.querySelector('#ayBarYear'), {
+      termSelect: term ? bar.querySelector('#ayBarTerm') : null,
+      allTermsLabel,
+      allTermsDefault,
+      planning,
+      onChange,
+    });
+  }
+
+  window.AcademicYearFilter = Object.freeze({ mount, mountBar, label: optionText, defaultTerm });
 })(window);

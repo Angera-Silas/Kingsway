@@ -100,7 +100,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('requestModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="submitRequest()">Submit Request</button>
+                <button class="btn btn-primary" onclick="submitRequest()" data-year-write>Submit Request</button>
             </div>
         </div>
     </div>

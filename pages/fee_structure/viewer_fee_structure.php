@@ -54,7 +54,7 @@
             <div class="modal-footer d-block">
                 <label for="feeReviewNotes" class="form-label fw-semibold">Review feedback</label>
                 <textarea id="feeReviewNotes" class="form-control mb-3" rows="3" placeholder="Record observations for the School Administrator or Director"></textarea>
-                <div class="text-end"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-primary" id="submitFeeReviewBtn">Save review feedback</button></div>
+                <div class="text-end"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-primary" id="submitFeeReviewBtn" data-year-write>Save review feedback</button></div>
             </div>
         </div>
     </div>

@@ -11,10 +11,10 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-building"></i> Food Store Management</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addItemBtn" data-permission="foodstore_manage">
+                <button class="btn btn-light btn-sm" id="addItemBtn" data-permission="foodstore_manage" data-year-write>
                     <i class="bi bi-plus-circle"></i> Add Item
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="issueItemBtn" data-permission="foodstore_issue">
+                <button class="btn btn-outline-light btn-sm" id="issueItemBtn" data-permission="foodstore_issue" data-year-write>
                     <i class="bi bi-box-arrow-right"></i> Issue Items
                 </button>
             </div>
@@ -197,7 +197,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveItemBtn">Save Item</button>
+                <button type="button" class="btn btn-primary" id="saveItemBtn" data-year-write>Save Item</button>
             </div>
         </div>
     </div>
@@ -250,7 +250,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveIssueBtn">Issue Items</button>
+                <button type="button" class="btn btn-primary" id="saveIssueBtn" data-year-write>Issue Items</button>
             </div>
         </div>
     </div>

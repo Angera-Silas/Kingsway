@@ -19,7 +19,7 @@
 <div class="header-actions" style="margin-bottom: 1rem;">
     <button class="btn btn-outline" onclick="exportFinance()">📥 Export Report</button>
     <button class="btn btn-warning" onclick="showApprovals()">✅ Approve Pending</button>
-    <button class="btn btn-primary" onclick="showAddTransactionModal()">➕ Add Transaction</button>
+    <button class="btn btn-primary" onclick="showAddTransactionModal()" data-year-write>➕ Add Transaction</button>
 </div>
 
 <!-- Stats Row - 4 cards -->
@@ -143,10 +143,10 @@
 <!-- Bulk Actions -->
 <div class="admin-bulk-actions" id="bulkActions" style="display: none;">
     <span class="selected-count"><span id="selectedCount">0</span> selected</span>
-    <button class="btn btn-outline-sm" onclick="bulkApprove()">✅ Approve Selected</button>
-    <button class="btn btn-outline-sm" onclick="bulkReject()">❌ Reject Selected</button>
+    <button class="btn btn-outline-sm" onclick="bulkApprove()" data-year-write>✅ Approve Selected</button>
+    <button class="btn btn-outline-sm" onclick="bulkReject()" data-year-write>❌ Reject Selected</button>
     <button class="btn btn-outline-sm" onclick="bulkExport()">📥 Export Selected</button>
-    <button class="btn btn-danger-sm" onclick="bulkDelete()">🗑️ Delete Selected</button>
+    <button class="btn btn-danger-sm" onclick="bulkDelete()" data-year-write>🗑️ Delete Selected</button>
 </div>
 
 <!-- Data Table -->
@@ -237,7 +237,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveTransaction()">Save Transaction</button>
+                <button class="btn btn-primary" onclick="saveTransaction()" data-year-write>Save Transaction</button>
             </div>
         </div>
     </div>

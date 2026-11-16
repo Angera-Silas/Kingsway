@@ -24,10 +24,10 @@ $appBase = app_base_path();
                     <button class="btn btn-light btn-sm" id="refreshBtn">
                         <i class="bi bi-arrow-clockwise"></i> Refresh
                     </button>
-                    <button class="btn btn-outline-light btn-sm" id="saveAttendanceBtn">
+                    <button class="btn btn-outline-light btn-sm" id="saveAttendanceBtn" data-year-write>
                         <i class="bi bi-check-circle me-1"></i> Save Attendance
                     </button>
-                    <button class="btn btn-outline-light btn-sm" id="submitTripReportBtn">
+                    <button class="btn btn-outline-light btn-sm" id="submitTripReportBtn" data-year-write>
                         <i class="bi bi-file-text me-1"></i> Submit Trip Report
                     </button>
                     <button class="btn btn-light btn-sm" id="printSheetBtn">
@@ -230,16 +230,16 @@ $appBase = app_base_path();
                         <small class="text-muted" id="attendanceInfo">-</small>
                     </div>
                     <div class="btn-group">
-                        <button type="button" class="btn btn-outline-success btn-sm" id="markSelectedPickedUp">
+                        <button type="button" class="btn btn-outline-success btn-sm" id="markSelectedPickedUp" data-year-write>
                             <i class="bi bi-arrow-up"></i> Picked Up
                         </button>
-                        <button type="button" class="btn btn-outline-info btn-sm" id="markSelectedDroppedOff">
+                        <button type="button" class="btn btn-outline-info btn-sm" id="markSelectedDroppedOff" data-year-write>
                             <i class="bi bi-arrow-down"></i> Dropped Off
                         </button>
-                        <button type="button" class="btn btn-outline-danger btn-sm" id="markSelectedAbsent">
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="markSelectedAbsent" data-year-write>
                             <i class="bi bi-x-circle"></i> Absent
                         </button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="markSelectedNotRiding">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="markSelectedNotRiding" data-year-write>
                             <i class="bi bi-ban"></i> Not Riding
                         </button>
                         <button type="button" class="btn btn-outline-dark btn-sm" id="clearSelected">
@@ -310,7 +310,7 @@ $appBase = app_base_path();
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-primary" id="confirmSaveBtn">
+                <button class="btn btn-primary" id="confirmSaveBtn" data-year-write>
                     <i class="bi bi-check-circle me-1"></i> Confirm Save
                 </button>
             </div>

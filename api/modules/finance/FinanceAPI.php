@@ -285,9 +285,9 @@ class FinanceAPI extends BaseAPI
     /**
      * Reports: summary totals for the reports landing page.
      */
-    public function getFinancialSummaryReport()
+    public function getFinancialSummaryReport(array $filters = [])
     {
-        return $this->reportingManager->getFinancialSummaryReport();
+        return $this->reportingManager->getFinancialSummaryReport($filters);
     }
 
     /**
@@ -2405,7 +2405,9 @@ class FinanceAPI extends BaseAPI
             $staff['basic_salary'] = (float)($compensation['basic_salary'] ?? 0);
 
             $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-            $termId = $this->db->query("SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 AND term_period_status = 'current' LIMIT 1")->fetchColumn();
+            // Payroll runs in holidays too: fee deductions go to the term in
+            // session, or during a holiday the next term of the year.
+            $termId = $this->planningTermId((int) $academicYearId ?: null);
             $invoiceWarnings = [];
 
             // Get children with fee balances (current term/year)
@@ -2614,7 +2616,9 @@ class FinanceAPI extends BaseAPI
             $childFeesBreakdown = [];
             if (!empty($childrenDeductions)) {
                 $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-                $termId = $this->db->query("SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 AND term_period_status = 'current' LIMIT 1")->fetchColumn();
+                // Payroll runs in holidays too: fee deductions go to the term in
+            // session, or during a holiday the next term of the year.
+            $termId = $this->planningTermId((int) $academicYearId ?: null);
 
                 foreach ($childrenDeductions as $deduction) {
                     $studentId = $deduction['student_id'] ?? null;
@@ -2852,16 +2856,14 @@ class FinanceAPI extends BaseAPI
         $sql = "SELECT sc.id AS staff_child_id, sc.student_id,
                        sc.fee_deduction_percentage, sc.fee_deduction_amount,
                        vfb.student_academic_enrollment_id AS fee_invoice_id,
-                       (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " is_current = 1 LIMIT 1) AS academic_year_id,
+                       (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1) AS academic_year_id,
                        vfb.academic_year_term_id AS term_id,
                        COALESCE(vfb.balance, 0) AS fee_balance
                 FROM " . ReadReplicaService::qualifiedRef("staff_children") . " sc
                 LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
                   ON vfb.student_id = sc.student_id
                  AND vfb.academic_year = (SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1)
-                 AND vfb.academic_year_term_id = (SELECT ayt.id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                      JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
-                      WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1)
+                 AND vfb.academic_year_term_id = " . (int) ($this->planningTermId((int) ($this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn() ?: 0) ?: null) ?? 0) . "
                 WHERE sc.staff_id = ? AND sc.fee_deduction_enabled = 1
                 ORDER BY sc.id";
         $stmt = $this->db->prepare($sql);

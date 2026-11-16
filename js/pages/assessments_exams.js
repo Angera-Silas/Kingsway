@@ -127,7 +127,7 @@ const assessExamsCtrl = (() => {
     const t = state.currentTerm;
     const yearEl = document.getElementById("ctxYear");
     const termEl = document.getElementById("ctxTerm");
-    if (yearEl) yearEl.textContent = y ? y.year_name : "—";
+    if (yearEl && yearEl.tagName !== "SELECT") yearEl.textContent = y ? y.year_name : "—";
     if (termEl) termEl.textContent = t ? `${t.name} (${t.year_name || ""})` : "—";
   }
 
@@ -182,10 +182,10 @@ const assessExamsCtrl = (() => {
       const option = document.createElement("option");
       option.value = row.id;
       option.textContent = labelBuilder(row);
-      if (options.autoSelectCurrent && row.status === "current") {
+      if (options.autoSelectCurrent && Number(row.id) === Number(state.currentTerm?.id)) {
         option.selected = true;
       }
-      if (options.autoSelectCurrentYear && Number(row.is_current) === 1) {
+      if (options.autoSelectCurrentYear && Number(row.id) === Number(state.currentYear?.id)) {
         option.selected = true;
       }
       select.appendChild(option);
@@ -231,15 +231,48 @@ const assessExamsCtrl = (() => {
     ]);
 
     state.academicYears = Array.isArray(yearsRes.data) ? yearsRes.data : [];
-    state.terms = Array.isArray(termsRes.data) ? termsRes.data : [];
+    state.allTerms = Array.isArray(termsRes.data) ? termsRes.data : [];
+    state.terms = state.allTerms;
     state.classes = Array.isArray(classesRes.data) ? classesRes.data : [];
     state.learningAreas = Array.isArray(areasRes.data) ? areasRes.data : [];
 
+    // The year comes from the shared selector (mountYearFilter); until it
+    // answers, show the current year.
     state.currentYear = state.academicYears.find((y) => Number(y.is_current) === 1) || state.academicYears[0] || null;
-    state.currentTerm = state.terms.find((t) => t.status === "current") || state.terms[0] || null;
+    applyYear(state.currentYear?.id);
+  }
 
+  /** Limit every term dropdown to the selected year's terms. */
+  function applyYear(yearId) {
+    state.currentYear = state.academicYears.find((y) => Number(y.id) === Number(yearId)) || state.currentYear;
+    state.terms = (state.allTerms || []).filter((t) => !t.academic_year_id || Number(t.academic_year_id) === Number(yearId));
+    // In session, or during a holiday the term just closed (marks, results).
+    state.currentTerm = window.AcademicYearFilter?.defaultTerm?.(state.terms) || state.terms.find((t) => t.status === "current") || null;
     updateContextBar();
     populateAllDropdowns();
+  }
+
+  /** The shared year selector: every tab shows the chosen year (current by default). */
+  async function mountYearFilter() {
+    let first = true;
+    await window.AcademicYearFilter?.mount(document.getElementById("ctxYear"), {
+      onChange: (yearId) => {
+        applyYear(yearId);
+        if (first) { first = false; return; } // init loads the first view itself
+        loadAssessments(1);
+        loadExamsList();
+        const target = document.querySelector("#examTabs .nav-link.active")?.getAttribute("data-bs-target");
+        if (target === "#tabGrading") loadGradingResults(1);
+        if (target === "#tabAnalysis") runAnalysis();
+      },
+    });
+  }
+
+  /** academic_year_id for every read (both key spellings for older readers). */
+  function yearParams(params) {
+    const id = state.currentYear?.id;
+    if (id) { params.append("academic_year_id", id); params.append("year_id", id); }
+    return params;
   }
 
   function renderPagination(containerId, page, totalPages, onclickFnName) {
@@ -280,6 +313,7 @@ const assessExamsCtrl = (() => {
       const params = new URLSearchParams({ page, limit: state.assessmentPagination.limit });
       if (classId) params.append("class_id", classId);
       if (termId) params.append("term_id", termId);
+      yearParams(params);
 
       const response = await api(`academic/assessments-list?${params.toString()}`);
       const parsed = parseAssessmentItems(response);
@@ -362,6 +396,7 @@ const assessExamsCtrl = (() => {
       const params = new URLSearchParams({ page: "1", limit: "50" });
       if (termId) params.append("term_id", termId);
       if (examType) params.append("exam_type", examType);
+      yearParams(params);
 
       const response = await api(`academic/exam-schedule?${params.toString()}`);
       const payload = response.data || {};
@@ -420,6 +455,7 @@ const assessExamsCtrl = (() => {
       if (classId) params.append("class_id", classId);
       if (termId) params.append("term_id", termId);
       if (subjectId) params.append("subject_id", subjectId);
+      yearParams(params);
 
       const response = await api(`academic/grading-results?${params.toString()}`);
       const parsed = parseGradingItems(response);
@@ -551,6 +587,7 @@ const assessExamsCtrl = (() => {
       if (classId) params.append("class_id", classId);
       if (termId) params.append("term_id", termId);
       if (subjectId) params.append("subject_id", subjectId);
+      yearParams(params);
 
       const response = await api(`academic/results-analysis?${params.toString()}`);
       const payload = response.data || {};
@@ -741,12 +778,12 @@ const assessExamsCtrl = (() => {
                   step="0.5"
                   placeholder="0"
                   oninput="assessExamsCtrl.updateGradePreview(this)"
-                  style="width:90px"
+                  style="width:90px" data-year-write
                 >
               </td>
               <td class="pct-cell">—</td>
               <td class="grade-cell">—</td>
-              <td><input type="text" class="form-control form-control-sm marks-remarks" placeholder="Remarks" style="width:170px"></td>
+              <td><input type="text" class="form-control form-control-sm marks-remarks" placeholder="Remarks" style="width:170px" data-year-write></td>
             </tr>
           `;
         })
@@ -1078,6 +1115,7 @@ const assessExamsCtrl = (() => {
       await GradingScale.preload();
 
       await loadReferenceData();
+      await mountYearFilter();
       bindTabListeners();
       bindFilterEvents();
       bindRealtimeCollaboration();

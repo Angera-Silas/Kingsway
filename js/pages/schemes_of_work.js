@@ -4,7 +4,7 @@
  * Integrates with AcademicContext for academic year awareness
  */
 
-const SchemesOfWorkController = (() => {
+var SchemesOfWorkController = (() => {
   // Private state
   const state = {
     schemes: [],
@@ -330,7 +330,7 @@ const SchemesOfWorkController = (() => {
                 <button class="btn btn-outline-info" onclick="SchemesOfWorkController.viewScheme(${s.id}, ${s.scheme_workbook_id || 0})" title="Review complete workbook">
                   <i class="bi bi-eye"></i>
                 </button>
-                ${s.workbook_status === 'submitted' && s.scheme_workbook_id ? `<button class="btn btn-outline-success" onclick="SchemesOfWorkController.approveWorkbook(${s.scheme_workbook_id})" title="Approve complete workbook"><i class="bi bi-check2-circle"></i></button>` : ''}
+                ${s.workbook_status === 'submitted' && s.scheme_workbook_id ? `<button class="btn btn-outline-success" onclick="SchemesOfWorkController.approveWorkbook(${s.scheme_workbook_id})" title="Approve complete workbook" data-year-write><i class="bi bi-check2-circle"></i></button>` : ''}
               </div>
             </td>
           </tr>`;
@@ -803,8 +803,10 @@ const SchemesOfWorkController = (() => {
       }
       
       // Get current academic context
-      state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      state.currentTerm = window.AcademicContext.getTermId();
+      // Schemes are prepared for the term in session, or during a holiday
+      // for the next term to open (next year's Term 1 in December).
+      state.currentAcademicYear = window.AcademicContext.getPlanningAcademicYearId?.() || window.AcademicContext.getAcademicYearId();
+      state.currentTerm = window.AcademicContext.getPlanningTermId?.() || window.AcademicContext.getTermId();
       
       // Update filters to use current context
       if (state.currentTerm) {
@@ -830,7 +832,7 @@ const SchemesOfWorkController = (() => {
   };
 })();
 
-let _initialized = false;
+var _initialized = false;
 
 function initializeSchemesOfWork() {
   if (_initialized) return;
@@ -848,3 +850,6 @@ if (window.__APP_BOOTED__) {
 }
 
 window.SchemesOfWorkController = SchemesOfWorkController;
+
+// Shared year bar: reload this page's data in place for the chosen year.
+window.KingswayYearScope?.onYearChange?.(() => SchemesOfWorkController.refresh());

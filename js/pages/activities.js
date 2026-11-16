@@ -1,4 +1,4 @@
-const ActivitiesController = {
+var ActivitiesController = {
     ui: {},
     _activities: [],
     _chartInstances: {},

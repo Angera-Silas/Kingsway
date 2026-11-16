@@ -43,6 +43,7 @@ const AssignClassTeachersController = {
     if (!window.AcademicYearFilter || !select) return;
     let mounted = false;
     await window.AcademicYearFilter.mount(select, {
+      planning: true,
       onChange: (yearId, year) => {
         this.state.yearId = yearId;
         this.state.yearLabel = year?.year_name || year?.year_code || '';
@@ -155,10 +156,10 @@ const AssignClassTeachersController = {
           <td>${badge}</td>
           <td class="d-print-none">
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="AssignClassTeachersController.openAssign(${id})">
+              <button class="btn btn-outline-primary" onclick="AssignClassTeachersController.openAssign(${id})" data-year-write>
                 <i class="bi bi-${assigned ? 'pencil' : 'person-plus'}"></i> ${assigned ? 'Change' : 'Assign'}
               </button>
-              ${r.teacher_id ? `<button class="btn btn-outline-danger" onclick="AssignClassTeachersController.removeAssignment(${id})" title="Remove class teacher" aria-label="Remove class teacher">
+              ${r.teacher_id ? `<button class="btn btn-outline-danger" onclick="AssignClassTeachersController.removeAssignment(${id})" title="Remove class teacher" aria-label="Remove class teacher" data-year-write>
                 <i class="bi bi-trash"></i>
               </button>` : ''}
             </div>

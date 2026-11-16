@@ -139,7 +139,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="AssignClassTeachersController.saveAssignment()">
+                <button type="button" class="btn btn-primary" onclick="AssignClassTeachersController.saveAssignment()" data-year-write>
                     Save Assignment
                 </button>
             </div>

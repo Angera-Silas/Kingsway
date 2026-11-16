@@ -17,7 +17,7 @@
             <button class="btn btn-outline-primary btn-sm" id="exportCalendarBtn">
                 <i class="bi bi-download"></i> Export
             </button>
-            <button class="btn btn-success btn-sm" id="addEventBtn">
+            <button class="btn btn-success btn-sm" id="addEventBtn" data-year-write>
                 <i class="bi bi-plus-circle"></i> Add Event
             </button>
         </div>
@@ -251,7 +251,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveEventBtn">Save Event</button>
+                <button type="button" class="btn btn-primary" id="saveEventBtn" data-year-write>Save Event</button>
             </div>
         </div>
     </div>

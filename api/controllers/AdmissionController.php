@@ -1019,7 +1019,7 @@ class AdmissionController extends BaseController
             return $this->forbidden('Insufficient permission to view admission statistics');
         }
 
-        return $this->handleApiResponse($this->admin->getStats($this->buildAdmissionContext()));
+        return $this->handleApiResponse($this->admin->getStats($this->buildAdmissionContext(), is_array($data) ? $data : []));
     }
 
     /**

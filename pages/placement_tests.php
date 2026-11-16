@@ -98,7 +98,7 @@
                 <h4 class="mb-1">Placement Tests</h4>
                 <p class="mb-0 text-muted">Manage academic placement tests and assessments</p>
             </div>
-            <button type="button" class="btn btn-light btn-lg" id="createPlacementTestBtn">
+            <button type="button" class="btn btn-light btn-lg" id="createPlacementTestBtn" data-year-write>
                 <i class="bi bi-plus-circle me-2"></i>Create Test
             </button>
         </div>
@@ -232,7 +232,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary" data-year-write>
                         <i class="bi bi-plus-circle me-1"></i>Create Test
                     </button>
                 </div>
@@ -309,7 +309,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
+                    <button type="submit" class="btn btn-success" data-year-write>
                         <i class="bi bi-check2-circle me-1"></i>Record Results
                     </button>
                 </div>

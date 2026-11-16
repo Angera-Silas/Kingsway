@@ -2,7 +2,7 @@
  * Academic Years Controller
  * Manages academic year definitions.
  */
-const academicYearsController = {
+var academicYearsController = {
   state: { referenceCache: null, years: [], termCountsAvailable: false, view: 'all', editingYearId: null, eventsBound: false },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
@@ -89,10 +89,9 @@ const academicYearsController = {
   async loadCurrentContext() {
     const yearBox = document.getElementById('currentYearInfo');
     const termBox = document.getElementById('currentTermInfo');
-    const currentYear = this.state.years.find((year) =>
-      year.is_current === true || Number(year.is_current) === 1 ||
-      ['current', 'active'].includes(String(year.status || year.year_status || '').trim().toLowerCase())
-    ) || null;
+    // The incoming year is also "active" during a transition, so only the
+    // year's state (or the is_current flag) identifies the current one.
+    const currentYear = this.state.years.find((year) => this.yearState(year) === 'current') || null;
     if (!currentYear) {
       if (yearBox) yearBox.innerHTML = '<p class="text-muted mb-0">No current academic year is configured.</p>';
       if (termBox) termBox.innerHTML = '<p class="text-muted mb-0">No current term is configured.</p>';
@@ -108,20 +107,45 @@ const academicYearsController = {
       ) || null;
       if (termBox) termBox.innerHTML = term
         ? `<h5 class="mb-1">${this.esc(term.name || term.term_name || 'Current term')}</h5><div class="text-muted">${this.fmtDate(term.start_date)} – ${this.fmtDate(term.end_date)}</div>`
-        : '<p class="text-muted mb-0">No current term is configured for this academic year.</p>';
+        : await this.betweenTermsHtml(terms);
     } catch (error) {
       console.error('Failed to load current term:', error);
       if (termBox) termBox.innerHTML = '<p class="text-danger mb-0">Could not load current term details.</p>';
     }
   },
 
+  // Between terms (holiday, or after the last term of the year): say which
+  // term closed last and when the next one opens.
+  async betweenTermsHtml(terms) {
+    const today = this.todayLocal();
+    const day = (v) => String(v || '').slice(0, 10);
+    const closed = terms.filter((t) => day(t.end_date) && day(t.end_date) < today)
+      .sort((a, b) => day(b.end_date).localeCompare(day(a.end_date)))[0] || null;
+    let next = terms.filter((t) => day(t.start_date) > today)
+      .sort((a, b) => day(a.start_date).localeCompare(day(b.start_date)))[0] || null;
+    let nextYear = null;
+    if (!next) {
+      nextYear = this.state.years.find((year) => this.yearState(year) === 'upcoming') || null;
+      if (nextYear) {
+        try {
+          const list = this.listFrom(await window.API.academic.listTerms({ academic_year_id: nextYear.id })) || [];
+          next = list.sort((a, b) => day(a.start_date).localeCompare(day(b.start_date)))[0] || null;
+        } catch (_) { next = null; }
+      }
+    }
+    const name = (t) => this.esc(t.name || t.term_name || 'Term');
+    const lines = [];
+    if (closed) lines.push(`<h5 class="mb-1">Between terms</h5><div class="text-muted">${name(closed)} closed ${this.fmtDate(closed.end_date)}.</div>`);
+    if (next) lines.push(`<div class="text-muted">${name(next)}${nextYear ? ` of ${this.esc(nextYear.year_name || nextYear.year_code)}` : ''} opens ${this.fmtDate(next.start_date)}.</div>`);
+    return lines.length ? lines.join('') : '<p class="text-muted mb-0">No term is running.</p>';
+  },
+
   render() {
     const years = this.state.years.filter((year) => {
       if (this.state.view === 'all') return true;
-      const status = String(year.status || year.year_status || '').trim().toLowerCase();
-      const current = year.is_current === true || Number(year.is_current) === 1;
-      const active = current || ['active', 'registration', 'closing'].includes(status);
-      const past = status === 'archived' || status === 'completed' || (year.end_date && String(year.end_date).slice(0, 10) < this.todayLocal());
+      const state = this.yearState(year);
+      const active = state === 'current' || state === 'upcoming';
+      const past = state === 'completed' || state === 'archived' || (year.end_date && String(year.end_date).slice(0, 10) < this.todayLocal());
       return this.state.view === 'active' ? active : past;
     });
     const body = document.getElementById('ayYearsBody');
@@ -133,27 +157,28 @@ const academicYearsController = {
       <td class="small">${this.fmtDate(y.end_date)}</td>
       <td class="small">${this.state.termCountsAvailable && y.term_count != null ? Number(y.term_count) : '<span class="text-muted" title="Term counts could not be matched to this academic year">—</span>'}</td>
       <td class="small"><span class="badge bg-${this.yearStatus(y).className}">${this.yearStatus(y).label}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="academicYearsController.editYear(${y.id})"><i class="bi bi-pencil"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="academicYearsController.editYear(${y.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 
-  yearStatus(year) {
-    const status = String(year.status || year.year_status || '').trim().toLowerCase();
-    // Determine term completion state for derived status labels
-    const termCounts = this.state.termCountsAvailable ? this.state.termCounts : {};
-    // termStatuses may not be populated yet; fall back to termCounts-derived inference
-    const termStatuses = this.state.termStatuses ? this.state.termStatuses[year.id] || [] : [];
-    const yearTermCount = termCounts[Number(year.id)] || 0;
-    const hasUpcoming = (termStatuses || []).includes('upcoming')
-        || (yearTermCount > 0 && String(yearTermCount).includes('upcoming'))
-        || (!termStatuses.includes('completed') && yearTermCount > 0 && String(yearTermCount).toLowerCase().includes('upcoming'));
-    const hasCompleted = (termStatuses || []).includes('completed')
-        || yearTermCount > 0 && String(yearTermCount).toLowerCase().includes('completed');
+  yearState(year) {
+    const state = String(year?.state || '').trim().toLowerCase();
+    if (state) return state;
+    if (year?.is_current === true || Number(year?.is_current) === 1) return 'current';
+    const status = String(year?.status || year?.year_status || '').trim().toLowerCase();
+    return status === 'completed' ? 'completed' : '';
+  },
 
-    if (year.is_current === true || Number(year.is_current) === 1) return { label: 'Current', className: 'success' };
-    if (hasUpcoming) return { label: 'Upcoming', className: 'info' };
-    if (hasCompleted) return { label: 'Completed', className: 'primary' };
-    if (['active', 'registration', 'closing'].includes(status) || year.is_active === true || Number(year.is_active) === 1) return { label: 'Active', className: 'primary' };
+  yearStatus(year) {
+    const labels = {
+      current: { label: 'Current', className: 'success' },
+      upcoming: { label: 'Upcoming', className: 'info' },
+      completed: { label: 'Completed', className: 'secondary' },
+      archived: { label: 'Archived', className: 'secondary' },
+    };
+    const state = this.yearState(year);
+    if (labels[state]) return labels[state];
+    const status = String(year.status || year.year_status || '').trim().toLowerCase();
     return { label: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Inactive', className: 'secondary' };
   },
 
@@ -245,8 +270,10 @@ const academicYearsController = {
 };
 
 window.academicYearsController = academicYearsController;
-document.addEventListener('DOMContentLoaded', () => academicYearsController.init().catch((error) => {
+var startAcademicYears = () => academicYearsController.init().catch((error) => {
   console.error('Academic years page initialization failed:', error);
   const body = document.getElementById('ayYearsBody');
   if (body) body.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">Page setup failed. Refresh to try again.</td></tr>';
-}));
+});
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startAcademicYears);
+else startAcademicYears();

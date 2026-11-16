@@ -268,10 +268,10 @@ const PortfolioController = {
                             ${a.description ? `<div class="desc">${this.esc(a.description)}</div>` : ''}
                             ${reflection}${feedback}
                             <div class="pf-artifact-actions">
-                                <button class="btn btn-sm btn-outline-primary" onclick="PortfolioController.editArtifact(${a.id})">
+                                <button class="btn btn-sm btn-outline-primary" onclick="PortfolioController.editArtifact(${a.id})" data-year-write>
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="PortfolioController.deleteArtifact(${a.id})">
+                                <button class="btn btn-sm btn-outline-danger" onclick="PortfolioController.deleteArtifact(${a.id})" data-year-write>
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>

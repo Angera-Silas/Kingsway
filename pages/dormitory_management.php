@@ -111,7 +111,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" form="addDormForm" class="btn btn-primary">Add Dormitory</button>
+                <button type="submit" form="addDormForm" class="btn btn-primary" data-year-write>Add Dormitory</button>
             </div>
         </div>
     </div>

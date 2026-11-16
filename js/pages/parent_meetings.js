@@ -149,8 +149,8 @@ const ParentMeetingsController = {
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-primary" onclick="ParentMeetingsController.viewMeeting(${m.id})" title="View"><i class="fas fa-eye"></i></button>
-                        <button class="btn btn-outline-warning" onclick="ParentMeetingsController.editMeeting(${m.id})" title="Edit"><i class="fas fa-edit"></i></button>
-                        <button class="btn btn-outline-danger" onclick="ParentMeetingsController.cancelMeeting(${m.id})" title="Cancel"><i class="fas fa-times"></i></button>
+                        <button class="btn btn-outline-warning" onclick="ParentMeetingsController.editMeeting(${m.id})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-outline-danger" onclick="ParentMeetingsController.cancelMeeting(${m.id})" title="Cancel" data-year-write><i class="fas fa-times"></i></button>
                     </div>
                 </td>
             </tr>`;
@@ -318,7 +318,7 @@ const ParentMeetingsController = {
                     </div>
                     <div class="col-12 mb-3"><label class="form-label">Description</label><textarea class="form-control" id="meetingDescription" rows="3"></textarea></div>
                 </div>
-                <button type="submit" class="btn btn-primary"><i class="fas fa-calendar-plus me-1"></i>Schedule Meeting</button>
+                <button type="submit" class="btn btn-primary" data-year-write><i class="fas fa-calendar-plus me-1"></i>Schedule Meeting</button>
             </form>`,
       () => {
         document

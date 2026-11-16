@@ -55,7 +55,8 @@
     <div class="card shadow-sm mb-4">
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-4"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div>
+                <div class="col-md-2"><select class="form-select" id="yearFilter" aria-label="Academic year"></select></div>
+                <div class="col-md-2"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div>
                 <div class="col-md-3"><select class="form-select" id="filterSelect"><option value="">All</option></select></div>
                 <div class="col-md-3"><input type="date" class="form-control" id="dateFilter"></div>
                 <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="PerformanceAnalysisController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>

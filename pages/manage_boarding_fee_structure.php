@@ -15,7 +15,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-building text-success me-2"></i>School Fee Structure</h4>
       <p class="text-muted small mb-0 mt-1">Manage the approved grade, student type and term fee matrix.</p>
     </div>
-    <button class="btn btn-success btn-sm" onclick="manageBoardingFeeStructureController.edit()"><i class="bi bi-pencil me-1"></i>Edit School Fees</button>
+    <button class="btn btn-success btn-sm" onclick="manageBoardingFeeStructureController.edit()" data-year-write><i class="bi bi-pencil me-1"></i>Edit School Fees</button>
   </div>
 
   <div class="bg-white border rounded-3 p-3">
@@ -46,8 +46,8 @@
     <div class="modal-body" id="mbfModalBody"></div>
     <div class="modal-footer border-0">
       <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-outline-primary" onclick="manageBoardingFeeStructureController.save('draft')"><i class="bi bi-save me-1"></i>Save as Draft</button>
-      <button class="btn btn-success" onclick="manageBoardingFeeStructureController.save('submit')"><i class="bi bi-send me-1"></i>Save &amp; Submit for Review</button>
+      <button class="btn btn-outline-primary" onclick="manageBoardingFeeStructureController.save('draft')" data-year-write><i class="bi bi-save me-1"></i>Save as Draft</button>
+      <button class="btn btn-success" onclick="manageBoardingFeeStructureController.save('submit')" data-year-write><i class="bi bi-send me-1"></i>Save &amp; Submit for Review</button>
     </div>
   </div></div>
 </div>

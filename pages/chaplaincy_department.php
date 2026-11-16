@@ -25,8 +25,8 @@
     </div>
     <div class="d-flex gap-2">
       <button class="btn btn-outline-primary btn-sm" id="chdRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
-      <button class="btn btn-primary btn-sm" id="chdAddMember"><i class="bi bi-person-plus me-1"></i>Assign Member</button>
-      <button class="btn btn-outline-secondary btn-sm" id="chdAddVolunteer"><i class="bi bi-people me-1"></i>Add Volunteer</button>
+      <button class="btn btn-primary btn-sm" id="chdAddMember" data-year-write><i class="bi bi-person-plus me-1"></i>Assign Member</button>
+      <button class="btn btn-outline-secondary btn-sm" id="chdAddVolunteer" data-year-write><i class="bi bi-people me-1"></i>Add Volunteer</button>
     </div>
   </div>
 
@@ -240,7 +240,7 @@
 
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="chdSaveMember"><i class="bi bi-check2-circle me-1"></i>Assign Selected</button>
+        <button type="button" class="btn btn-primary" id="chdSaveMember" data-year-write><i class="bi bi-check2-circle me-1"></i>Assign Selected</button>
       </div>
     </div>
   </div>
@@ -287,7 +287,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="chdSaveVolunteer">Register</button>
+        <button type="button" class="btn btn-primary" id="chdSaveVolunteer" data-year-write>Register</button>
       </div>
     </div>
   </div>

@@ -57,53 +57,34 @@ const subjectGradeEntryCtrl = (() => {
         return GradingScale.remarks(score, maxMarks);
     }
 
-    async function loadYears() {
-        try {
-            const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
-            const select = document.getElementById('yearFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Years</option>';
-                state.years.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year.id;
-                    option.textContent = year.year_name;
-                    if (year.is_current) option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load years:', error);
-        }
+    /** Rows from an unwrapped API payload (list or {data|items|...}). */
+    function rowsOf(payload, key = '') {
+        if (Array.isArray(payload)) return payload;
+        if (key && Array.isArray(payload?.[key])) return payload[key];
+        return payload?.data || payload?.items || payload?.assessments || payload?.students || payload?.subjects || payload?.exams || [];
     }
 
-    async function loadTerms() {
-        try {
-            const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
-            const select = document.getElementById('termFilter');
-            if (select) {
-                select.innerHTML = '<option value="">All Terms</option>';
-                state.terms.forEach(term => {
-                    const option = document.createElement('option');
-                    option.value = term.id;
-                    option.textContent = `${term.name} (${term.year_code || ''})`;
-                    if (term.status === 'current') option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load terms:', error);
-        }
+    /** The shared year/term selector; the current year (and running term) by default. */
+    async function mountYearFilter() {
+        await window.AcademicYearFilter?.mount(document.getElementById('yearFilter'), {
+            termSelect: document.getElementById('termFilter'),
+            allTermsLabel: 'All terms',
+            allTermsDefault: false,
+            onChange: (yearId, year, termId) => {
+                state.currentAcademicYear = yearId;
+                state.currentTerm = termId;
+                loadAssessments();
+            },
+        });
     }
 
     async function loadSubjects() {
         try {
             // Load only subjects assigned to this teacher
-            const response = await apiCall('academic/subjects-list', 'GET', {
+            const response = await window.API.apiCall('academic/subjects-list', 'GET', null, {
                 subject_teacher_only: true
-            });
-            state.subjects = response.data || [];
+            }, { checkPermission: false });
+            state.subjects = rowsOf(response);
             const select = document.getElementById('subjectFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Subjects</option>';
@@ -121,18 +102,21 @@ const subjectGradeEntryCtrl = (() => {
 
     async function loadAssessments() {
         try {
-            const yearId = document.getElementById('yearFilter')?.value || '';
-            const termId = document.getElementById('termFilter')?.value || '';
+            const yearId = state.currentAcademicYear;
+            if (!yearId) return;
+            const termId = state.currentTerm || '';
             const subjectId = document.getElementById('subjectFilter')?.value || '';
 
-            const response = await apiCall('academic/formative-assessments', 'GET', {
+            const response = await window.API.apiCall('academic/formative-assessments', 'GET', null, {
+                academic_year_id: yearId,
                 year_id: yearId,
+                academic_year_term_id: termId,
                 term_id: termId,
                 subject_id: subjectId,
                 subject_teacher_only: true // Only show assessments for this teacher's subjects
-            });
+            }, { checkPermission: false });
 
-            state.assessments = response.data || [];
+            state.assessments = rowsOf(response);
             const select = document.getElementById('assessmentFilter');
             if (select) {
                 select.innerHTML = '<option value="">Select Assessment</option>';
@@ -165,14 +149,15 @@ const subjectGradeEntryCtrl = (() => {
             document.getElementById('assessmentDate').textContent = assessment.cat_date || '—';
 
             // Load students for the assessment's class and subject
-            const response = await apiCall('academic/class-students', 'GET', {
+            const response = await window.API.apiCall('academic/class-students', 'GET', null, {
                 class_id: assessment.class_id,
                 subject_id: assessment.subject_id,
-                year_id: assessment.year_id,
+                academic_year_id: assessment.year_id || state.currentAcademicYear,
+                year_id: assessment.year_id || state.currentAcademicYear,
                 term_id: assessment.term_id
-            });
+            }, { checkPermission: false });
 
-            state.students = response.data || [];
+            state.students = rowsOf(response);
 
             // Load existing marks
             await loadExistingMarks(assessmentId);
@@ -187,11 +172,11 @@ const subjectGradeEntryCtrl = (() => {
 
     async function loadExistingMarks(assessmentId) {
         try {
-            const response = await apiCall('academic/grading-results', 'GET', {
+            const response = await window.API.apiCall('academic/grading-results', 'GET', null, {
                 assessment_id: assessmentId
-            });
+            }, { checkPermission: false });
 
-            state.marks = response.data?.items || [];
+            state.marks = rowsOf(response, 'items');
         } catch (error) {
             console.error('Failed to load existing marks:', error);
             state.marks = [];
@@ -240,6 +225,7 @@ const subjectGradeEntryCtrl = (() => {
                                value="${marks}"
                                data-student-id="${student.id}"
                                data-max-marks="${maxMarks}"
+                               data-year-write
                                onchange="subjectGradeEntryCtrl.calculateGrade(this)">
                     </td>
                     <td>
@@ -256,6 +242,8 @@ const subjectGradeEntryCtrl = (() => {
                 </tr>
             `;
         }).join('');
+        // A completed year stays read-only for users who may not edit it.
+        window.YearMode?.refresh(tbody);
     }
 
     function calculateGrade(input) {
@@ -395,11 +383,12 @@ const subjectGradeEntryCtrl = (() => {
             renderMarksTable();
         } catch (error) {
             console.error('Failed to save marks:', error);
-            toast('Failed to save marks', 'error');
+            toast(error?.message || 'Failed to save marks', 'error');
         } finally {
             const saveBtn = document.getElementById('saveAllBtn');
             saveBtn.disabled = false;
             saveBtn.textContent = 'Save All Marks';
+            window.YearMode?.refresh(saveBtn);
         }
     }
 
@@ -447,7 +436,7 @@ const subjectGradeEntryCtrl = (() => {
             });
 
             window.PrintManager.exportToCSV({
-                filename: `subject_marks_${state.currentAssessment.name}_${new Date().toISOString().slice(0,10)}.csv`,
+                filename: `subject_marks_${state.currentAssessment.name}_${window.YearMode?.year?.label || ''}_${new Date().toISOString().slice(0,10)}.csv`.replace(/[\/\s]+/g, '_'),
                 columns: columns,
                 rows: rows
             });
@@ -457,8 +446,6 @@ const subjectGradeEntryCtrl = (() => {
     }
 
     function bindEvents() {
-        document.getElementById('yearFilter')?.addEventListener('change', loadAssessments);
-        document.getElementById('termFilter')?.addEventListener('change', loadAssessments);
         document.getElementById('subjectFilter')?.addEventListener('change', loadAssessments);
         document.getElementById('assessmentFilter')?.addEventListener('change', (e) => {
             if (e.target.value) {
@@ -493,27 +480,23 @@ const subjectGradeEntryCtrl = (() => {
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadYears();
-                    loadTerms();
-                    loadAssessments();
-                }
+                if (event === 'refreshed') loadAssessments();
             });
 
             if (!window.AcademicContext.isLoaded()) {
                 await window.AcademicContext.init();
             }
-
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
         }
 
         document.getElementById('marksLoading').style.display = 'none';
         document.getElementById('marksContent').style.display = 'block';
 
-        await Promise.all([loadYears(), loadTerms(), loadSubjects()]);
-        await loadAssessments();
+        await Promise.all([loadSubjects()]);
+
         bindEvents();
+
+        await mountYearFilter(); // loads data for the default year/term
+
     }
 
     return {

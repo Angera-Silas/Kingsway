@@ -220,7 +220,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="cpSave">Save Session</button>
+        <button type="button" class="btn btn-primary" id="cpSave" data-year-write>Save Session</button>
       </div>
     </div>
   </div>

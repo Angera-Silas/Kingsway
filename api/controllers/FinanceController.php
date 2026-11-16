@@ -344,6 +344,28 @@ class FinanceController extends BaseController
     }
 
     /**
+     * POST /api/finance/fee-rollover-sync-worker
+     * Ticker job fee_rollover_sync (schedules.yaml). Moves balances brought
+     * forward into a new academic year to match the year they came from
+     * when that year changes after rollover (late payment, waiver, ...).
+     */
+    public function postFeeRolloverSyncWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        try {
+            $result = (new \App\API\Services\FeeRolloverSyncService($this->db->getConnection()))->sync((int) ($data['limit'] ?? 500));
+            return $this->success($result, 'Brought-forward balances checked.');
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::error('finance', ['action' => 'fee_rollover_sync_worker', 'error' => $e->getMessage()]);
+            return $this->serverError('Brought-forward balance check failed.');
+        }
+    }
+
+    /**
      * POST /api/finance/extra-charge-obligations-worker
      * Ticker job extra_charge_obligations (schedules.yaml). Replaces the
      * MariaDB event, which needed event_scheduler=ON.
@@ -1943,6 +1965,27 @@ class FinanceController extends BaseController
     }
 
     /**
+     * GET /api/finance/student-fee-accounts?academic_year_id=&academic_year_term_id=&class_id=&status=&search=&page=&limit=
+     * One row per learner for one academic year (default current), with a
+     * column per term of that year; a term scopes figures and status.
+     */
+    public function getStudentFeeAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance_view', 'fees_view', 'finance_manage'], [], [])) {
+            return $this->forbidden('You do not have permission to view fee accounts');
+        }
+        try {
+            $service = new \App\API\Modules\finance\StudentFeeAccountsService($this->db->getConnection());
+            return $this->success($service->list(is_array($data) ? $data : []), 'Fee accounts loaded');
+        } catch (\InvalidArgumentException $e) {
+            return $e->getCode() === 404 ? $this->notFound($e->getMessage()) : $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[FinanceController] fee accounts: ' . $e->getMessage());
+            return $this->serverError('Failed to load fee accounts', 'An internal error occurred.');
+        }
+    }
+
+    /**
      * GET /api/finance/students/payment-status
      * List student payment status with filters
      */
@@ -2013,7 +2056,7 @@ class FinanceController extends BaseController
      */
     public function getReports($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getFinancialSummaryReport();
+        $result = $this->api->getFinancialSummaryReport(array_merge($_GET, is_array($data) ? $data : []));
         return $this->handleResponse($result);
     }
 

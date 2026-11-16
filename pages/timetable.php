@@ -29,7 +29,7 @@
                     <p class="text-muted mb-0">View and manage class and teacher timetables</p>
                 </div>
                 <div class="btn-group">
-                    <button id="generateTimetableButton" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal" data-permission="schedules_create">
+                    <button id="generateTimetableButton" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal" data-permission="schedules_create" data-year-write>
                         <i class="bi bi-magic me-1"></i> Generate
                     </button>
                     <button class="btn btn-outline-secondary" id="printTimetable">

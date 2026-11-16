@@ -3528,208 +3528,269 @@ final class PrintService
         /* ── Determine year date range from terms ──────────────────── */
         $firstOpening = $termRows[0]['opening_date'] ?? date('Y-01-01');
         $lastClosing  = end($termRows)['closing_date'] ?? date('Y-12-31');
-        // Extend range by 1 month on each side to catch public holidays
-        $rangeStart = date('Y-m-01', strtotime($firstOpening . ' -1 month'));
-        $rangeEnd   = date('Y-m-t',  strtotime($lastClosing  . ' +1 month'));
+        // The printout covers exactly this academic year. A month of padding
+        // on each side used to pull the neighbouring years' events in.
+        $spanStmt = $db->prepare('SELECT start_date, end_date FROM academic_years WHERE id = ?');
+        $spanStmt->execute([$yearId]);
+        $span = $spanStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $rangeStart = min((string) ($span['start_date'] ?? $firstOpening), (string) $firstOpening);
+        $rangeEnd   = max((string) ($span['end_date'] ?? $lastClosing), (string) $lastClosing);
 
-        /* ── Fetch all school_events in range ──────────────────────── */
+        /* ── Fetch all school_events in range ────────────────────────
+         * Internal meetings and staff affairs stay off the published
+         * calendar; every other event, holiday and exam period is listed. */
         $evtStmt = $db->prepare(
-            "SELECT id, title, type, DATE(start_at) AS start_date,
-                    DATE(end_at) AS end_date, location, status,
+            "SELECT id, title, type, GREATEST(DATE(start_at), ?) AS start_date,
+                    LEAST(COALESCE(DATE(end_at), DATE(start_at)), ?) AS end_date, location, status,
                     TIME(start_at) AS start_time, TIME(end_at) AS end_time
              FROM school_events
              WHERE status NOT IN ('cancelled')
+               AND type NOT IN ('meeting', 'internal', 'staff_meeting', 'staff')
                AND DATE(start_at) <= ?
                AND COALESCE(DATE(end_at), DATE(start_at)) >= ?
              ORDER BY start_at"
         );
-        $evtStmt->execute([$rangeEnd, $rangeStart]);
+        $evtStmt->execute([$rangeStart, $rangeEnd, $rangeEnd, $rangeStart]);
         $allEvents = $evtStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        /* ── Deduplicate events ──────────────────────────────────────
-         * Same title → collapse into single row with date range.
-         * Skip test/dummy entries. */
+        // The holiday registry is the source of truth for holidays. Reading
+        // it here means a year's holidays print even when that year's
+        // calendar days have not been mirrored into school_events yet (the
+        // reason an upcoming year's holidays were missing).
+        $holStmt = $db->prepare(
+            "SELECT name, holiday_type, GREATEST(start_date, ?) AS start_date, LEAST(end_date, ?) AS end_date
+             FROM school_holidays
+             WHERE is_active = 1 AND start_date <= ? AND end_date >= ?"
+        );
+        $holStmt->execute([$rangeStart, $rangeEnd, $rangeEnd, $rangeStart]);
+        foreach ($holStmt->fetchAll(PDO::FETCH_ASSOC) as $hol) {
+            $allEvents[] = [
+                'title' => $hol['name'],
+                'type' => in_array($hol['holiday_type'], ['national', 'religious'], true) ? 'public_holiday' : 'school_holiday',
+                'start_date' => $hol['start_date'],
+                'end_date' => $hol['end_date'],
+                'location' => '',
+                'start_time' => '00:00:00',
+                'end_time' => '23:59:00',
+            ];
+        }
+
+        // Planned exam days, half days and special days marked on the year
+        // calendar itself.
+        $dayTypes = [];
+        foreach ($db->query("SELECT id, code FROM calendar_day_types WHERE code IN ('exam_day', 'half_day', 'special_event')")->fetchAll(PDO::FETCH_ASSOC) as $dt) {
+            $dayTypes[(int) $dt['id']] = (string) $dt['code'];
+        }
+        if ($dayTypes !== []) {
+            $dayStmt = $db->prepare(
+                'SELECT date, calendar_day_type_id, title FROM academic_year_calendar_days
+                 WHERE date BETWEEN ? AND ? AND calendar_day_type_id IN (' . implode(',', array_keys($dayTypes)) . ')'
+            );
+            $dayStmt->execute([$rangeStart, $rangeEnd]);
+            $dayEventType = ['exam_day' => 'exam', 'half_day' => 'half_day', 'special_event' => 'special_event'];
+            $dayDefaultTitle = ['exam_day' => 'Examinations', 'half_day' => 'Half Day', 'special_event' => 'Special Event'];
+            foreach ($dayStmt->fetchAll(PDO::FETCH_ASSOC) as $day) {
+                $code = $dayTypes[(int) $day['calendar_day_type_id']];
+                $allEvents[] = [
+                    'title' => trim((string) ($day['title'] ?? '')) ?: $dayDefaultTitle[$code],
+                    'type' => $dayEventType[$code],
+                    'start_date' => $day['date'],
+                    'end_date' => $day['date'],
+                    'location' => '',
+                    'start_time' => '00:00:00',
+                    'end_time' => '23:59:00',
+                ];
+            }
+        }
+
+        // One dated list from the three sources; the run merge below folds
+        // the same holiday or exam day arriving from more than one of them.
+        usort($allEvents, static fn (array $a, array $b): int => strcmp((string) $a['start_date'], (string) $b['start_date']));
+
+        /* ── Merge per-day rows into runs ────────────────────────────
+         * The calendar stores a break as one row per day, so consecutive rows
+         * with the same title become one dated range. Only consecutive days
+         * merge (a gap of up to 3 days bridges a weekend): the term-1 and
+         * term-2 "Half Term Break" stay two rows instead of one row from
+         * February to June. Skip test/dummy entries. */
         $deduped = [];
+        $openRun = []; // lower-cased title => index of its latest run
         foreach ($allEvents as $evt) {
             $title = trim($evt['title'] ?? '');
             if ($title === '' || str_starts_with($title, '__')) {
                 continue;
             }
             $key = mb_strtolower($title);
-            if (!isset($deduped[$key])) {
-                $deduped[$key] = [
-                    'title'      => $title,
-                    'type'       => $evt['type'],
-                    'start_date' => $evt['start_date'],
-                    'end_date'   => $evt['end_date'] ?? $evt['start_date'],
-                    'location'   => $evt['location'] ?? '',
-                    'start_time' => $evt['start_time'] ?? '00:00:00',
-                    'end_time'   => $evt['end_time'] ?? '23:59:00',
-                ];
+            $evtStart = $evt['start_date'];
+            $evtEnd = $evt['end_date'] ?? $evt['start_date'];
+            if (isset($openRun[$key])) {
+                $run = &$deduped[$openRun[$key]];
+                $bridge = date('Y-m-d', strtotime($run['end_date'] . ' +3 days'));
+                if ($evtStart <= $bridge) {
+                    if ($evtEnd > $run['end_date']) {
+                        $run['end_date'] = $evtEnd;
+                        $run['end_time'] = $evt['end_time'] ?? '23:59:00';
+                    }
+                    if (empty($run['location']) && !empty($evt['location'])) {
+                        $run['location'] = $evt['location'];
+                    }
+                    unset($run);
+                    continue;
+                }
+                unset($run);
+            }
+            $deduped[] = [
+                'title'      => $title,
+                'type'       => $evt['type'],
+                'start_date' => $evtStart,
+                'end_date'   => $evtEnd,
+                'location'   => $evt['location'] ?? '',
+                'start_time' => $evt['start_time'] ?? '00:00:00',
+                'end_time'   => $evt['end_time'] ?? '23:59:00',
+            ];
+            $openRun[$key] = array_key_last($deduped);
+        }
+
+        /* ── The year as it runs ──────────────────────────────────────
+         * An academic year is its terms and its holidays, in order:
+         * Term 1 (half term) → April Holiday → Term 2 (half term) →
+         * August Holiday → Term 3 → December Holiday. Each period is one
+         * block; every event is listed in the period its first day falls in.
+         * The periods come from AcademicPeriodService (the term dates), so an
+         * upcoming year prints its holidays even with no holiday records. */
+        $periods = (new AcademicPeriodService($db))->periodsForYear($yearId);
+        $termRowById = [];
+        foreach ($termRows as $tr) {
+            $termRowById[(int) $tr['id']] = $tr;
+        }
+        $halfTerms = [];
+        $blocksPeriods = [];
+        foreach ($periods as $period) {
+            if ($period['kind'] === AcademicPeriodService::KIND_HALF_TERM) {
+                $halfTerms[(int) $period['academic_year_term_id']] = $period;
             } else {
-                if ($evt['start_date'] < $deduped[$key]['start_date']) {
-                    $deduped[$key]['start_date'] = $evt['start_date'];
-                    $deduped[$key]['start_time'] = $evt['start_time'] ?? '00:00:00';
-                }
-                $end = $evt['end_date'] ?? $evt['start_date'];
-                if ($end > $deduped[$key]['end_date']) {
-                    $deduped[$key]['end_date'] = $end;
-                    $deduped[$key]['end_time'] = $evt['end_time'] ?? '23:59:00';
-                }
-                if (empty($deduped[$key]['location']) && !empty($evt['location'])) {
-                    $deduped[$key]['location'] = $evt['location'];
-                }
+                $blocksPeriods[] = $period;
             }
         }
+        $periodNames = array_map(static fn (array $p): string => mb_strtolower($p['name']), $periods);
 
-        /* ── Classify each deduplicated event into a term or gap ──── */
-        $termEvents  = [];  // term_index => [...]
-        $gapEvents   = [];  // public holidays / breaks between terms
-        $publicHols  = [];
-
-        // Build term boundaries
-        $boundaries = [];
-        foreach ($termRows as $i => $tr) {
-            $boundaries[$i] = [
-                'start' => $tr['opening_date'],
-                'end'   => $tr['closing_date'],
-            ];
-            $termEvents[$i] = [];
-        }
-
+        $publicHols = [];
+        $eventsByPeriod = array_fill(0, count($blocksPeriods), []);
         foreach ($deduped as $evt) {
             $type  = $evt['type'];
             $start = $evt['start_date'];
-            $end   = $evt['end_date'];
+            $title = mb_strtolower(trim((string) $evt['title']));
 
             // Public holidays go to the special section
             if ($type === 'public_holiday') {
-                $publicHols[] = [
-                    'date' => $start,
-                    'name' => $evt['title'],
-                ];
+                $publicHols[] = ['date' => $start, 'name' => $evt['title']];
                 continue;
             }
-
-            // Find which term this event falls into
-            $placed = false;
-            foreach ($boundaries as $i => $b) {
-                // Event overlaps this term?
-                if ($start <= $b['end'] && $end >= $b['start']) {
-                    $termEvents[$i][] = $this->formatCalendarEvent($evt, $b);
-                    $placed = true;
+            // A holiday or half term is printed as its own block or row; the
+            // day rows and holiday records that name it are not events.
+            if (in_array($title, $periodNames, true) || in_array($title, ['half term break', 'half-term break', 'school holiday'], true)) {
+                continue;
+            }
+            foreach ($blocksPeriods as $i => $period) {
+                if ($start >= $period['start_date'] && $start <= $period['end_date']) {
+                    $eventsByPeriod[$i][] = $evt;
                     break;
                 }
             }
-
-            // Falls between terms → gap event (holidays, etc.)
-            if (!$placed) {
-                $gapEvents[] = $evt;
-            }
         }
 
-        /* ── Build term output blocks ──────────────────────────────── */
-        $termLabels = ['TERM I', 'TERM II', 'TERM III'];
+        $termLabels = [1 => 'TERM I', 2 => 'TERM II', 3 => 'TERM III'];
         $monthNames = [
             1=>'January',2=>'February',3=>'March',4=>'April',
             5=>'May',6=>'June',7=>'July',8=>'August',
             9=>'September',10=>'October',11=>'November',12=>'December'
         ];
+        $rangeLabel = function (string $from, string $to): string {
+            return $from === $to ? $this->calDateShort($from) : $this->calDateShort($from) . ' – ' . $this->calDateShort($to);
+        };
 
         $terms = [];
-        foreach ($termRows as $i => $tr) {
-            $opDate = $tr['opening_date'];
-            $clDate = $tr['closing_date'];
-            $htStart = $tr['half_term_start'];
-            $htEnd   = $tr['half_term_end'];
-
-            $opMonth = (int) date('n', strtotime($opDate));
-            $clMonth = (int) date('n', strtotime($clDate));
-            $dateLabel = ($monthNames[$opMonth] ?? '')
-                . ' – '
-                . ($monthNames[$clMonth] ?? '');
-
-            $rows = [];
-
-            // Opening day
-            $rows[] = [
-                'date'    => $opDate,
-                'activity'=> 'Opening of Term ' . ($i + 1) . ' — All Learners',
-                'bold'    => true,
-                'rowType' => 'opening',
-            ];
-
-            // Half-term break if present
-            if ($htStart && $htEnd) {
-                $htStartMonth = (int) date('n', strtotime($htStart));
-                $htEndMonth   = (int) date('n', strtotime($htEnd));
-                $htLabel = $this->calDateShort($htStart) . ' – ' . $this->calDateShort($htEnd);
-                $rows[] = [
-                    'date'    => $htLabel,
-                    'activity'=> 'Half-Term Break',
+        foreach ($blocksPeriods as $i => $period) {
+            if ($period['kind'] === AcademicPeriodService::KIND_TERM) {
+                $termId = (int) $period['academic_year_term_id'];
+                $tr = $termRowById[$termId] ?? [];
+                $number = (int) $period['term_number'];
+                $opDate = $period['start_date'];
+                $clDate = $period['end_date'];
+                $rows = [[
+                    'date'    => $opDate,
+                    'activity'=> 'Opening of Term ' . $number . ' — All Learners',
+                    'bold'    => true,
+                    'rowType' => 'opening',
+                ]];
+                $half = $halfTerms[$termId] ?? null;
+                $termEventRows = array_map(fn (array $evt): array => $this->formatCalendarEvent($evt, [
+                    'start' => $opDate, 'end' => $clDate,
+                    'half_term_start' => $half['start_date'] ?? null, 'half_term_end' => $half['end_date'] ?? null,
+                ]), $eventsByPeriod[$i]);
+                // The half term sits among the term's events in date order.
+                $halfRow = $half ? [
+                    'date'    => $rangeLabel($half['start_date'], $half['end_date']),
+                    'activity'=> $half['name'],
                     'bold'    => true,
                     'rowType' => 'halfterm',
-                ];
-            } elseif ($htStart && !$htEnd) {
-                $rows[] = [
-                    'date'    => $htStart,
-                    'activity'=> 'Half-Term Break',
-                    'bold'    => true,
-                    'rowType' => 'halfterm',
-                ];
-            }
-
-            // Events for this term
-            foreach ($termEvents[$i] as $ev) {
-                $rows[] = $ev;
-            }
-
-            // Closing day
-            $rows[] = [
-                'date'    => $clDate,
-                'activity'=> 'Closing of Term ' . ($i + 1),
-                'bold'    => true,
-                'rowType' => 'closing',
-            ];
-
-            $terms[] = [
-                'title'    => $termLabels[$i] ?? 'TERM ' . ($i + 1),
-                'subtitle' => $tr['term_name'] ?? '',
-                'dateLabel'=> $dateLabel,
-                'rows'     => $rows,
-            ];
-        }
-
-        /* ── Gap events (holidays between terms) ───────────────────── */
-        if (!empty($gapEvents)) {
-            $gapRows = [];
-            foreach ($gapEvents as $ge) {
-                $start = $ge['start_date'];
-                $end   = $ge['end_date'];
-                $dateStr = ($start === $end)
-                    ? $this->calDateShort($start)
-                    : $this->calDateShort($start) . ' – ' . $this->calDateShort($end);
-
-                $rowType = 'holiday';
-                if (in_array($ge['type'], ['exam'], true)) {
-                    $rowType = 'exam';
+                    '_sort'   => $half['start_date'],
+                ] : null;
+                $placedHalf = false;
+                foreach ($eventsByPeriod[$i] as $k => $evt) {
+                    if ($halfRow && !$placedHalf && $evt['start_date'] >= $half['start_date']) {
+                        unset($halfRow['_sort']);
+                        $rows[] = $halfRow;
+                        $placedHalf = true;
+                    }
+                    $rows[] = $termEventRows[$k];
                 }
-
-                $gapRows[] = [
-                    'date'    => $dateStr,
-                    'activity'=> $ge['title'],
+                if ($halfRow && !$placedHalf) {
+                    unset($halfRow['_sort']);
+                    $rows[] = $halfRow;
+                }
+                $rows[] = [
+                    'date'    => $clDate,
+                    'activity'=> 'Closing of Term ' . $number,
                     'bold'    => true,
-                    'rowType' => $rowType,
-                    'note'    => '',
+                    'rowType' => 'closing',
                 ];
+                $terms[] = [
+                    'title'    => $termLabels[$number] ?? 'TERM ' . $number,
+                    'subtitle' => $tr['term_name'] ?? $period['name'],
+                    'dateLabel'=> ($monthNames[(int) date('n', strtotime($opDate))] ?? '') . ' – ' . ($monthNames[(int) date('n', strtotime($clDate))] ?? ''),
+                    'rows'     => $rows,
+                ];
+                continue;
             }
 
-            // Append as a "SCHOOL HOLIDAYS & BREAKS" term block
+            // A holiday: its dates, the term it leads into, and what happens
+            // during it (national exams, admissions, holiday programmes).
+            $next = null;
+            foreach ($periods as $candidate) {
+                if ($candidate['kind'] === AcademicPeriodService::KIND_TERM
+                    && (int) $candidate['academic_year_term_id'] === (int) $period['next_term_id']) {
+                    $next = $candidate;
+                }
+            }
+            $carried = $period['after_term_id'] === null;
+            $subtitle = $carried
+                ? 'Continues from the previous academic year' . ($next ? '; Term ' . $next['term_number'] . ' opens on ' . date('j M Y', strtotime($next['start_date'])) : '')
+                : ($period['next_term_id'] ? 'Learners at home; the next term opens on ' . date('j M Y', strtotime($this->nextOpeningDate((int) $period['next_term_id'], $db))) : 'Learners at home');
+            $rows = [[
+                'date'    => $rangeLabel($period['start_date'], $period['end_date']),
+                'activity'=> $period['name'] . ' (' . $period['days'] . ' days)',
+                'bold'    => true,
+                'rowType' => 'holiday',
+            ]];
+            foreach ($eventsByPeriod[$i] as $evt) {
+                $rows[] = $this->formatCalendarEvent($evt, ['start' => $period['start_date'], 'end' => $period['end_date']]);
+            }
             $terms[] = [
-                'title'    => 'SCHOOL HOLIDAYS & BREAKS',
-                'subtitle' => 'Periods between terms',
-                'dateLabel'=> '',
-                'rows'     => $gapRows,
+                'title'    => mb_strtoupper($period['name']),
+                'subtitle' => $subtitle,
+                'dateLabel'=> $rangeLabel($period['start_date'], $period['end_date']),
+                'rows'     => $rows,
             ];
         }
 
@@ -3753,6 +3814,14 @@ final class PrintService
                 'Coverage'      => 'All Learners (Playgroup – Grade 9)',
             ],
         ];
+    }
+
+    /** Opening date of a term (it may belong to the next academic year). */
+    private function nextOpeningDate(int $termId, $db): string
+    {
+        $stmt = $db->prepare('SELECT opening_date FROM academic_year_terms WHERE id = ?');
+        $stmt->execute([$termId]);
+        return (string) ($stmt->fetchColumn() ?: '');
     }
 
     /**
@@ -4006,7 +4075,7 @@ final class PrintService
             LEFT JOIN school_levels sl ON sl.id = c.level_id
             JOIN " . ReadReplicaService::qualifiedRef("academic_term") . " aterm ON aterm.academic_year_term_id = ayfs.academic_year_term_id
             JOIN student_types st ON st.id = ayfs.student_type_id
-            WHERE ayfs.academic_year_id = ? AND ayfs.status = 'active' AND st.status = 'active'
+            WHERE ayfs.academic_year_id = ? AND ayfs.status IN ('active', 'inactive') AND st.status = 'active'
             ORDER BY c.id, aterm.term_code, st.id
         ";
         $stmt = $db->prepare($sql);
@@ -4192,14 +4261,7 @@ final class PrintService
             'paymentMpesa'    => $data['paymentMpesa'] ?? ($sConfig['mpesa'] ?? []),
             'paymentBank'     => $data['paymentBank']  ?? ($sConfig['bank']  ?? []),
             'paymentMethods'  => $data['paymentMethods'] ?? ($sConfig['paymentMethods'] ?? []),
-            'importantNotes'  => $data['importantNotes'] ?? [
-                'Cash payment is not accepted.',
-                'Parent Portal: Log in, select your child, choose School Fees, select Pay Now and follow the STK prompt on your phone.',
-                'KCB Mobile App: Open the KCB Mobile App and navigate to Lipa Karo under the Pay Your Bills section. In Field 1, School Name, search for and select KINGSWAY PREPARATORY SCHOOL. For School Bank Account Number, select KINGSWAY PREPARATORY SCHOOL with value 1130991288. Enter the student admission number, student name and amount, then pay.',
-                'M-Pesa App or SIM Toolkit: choose Lipa na M-Pesa, Pay Bill, enter Paybill 600986, use the learner admission number as the account number, enter the amount and confirm.',
-                'Fee slip must be presented at school and acknowledged by receipt.',
-                'Fees once paid are non-refundable.',
-            ],
+            'importantNotes'  => $data['importantNotes'] ?? $this->feeStructureNotes($db, $yearId, $data['paymentMethods'] ?? ($sConfig['paymentMethods'] ?? [])),
             'generatedAt'     => (new \DateTime('now', new \DateTimeZone('Africa/Nairobi')))->format('d M Y H:i'),
         ];
     }
@@ -4237,7 +4299,7 @@ final class PrintService
             $scopeSql = " AND (
                 ec.target_scope IN ('all_students', 'new_admissions', 'existing_students')
                 OR (ec.target_scope = 'specific_class' AND ? > 0 AND EXISTS (
-                    SELECT 1 FROM " . ReadReplicaService::qualifiedRef("extra_charge_classes") . " WHERE xcc.extra_charge_id = ec.id AND xcc.class_id = ?
+                    SELECT 1 FROM extra_charge_classes xcc WHERE xcc.extra_charge_id = ec.id AND xcc.class_id = ?
                 ))
                 OR (ec.target_scope = 'boarders' AND EXISTS (
                     SELECT 1 FROM student_types stx WHERE stx.code = 'BOARD' AND stx.code IN ($typePlaceholders)
@@ -4251,7 +4313,10 @@ final class PrintService
                     WHERE xst.extra_charge_id = ec.id AND stc.code IN ($typePlaceholders)
             ))";
             $stmt = $db->prepare(
-                "SELECT ec.id, ec.name, ec.amount, tier.label AS tier_label, tier.amount AS tier_amount
+                "SELECT ec.id, ec.name, ec.amount, ec.target_scope, ec.admission_condition,
+                        ec.charge_frequency, ec.billing_frequency, ec.calculation_mode, ec.unit_label,
+                        tier.label AS tier_label, tier.amount AS tier_amount,
+                        (SELECT COUNT(*) FROM extra_charge_pricing_tiers tc WHERE tc.extra_charge_id = ec.id) AS tier_count
                  FROM extra_charges ec
                  LEFT JOIN extra_charge_pricing_tiers tier ON tier.extra_charge_id=ec.id
                  WHERE ec.academic_year_id = ? AND ec.status = 'active'
@@ -4270,15 +4335,143 @@ final class PrintService
             $stmt->execute(array_merge([$yearId, $classId], $typeCodes, [$classId, $classId], $typeCodes, $typeCodes, $typeCodes));
             $charges = [];
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                // Parents must see who pays a charge and how often, not only
+                // its amount: "Registration Fee (new admissions, once)".
+                $tier = trim((string) ($row['tier_label'] ?? ''));
+                $showTier = $tier !== '' && !in_array(mb_strtolower($tier), ['standard', 'default'], true);
+                $qualifiers = array_values(array_filter([
+                    self::chargeApplicability($row),
+                    self::chargeFrequencyLabel($row),
+                ]));
+                $name = $row['name'] . ($showTier ? ' — ' . $tier : '');
+                if ($qualifiers) {
+                    $name .= ' (' . implode(', ', $qualifiers) . ')';
+                }
                 $charges[] = [
-                    'name' => !empty($row['tier_label']) ? $row['name'] . ' — ' . $row['tier_label'] : $row['name'],
+                    'name' => $name,
                     'amount' => (float) ($row['tier_amount'] ?? $row['amount']),
                 ];
             }
+            // Transport is an optional service for day scholars, billed per
+            // month by route; boarders do not use it.
+            if ($studentType !== 'boarder') {
+                foreach ($db->query("SELECT name, fee FROM transport_routes WHERE status = 'active' AND fee > 0 ORDER BY fee, name")->fetchAll(\PDO::FETCH_ASSOC) as $route) {
+                    $charges[] = [
+                        'name' => 'Transport — ' . $route['name'] . ' (optional, per month)',
+                        'amount' => (float) $route['fee'],
+                    ];
+                }
+            }
             return $charges;
         } catch (\Exception $e) {
+            // Never drop the extra charges from a printout without a trace.
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'fetchExtraChargesForPrint',
+                'academic_year_id' => $yearId,
+                'error' => $e->getMessage(),
+            ]);
             return $data['otherCharges'] ?? [];
         }
+    }
+
+    /** Who an extra charge applies to, in parents' words. */
+    private static function chargeApplicability(array $row): string
+    {
+        $condition = (string) ($row['admission_condition'] ?? '');
+        if ($condition === 'interview_scheduled') return 'applicants called for interview';
+        return match ((string) ($row['target_scope'] ?? '')) {
+            'new_admissions' => 'new admissions',
+            'existing_students' => 'continuing learners',
+            'boarders' => 'boarders',
+            'day_students' => 'day scholars',
+            'specific_class' => 'selected classes',
+            default => '',
+        };
+    }
+
+    /** How often an extra charge is paid ("once", "per term", "per unit"). */
+    private static function chargeFrequencyLabel(array $row): string
+    {
+        $frequency = (string) (($row['charge_frequency'] ?? '') ?: ($row['billing_frequency'] ?? ''));
+        $label = match ($frequency) {
+            'one_time', 'once' => 'once',
+            'per_term', 'termly' => 'per term',
+            'annual', 'per_year', 'yearly' => 'per year',
+            'monthly', 'per_month' => 'per month',
+            default => '',
+        };
+        if (($row['calculation_mode'] ?? '') === 'per_unit' && !empty($row['unit_label'])) {
+            $label = trim('per ' . $row['unit_label'] . ($label !== '' && $label !== 'once' ? ', ' . $label : ''));
+        }
+        return $label;
+    }
+
+    /**
+     * "Important information" for the fee structure, built from the school's
+     * data (fee due dates, payment routes) so the printout never shows a
+     * paybill or account number that differs from the payment boxes.
+     */
+    private function feeStructureNotes(\PDO $db, int $yearId, array $paymentMethods): array
+    {
+        $notes = ['Cash payment is not accepted.'];
+
+        $due = $db->prepare(
+            "SELECT ayt.term_id, MIN(s.due_date) AS due_date
+               FROM academic_year_fee_schedules s
+               JOIN academic_year_terms ayt ON ayt.id = s.academic_year_term_id
+              WHERE s.academic_year_id = ? AND s.due_date IS NOT NULL AND s.status IN ('active', 'inactive')
+              GROUP BY ayt.term_id ORDER BY ayt.term_id"
+        );
+        $due->execute([$yearId]);
+        $dueParts = [];
+        foreach ($due->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $dueParts[] = 'Term ' . (int) $row['term_id'] . ' by ' . date('j M Y', strtotime((string) $row['due_date']));
+        }
+        if ($dueParts) {
+            $notes[] = 'Fees are due: ' . implode('; ', $dueParts) . '.';
+        }
+
+        $notes[] = 'Parent Portal: Log in, select your child, choose School Fees, select Pay Now and follow the STK prompt on your phone.';
+        foreach ($paymentMethods as $method) {
+            $reference = (string) ($method['reference_value'] ?? 'Admission number');
+            $reference = mb_strtolower($reference) === 'admission number' ? 'the learner admission number' : $reference;
+            if (($method['type'] ?? '') === 'mpesa' && !empty($method['paybill'])) {
+                $notes[] = 'M-Pesa App or SIM Toolkit: choose Lipa na M-Pesa, Pay Bill, enter Paybill ' . $method['paybill']
+                    . ', use ' . $reference . ' as the account number, enter the amount and confirm.';
+            } elseif (($method['type'] ?? '') === 'kcb_mobile' && !empty($method['account_no'])) {
+                $notes[] = 'KCB Mobile App: Open the KCB Mobile App and go to Lipa Karo under Pay Your Bills. Search for and select '
+                    . ($method['account_name'] ?: 'the school') . ', choose school bank account number ' . $method['account_no']
+                    . ', enter ' . $reference . ', the learner name and the amount, then pay.';
+            }
+        }
+
+        // Transport and uniforms are paid to their own collection routes.
+        try {
+            $other = $db->query(
+                "SELECT r.purpose, r.collection_product, r.account_identifier, p.code AS provider_code
+                   FROM payment_collection_routes r
+                   JOIN payment_providers p ON p.id = r.provider_id
+                  WHERE r.active = 1 AND r.show_on_fee_structure = 1 AND r.purpose IN ('transport', 'uniforms')
+                    AND r.collection_product IN ('paybill', 'till', 'buni')
+                  ORDER BY r.purpose, r.display_order"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            $byPurpose = [];
+            foreach ($other as $route) {
+                $how = $route['collection_product'] === 'buni'
+                    ? 'KCB Lipa Karo ' . $route['account_identifier']
+                    : ($route['collection_product'] === 'till' ? 'Till ' : 'Paybill ') . $route['account_identifier'];
+                $byPurpose[$route['purpose'] === 'uniforms' ? 'Uniform' : 'Transport'][] = $how;
+            }
+            foreach ($byPurpose as $label => $ways) {
+                $notes[] = $label . ' is paid separately from school fees: ' . implode(' or ', array_unique($ways)) . ', with the learner admission number as the account number.';
+            }
+        } catch (\Exception $e) {
+            // The payment boxes above still show the school-fee routes.
+        }
+
+        $notes[] = 'Fee slip must be presented at school and acknowledged by receipt.';
+        $notes[] = 'Fees once paid are non-refundable.';
+        return $notes;
     }
 
     private function emptyFeeStructureVars(string $yearLabel): array
@@ -4522,171 +4715,110 @@ final class PrintService
     /**
      * Generate a student fee statement PDF.
      */
+    /**
+     * One learner's fee statement for a year (default: the current year),
+     * from FeeStatementService: brought-forward arrears or credit, each
+     * term's fees, waivers, credits and payments, and a closing balance that
+     * equals its own lines. The template renders `statements`.
+     */
     public function prepareStudentFeeStatement(int $studentId, $academicYear = null): array
     {
-        $db = $this->getDb();
-        // An explicit year that does not exist gives an empty statement, never
-        // another year's figures; no year means the current academic year.
-        $year = $this->resolvePrintableAcademicYear($academicYear) ?? [];
-        $yearId = (int) ($year['id'] ?? 0);
-
-        // The student directory holds one row per learner (their latest
-        // enrollment), so it gives identity only. Class and stream come from
-        // the enrollment in the statement's year: short keyed reads.
-        $studentStmt = $db->prepare(
-            "SELECT s.student_id AS id, s.admission_no, s.first_name, s.last_name,
-                    s.student_type_name AS student_type
-             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
-             WHERE s.student_id = ? LIMIT 1"
-        );
-        $studentStmt->execute([$studentId]);
-        $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$student) {
-            throw new RuntimeException('Student not found.');
+        $year = $this->resolvePrintableAcademicYear($academicYear);
+        if (!$year) {
+            throw new RuntimeException('Academic year not found.');
         }
-        $student['class_name'] = null;
-        $student['stream_name'] = null;
-        $enrollmentStmt = $db->prepare(
-            "SELECT academic_year_class_id, stream_name
-             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments_streams") . "
-             WHERE student_id = ? AND academic_year_id = ?
-             ORDER BY id DESC LIMIT 1"
-        );
-        $enrollmentStmt->execute([$studentId, $yearId]);
-        $enrollment = $enrollmentStmt->fetch(PDO::FETCH_ASSOC);
-        if ($enrollment) {
-            $student['stream_name'] = $enrollment['stream_name'];
-            $classStmt = $db->prepare(
-                "SELECT class_id FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " WHERE id = ? LIMIT 1"
-            );
-            $classStmt->execute([(int) $enrollment['academic_year_class_id']]);
-            $classId = (int) ($classStmt->fetchColumn() ?: 0);
-            if ($classId > 0) {
-                $nameStmt = $db->prepare("SELECT name FROM " . ReadReplicaService::qualifiedRef("classes") . " WHERE id = ? LIMIT 1");
-                $nameStmt->execute([$classId]);
-                $student['class_name'] = $nameStmt->fetchColumn() ?: null;
-            }
-        }
-
-        $obligationStmt = $db->prepare(
-            "SELECT sfo.id, sfo.amount_due, sfo.status AS obligation_status,
-                    sfo.due_date, sfo.is_sponsored, sfo.sponsored_waiver_amount,
-                    t.name AS term_name, t.code AS term_code,
-                    COALESCE(v.amount_paid, 0) AS amount_paid,
-                    COALESCE(v.amount_waived, 0) AS amount_waived,
-                    COALESCE(v.balance, sfo.amount_due) AS balance,
-                    COALESCE(v.payment_status, sfo.status) AS payment_status,
-                    COALESCE(fc.name, 'School Fees') AS fee_item
-             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
-             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = sfo.academic_year_term_id
-             JOIN terms t ON t.id = ayt.term_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
-             LEFT JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " v
-               ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id
-              AND v.academic_year_term_id = sfo.academic_year_term_id
-             WHERE sae.student_id = ? AND sfo.academic_year_id = ?
-             ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED), sfo.id"
-        );
-        $obligationStmt->execute([$studentId, $yearId]);
-        $obligations = $obligationStmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $feeLines = [];
-        $termTotals = [];
-        foreach ($obligations as $row) {
-            $status = strtolower((string) ($row['payment_status'] ?? $row['obligation_status'] ?? 'pending'));
-            $status = $status === 'paid' ? 'Paid' : ($status === 'partial' ? 'Partial' : ($status === 'waived' ? 'Waived' : 'Unpaid'));
-            $feeLines[] = [
-                'term' => $row['term_name'] ?? $row['term_code'] ?? '',
-                'item' => $row['fee_item'] ?? 'School Fees',
-                'amount_due' => (float) $row['amount_due'],
-                'amount_paid' => (float) $row['amount_paid'],
-                'waived' => (float) $row['amount_waived'],
-                'balance' => (float) $row['balance'],
-                'status' => $status,
-            ];
-            $termKey = (string) ($row['term_name'] ?? $row['term_code'] ?? $row['id']);
-            if (!isset($termTotals[$termKey])) {
-                $termTotals[$termKey] = ['due' => 0.0, 'paid' => 0.0, 'waived' => 0.0, 'balance' => 0.0];
-            }
-            $termTotals[$termKey]['due'] += (float) $row['amount_due'];
-            $termTotals[$termKey]['paid'] = max($termTotals[$termKey]['paid'], (float) $row['amount_paid']);
-            $termTotals[$termKey]['waived'] = max($termTotals[$termKey]['waived'], (float) $row['amount_waived']);
-            $termTotals[$termKey]['balance'] = max($termTotals[$termKey]['balance'], (float) $row['balance']);
-        }
-
-        // Extra charges are intentionally stored separately from tuition
-        // obligations. Include the generated, student-specific occurrences
-        // so class/type/student-bound charges reach the statement as well.
-        $extraStmt = $db->prepare(
-            "SELECT eco.amount_due, eco.amount_paid, eco.status,
-                    eco.academic_year_term_id, t.name AS term_name,
-                    ec.name AS fee_item
-             FROM extra_charge_student_obligations eco
-             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = eco.student_academic_enrollment_id
-             JOIN extra_charge_schedules ecs ON ecs.id = eco.schedule_id
-             JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id = ecs.extra_charge_id
-             LEFT JOIN terms t ON t.id = (
-                 SELECT ayt.term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                 WHERE ayt.id = eco.academic_year_term_id LIMIT 1
-             )
-             WHERE sae.student_id = ? AND ec.academic_year_id = ?
-               AND eco.status <> 'cancelled'
-             ORDER BY eco.academic_year_term_id, eco.id"
-        );
-        $extraStmt->execute([$studentId, $yearId]);
-        foreach ($extraStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $amountDue = (float) $row['amount_due'];
-            $amountPaid = (float) $row['amount_paid'];
-            $waived = strtolower((string) $row['status']) === 'waived' ? $amountDue : 0.0;
-            $balance = max(0.0, $amountDue - $amountPaid - $waived);
-            $status = strtolower((string) $row['status']);
-            $displayStatus = $status === 'paid' ? 'Paid' : ($status === 'partial' ? 'Partial' : ($status === 'waived' ? 'Waived' : 'Unpaid'));
-            $feeLines[] = [
-                'term' => $row['term_name'] ?? 'Other Charges',
-                'item' => $row['fee_item'] ?? 'Additional Charge',
-                'amount_due' => $amountDue,
-                'amount_paid' => $amountPaid,
-                'waived' => $waived,
-                'balance' => $balance,
-                'status' => $displayStatus,
-            ];
-            $termKey = (string) ($row['term_name'] ?? 'Other Charges');
-            if (!isset($termTotals[$termKey])) {
-                $termTotals[$termKey] = ['due' => 0.0, 'paid' => 0.0, 'waived' => 0.0, 'balance' => 0.0];
-            }
-            $termTotals[$termKey]['due'] += $amountDue;
-            $termTotals[$termKey]['paid'] += $amountPaid;
-            $termTotals[$termKey]['waived'] += $waived;
-            $termTotals[$termKey]['balance'] += $balance;
-        }
-
-        $paymentStmt = $db->prepare(
-            "SELECT receipt_no, amount AS amount_paid, payment_date, method AS payment_method,
-                    reference, status
-             FROM " . ReadReplicaService::qualifiedRef("payments") . "
-             WHERE student_id = ? AND payment_date BETWEEN
-                   (SELECT start_date FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ?)
-                   AND (SELECT end_date FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ?)
-                   AND status IN ('confirmed','completed','success')
-             ORDER BY payment_date DESC, id DESC"
-        );
-        $paymentStmt->execute([$studentId, $yearId, $yearId]);
-        $payments = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+        $statement = (new FeeStatementService($this->getDb()))->forStudent($studentId, (int) $year['id']);
 
         return [
-            'student' => $student,
-            'academicYear' => $year['year_code'] ?? (string) $academicYear,
-            'feeLines' => $feeLines,
-            'payments' => $payments,
-            'summary' => [
-                'total_billed' => array_sum(array_column($termTotals, 'due')),
-                'total_paid' => array_sum(array_column($termTotals, 'paid')),
-                'total_waived' => array_sum(array_column($termTotals, 'waived')),
-                'total_balance' => array_sum(array_column($termTotals, 'balance')),
+            'statements' => [$statement],
+            // Identity and year at the top level for callers that log them.
+            'student' => $statement['student'],
+            'academicYear' => $statement['academic_year']['code'],
+            'summary' => $statement['summary'],
+        ];
+    }
+
+    /** Every learner in a class (or one stream): a summary page, then one page each. */
+    public function prepareClassFeeStatement(int $classId, ?int $streamId = null, $academicYear = null): array
+    {
+        $year = $this->resolvePrintableAcademicYear($academicYear);
+        if (!$year) {
+            throw new RuntimeException('Academic year not found.');
+        }
+        $class = (new FeeStatementService($this->getDb()))->forClass($classId, $streamId, (int) $year['id']);
+        $first = $class['statements'][0]['student'] ?? [];
+        $label = trim(($first['class_name'] ?? 'Class') . ($streamId && !empty($first['stream_name']) ? ' ' . $first['stream_name'] : ''));
+
+        return [
+            'statements' => $class['statements'],
+            'summaryTable' => [
+                'title' => 'Class fee statement: ' . $label,
+                'subtitle' => $class['academic_year']['code'] . ' · ' . count($class['statements']) . ' learners',
+                'label' => 'Learner',
+                'rows' => array_map(static fn (array $s) => ['label' => $s['student']['name'] . ' (' . $s['student']['admission_no'] . ')'] + $s['summary'], $class['statements']),
+                'totals' => $class['totals'],
+            ],
+            'summary' => $class['totals'],
+            'signatureSection' => [
+                ['label' => 'Accounts Office', 'dateLine' => true],
+                ['label' => 'Head Teacher', 'dateLine' => true],
             ],
         ];
+    }
+
+    /** Whole school: one summary row per class, with school totals. */
+    public function prepareSchoolFeeStatement($academicYear = null): array
+    {
+        $year = $this->resolvePrintableAcademicYear($academicYear);
+        if (!$year) {
+            throw new RuntimeException('Academic year not found.');
+        }
+        $school = (new FeeStatementService($this->getDb()))->forSchool((int) $year['id']);
+
+        return [
+            'statements' => [],
+            'summaryTable' => [
+                'title' => 'School fee statement',
+                'subtitle' => $school['academic_year']['code'] . ' · ' . (int) $school['totals']['learners'] . ' learners',
+                'label' => 'Class',
+                'rows' => array_map(static fn (array $c) => ['label' => $c['class_name'] . ' (' . $c['learners'] . ')'] + $c, $school['classes']),
+                'totals' => $school['totals'],
+            ],
+            'summary' => $school['totals'],
+            'signatureSection' => [
+                ['label' => 'Accounts Office', 'dateLine' => true],
+                ['label' => 'Head Teacher', 'dateLine' => true],
+            ],
+        ];
+    }
+
+    /**
+     * A learner's academic record PDF (all years, in each year's class).
+     */
+    public function printLearnerRecord(int $studentId, array $config = []): string
+    {
+        $record = (new LearnerAcademicRecordService($this->getDb()))->forStudent($studentId);
+        $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Learner Academic Record',
+            'filename' => 'learner_record_' . $studentId . '_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'signatureSection' => [
+                ['label' => 'Class Teacher', 'dateLine' => true],
+                ['label' => 'Head Teacher', 'dateLine' => true],
+            ],
+        ], $config);
+        $templatePath = $this->printTemplatesPath . 'learner_record/learner_record_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Learner record template not found: {$templatePath}");
+        }
+        $html = $this->renderDedicatedReportTemplate($templatePath, ['record' => $record], $config);
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => true,
+        ]);
     }
 
     public function printFeeStatement(array $data, array $config = []): string

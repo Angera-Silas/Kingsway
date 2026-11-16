@@ -1,0 +1,265 @@
+/*
+ * kw-clean: the quiet ledger look of the Fee accounts page, for any page that
+ * opts in by adding class="kw-clean" to its outer wrapper.
+ *
+ * It restyles the patterns the older pages are built from, without changing
+ * their markup or ids:
+ *   - the outer card with a blue gradient header  -> a plain page with a title
+ *   - rows of coloured stat cards                 -> one ruled strip of figures
+ *   - light-grey table heads and badge soup       -> a ruled ledger table
+ *   - clusters of outline/light buttons           -> small quiet buttons
+ * Colour only carries meaning: owed/danger, credit/success, warning, info.
+ */
+
+.kw-clean {
+    --kc-ink: #1f2a44;
+    --kc-muted: #667085;
+    --kc-rule: #e3e6eb;
+    --kc-wash: #f6f7f9;
+    --kc-paper: #ffffff;
+    --kc-danger: #a23b2a;
+    --kc-success: #2f7d5b;
+    --kc-warning: #9a6a00;
+    --kc-info: #4c5ba8;
+    color: var(--kc-ink);
+}
+
+/* ---- The page: outer card and its header ------------------------------- */
+.kw-clean .card:not(.card .card),
+.kw-clean.card {
+    border: 1px solid var(--kc-rule);
+    border-radius: 10px;
+    box-shadow: none;
+    background: var(--kc-paper);
+}
+.kw-clean .card:not(.card .card) > .card-header,
+.kw-clean.card > .card-header {
+    background: var(--kc-paper) !important;
+    background-image: none !important;
+    color: var(--kc-ink) !important;
+    border-bottom: 2px solid var(--kc-ink);
+    padding: 1.1rem 1.25rem .9rem;
+    border-radius: 10px 10px 0 0;
+}
+.kw-clean .card:not(.card .card) > .card-header :is(h1, h2, h3, h4, h5),
+.kw-clean.card > .card-header :is(h1, h2, h3, h4, h5) {
+    font-size: 1.4rem;
+    font-weight: 650;
+    letter-spacing: -.01em;
+    color: var(--kc-ink);
+}
+.kw-clean .card:not(.card .card) > .card-header :is(h1, h2, h3, h4, h5) > i,
+.kw-clean.card > .card-header :is(h1, h2, h3, h4, h5) > i { display: none; }
+.kw-clean .card:not(.card .card) > .card-header :is(small, .opacity-75, p),
+.kw-clean.card > .card-header :is(small, .opacity-75, p) { color: var(--kc-muted) !important; opacity: 1 !important; }
+.kw-clean .card:not(.card .card) > .card-header .text-white,
+.kw-clean.card > .card-header .text-white { color: var(--kc-ink) !important; }
+
+/* Buttons in the header and toolbars: small and quiet; the primary action
+   keeps its fill. */
+.kw-clean .card-header :is(.btn-light, .btn-outline-light, .btn-outline-primary, .btn-outline-secondary, .btn-secondary) {
+    background: var(--kc-paper);
+    color: var(--kc-ink);
+    border: 1px solid var(--kc-rule);
+    font-size: .82rem;
+    padding: .3rem .65rem;
+    box-shadow: none;
+}
+.kw-clean .card-header :is(.btn-light, .btn-outline-light, .btn-outline-primary, .btn-outline-secondary):hover {
+    border-color: var(--kc-ink);
+}
+.kw-clean .card-header .btn-group { gap: .35rem; }
+.kw-clean .card:not(.card .card) > .card-header > .d-flex,
+.kw-clean.card > .card-header > .d-flex { flex-wrap: wrap; gap: .75rem; }
+.kw-clean .card-header .btn-group > .btn { border-radius: 6px !important; }
+
+/* ---- Stat cards -> one ruled strip of figures ---------------------------- */
+.kw-clean .row:has(> [class*="col"] > .card .card-body.text-center) {
+    --bs-gutter-x: 0;
+    --bs-gutter-y: 0;
+    border-top: 1px solid var(--kc-rule);
+    border-bottom: 1px solid var(--kc-rule);
+    margin-left: 0;
+    margin-right: 0;
+}
+.kw-clean .row:has(> [class*="col"] > .card .card-body.text-center) + .row:has(> [class*="col"] > .card .card-body.text-center) {
+    border-top: 0;
+    margin-top: -1.5rem;
+}
+.kw-clean .row > [class*="col"] > .card:has(> .card-body.text-center) {
+    border: 0 !important;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    height: 100%;
+}
+.kw-clean .row > [class*="col"] + [class*="col"] > .card:has(> .card-body.text-center) {
+    border-left: 1px solid var(--kc-rule) !important;
+}
+.kw-clean .card-body.text-center:has(> :is(h3, h4, .h3, .h4)) {
+    text-align: left !important;
+    padding: .7rem 1rem .8rem;
+}
+.kw-clean .card-body.text-center > :is(h6, .h6, small, p):first-child {
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--kc-muted) !important;
+    margin-bottom: .2rem !important;
+}
+.kw-clean .card-body.text-center > :is(h3, h4, .h3, .h4) {
+    font-size: 1.3rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    color: var(--kc-ink) !important;
+}
+.kw-clean .card-body.text-center > .text-danger,
+.kw-clean .card-body.text-center > :is(h3, h4).text-danger { color: var(--kc-danger) !important; }
+
+/* ---- Filters ---------------------------------------------------------- */
+.kw-clean :is(.form-control, .form-select) {
+    border-color: var(--kc-rule);
+    font-size: .875rem;
+}
+.kw-clean :is(.form-control, .form-select):focus {
+    border-color: var(--kc-info);
+    box-shadow: 0 0 0 .15rem rgba(76, 91, 168, .15);
+}
+.kw-clean .input-group-text { background: var(--kc-paper); border-color: var(--kc-rule); color: var(--kc-muted); }
+
+/* ---- Tables ------------------------------------------------------------ */
+.kw-clean .table { font-size: .875rem; --bs-table-bg: transparent; }
+.kw-clean .table > thead,
+.kw-clean .table > thead > tr > th,
+.kw-clean .table > :is(.table-light, .table-dark) > tr > th {
+    background: transparent !important;
+    color: var(--kc-muted) !important;
+    font-size: .78rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--kc-ink) !important;
+    white-space: nowrap;
+}
+.kw-clean .table > tbody > tr > td { border-color: var(--kc-rule); vertical-align: middle; }
+.kw-clean .table-hover > tbody > tr:hover > * { --bs-table-bg-state: var(--kc-wash); }
+.kw-clean .table-striped > tbody > tr:nth-of-type(odd) > * { --bs-table-bg-type: #fafbfc; }
+.kw-clean .table-bordered > :not(caption) > * > * { border-left: 0; border-right: 0; }
+
+/* Status badges: text with meaning, not filled pills. */
+.kw-clean .table .badge {
+    background: transparent !important;
+    border: 0;
+    padding: 0;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--kc-ink) !important;
+}
+.kw-clean .table .badge:is(.bg-success, .text-bg-success) { color: var(--kc-success) !important; }
+.kw-clean .table .badge:is(.bg-danger, .text-bg-danger) { color: var(--kc-danger) !important; }
+.kw-clean .table .badge:is(.bg-warning, .text-bg-warning) { color: var(--kc-warning) !important; }
+.kw-clean .table .badge:is(.bg-info, .bg-primary, .text-bg-info, .text-bg-primary) { color: var(--kc-info) !important; }
+.kw-clean .table .badge:is(.bg-secondary, .bg-light, .bg-dark) { color: var(--kc-muted) !important; }
+
+/* Row actions: quiet icon buttons. */
+.kw-clean .table .btn-group-sm > .btn,
+.kw-clean .table .btn-sm {
+    border-color: transparent;
+    background: transparent;
+    color: var(--kc-muted);
+}
+.kw-clean .table .btn-group-sm > .btn:hover,
+.kw-clean .table .btn-sm:hover { color: var(--kc-ink); background: var(--kc-wash); }
+
+/* ---- Inner cards used as sections ---------------------------------------- */
+.kw-clean .card .card:not(:has(> .card-body.text-center)) {
+    border-color: var(--kc-rule);
+    box-shadow: none;
+}
+.kw-clean .card .card > .card-header:not(.bg-primary) {
+    background: transparent;
+    font-weight: 600;
+    border-bottom: 1px solid var(--kc-rule);
+}
+
+/* ---- Keyboard focus and motion ------------------------------------------ */
+.kw-clean :is(.btn, a, button, .form-control, .form-select):focus-visible {
+    outline: 2px solid var(--kc-info);
+    outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .kw-clean * { transition: none !important; animation: none !important; }
+}
+
+/* ---- Details shared by most older pages --------------------------------- */
+.kw-clean .card:not(.card .card) > .card-header > .d-flex { justify-content: space-between; align-items: flex-end; }
+.kw-clean :is(.shadow-sm, .shadow, .shadow-lg) { box-shadow: none !important; }
+.kw-clean .card .card > .card-header i[class*="bi-"],
+.kw-clean .card .card > .card-header i[class*="fa-"] { color: var(--kc-muted) !important; }
+.kw-clean .card .card > .card-header { padding: .65rem 1rem; }
+.kw-clean .card .card > .card-header :is(h5, h6) { font-size: .95rem; font-weight: 600; margin: 0; }
+.kw-clean .form-label { font-size: .78rem; font-weight: 500; color: var(--kc-muted); margin-bottom: .2rem; }
+.kw-clean .alert-info,
+.kw-clean .alert-light,
+.kw-clean .alert-secondary {
+    background: var(--kc-wash);
+    border-color: var(--kc-rule);
+    color: var(--kc-muted);
+}
+.kw-clean .alert-warning { background: #fdf8ec; border-color: #f0e2bd; color: var(--kc-warning); }
+.kw-clean .alert-danger { background: #fbf1ef; border-color: #f0d3cd; color: var(--kc-danger); }
+.kw-clean .alert-success { background: #eef6f1; border-color: #cfe5d8; color: var(--kc-success); }
+.kw-clean .nav-tabs .nav-link { color: var(--kc-muted); border: 0; border-bottom: 2px solid transparent; }
+.kw-clean .nav-tabs .nav-link.active { color: var(--kc-ink); border-bottom-color: var(--kc-ink); background: none; font-weight: 600; }
+.kw-clean .nav-tabs { border-bottom: 1px solid var(--kc-rule); }
+
+/* ---- Stat tiles with a round icon, and solid coloured stat cards --------- */
+/* e.g. <div class="card bg-light"><div class="card-body"><div class="d-flex">
+   <div class="rounded-circle bg-info …"><i/></div><div><small/>…<h4/></div> */
+.kw-clean .row:has(> [class*="col"] > .card .card-body > .d-flex > .rounded-circle:first-child),
+.kw-clean .row:has(> [class*="col"] > .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary)) {
+    --bs-gutter-x: 0; --bs-gutter-y: 0;
+    border-top: 1px solid var(--kc-rule); border-bottom: 1px solid var(--kc-rule);
+    margin-left: 0; margin-right: 0;
+}
+.kw-clean .row > [class*="col"] > .card:has(> .card-body > .d-flex > .rounded-circle:first-child),
+.kw-clean .row > [class*="col"] > .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary) {
+    background: transparent !important; border: 0 !important; border-radius: 0; color: var(--kc-ink) !important; height: 100%;
+}
+.kw-clean .row > [class*="col"] + [class*="col"] > .card:has(> .card-body > .d-flex > .rounded-circle:first-child),
+.kw-clean .row > [class*="col"] + [class*="col"] > .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary) {
+    border-left: 1px solid var(--kc-rule) !important;
+}
+.kw-clean .card-body > .d-flex > .rounded-circle:first-child { display: none; }
+.kw-clean .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary) :is(i.bi, i.fa, i.fas, i[class*="fa-"], .display-4, .fs-1) { display: none; }
+.kw-clean .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary) * { color: var(--kc-ink) !important; }
+.kw-clean .card:has(> .card-body > .d-flex > .rounded-circle:first-child) .card-body,
+.kw-clean .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary) .card-body { padding: .7rem 1rem .8rem; }
+.kw-clean .card:has(> .card-body > .d-flex > .rounded-circle:first-child) :is(small, p, span):not(:has(*)),
+.kw-clean .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary) :is(small, p, span, h6):not(:has(*)) {
+    font-size: .78rem; color: var(--kc-muted) !important; font-weight: 500;
+}
+.kw-clean .card:has(> .card-body > .d-flex > .rounded-circle:first-child) :is(h3, h4, h5),
+.kw-clean .card:is(.bg-primary, .bg-success, .bg-info, .bg-warning, .bg-danger, .bg-secondary) :is(h2, h3, h4, h5) {
+    font-size: 1.3rem; font-weight: 650; font-variant-numeric: tabular-nums; margin: 0;
+}
+.kw-clean .card-body.text-center > :is(h3, h4, .h3, .h4) { white-space: nowrap; }
+
+/* ---- Pages built from a .page-header and separate cards ------------------ */
+.kw-clean .page-header {
+    background: none !important;
+    border-bottom: 2px solid var(--kc-ink);
+    padding: 0 0 .9rem !important;
+    margin-bottom: 1.25rem !important;
+    box-shadow: none !important;
+}
+.kw-clean .page-header > .d-flex { flex-wrap: wrap; gap: .75rem; align-items: flex-end !important; }
+.kw-clean .page-header :is(h1, h2, h3, h4, h5) { font-size: 1.5rem; font-weight: 650; letter-spacing: -.01em; color: var(--kc-ink); margin: 0; }
+.kw-clean .page-header :is(h1, h2, h3, h4, h5) > i { display: none; }
+.kw-clean .page-header p { color: var(--kc-muted) !important; margin: .2rem 0 0; }
+.kw-clean .page-header .btn-group { gap: .35rem; flex-wrap: wrap; }
+.kw-clean .page-header .btn-group > .btn { border-radius: 6px !important; }
+.kw-clean .page-header .btn { font-size: .82rem; padding: .35rem .7rem; box-shadow: none; }
+.kw-clean .page-header :is(.btn-outline-primary, .btn-outline-secondary, .btn-light, .btn-outline-light) {
+    background: var(--kc-paper); color: var(--kc-ink); border: 1px solid var(--kc-rule);
+}
+.kw-clean .page-header :is(.btn-outline-primary, .btn-outline-secondary, .btn-light, .btn-outline-light):hover { border-color: var(--kc-ink); }
+.kw-clean .page-header :is(.btn-primary, .btn-success) { background: var(--kc-ink); border-color: var(--kc-ink); color: #fff; }
+.kw-clean .card:not(.card .card) { border-color: var(--kc-rule); box-shadow: none; }

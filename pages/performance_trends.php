@@ -32,9 +32,7 @@
             <div class="row g-3">
                 <div class="col-md-3">
                     <label class="form-label">Academic Year</label>
-                    <select class="form-select" id="academicYear">
-                        <option value="">Select Year</option>
-                    </select>
+                    <select class="form-select" id="academicYear" aria-label="Academic year"></select>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Class</label>

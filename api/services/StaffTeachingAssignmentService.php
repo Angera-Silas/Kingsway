@@ -84,7 +84,6 @@ final class StaffTeachingAssignmentService
         return $id;
     }
 
-    /** Current term-in-year instance; falls back to the latest defined term for the year. */
     /**
      * The term an allocation belongs to. An explicit term must belong to the
      * year. Otherwise: the running term, else the next term to open (so a new
@@ -100,16 +99,9 @@ final class StaffTeachingAssignmentService
             if (!$id) throw new RuntimeException('This term is not part of the selected academic year', 422);
             return $id;
         }
-        $id = (int)$this->db->query(
-            "SELECT id FROM academic_year_terms
-              WHERE academic_year_id = ?
-              ORDER BY (status = 'current') DESC,
-                       (closing_date >= CURDATE()) DESC,
-                       CASE WHEN closing_date >= CURDATE() THEN opening_date END ASC,
-                       closing_date DESC
-              LIMIT 1",
-            [$yearId]
-        )->fetchColumn();
+        // Same rule as every planning page (AcademicPeriodService): during a
+        // holiday allocations are prepared for the next term to open.
+        [, $id] = (new AcademicPeriodService($this->db))->planningTerm($yearId);
         if (!$id) throw new RuntimeException('No term configured for the selected academic year', 422);
         return $id;
     }

@@ -17,7 +17,7 @@
                     <h4 class="mb-1"><i class="bi bi-people-cog me-2"></i>PTA Management</h4>
                     <p class="text-muted mb-0">Manage PTA members and meetings</p>
                 </div>
-                <button class="btn btn-primary" onclick="PTAManagementController.showAddModal()"><i class="bi bi-plus-lg me-1"></i> Add New</button>
+                <button class="btn btn-primary" onclick="PTAManagementController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add New</button>
             </div>
         </div>
     </div>
@@ -82,7 +82,7 @@
         <div class="mb-3"><label class="form-label">PTA Role</label><select class="form-select" id="recordRole"><option>Member</option><option>Chairperson</option><option>Vice Chairperson</option><option>Secretary</option><option>Treasurer</option></select></div>
         <div class="mb-3"><label class="form-label">Membership Status</label><select class="form-select" id="recordStatus"><option value="active">Active</option><option value="inactive">Inactive</option><option value="pending">Pending</option></select></div>
     </form></div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="PTAManagementController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="PTAManagementController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>
 
 <script src="<?= $appBase ?>/js/pages/pta_management.js?v=<?php echo asset_version('js/pages/pta_management.js'); ?>"></script>

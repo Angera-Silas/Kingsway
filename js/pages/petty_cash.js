@@ -127,7 +127,7 @@ const pettyCashController = {
         <td>${this._esc(t.recorded_by_name || '—')}</td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-danger py-0" onclick="pettyCashController.delete(${t.id})"
-                  title="Delete" ${!this._canApprove ? 'style="display:none"' : ''}>
+                  title="Delete" ${!this._canApprove ? 'style="display:none"' : ''} data-year-write>
             <i class="bi bi-trash3"></i>
           </button>
         </td>
