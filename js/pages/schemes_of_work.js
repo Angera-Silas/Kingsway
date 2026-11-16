@@ -803,8 +803,10 @@ var SchemesOfWorkController = (() => {
       }
       
       // Get current academic context
-      state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      state.currentTerm = window.AcademicContext.getTermId();
+      // Schemes are prepared for the term in session, or during a holiday
+      // for the next term to open (next year's Term 1 in December).
+      state.currentAcademicYear = window.AcademicContext.getPlanningAcademicYearId?.() || window.AcademicContext.getAcademicYearId();
+      state.currentTerm = window.AcademicContext.getPlanningTermId?.() || window.AcademicContext.getTermId();
       
       // Update filters to use current context
       if (state.currentTerm) {

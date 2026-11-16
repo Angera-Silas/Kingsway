@@ -182,7 +182,7 @@ const assessExamsCtrl = (() => {
       const option = document.createElement("option");
       option.value = row.id;
       option.textContent = labelBuilder(row);
-      if (options.autoSelectCurrent && row.status === "current") {
+      if (options.autoSelectCurrent && Number(row.id) === Number(state.currentTerm?.id)) {
         option.selected = true;
       }
       if (options.autoSelectCurrentYear && Number(row.id) === Number(state.currentYear?.id)) {
@@ -246,7 +246,8 @@ const assessExamsCtrl = (() => {
   function applyYear(yearId) {
     state.currentYear = state.academicYears.find((y) => Number(y.id) === Number(yearId)) || state.currentYear;
     state.terms = (state.allTerms || []).filter((t) => !t.academic_year_id || Number(t.academic_year_id) === Number(yearId));
-    state.currentTerm = state.terms.find((t) => t.status === "current") || null;
+    // In session, or during a holiday the term just closed (marks, results).
+    state.currentTerm = window.AcademicYearFilter?.defaultTerm?.(state.terms) || state.terms.find((t) => t.status === "current") || null;
     updateContextBar();
     populateAllDropdowns();
   }

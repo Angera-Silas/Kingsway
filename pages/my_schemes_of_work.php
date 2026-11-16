@@ -101,9 +101,9 @@
 
 <div class="modal fade" id="teacherSchemeBuilder" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-fullscreen-xl-down modal-xl modal-dialog-scrollable"><div class="modal-content">
-    <div class="modal-header bg-success text-white"><div><h5 class="modal-title mb-1"><i class="bi bi-calendar-week me-2"></i>Term Scheme Workspace</h5><small>Week is the planning base. Add multiple strands and sub-strands inside every week.</small></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-header bg-success text-white"><div><h5 class="modal-title mb-1"><i class="bi bi-calendar-week me-2"></i>Term Scheme Workspace <span id="tsPeriod" class="fw-normal"></span></h5><small>Week is the planning base. Add multiple strands and sub-strands inside every week.</small></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
-      <div class="alert alert-light border small"><i class="bi bi-info-circle text-success me-1"></i>Academic year, current term and calendar weeks are supplied automatically. Select your authorised stream and learning area once, then complete any number of weeks. You can save and resume before submitting.</div>
+      <div class="alert alert-light border small"><i class="bi bi-info-circle text-success me-1"></i>The academic year, term and calendar weeks come from the year and term selected at the top of the page (the running term, or the next one, by default). Select your authorised stream and learning area once, then complete any number of weeks. You can save and resume before submitting.</div>
       <form id="teacherSchemeForm"><div class="row g-3 mb-3">
         <div class="col-md-5"><label class="form-label">Class / Stream</label><select id="tsStream" class="form-select" required><option value="">Select stream</option></select></div>
         <div class="col-md-5"><label class="form-label">Learning Area</label><select id="tsArea" class="form-select" required><option value="">Select learning area</option></select></div>

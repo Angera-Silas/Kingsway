@@ -32,7 +32,8 @@ const staffScheduleController = {
     try {
       const r = await callAPI('/academic/terms-list', 'GET');
       const terms = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const current = terms.find(t => (t.status || '') === 'current');
+      // In session, or during a holiday the next term (its schedule is being prepared).
+      const current = window.AcademicYearFilter?.defaultTerm?.(terms, { planning: true }) || terms.find(t => (t.status || '') === 'current');
       if (current) this._termId = current.id;
 
       const sel = document.getElementById('ssTermFilter');

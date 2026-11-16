@@ -342,6 +342,7 @@ class AttendanceManager extends BaseAPI
                     affects_day_students, affects_boarders, requires_attendance
              FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . "
              WHERE date = ?
+             ORDER BY academic_year_calendar_id DESC
              LIMIT 1"
         );
         $stmt->execute([$date]);
@@ -397,14 +398,18 @@ class AttendanceManager extends BaseAPI
             return $row;
         }
 
+        // A holiday date (April, August, December Holiday) belongs to the
+        // term that holiday follows; before Term 1 opens, to Term 1.
+        $period = (new \App\API\Services\AcademicPeriodService($this->db))->periodForDate($date);
+        $holidayTermId = (int) ($period['after_term_id'] ?? 0) ?: (int) ($period['next_term_id'] ?? 0);
         $stmt = $this->db->prepare(
             "SELECT academic_year_term_id AS term_id, academic_year_id AS year_id,
                     term_name, term_code, year_code
              FROM {$academicTerm}
-             WHERE is_current_year = 1 AND term_period_status = 'current'
+             WHERE academic_year_term_id = ?
              LIMIT 1"
         );
-        $stmt->execute();
+        $stmt->execute([$holidayTermId ?: (int) ($this->recordTermId() ?? 0)]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($row) {
@@ -2618,7 +2623,7 @@ class AttendanceManager extends BaseAPI
             $dayType = $calEntry['day_type'] ?? ($dayNumber >= 6 ? 'weekend' : 'school_day');
             $eventName = $calEntry['title'] ?? ($dayNumber === 7 ? 'Sunday' : ($dayNumber === 6 ? 'Saturday' : 'Working Day'));
 
-            $isWorkingDay = !in_array($dayType, ['public_holiday', 'school_holiday']);
+            $isWorkingDay = !in_array($dayType, ['public_holiday', 'school_holiday', 'holiday'], true);
             $onlyRosterStaff = in_array($dayType, ['public_holiday']);
 
             $where = [];
@@ -3005,7 +3010,7 @@ class AttendanceManager extends BaseAPI
                 $isConfiguredSaturday = ((int) date('N', strtotime($date)) === 6)
                     && (($cfg = $this->schoolWeekConfigForYear($this->getCurrentAcademicYearId() ?: 0))
                         && !empty($cfg['saturday_classes']));
-                if (in_array($dayType, ['public_holiday', 'school_holiday'], true)
+                if (in_array($dayType, ['public_holiday', 'school_holiday', 'holiday'], true)
                     || ($dayType === 'weekend' && !$isConfiguredSaturday)) {
                     $isSchoolDay = false;
                     $reason = $calEntry['title'] ?: $dayType;
@@ -3066,16 +3071,16 @@ class AttendanceManager extends BaseAPI
             $isSaturdayClass = $dayNumber === 6
                 && $weekCfg
                 && !empty($weekCfg['saturday_classes']);
-            $isClassDay = !in_array($dayType, ['public_holiday', 'school_holiday'], true)
+            $isClassDay = !in_array($dayType, ['public_holiday', 'school_holiday', 'holiday'], true)
                 && (($dayNumber < 6 && in_array($dayName, $classDays, true)) || $isSaturdayClass);
-            $isBoardingDay = $dayType !== 'school_holiday'
+            $isBoardingDay = !in_array($dayType, ['school_holiday', 'holiday'], true)
                 && in_array($dayName, $boardingDays, true);
 
             $blockedReason = null;
             if (!$isClassDay) {
                 if ($dayType === 'public_holiday') {
                     $blockedReason = "Public Holiday: {$eventName} — class register not required";
-                } elseif ($dayType === 'school_holiday') {
+                } elseif (in_array($dayType, ['school_holiday', 'holiday'], true)) {
                     $blockedReason = "School Holiday/Break: {$eventName} — class register closed";
                 } elseif ($dayType === 'weekend') {
                     $blockedReason = $dayNumber === 7

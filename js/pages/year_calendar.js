@@ -304,7 +304,7 @@ const YearCalendarController = (() => {
     }
     async function markExamWeek() {
         if (!currentDayDate) { showNotification('Select a day first', 'warning'); return; }
-        if (!(await window.confirmAction('Confirm Exam Week', 'Mark the whole Mon-Fri week of ' + currentDayDate + ' as EXAM WEEK?\nExam days will be created for every active class. This cannot be undone per day (you can clear individual days afterwards).'))) return;
+        if (!(await window.confirmAction('Confirm Exam Week', 'Mark the whole Monday to Friday week of ' + currentDayDate + ' as exam week?\nThis records the planned exam dates on the calendar. Exam timetables, candidates and results are prepared later from the exams pages. You can clear individual days afterwards.'))) return;
         try {
             const r = await window.API.schedules.markExamWeek({ date: currentDayDate });
             const msg = r?.data?.message || r?.message || 'Exam week marked';

@@ -557,7 +557,8 @@ const financeReportsController = (() => {
     }
     const result = await safeCall(() => window.API.apiCall("/academic/terms-list", "GET", null, {}, { checkPermission: false }));
     const terms = result.ok && Array.isArray(result.data) ? result.data : [];
-    const current = terms.find(term => term.status === "current" || term.is_current);
+    // In session, or during a holiday the term just closed.
+    const current = window.AcademicYearFilter?.defaultTerm?.(terms) || terms.find(term => term.status === "current" || term.is_current);
     if (current?.start_date && current?.end_date) {
       start.value = String(current.start_date).slice(0, 10);
       end.value = String(current.end_date).slice(0, 10);

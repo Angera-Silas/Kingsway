@@ -142,10 +142,13 @@ class AttendanceStaffService
             $shift = $_GET['shift'] ?? 'full_day';
             $dayName = date('l', strtotime($date));
             $dayNumber = (int)date('N', strtotime($date));
-            $calEntry = $controller->getDb()->query("SELECT type_name AS day_type, title, affects_day_students, affects_boarders FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " WHERE date = ?", [$date])->fetch(\PDO::FETCH_ASSOC);
+            $calEntry = $controller->getDb()->query("SELECT type AS day_type, title, affects_day_students, affects_boarders FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " WHERE date = ? ORDER BY academic_year_calendar_id DESC LIMIT 1", [$date])->fetch(\PDO::FETCH_ASSOC);
             $dayType = $calEntry['day_type'] ?? ($dayNumber >= 6 ? 'weekend' : 'school_day');
             $eventName = $calEntry['title'] ?? ($dayNumber === 7 ? 'Sunday' : ($dayNumber === 6 ? 'Saturday' : 'Working Day'));
-            $isWorkingDay = !in_array($dayType, ['public_holiday', 'school_holiday']);
+            // The day type is compared by its code. A public holiday, a school
+            // holiday and a day the school is closed are all non-working days,
+            // so nobody is marked absent on them.
+            $isWorkingDay = !in_array($dayType, ['public_holiday', 'school_holiday', 'holiday'], true);
             $onlyRosterStaff = in_array($dayType, ['public_holiday']);
             $where = []; $params = [$date];
             if ($departmentId) { $where[] = "v.department_id = ?"; $params[] = (int)$departmentId; }

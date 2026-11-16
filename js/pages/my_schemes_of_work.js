@@ -30,7 +30,7 @@ const MySchemesOfWorkController = {
     this.bindEvents();
     // The shared year/term selector (current year, running term by default)
     // loads the page now and on every change.
-    const yearBar = await window.AcademicYearFilter?.mountBar({ term: true, allTermsLabel: 'All terms', onChange: (yearId, year, termId) => { this.state.currentAcademicYear = yearId; this.state.currentTerm = termId; this.loadSchemes(); } });
+    const yearBar = await window.AcademicYearFilter?.mountBar({ term: true, planning: true, allTermsLabel: 'All terms', allTermsDefault: false, onChange: (yearId, year, termId) => { this.state.currentAcademicYear = yearId; this.state.currentTerm = termId; this.loadSchemes(); } });
     if (!yearBar) await this.loadSchemes();
     const contextEl = document.getElementById('currentPlanningContext');
     if (contextEl) contextEl.innerHTML = '<i class="bi bi-calendar2-check text-success me-2"></i>Showing the academic year and term selected above (the current ones by default).';
@@ -38,6 +38,14 @@ const MySchemesOfWorkController = {
 
   bindEvents() {
     // Academic year and term come from the shared year/term bar (view only).
+  },
+
+  /** Year and term the scheme builder plans for: the ones chosen above. */
+  planningParams() {
+    const params = {};
+    if (this.state.currentAcademicYear) params.academic_year_id = this.state.currentAcademicYear;
+    if (this.state.currentTerm) params.academic_year_term_id = this.state.currentTerm;
+    return params;
   },
 
   async loadAcademicYears() {
@@ -85,8 +93,10 @@ const MySchemesOfWorkController = {
       // A workbook is intentionally saved before its first scheme row is
       // published to the schemes_of_work table. Keep that resumable draft
       // visible here, otherwise the teacher has no way to find it again.
+      // A new year or term needs its own planning context.
+      this.state.planningContext = null;
       try {
-        const contextResponse = await window.API.academic.getTeacherPlanningContext();
+        const contextResponse = await window.API.academic.getTeacherPlanningContext(this.planningParams());
         const context = contextResponse?.data || contextResponse || {};
         this.state.planningContext = context;
         const linkedWorkbookIds = new Set(this.state.schemes.map(s => Number(s.scheme_workbook_id)).filter(Boolean));
@@ -236,9 +246,11 @@ const MySchemesOfWorkController = {
 
   async openTeacherBuilder() {
     try {
-      if (!this.state.planningContext) this.state.planningContext = await window.API.academic.getTeacherPlanningContext();
+      if (!this.state.planningContext) this.state.planningContext = await window.API.academic.getTeacherPlanningContext(this.planningParams());
       const ctx = this.state.planningContext?.data || this.state.planningContext || {};
       this.state.planningContext = ctx;
+      const period = document.getElementById('tsPeriod');
+      if (period) period.textContent = ctx.term_name ? `· ${ctx.term_name}, ${ctx.year_code || ''}`.trim() : '';
       const stream = document.getElementById('tsStream');
       stream.innerHTML = '<option value="">Select stream</option>' + (ctx.streams || []).map(s => `<option value="${s.academic_year_class_stream_id}">${this.escapeHtml((s.class_name || '') + ' · ' + (s.stream_name || ''))}</option>`).join('');
       stream.onchange = () => { this.populateTeacherAreas(); };
@@ -252,14 +264,14 @@ const MySchemesOfWorkController = {
     const sid = Number(document.getElementById('tsStream').value);
     const s = (this.state.planningContext.streams || []).find(x => Number(x.academic_year_class_stream_id) === sid);
     document.getElementById('tsArea').innerHTML = '<option value="">Select learning area</option>' + (s?.learning_areas || []).map(a => `<option value="${a.id}">${this.escapeHtml(a.name)}</option>`).join('');
-    document.getElementById('tsWeeks').innerHTML = '<div class="alert alert-light border">Select a learning area to load every week in the current term.</div>';
+    document.getElementById('tsWeeks').innerHTML = '<div class="alert alert-light border">Select a learning area to load every week of the selected term.</div>';
     document.getElementById('tsArea').onchange = () => this.renderTeacherWeeks();
   },
 
   renderTeacherWeeks() {
     const area = Number(document.getElementById('tsArea').value); const weeks = this.state.planningContext.weeks || [];
     const rows = this.currentCurriculumRows(area); const strands = [...new Map(rows.map(r => [r.strand_id, r])).values()];
-    if (!area) { document.getElementById('tsWeeks').innerHTML = '<div class="alert alert-light border">Select a learning area to load every week in the current term.</div>'; return; }
+    if (!area) { document.getElementById('tsWeeks').innerHTML = '<div class="alert alert-light border">Select a learning area to load every week of the selected term.</div>'; return; }
     const strandOptions = '<option value="">Select strand</option>' + strands.map(r => `<option value="${r.strand_id}">${this.escapeHtml(r.strand_name)}</option>`).join('');
     document.getElementById('tsWeeks').innerHTML = weeks.map(w => w.is_reserved ? `<section class="card border-warning shadow-sm ts-week reserved-week" data-week="${w.week_number}" data-reserved="1"><div class="card-header bg-warning-subtle"><strong>Week ${w.week_number}</strong><small class="text-muted ms-2">${w.week_start} to ${w.week_end}</small><span class="badge text-bg-warning ms-2">Reserved week</span></div><div class="card-body"><div class="alert alert-warning mb-0"><i class="bi bi-calendar2-event me-1"></i>${this.escapeHtml(w.reserved_reason || 'Reserved for examinations and other school activities')}. No scheme rows are required for this week.</div></div></section>` : `<section class="card border shadow-sm ts-week" data-week="${w.week_number}"><div class="card-header bg-success-subtle d-flex justify-content-between align-items-center"><div><strong>Week ${w.week_number}</strong><small class="text-muted ms-2">${w.week_start} to ${w.week_end}</small></div><button type="button" class="btn btn-sm btn-outline-success ts-add-item"><i class="bi bi-plus"></i> Add strand / sub-strand</button></div><div class="card-body ts-items">${this.teacherItemMarkup(strandOptions)}</div></section>`).join('');
     document.querySelectorAll('.ts-add-item').forEach(btn => btn.addEventListener('click', e => this.addTeacherItem(e.currentTarget.closest('.ts-week'), strandOptions)));
@@ -375,7 +387,7 @@ const MySchemesOfWorkController = {
       });
       if(incomplete.length)return this.showNotification(`Complete the started curriculum row(s) in ${[...new Set(incomplete)].join(', ')} by selecting a strand, sub-strand, title, outcome and learning experience. Empty weeks may remain unused; reserved weeks are excluded.`,'warning');
     }
-    const streamArea=stream.learning_areas.find(a=>Number(a.id)===area)?.stream_learning_area_id; const payload={workbook_id:this.state.workbookId||null,stream_learning_area_id:streamArea,title:document.getElementById('tsTitle').value.trim(),weeks}; try { const saved=await window.API.academic.saveSchemeWorkbook(payload); const d=saved?.data||saved||{}; this.state.workbookId=d.workbook_id||this.state.workbookId; if(submit){await window.API.academic.submitSchemeWorkbook({workbook_id:this.state.workbookId,class_id:stream.class_id,stream_id:stream.stream_id,learning_area_id:area}); bootstrap.Modal.getInstance(document.getElementById('teacherSchemeBuilder'))?.hide(); this.showNotification('Complete scheme submitted for review.','success'); await this.loadSchemes();}else{document.getElementById('tsSaveStatus').textContent='Progress saved — you can return later.';this.showNotification('Scheme progress saved.','success');}}catch(e){this.showNotification(e.message||'Unable to save scheme progress.','danger');}
+    const streamArea=stream.learning_areas.find(a=>Number(a.id)===area)?.stream_learning_area_id; const payload={workbook_id:this.state.workbookId||null,stream_learning_area_id:streamArea,academic_year_id:c.academic_year_id||null,academic_year_term_id:c.academic_year_term_id||null,title:document.getElementById('tsTitle').value.trim(),weeks}; try { const saved=await window.API.academic.saveSchemeWorkbook(payload); const d=saved?.data||saved||{}; this.state.workbookId=d.workbook_id||this.state.workbookId; if(submit){await window.API.academic.submitSchemeWorkbook({workbook_id:this.state.workbookId,class_id:stream.class_id,stream_id:stream.stream_id,learning_area_id:area}); bootstrap.Modal.getInstance(document.getElementById('teacherSchemeBuilder'))?.hide(); this.showNotification('Complete scheme submitted for review.','success'); await this.loadSchemes();}else{document.getElementById('tsSaveStatus').textContent='Progress saved — you can return later.';this.showNotification('Scheme progress saved.','success');}}catch(e){this.showNotification(e.message||'Unable to save scheme progress.','danger');}
   },
 
   async viewScheme(id) {
@@ -406,7 +418,7 @@ const MySchemesOfWorkController = {
 
   async editWorkbook(workbookId) {
     const draft = (this.state.planningContext?.drafts || []).find(d => Number(d.id) === Number(workbookId));
-    if (!draft) return this.showNotification('Saved workbook draft was not found in the current term.', 'warning');
+    if (!draft) return this.showNotification('Saved workbook draft was not found in the selected term.', 'warning');
     let stream = null; let area = null;
     (this.state.planningContext.streams || []).some(candidate => {
       const match = (candidate.learning_areas || []).find(a => Number(a.stream_learning_area_id) === Number(draft.academic_year_class_stream_learning_area_id));

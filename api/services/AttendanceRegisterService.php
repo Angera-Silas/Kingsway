@@ -55,7 +55,10 @@ class AttendanceRegisterService
 
         $context = $this->context($date);
         if (!$context) {
-            return ['date' => $date, 'registers' => 0, 'reminders' => 0, 'escalations' => 0, 'message' => 'No active academic term for date'];
+            // Holidays are periods of the academic year with no registers.
+            $period = (new AcademicPeriodService($this->db))->periodForDate($date);
+            $message = $period ? 'No registers during the ' . $period['label'] : 'No academic year covers this date';
+            return ['date' => $date, 'registers' => 0, 'reminders' => 0, 'escalations' => 0, 'message' => $message];
         }
         if (!$context['is_school_day']) {
             return ['date' => $date, 'registers' => 0, 'reminders' => 0, 'escalations' => 0, 'message' => $context['reason']];

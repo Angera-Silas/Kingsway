@@ -331,15 +331,10 @@ class SchedulesWorkflow extends WorkflowHandler
                 return $found;
             }
         }
-        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1");
-        $stmt->execute([$academicYearId]);
-        $found = (int) $stmt->fetchColumn();
-        if ($found > 0) {
-            return $found;
-        }
-        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'upcoming' ORDER BY opening_date LIMIT 1");
-        $stmt->execute([$academicYearId]);
-        return (int) $stmt->fetchColumn();
+        // The term in session, or during a holiday the next term of the
+        // year (its last term once the year is over).
+        [, $found] = (new \App\API\Services\AcademicPeriodService($this->db))->planningTerm((int) $academicYearId);
+        return (int) $found;
     }
 
     /**

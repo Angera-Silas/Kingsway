@@ -62,11 +62,13 @@ const performanceReportsCtrl = (() => {
         const sel = document.getElementById('examTerm');
         if (!sel) return;
         sel.innerHTML = '<option value="">All Terms</option>';
+        // The term in session, or during a holiday the term just closed.
+        const defaultTermId = String((window.AcademicYearFilter?.defaultTerm?.(state.terms) || state.terms.find((t) => t.status === 'current') || {}).id || '');
         state.terms.forEach((t) => {
             const opt = document.createElement('option');
             opt.value = t.id;
             opt.textContent = `${t.name} (${t.year_code || ''})`;
-            if (t.status === 'current') opt.selected = true;
+            if (String(t.id) === defaultTermId) opt.selected = true;
             sel.appendChild(opt);
         });
     }

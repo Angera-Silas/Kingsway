@@ -327,7 +327,8 @@ class ResourcesManager extends BaseAPI
         try {
             $sql = "
                 SELECT * 
-                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . " activity_id = ?
+                FROM activity_resources
+                WHERE activity_id = ?
                 ORDER BY type, name
             ";
 

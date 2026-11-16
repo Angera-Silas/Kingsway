@@ -48,6 +48,7 @@ const ExamTimetableDraftsController = {
     }
     await window.AcademicYearFilter.mount(yearSelect, {
       termSelect: document.getElementById("examDraftTerm"),
+      planning: true,
       onChange: async (yearId, _year, termId) => {
         const yearChanged = this.state.yearId !== Number(yearId || 0);
         this.state.yearId = Number(yearId || 0);

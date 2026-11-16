@@ -31,8 +31,10 @@ const observationScheduleController = {
       }
       
       // Get current academic context
-      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this._currentTerm = window.AcademicContext.getTermId();
+      // Observations are scheduled for the term being prepared: the term in
+      // session, or during a holiday the next term to open.
+      this._currentAcademicYear = window.AcademicContext.getPlanningAcademicYearId?.() || window.AcademicContext.getAcademicYearId();
+      this._currentTerm = window.AcademicContext.getPlanningTermId?.() || window.AcademicContext.getTermId();
     }
     
     await this._load();

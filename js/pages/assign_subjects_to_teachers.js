@@ -327,6 +327,7 @@ const AssignSubjectsController = (() => {
         if (!window.AcademicYearFilter || !yearSelect) return;
         await window.AcademicYearFilter.mount(yearSelect, {
             termSelect,
+            planning: true,
             onChange: (id, year, term) => {
                 yearId = id;
                 yearLabel = year?.year_name || year?.year_code || '';

@@ -189,6 +189,21 @@
         return ev && ev.academic_year_term_id != null ? ev.academic_year_term_id : null;
     }
 
+    /** True when any day of the event falls inside the period's dates. */
+    function inPeriod(ev, period) {
+        if (!period) return true;
+        var start = String(ev.start_date || ev.date || "").slice(0, 10);
+        var end = String(ev.end_date || start).slice(0, 10);
+        return start !== "" && end >= period.start_date && start <= period.end_date;
+    }
+
+    /** "p:<key>" options in the period select name a half term or holiday. */
+    function periodByOption(ctx, value) {
+        if (!ctx || !Array.isArray(ctx.periods) || String(value || "").indexOf("p:") !== 0) return null;
+        var key = String(value).slice(2);
+        return ctx.periods.find(function (p) { return p.key === key; }) || null;
+    }
+
     function createTable(options) {
         var container = document.getElementById(options.containerId);
         if (!container) return null;
@@ -241,7 +256,11 @@
                 var today = (st.context && st.context.today) || new Date().toISOString().slice(0, 10);
                 var out = st.allEvents.slice();
 
-                if (st.scope === "current_term") {
+                var nowPeriod = st.context && st.context.current_period;
+                if (st.scope === "current_term" && nowPeriod && nowPeriod.kind === "holiday") {
+                    // During a holiday "now" is the holiday itself.
+                    out = out.filter(function (ev) { return inPeriod(ev, nowPeriod); });
+                } else if (st.scope === "current_term") {
                     var tid = st.termId || (st.context && st.context.current_term_id);
                     if (tid) {
                         out = out.filter(function (ev) {
@@ -254,7 +273,10 @@
                     });
                 }
 
-                if (st.termId && st.scope !== "current_term") {
+                var chosenPeriod = periodByOption(st.context, st.termId);
+                if (chosenPeriod && st.scope !== "current_term") {
+                    out = out.filter(function (ev) { return inPeriod(ev, chosenPeriod); });
+                } else if (st.termId && st.scope !== "current_term") {
                     out = out.filter(function (ev) {
                         return termOf(ev) !== null && String(termOf(ev)) === String(st.termId);
                     });
@@ -287,19 +309,30 @@
                 var ctx = this.state.context;
                 if (!ctx) return;
                 var termBtn = container.querySelector("[data-scope='current_term']");
-                if (termBtn) termBtn.textContent = ctx.current_term_name || "Current Term";
+                if (termBtn) {
+                    var cp = ctx.current_period;
+                    termBtn.textContent = cp
+                        ? (cp.status === "current" ? "Now: " + cp.name : cp.name)
+                        : (ctx.current_term_name || "Current Term");
+                }
                 var termSelect = container.querySelector("[data-role='term']");
-                if (termSelect && Array.isArray(ctx.terms)) {
+                if (termSelect && (Array.isArray(ctx.periods) || Array.isArray(ctx.terms))) {
                     var current = termSelect.value;
-                    termSelect.innerHTML =
-                        '<option value="">All Terms</option>' +
-                        ctx.terms
-                            .map(function (t) {
-                                return '<option value="' + esc(t.id) + '">' + esc(t.name) + "</option>";
-                            })
-                            .join("");
+                    // The year as it runs: each term, its half term and the
+                    // holiday after it (April, August, December).
+                    var periodOptions = Array.isArray(ctx.periods) && ctx.periods.length
+                        ? ctx.periods.map(function (p) {
+                            var value = p.kind === "term" ? String(p.academic_year_term_id) : "p:" + p.key;
+                            var name = (p.kind === "half_term" ? "\u00a0\u00a0" : "") + p.name;
+                            return '<option value="' + esc(value) + '">' + esc(name) + "</option>";
+                        }).join("")
+                        : ctx.terms.map(function (t) {
+                            return '<option value="' + esc(t.id) + '">' + esc(t.name) + "</option>";
+                        }).join("");
+                    termSelect.innerHTML = '<option value="">Whole year</option>' + periodOptions;
                     if (this.state.scope === "current_term") {
-                        termSelect.value = ctx.current_term_id || "";
+                        var nowP = ctx.current_period;
+                        termSelect.value = nowP && nowP.kind === "holiday" ? "p:" + nowP.key : (ctx.current_term_id || "");
                         termSelect.disabled = true;
                     } else {
                         termSelect.value = current || "";
@@ -323,7 +356,7 @@
                 if (!thead || !tbody) return;
                 var events = this.state.events;
                 var editable = !!options.editable;
-                var cols = "Term, Week, Event, From, To, Type, Status" + (editable ? ", Actions" : "");
+                var cols = "Period, Week, Event, From, To, Type, Status" + (editable ? ", Actions" : "");
 
                 thead.innerHTML =
                     "<tr>" +
@@ -356,7 +389,7 @@
                         }
                         return (
                             "<tr>" +
-                            "<td class='text-nowrap'>" + esc(ev.term_name || "—") + "</td>" +
+                            "<td class='text-nowrap'>" + esc(ev.period_name || ev.term_name || "—") + "</td>" +
                             "<td>" + (ev.week_number != null ? "Week " + esc(ev.week_number) : "—") + "</td>" +
                             "<td class='fw-semibold'>" + esc(ev.title || ev.name) +
                             (ev.description ? "<br><small class='text-muted'>" + esc(String(ev.description).substring(0, 60)) + "</small>" : "") +
@@ -434,7 +467,7 @@
             '<div class="card-body">' +
             '<div class="row g-2 align-items-end">' +
             '<div class="col-auto" data-role="scope"></div>' +
-            '<div class="col-auto"><label class="form-label small mb-1">Term</label><select class="form-select form-select-sm" data-role="term"></select></div>' +
+            '<div class="col-auto"><label class="form-label small mb-1">Period</label><select class="form-select form-select-sm" data-role="term"></select></div>' +
             '<div class="col-auto"><label class="form-label small mb-1">Week</label><select class="form-select form-select-sm" data-role="week"><option value="">All Weeks</option></select></div>' +
             '<div class="col-auto"><label class="form-label small mb-1">Event Type</label><select class="form-select form-select-sm" data-role="type">' +
             '<option value="">All Types</option>' +

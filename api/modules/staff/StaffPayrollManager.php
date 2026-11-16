@@ -1059,7 +1059,8 @@ class StaffPayrollManager extends BaseAPI
             // Get allowances
             $stmt = $this->db->prepare("
                 SELECT id, name, allowance_type, amount, is_taxable
-                FROM " . ReadReplicaService::qualifiedRef("staff_deductions") . " staff_id = ? 
+                FROM staff_allowances
+                WHERE staff_id = ?
                 AND status = 'active'
                 AND (end_date IS NULL OR end_date >= CURDATE())
             ");

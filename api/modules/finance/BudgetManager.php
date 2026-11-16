@@ -113,7 +113,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Check if budget exists and is editable
             $stmt = $this->db->prepare("
-                SELECT id, status FROM " . ReadReplicaService::qualifiedRef("budgets") . " id = ?
+                SELECT id, status FROM budgets WHERE id = ?
             ");
             $stmt->execute([$budgetId]);
             $budget = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -59,6 +59,12 @@
         </div>
         <div class="col-lg-5">
             <div class="hero-actions">
+                <!-- One academic year at a time: current, upcoming or completed.
+                     It scopes every figure, the list and the matrix below. -->
+                <label for="adminMatrixAcademicYearFilter" class="small fw-semibold text-muted mb-0">Academic year</label>
+                <select class="form-select form-select-sm" id="adminMatrixAcademicYearFilter" style="width: 13rem" aria-label="Academic year">
+                    <option value="">Loading…</option>
+                </select>
                 <button class="executive-btn secondary" onclick="exportFeeStructures()"><i class="bi bi-download me-2"></i>Export</button>
                 <button class="executive-btn secondary" onclick="showDuplicateModal()" data-year-write><i class="bi bi-files me-2"></i>Duplicate Year</button>
                 <button class="executive-btn primary" onclick="showCreateFeeStructureModal()" data-year-write><i class="bi bi-plus-lg me-2"></i>Create Structure</button>
@@ -72,7 +78,7 @@
     <div class="metric-card featured">
         <div class="metric-label">Expected Revenue</div>
         <div class="metric-value" id="totalExpectedRevenue">KES 0</div>
-        <div class="metric-note">Sum of annual obligations actually billed to enrolled learners.</div>
+        <div class="metric-note">Fees billed to learners for <span id="feeSummaryYearLabel">the selected year</span>.</div>
         <div class="board-caption"><i class="bi bi-graph-up-arrow"></i> Director revenue exposure</div>
     </div>
 
@@ -171,10 +177,6 @@
             <small class="text-muted">The approved Day and Full Boarder amounts exactly as configured by grade and term.</small>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <label for="adminMatrixAcademicYearFilter" class="small fw-semibold text-muted mb-0">Academic Year</label>
-            <select class="form-select form-select-sm" id="adminMatrixAcademicYearFilter" style="width: 150px">
-                <option value="">Select year</option>
-            </select>
             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearFilters()">Reset</button>
             <button class="btn btn-sm btn-outline-primary" type="button" id="adminMatrixPrint" onclick="printActiveFeeStructure()" title="PDF of the active fee structure for the selected year"><i class="bi bi-printer me-1"></i>Print PDF</button>
             <span class="badge rounded-pill text-bg-success">Active</span>

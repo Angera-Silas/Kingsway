@@ -524,7 +524,10 @@ const StudentLeadershipController = {
       || ['current', 'active'].includes(String(year.status || '').toLowerCase()));
     if (this.el('awardYear')) this.el('awardYear').value = currentYear ? String(currentYear.id) : '';
     this.renderAwardTerms();
-    const currentTerm = this.state.terms.find((term) => Number(term.is_current) === 1 || term.is_current === true
+    // The term in session, or during a holiday the term just closed.
+    const yearOfAward = Number(this.el('awardYear')?.value || 0);
+    const currentTerm = window.AcademicYearFilter?.defaultTerm?.(this.state.terms.filter((term) => Number(term.academic_year_id ?? term.year) === yearOfAward))
+      || this.state.terms.find((term) => Number(term.is_current) === 1 || term.is_current === true
       || String(term.status || '').toLowerCase() === 'current');
     if (this.el('awardTerm')) this.el('awardTerm').value = currentTerm && Number(currentTerm.academic_year_id ?? currentTerm.year) === Number(this.el('awardYear')?.value)
       ? String(currentTerm.id) : '';

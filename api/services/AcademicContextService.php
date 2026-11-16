@@ -84,11 +84,24 @@ class AcademicContextService
                         )
                         : null,
                     'academic_year_id' => $currentYear ? $currentYear['id'] : null,
+                    // The term of the current year in session, or during a
+                    // holiday the term that has just closed (records, reports
+                    // and marks default to it). term_in_session tells which.
                     'current_term' => $currentTerm ? $currentTerm['name'] : null,
                     'term_id' => $currentTerm ? $currentTerm['id'] : null,
+                    'term_in_session' => $currentTerm ? (bool) ($currentTerm['in_session'] ?? false) : false,
                     'term_start_date' => $currentTerm ? $currentTerm['start_date'] : null,
                     'term_end_date' => $currentTerm ? $currentTerm['end_date'] : null,
+                    // Where the school year is today: a term, a half term or
+                    // a holiday (April, August, December), and what follows.
                     'calendar_period' => $this->getCalendarPeriod(),
+                    'current_period' => $this->periodSnapshot()['current_period'],
+                    'next_period' => $this->periodSnapshot()['next_period'],
+                    // The term to prepare for: in session, or during a holiday
+                    // the next one to open (next year's Term 1 in December).
+                    'planning_term_id' => $this->periodSnapshot()['planning_term']['academic_year_term_id'] ?? null,
+                    'planning_academic_year_id' => $this->periodSnapshot()['planning_term']['academic_year_id'] ?? null,
+                    'planning_term_label' => $this->periodSnapshot()['planning_term']['label'] ?? null,
                     'school_week' => $this->getSchoolWeek(),
                     'operations_open' => $this->areOperationsOpen(),
                     'grading_open' => $this->isGradingOpen(),
@@ -196,6 +209,24 @@ class AcademicContextService
                 $result = $fallbackStmt->fetch();
             }
 
+            if ($result) {
+                $result['in_session'] = true;
+            } else {
+                // A holiday: the term of this year that has just closed.
+                $last = $this->periods()->termInSessionOrLast();
+                if ($last && (int) $last['academic_year_id'] === (int) $currentYear['id']) {
+                    $result = [
+                        'id' => (int) $last['id'],
+                        'name' => 'Term ' . (int) $last['term_id'],
+                        'academic_year_id' => (int) $last['academic_year_id'],
+                        'start_date' => $last['opening_date'],
+                        'end_date' => $last['closing_date'],
+                        'status' => $last['status'],
+                        'term_number' => 'T' . (int) $last['term_id'],
+                        'in_session' => false,
+                    ];
+                }
+            }
             $this->memo['term'] = $result ?: null;
 
             return $this->memo['term'];
@@ -250,108 +281,90 @@ class AcademicContextService
      */
     public function getCalendarPeriod()
     {
-        $currentTerm = $this->getCurrentTerm();
-        
-        if (!$currentTerm) {
-            return 'no_active_term';
-        }
+        // term | half_term | holiday (null when no academic year covers today)
+        return $this->periodSnapshot()['current_period']['kind'] ?? null;
+    }
 
-        $now = new \DateTime();
-        $startDate = new \DateTime($currentTerm['start_date']);
-        $endDate = new \DateTime($currentTerm['end_date']);
+    /** The shared period model (terms, half terms, holidays) of the school year. */
+    private function periods(): AcademicPeriodService
+    {
+        return $this->memo['periods'] ??= new AcademicPeriodService($this->db);
+    }
 
-        if ($now < $startDate) {
-            return 'before_term';
-        } elseif ($now > $endDate) {
-            return 'after_term';
-        } else {
-            return 'during_term';
-        }
+    private function periodSnapshot(): array
+    {
+        return $this->memo['period_snapshot'] ??= $this->periods()->snapshot();
     }
 
     /**
      * Get current school week
-     * 
-     * @return int|null Current week number
+     *
+     * @return int|null Week of the term in session; null during a holiday
      */
     public function getSchoolWeek()
     {
         $currentTerm = $this->getCurrentTerm();
-        
-        if (!$currentTerm) {
+
+        if (!$currentTerm || empty($currentTerm['in_session'])) {
             return null;
         }
 
         $now = new \DateTime();
         $startDate = new \DateTime($currentTerm['start_date']);
-        
+
         $interval = $now->diff($startDate);
         $weekNumber = ceil($interval->days / 7) + 1;
-        
+
         return $weekNumber;
     }
 
     /**
-     * Check if academic operations are open
-     * 
+     * Academic operations run all year: holidays are periods of the academic
+     * year too (admissions, fees, preparing the next term all continue).
+     *
      * @return bool Whether operations are open
      */
     public function areOperationsOpen()
     {
         $currentYear = $this->getCurrentAcademicYear();
-        $currentTerm = $this->getCurrentTerm();
-        
-        // Operations are open if there's an active year and term
-        return $currentYear && $currentTerm &&
-               $currentYear['status'] === 'active' &&
-               in_array($currentTerm['status'], ['active', 'current'], true);
+        return $currentYear && $currentYear['status'] === 'active'
+            && $this->periodSnapshot()['current_period'] !== null;
     }
 
     /**
-     * Check if grading is open
-     * 
+     * Marks can be entered while a term is in session and for two weeks after
+     * it closes (into the holiday that follows it).
+     *
      * @return bool Whether grading is open
      */
     public function isGradingOpen()
     {
         $currentTerm = $this->getCurrentTerm();
-        
+
         if (!$currentTerm) {
             return false;
         }
-
-        // Grading is open if term is active and we're not in holiday period
-        $now = new \DateTime();
-        $endDate = new \DateTime($currentTerm['end_date']);
-        
-        // Allow grading until 2 weeks after term ends
-        $gradingDeadline = (clone $endDate)->modify('+2 weeks');
-        
-        return $now <= $gradingDeadline;
+        if (!empty($currentTerm['in_session'])) {
+            return true;
+        }
+        $gradingDeadline = (new \DateTime($currentTerm['end_date']))->modify('+2 weeks');
+        return new \DateTime() <= $gradingDeadline;
     }
 
     /**
-     * Check if timetable editing is open
-     * 
+     * The timetable of the term being prepared can be edited during the
+     * holiday before it and until one week before it closes.
+     *
      * @return bool Whether timetable editing is open
      */
     public function isTimetableEditingOpen()
     {
-        $currentTerm = $this->getCurrentTerm();
-        
-        if (!$currentTerm) {
+        $planning = $this->periodSnapshot()['planning_term'] ?? null;
+        if (!$planning) {
             return false;
         }
-
-        // Timetable editing is open if term is active and we're not in exam period
-        $now = new \DateTime();
-        $startDate = new \DateTime($currentTerm['start_date']);
-        $endDate = new \DateTime($currentTerm['end_date']);
-        
-        // Close timetable editing 1 week before term ends
-        $timetableCloseDate = (clone $endDate)->modify('-1 week');
-        
-        return $now >= $startDate && $now <= $timetableCloseDate;
+        $closeDate = (new \DateTime($planning['end_date']))->modify('-1 week');
+        return new \DateTime() <= $closeDate;
     }
 
     /**
