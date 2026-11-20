@@ -83,7 +83,7 @@ class PaymentsAPI extends BaseAPI
                     $parameters[$param['Key']] = $param['Value'];
                 }
             }
-            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, recipient_id, amount, phone_number, recipient_name, payslip_id, refund_request_id FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, recipient_id, amount, phone_number, recipient_name, payslip_id, payroll_payout_leg_id, refund_request_id, status, reconciliation_status FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
             $stmt->execute([$conversationID, $originatorConversationID]);
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
@@ -94,13 +94,35 @@ class PaymentsAPI extends BaseAPI
                     'ResultDesc' => 'Received but transaction not found'
                 ];
             }
-            if (($disbursement['status'] ?? '') === 'completed') {
+            if (in_array(($disbursement['status'] ?? ''), ['completed', 'failed'], true)) {
                 return [
                     'ResultCode' => 0,
                     'ResultDesc' => 'B2C callback already processed'
                 ];
             }
             $this->db->beginTransaction();
+
+            // Serialize duplicate callbacks for the same provider attempt.
+            // A late callback for an older retry remains auditable but cannot
+            // overwrite the newer leg state.
+            $lockedStmt = $this->db->prepare(
+                "SELECT id, disbursement_type, payment_purpose, source_financial_account_id,
+                        recipient_id, amount, phone_number, recipient_name, payslip_id,
+                        payroll_payout_leg_id, refund_request_id, status, reconciliation_status
+                 FROM disbursement_transactions WHERE id=? FOR UPDATE"
+            );
+            $lockedStmt->execute([(int) $disbursement['id']]);
+            $disbursement = $lockedStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+            if (!$disbursement) {
+                $this->db->rollBack();
+                return ['ResultCode' => 0, 'ResultDesc' => 'Received but transaction not found'];
+            }
+            if (in_array((string) ($disbursement['status'] ?? ''), ['completed', 'failed'], true)) {
+                $this->db->commit();
+                return ['ResultCode' => 0, 'ResultDesc' => 'B2C callback already processed'];
+            }
+
+            $fullyPaid = false;
             if ($resultCode == 0) {
                 $callbackAmount = isset($parameters['TransactionAmount'])
                     ? (float) $parameters['TransactionAmount']
@@ -120,15 +142,27 @@ class PaymentsAPI extends BaseAPI
                         'ResultDesc' => 'Disbursement source account is not configured'
                     ];
                 }
-                $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'completed', transaction_ref = ?, transaction_id = ?, completed_at = NOW(), result_description = ?, callback_data = ? WHERE id = ?");
+                $stmt = $this->db->prepare(
+                    "UPDATE disbursement_transactions
+                     SET status = 'completed', reconciliation_status = 'confirmed_success',
+                         provider_status = ?, transaction_ref = ?, transaction_id = ?,
+                         completed_at = NOW(), failed_at = NULL, result_description = ?,
+                         callback_data = ?
+                     WHERE id = ?"
+                );
                 $stmt->execute([
+                    (string) $resultCode,
                     $transactionID,
                     $transactionID,
                     $resultDesc,
                     json_encode($callbackData),
                     $disbursement['id']
                 ]);
-                if (!empty($disbursement['payslip_id'])) {
+                if (!empty($disbursement['payroll_payout_leg_id'])) {
+                    $legOutcome = (new \App\API\Services\payments\PayrollPayoutService($this->db))
+                        ->applyDisbursementOutcome((int) $disbursement['id']);
+                    $fullyPaid = (bool) ($legOutcome['fully_paid'] ?? false);
+                } elseif (!empty($disbursement['payslip_id'])) {
                     $stmt = $this->db->prepare("UPDATE payslips SET payslip_status = 'paid', payment_status = 'paid', payment_reference = ?, paid_at = NOW(), notes = CONCAT(COALESCE(notes, ''), '\nB2C success: ', ?) WHERE id = ?");
                     $stmt->execute([$transactionID, $resultDesc, $disbursement['payslip_id']]);
                     $run = $this->db->prepare("UPDATE payroll_runs pr
@@ -155,14 +189,25 @@ class PaymentsAPI extends BaseAPI
                 $this->logPaymentWebhook('mpesa_b2c', $callbackData, 'processed', $disbursement, $transactionID);
                 (new FinancialPostingCoordinator($this->db))->postDisbursement('disbursement', (int)$disbursement['id'], (int)$disbursement['source_financial_account_id'], (string)($disbursement['payment_purpose'] ?: $disbursement['disbursement_type']), (string)$disbursement['amount']);
             } else {
-                $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'failed', transaction_ref = ?, result_description = ?, callback_data = ?, failed_at = NOW() WHERE id = ?");
+                $stmt = $this->db->prepare(
+                    "UPDATE disbursement_transactions
+                     SET status = 'failed', reconciliation_status = 'confirmed_failure',
+                         provider_status = ?, transaction_ref = ?, result_description = ?,
+                         callback_data = ?, failed_at = NOW()
+                     WHERE id = ?"
+                );
                 $stmt->execute([
+                    (string) $resultCode,
                     $transactionID,
                     $resultDesc,
                     json_encode($callbackData),
                     $disbursement['id']
                 ]);
-                if (!empty($disbursement['payslip_id'])) {
+                if (!empty($disbursement['payroll_payout_leg_id'])) {
+                    $legOutcome = (new \App\API\Services\payments\PayrollPayoutService($this->db))
+                        ->applyDisbursementOutcome((int) $disbursement['id']);
+                    $fullyPaid = (bool) ($legOutcome['fully_paid'] ?? false);
+                } elseif (!empty($disbursement['payslip_id'])) {
                     $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'failed', notes = CONCAT(COALESCE(notes, ''), '\nB2C failed: ', ?) WHERE id = ?");
                     $stmt->execute([$resultDesc, $disbursement['payslip_id']]);
                 }
@@ -175,7 +220,7 @@ class PaymentsAPI extends BaseAPI
                 $this->logPaymentWebhook('mpesa_b2c', $callbackData, 'failed', $disbursement, null);
             }
             $this->db->commit();
-            if ($resultCode == 0 && !empty($disbursement['payslip_id']) && ($disbursement['disbursement_type'] ?? '') === 'salary') {
+            if ($fullyPaid && !empty($disbursement['payslip_id']) && ($disbursement['disbursement_type'] ?? '') === 'salary') {
                 (new \App\API\Services\PayrollChildFeeTransferService($this->db))->postForPayslip((int) $disbursement['payslip_id']);
             }
             return [
@@ -219,7 +264,7 @@ class PaymentsAPI extends BaseAPI
             $resultDesc = $result['ResultDesc'] ?? 'Request timed out';
             $conversationID = $result['ConversationID'] ?? null;
             $originatorConversationID = $result['OriginatorConversationID'] ?? null;
-            $stmt = $this->db->prepare("SELECT id, disbursement_type, recipient_id, amount, phone_number, recipient_name, payslip_id, refund_request_id, retry_count FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id, disbursement_type, recipient_id, amount, phone_number, recipient_name, payslip_id, payroll_payout_leg_id, refund_request_id, retry_count, status FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
             $stmt->execute([$conversationID, $originatorConversationID]);
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
@@ -231,19 +276,30 @@ class PaymentsAPI extends BaseAPI
                 ];
             }
             $this->db->beginTransaction();
-            $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'timeout', result_description = ?, callback_data = ?, failed_at = NOW(), retry_count = retry_count + 1 WHERE id = ?");
+            $stmt = $this->db->prepare(
+                "UPDATE disbursement_transactions
+                 SET status = 'timeout', reconciliation_status = 'manual_review',
+                     provider_status = 'TIMEOUT', result_description = ?, callback_data = ?,
+                     retry_count = retry_count + 1
+                 WHERE id = ? AND status NOT IN ('completed','failed','cancelled')"
+            );
             $stmt->execute([
                 $resultDesc,
                 json_encode($timeoutData),
                 $disbursement['id']
             ]);
-            if ($disbursement['disbursement_type'] === 'salary') {
-                $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'failed', notes = CONCAT(COALESCE(notes, ''), '\nB2C timeout: ', ?) WHERE id = ?");
+            if (!empty($disbursement['payroll_payout_leg_id'])) {
+                // A queue timeout is ambiguous, not a provider failure. Keep the
+                // leg in flight so a later result callback can settle it.
+                (new \App\API\Services\payments\PayrollPayoutService($this->db))
+                    ->applyDisbursementOutcome((int) $disbursement['id']);
+            } elseif ($disbursement['disbursement_type'] === 'salary' && !empty($disbursement['payslip_id'])) {
+                $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'processing', notes = CONCAT(COALESCE(notes, ''), '\nB2C timeout requires reconciliation: ', ?) WHERE id = ?");
                 $stmt->execute([$resultDesc, $disbursement['payslip_id']]);
             } elseif ($disbursement['disbursement_type'] === 'supplier') {
                 // supplier disbursements have no payslip; tracked in disbursement_transactions only
             } elseif ($disbursement['disbursement_type'] === 'refund' && !empty($disbursement['refund_request_id'])) {
-                $stmt = $this->db->prepare("UPDATE parent_refund_requests SET status = 'failed', updated_at = NOW() WHERE id = ?");
+                $stmt = $this->db->prepare("UPDATE parent_refund_requests SET status = 'processing', updated_at = NOW() WHERE id = ?");
                 $stmt->execute([$disbursement['refund_request_id']]);
             }
             $this->db->commit();
@@ -1292,7 +1348,7 @@ class PaymentsAPI extends BaseAPI
                     'statusMessage' => 'Missing required fields'
                 ];
             }
-            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, expense_id, statutory_remittance_attempt_id, refund_request_id, payslip_id, recipient_id, amount, account_number, recipient_name, status FROM disbursement_transactions WHERE request_id = ? OR transaction_ref = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, expense_id, statutory_remittance_attempt_id, refund_request_id, payslip_id, payroll_payout_leg_id, recipient_id, recipient_type, amount, account_number, recipient_name, status, reconciliation_status FROM disbursement_transactions WHERE request_id = ? OR transaction_ref = ? LIMIT 1");
             $stmt->execute([$requestId, $transactionRef]);
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
@@ -1318,6 +1374,25 @@ class PaymentsAPI extends BaseAPI
                 ];
             }
             $this->db->beginTransaction();
+            $lockedStmt = $this->db->prepare(
+                "SELECT id, disbursement_type, payment_purpose, source_financial_account_id,
+                        expense_id, statutory_remittance_attempt_id, refund_request_id,
+                        payslip_id, payroll_payout_leg_id, recipient_id, recipient_type,
+                        amount, account_number, recipient_name, status, reconciliation_status
+                 FROM disbursement_transactions WHERE id=? FOR UPDATE"
+            );
+            $lockedStmt->execute([(int) $disbursement['id']]);
+            $disbursement = $lockedStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+            if (!$disbursement) {
+                $this->db->rollBack();
+                return ['statusCode' => '0', 'statusMessage' => 'Received but transaction not found'];
+            }
+            if (in_array((string) ($disbursement['status'] ?? ''), ['completed', 'failed'], true)) {
+                $this->db->commit();
+                return ['statusCode' => '0', 'statusMessage' => 'Transfer notification already processed'];
+            }
+
+            $fullyPaid = false;
             $normalizedStatus = strtoupper((string) $status);
             $transferSucceeded = in_array($normalizedStatus, ['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', '0'], true);
             $transferPending = in_array($normalizedStatus, ['ACCEPTED', 'PENDING', 'PROCESSING', 'QUEUED', 'INITIATED', 'IN_PROGRESS'], true);
@@ -1327,6 +1402,10 @@ class PaymentsAPI extends BaseAPI
                     ->execute([$normalizedStatus, json_encode($callbackData), $statusDesc, $disbursement['id']]);
                 $this->db->prepare("INSERT INTO kcb_disbursement_audit_events (disbursement_id,event_type,previous_status,new_status,details) VALUES (?,'provider_callback_pending',?,'awaiting_callback',?)")
                     ->execute([$disbursement['id'], $disbursement['status'], json_encode(['provider_status' => $normalizedStatus, 'transaction_reference' => $transactionRef])]);
+                if (!empty($disbursement['payroll_payout_leg_id'])) {
+                    (new \App\API\Services\payments\PayrollPayoutService($this->db))
+                        ->applyDisbursementOutcome((int) $disbursement['id']);
+                }
                 $this->db->commit();
                 return ['transactionID' => $disbursement['id'], 'statusCode' => '0', 'statusMessage' => 'Pending transfer notification acknowledged'];
             }
@@ -1355,7 +1434,11 @@ class PaymentsAPI extends BaseAPI
                     $this->db->prepare("UPDATE supplier_payment_requests SET status = 'paid', payment_reference = ? WHERE disbursement_id = ?")
                         ->execute([$transactionRef, $disbursement['id']]);
                 }
-                if (!empty($disbursement['payslip_id'])) {
+                if (!empty($disbursement['payroll_payout_leg_id'])) {
+                    $legOutcome = (new \App\API\Services\payments\PayrollPayoutService($this->db))
+                        ->applyDisbursementOutcome((int) $disbursement['id']);
+                    $fullyPaid = (bool) ($legOutcome['fully_paid'] ?? false);
+                } elseif (!empty($disbursement['payslip_id'])) {
                     $this->db->prepare("UPDATE payslips SET payslip_status='paid', payment_status='paid', payment_reference=?, paid_at=NOW(), notes=CONCAT(COALESCE(notes,''), '\nBank transfer success: ', ?) WHERE id=?")
                         ->execute([$transactionRef, $statusDesc, $disbursement['payslip_id']]);
                     $this->db->prepare("UPDATE payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year SET pr.status=CASE WHEN NOT EXISTS (SELECT 1 FROM payslips x WHERE x.payroll_month=pr.month AND x.payroll_year=pr.year AND x.payment_status <> 'paid') THEN 'paid' ELSE 'processing' END, pr.workflow=CASE WHEN NOT EXISTS (SELECT 1 FROM payslips x WHERE x.payroll_month=pr.month AND x.payroll_year=pr.year AND x.payment_status <> 'paid') THEN 'completed' ELSE 'processing' END WHERE ps.id=?")
@@ -1393,7 +1476,10 @@ class PaymentsAPI extends BaseAPI
                     json_encode($callbackData),
                     $disbursement['id']
                 ]);
-                if (!empty($disbursement['payslip_id'])) {
+                if (!empty($disbursement['payroll_payout_leg_id'])) {
+                    (new \App\API\Services\payments\PayrollPayoutService($this->db))
+                        ->applyDisbursementOutcome((int) $disbursement['id']);
+                } elseif (!empty($disbursement['payslip_id'])) {
                     $this->db->prepare("UPDATE payslips SET payment_status='failed', notes=CONCAT(COALESCE(notes,''), '\nBank transfer failed: ', ?) WHERE id=?")
                         ->execute([$statusDesc, $disbursement['payslip_id']]);
                 }
@@ -1421,7 +1507,7 @@ class PaymentsAPI extends BaseAPI
             $this->db->prepare("INSERT INTO kcb_disbursement_audit_events (disbursement_id,event_type,previous_status,new_status,details) VALUES (?,'provider_callback',?,?,?)")
                 ->execute([$disbursement['id'], $disbursement['status'], $transferSucceeded ? 'confirmed_success' : 'confirmed_failure', json_encode(['provider_status' => $normalizedStatus, 'transaction_reference' => $transactionRef])]);
             $this->db->commit();
-            if ($transferSucceeded && !empty($disbursement['payslip_id']) && ($disbursement['disbursement_type'] ?? '') === 'salary') {
+            if ($fullyPaid && !empty($disbursement['payslip_id']) && ($disbursement['disbursement_type'] ?? '') === 'salary') {
                 (new \App\API\Services\PayrollChildFeeTransferService($this->db))->postForPayslip((int) $disbursement['payslip_id']);
             }
             return [

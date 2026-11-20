@@ -14,6 +14,21 @@ const StaffProductionUI = {
     searchTimer: null,
     managingStaffIds: [],
     selectedRoleIds: [],
+    staffWizardSteps: [
+        'staff-tab-employment',
+        'staff-tab-personal',
+        'staff-tab-payroll',
+        'staff-tab-details',
+        'staff-tab-experience',
+        'staff-tab-final',
+        'staff-tab-review'
+    ],
+    staffWizardStep: 0,
+    staffDraftTimer: null,
+    staffCameraStream: null,
+    staffAutoFilledEmail: '',
+    staffAutoFilledPhone: '',
+    currentEditingStaff: null,
 
     state: {
         staff: [],
@@ -22,6 +37,7 @@ const StaffProductionUI = {
         roles: [],
         staffTypes: [],
         staffCategories: [],
+        learningAreas: [],
         positions: [],
         pagination: null,
         currentPage: 1,
@@ -109,7 +125,9 @@ const StaffProductionUI = {
     },
 
     canDeleteDirectory() {
-        return window.AuthContext?.canDelete?.('staff');
+        // Deletion is a directory-management action. Backend authorization is
+        // authoritative; the UI only hides it when explicitly denied.
+        return this.canManageDirectory() && window.AuthContext?.canDelete?.('staff') !== false;
     },
 
     canExportDirectory() {
@@ -263,9 +281,52 @@ const StaffProductionUI = {
             this.loadStaff(),
             this.loadDepartments(),
             this.loadRoles(),
-            this.loadStaffClassifications()
+            this.loadStaffClassifications(),
+            this.loadStaffFormLookups()
         ]);
         if (this.canManageDirectory()) await this.loadSetupCatalogs();
+    },
+
+    async loadStaffFormLookups() {
+        if (!this.canManageDirectory()) return [];
+        try {
+            const response = await window.API.staffMigration.referenceData();
+            const payload = this.extractPayload(response) || {};
+            this.state.learningAreas = Array.isArray(payload.learning_areas) ? payload.learning_areas : [];
+            if (Array.isArray(payload.positions)) {
+                this.state.positions = payload.positions;
+                this.populatePositionOptions();
+            }
+            this.populateLearningAreaDropdowns([], '');
+            return this.state.learningAreas;
+        } catch (error) {
+            console.error('[StaffProductionUI] Failed to load staff form lookups:', error);
+            return [];
+        }
+    },
+
+    populatePositionOptions() {
+        const input = document.getElementById('staffPositionOptions');
+        if (!input) return;
+        input.innerHTML = this.state.positions.map(position =>
+            `<option value="${this.escapeHtml(position.name || '')}"></option>`
+        ).join('');
+    },
+
+    populateLearningAreaDropdowns(selectedIds = [], primaryId = '') {
+        const multi = document.getElementById('learningAreas');
+        const primary = document.getElementById('primaryLearningArea');
+        const selected = new Set((selectedIds || []).map(id => Number(id)));
+        const options = this.state.learningAreas.map(area =>
+            `<option value="${Number(area.id)}"${selected.has(Number(area.id)) ? ' selected' : ''}>${this.escapeHtml(area.name || '')}</option>`
+        ).join('');
+        if (multi) multi.innerHTML = options;
+        if (primary) {
+            primary.innerHTML = '<option value="">None</option>' +
+                this.state.learningAreas.map(area =>
+                    `<option value="${Number(area.id)}"${Number(primaryId) === Number(area.id) ? ' selected' : ''}>${this.escapeHtml(area.name || '')}</option>`
+                ).join('');
+        }
     },
 
     async loadStaff(options = {}) {
@@ -645,7 +706,11 @@ const StaffProductionUI = {
         });
         document.getElementById('staff_type_id')?.addEventListener('change', () => {
             this.populateStaffClassificationDropdowns(document.getElementById('staff_type_id').value, '');
+            this.syncTeacherOnlyFields();
         });
+        document.getElementById('roleId')?.addEventListener('change', () => this.syncTeacherOnlyFields());
+        document.getElementById('email')?.addEventListener('input', () => this.syncCommunicationDefaults('email'));
+        document.getElementById('phone')?.addEventListener('input', () => this.syncCommunicationDefaults('phone'));
 
         document.getElementById('filterStatus')?.addEventListener('change', (e) => {
             this.state.currentFilters.status = e.target.value || null;
@@ -707,6 +772,103 @@ const StaffProductionUI = {
             this.saveStaff();
         });
 
+        document.getElementById('addStaffQualificationBtn')?.addEventListener('click', () => {
+            this.addQualificationRow();
+        });
+
+        document.getElementById('staffQualificationRows')?.addEventListener('click', (event) => {
+            const removeButton = event.target.closest('[data-remove-qualification]');
+            if (!removeButton) return;
+            removeButton.closest('.qualification-row')?.remove();
+            this.scheduleStaffDraftSave();
+        });
+
+        document.getElementById('addStaffExperienceBtn')?.addEventListener('click', () => {
+            this.addExperienceRow();
+        });
+
+        document.getElementById('staffExperienceRows')?.addEventListener('click', (event) => {
+            const removeButton = event.target.closest('[data-remove-experience]');
+            if (!removeButton) return;
+            removeButton.closest('.experience-row')?.remove();
+            this.scheduleStaffDraftSave();
+        });
+
+        // Guided wizard navigation and resilient on-device draft saving.
+        const staffForm = document.getElementById('staffForm');
+        staffForm?.addEventListener('input', () => this.scheduleStaffDraftSave());
+        staffForm?.addEventListener('change', () => this.scheduleStaffDraftSave());
+        document.getElementById('staffFormTabs')?.addEventListener('click', (event) => {
+            const tab = event.target.closest('[data-bs-toggle="tab"]');
+            if (!tab) return;
+            window.setTimeout(() => {
+                const index = this.staffWizardSteps.indexOf(tab.id);
+                if (index >= 0) this.setStaffWizardStep(index);
+            }, 0);
+        });
+        document.getElementById('staffModalPrevBtn')?.addEventListener('click', () => {
+            this.setStaffWizardStep(this.staffWizardStep - 1);
+        });
+        document.getElementById('staffModalNextBtn')?.addEventListener('click', () => {
+            this.setStaffWizardStep(this.staffWizardStep + 1);
+        });
+        document.getElementById('staffReviewContent')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-staff-review-edit]');
+            if (!button) return;
+            const index = this.staffWizardSteps.indexOf(button.dataset.staffReviewEdit);
+            if (index >= 0) this.setStaffWizardStep(index);
+        });
+        document.getElementById('clearStaffDraftBtn')?.addEventListener('click', () => {
+            this.clearStaffDraft(true);
+        });
+        document.getElementById('staffInvitationStatusCard')?.addEventListener('click', async (event) => {
+            const button = event.target.closest('[data-invitation-action]');
+            if (!button || button.disabled) return;
+            const staff = this.currentEditingStaff || {};
+            if (button.dataset.invitationAction === 'reset-password') {
+                await this.sendPasswordReset(Number(staff.id || 0));
+                return;
+            }
+            const userId = Number(button.dataset.userId || staff.user_id || 0);
+            const channel = ['sms', 'both'].includes(button.dataset.channel) ? button.dataset.channel : 'email';
+            if (!userId) {
+                this.showToast('This staff record has no account to invite.', 'warning');
+                return;
+            }
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Sending';
+            try {
+                await window.API.staffMigration.resendInvitation(userId, channel);
+                this.showToast(
+                    channel === 'both'
+                        ? 'A replacement invitation was sent by email and SMS.'
+                        : channel === 'sms'
+                            ? 'A replacement invitation was sent by SMS.'
+                            : 'A replacement invitation was sent by email.',
+                    'success'
+                );
+                const refreshed = await this.getStaffRecord(Number(staff.id || 0));
+                this.currentEditingStaff = { ...staff, ...refreshed };
+                this.renderStaffInvitationStatus(this.currentEditingStaff);
+            } catch (error) {
+                this.showToast(error?.message || 'Could not resend the invitation.', 'error');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        });
+        document.getElementById('staffPhotoInput')?.addEventListener('change', (event) => {
+            const file = event.target.files?.[0];
+            if (file) void this.acceptStaffPhotoFile(file);
+        });
+        document.getElementById('startStaffCameraBtn')?.addEventListener('click', () => void this.startStaffCamera());
+        document.getElementById('captureStaffPhotoBtn')?.addEventListener('click', () => this.captureStaffPhoto());
+        document.getElementById('stopStaffCameraBtn')?.addEventListener('click', () => this.stopStaffCamera());
+        document.getElementById('staffModal')?.addEventListener('hidden.bs.modal', () => {
+            this.stopStaffCamera();
+        });
+
         document.getElementById('exportStaffBtn')?.addEventListener('click', () => {
             if (this.canExportDirectory()) {
                 this.exportStaff();
@@ -730,13 +892,21 @@ const StaffProductionUI = {
             const action = button.dataset.staffAction;
             if (action === 'resend-invitation') {
                 const userId = Number(button.dataset.userId || 0);
+                const channel = ['sms', 'both'].includes(button.dataset.channel) ? button.dataset.channel : 'email';
                 if (!userId) return;
                 button.disabled = true;
-                void window.API.staffMigration.resendInvitation(userId).then(() => {
-                    showNotification('A replacement staff invitation was queued', NOTIFICATION_TYPES.SUCCESS);
+                void window.API.staffMigration.resendInvitation(userId, channel).then(() => {
+                    showNotification(
+                        channel === 'sms'
+                            ? 'A replacement staff invitation was sent by SMS'
+                            : channel === 'both'
+                                ? 'A replacement staff invitation was sent by email and SMS'
+                                : 'A replacement staff invitation was sent by email',
+                        NOTIFICATION_TYPES.SUCCESS
+                    );
                     void this.loadStaff();
                 }).catch(error => {
-                    showNotification(error.message || 'Could not queue invitation', NOTIFICATION_TYPES.ERROR);
+                    showNotification(error.message || 'Could not resend invitation', NOTIFICATION_TYPES.ERROR);
                     button.disabled = false;
                 });
                 return;
@@ -1026,24 +1196,33 @@ const StaffProductionUI = {
         if (actions.has('edit') && this.canManageDirectory()) menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="edit" data-staff-id="${staffId}"><i class="bi bi-pencil me-2"></i>Edit staff details</button></li>`);
         if (this.canManageStaffRoles() && staff.user_id) {
             menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="manage-roles" data-staff-id="${staffId}"><i class="bi bi-person-lock me-2"></i>Manage system roles</button></li>`);
-            {
-                const active = staff.user_status === 'active';
-                const accountAction = active ? 'deactivate-account' : 'activate-account';
-                const accountLabel = active ? 'Deactivate account' : (staff.user_status === 'pending' ? 'Account setup pending' : 'Activate account');
-                menu.push(`<li><button class="dropdown-item ${active ? 'text-danger' : 'text-success'}" type="button" data-staff-action="${accountAction}" data-staff-id="${staffId}" ${staff.user_status === 'pending' && !active ? 'disabled' : ''}><i class="bi ${active ? 'bi-person-x' : 'bi-person-check'} me-2"></i>${accountLabel}</button></li>`);
-                if (Number(staff.setup_required) === 1) {
-                    menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="resend-invitation" data-user-id="${Number(staff.user_id)}"><i class="bi bi-envelope-arrow-up me-2"></i>Resend setup invitation</button></li>`);
-                    if (staff.invitation_status === 'pending') menu.push(`<li><button class="dropdown-item text-danger" type="button" data-staff-action="cancel-invitation" data-user-id="${Number(staff.user_id)}"><i class="bi bi-x-circle me-2"></i>Cancel setup invitation</button></li>`);
-                } else if (staff.invitation_status === 'accepted' && Number(staff.profile_completed) !== 1) {
-                    menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="resend-setup-otp" data-user-id="${Number(staff.user_id)}"><i class="bi bi-shield-lock me-2"></i>Resend setup verification code</button></li>`);
-                } else if (staff.email) {
-                    menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="reset-password" data-staff-id="${staffId}"><i class="bi bi-key me-2"></i>Send password reset link</button></li>`);
-                }
+            const active = staff.user_status === 'active';
+            const accountAction = active ? 'deactivate-account' : 'activate-account';
+            const accountLabel = active ? 'Deactivate account' : (staff.user_status === 'pending' ? 'Account setup pending' : 'Activate account');
+            menu.push(`<li><button class="dropdown-item ${active ? 'text-danger' : 'text-success'}" type="button" data-staff-action="${accountAction}" data-staff-id="${staffId}" ${staff.user_status === 'pending' && !active ? 'disabled' : ''}><i class="bi ${active ? 'bi-person-x' : 'bi-person-check'} me-2"></i>${accountLabel}</button></li>`);
+        }
+
+        // Invitation resend is available on every staff row with an account so
+        // the school administrator can choose email or SMS at the moment of use.
+        if (staff.user_id && this.canManageDirectory()) {
+            menu.push('<li><hr class="dropdown-divider"></li>');
+            const userId = Number(staff.user_id);
+            menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="resend-invitation" data-channel="email" data-user-id="${userId}"><i class="bi bi-envelope-arrow-up me-2"></i>Resend invitation (Email)</button></li>`);
+            menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="resend-invitation" data-channel="sms" data-user-id="${userId}"><i class="bi bi-chat-square-text me-2"></i>Resend invitation (SMS)</button></li>`);
+            menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="resend-invitation" data-channel="both" data-user-id="${userId}"><i class="bi bi-send me-2"></i>Resend invitation (Both)</button></li>`);
+            if (staff.invitation_status === 'pending') {
+                menu.push(`<li><button class="dropdown-item text-danger" type="button" data-staff-action="cancel-invitation" data-user-id="${userId}"><i class="bi bi-x-circle me-2"></i>Cancel setup invitation</button></li>`);
+            }
+            if (staff.invitation_status === 'accepted' && Number(staff.profile_completed) !== 1) {
+                menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="resend-setup-otp" data-user-id="${userId}"><i class="bi bi-shield-lock me-2"></i>Resend setup verification code</button></li>`);
+            }
+            if (!Number(staff.setup_required) && staff.email) {
+                menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="reset-password" data-staff-id="${staffId}"><i class="bi bi-key me-2"></i>Send password reset link</button></li>`);
             }
         }
         if (actions.has('performance')) menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="performance" data-staff-id="${staffId}"><i class="bi bi-graph-up me-2"></i>Performance</button></li>`);
         if (actions.has('workload')) menu.push(`<li><button class="dropdown-item" type="button" data-staff-action="workload" data-staff-id="${staffId}"><i class="bi bi-calendar-week me-2"></i>Workload</button></li>`);
-        if (actions.has('delete') && this.canDeleteDirectory()) menu.push(`<li><hr class="dropdown-divider"></li><li><button class="dropdown-item text-danger" type="button" data-staff-action="delete" data-staff-id="${staffId}"><i class="bi bi-trash me-2"></i>Deactivate staff record</button></li>`);
+        if (this.canDeleteDirectory() && this.canManageDirectory()) menu.push(`<li><hr class="dropdown-divider"></li><li><button class="dropdown-item text-danger" type="button" data-staff-action="delete" data-staff-id="${staffId}"><i class="bi bi-trash me-2"></i>Delete staff record</button></li>`);
         if (!menu.length) return '<span class="text-muted">—</span>';
         return `<div class="dropdown"><button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for ${this.escapeHtml(staff.full_name || 'staff member')}"><i class="bi bi-three-dots-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end">${menu.join('')}</ul></div>`;
     },
@@ -1230,13 +1409,551 @@ const StaffProductionUI = {
             return;
         }
         document.getElementById('staffModalTitle').textContent = 'Add Staff';
+        const subtitle = document.getElementById('staffModalSubtitle');
+        if (subtitle) subtitle.textContent = 'Add a person already employed by the school, or a new staff member.';
         document.getElementById('staffId').value = '';
         document.getElementById('staffForm').reset();
+        this.currentEditingStaff = null;
+        const invitationCard = document.getElementById('staffInvitationStatusCard');
+        const channelGroup = document.getElementById('invitationChannelGroup');
+        if (invitationCard) invitationCard.hidden = true;
+        if (channelGroup) channelGroup.hidden = false;
         this.populateStaffClassificationDropdowns('', '');
+        this.populateLearningAreaDropdowns([], '');
+        this.renderQualificationRows([]);
+        this.renderExperienceRows([]);
+        this.resetStaffPhoto();
         this.setValue('contractType', 'permanent');
-        
+        this.setValue('idNumberType', 'national_id');
+        this.staffAutoFilledEmail = '';
+        this.staffAutoFilledPhone = '';
+        this.syncTeacherOnlyFields();
+        const emailInvite = document.getElementById('inviteEmail');
+        if (emailInvite) emailInvite.checked = true;
+        this.setStaffWizardStep(0);
+
+        const draft = this.readStaffDraft('');
+        if (draft) {
+            this.applyStaffDraft(draft);
+            this.setStaffDraftStatus('Saved draft restored on this device', true);
+        } else {
+            this.setStaffDraftStatus('Draft saves automatically');
+        }
+        this.syncTeacherOnlyFields();
+        this.primeStaffCommunicationDefaults();
+
         const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('staffModal'));
         modal.show();
+    },
+
+    activateStaffTab(tabId) {
+        const tab = document.getElementById(tabId);
+        if (!tab || !window.bootstrap?.Tab) return;
+        bootstrap.Tab.getOrCreateInstance(tab).show();
+    },
+
+    isTeacherRole() {
+        const roleId = Number(this.getValue('roleId') || 0);
+        const role = (this.state.roles || []).find(item => Number(item.id) === roleId) || {};
+        const staffTypeId = Number(this.getValue('staff_type_id') || 0);
+        const staffType = (this.state.staffTypes || []).find(item => Number(item.id) === staffTypeId) || {};
+        const selectedRoleLabel = document.querySelector('#roleId option:checked')?.textContent || '';
+        const selectedStaffTypeLabel = document.querySelector('#staff_type_id option:checked')?.textContent || '';
+        const roleName = String(role.name || role.role_name || selectedRoleLabel);
+        const staffTypeName = String(staffType.name || staffType.staff_type_name || selectedStaffTypeLabel);
+
+        // A non-teaching staff type always wins, even if a role label contains "teacher".
+        if (/non[\s_-]?(teaching|teacher)/i.test(staffTypeName)) return false;
+        return /(teacher|teaching|tutor|faculty|subject\s+teacher|class\s+teacher|academic\s+staff)/i
+            .test(`${roleName} ${staffTypeName}`);
+    },
+
+    syncTeacherOnlyFields() {
+        const isTeacher = this.isTeacherRole();
+        ['tscNumberField', 'learningAreasField', 'primaryLearningAreaField'].forEach(id => {
+            const wrapper = document.getElementById(id);
+            if (wrapper) wrapper.hidden = !isTeacher;
+        });
+        if (!isTeacher) {
+            // Hidden facts must never be submitted, even if an earlier role selection filled them.
+            this.setValue('tscNo', '');
+            const learningAreas = document.getElementById('learningAreas');
+            if (learningAreas) [...learningAreas.options].forEach(option => { option.selected = false; });
+            this.setValue('primaryLearningArea', '');
+        }
+    },
+
+    syncCommunicationDefaults(source) {
+        const email = this.getValue('email');
+        const phone = this.getValue('phone');
+        if (source === 'email') {
+            const communicationEmail = this.getValue('communicationEmail');
+            if (!communicationEmail || communicationEmail === this.staffAutoFilledEmail) {
+                this.setValue('communicationEmail', email);
+            }
+            this.staffAutoFilledEmail = email;
+        } else {
+            const communicationPhone = this.getValue('communicationPhone');
+            if (!communicationPhone || communicationPhone === this.staffAutoFilledPhone) {
+                this.setValue('communicationPhone', phone);
+            }
+            this.staffAutoFilledPhone = phone;
+        }
+    },
+
+    primeStaffCommunicationDefaults() {
+        this.staffAutoFilledEmail = this.getValue('email');
+        this.staffAutoFilledPhone = this.getValue('phone');
+        this.syncCommunicationDefaults('email');
+        this.syncCommunicationDefaults('phone');
+        if (this.staffWizardSteps[this.staffWizardStep] === 'staff-tab-review') this.renderStaffReview();
+    },
+
+    staffOptionLabel(list, id, idKey = 'id') {
+        const numericId = Number(id);
+        const match = (list || []).find(item => Number.isNaN(numericId)
+            ? String(item[idKey]) === String(id)
+            : Number(item[idKey]) === numericId);
+        return String(match?.name || match?.role_name || match?.staff_type_name || id || '-');
+    },
+
+    staffReviewSection(title, rows, tabId) {
+        return `
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <h6 class="mb-0">${this.escapeHtml(title)}</h6>
+                    <button type="button" class="btn btn-sm btn-link" data-staff-review-edit="${this.escapeHtml(tabId)}"><i class="bi bi-pencil me-1"></i>Edit</button>
+                </div>
+                <div class="card-body py-2">${rows}</div>
+            </div>
+        `;
+    },
+
+    renderStaffInvitationStatus(staff) {
+        const card = document.getElementById('staffInvitationStatusCard');
+        if (!card) return;
+        const status = String(staff.invitation_status || 'not_sent');
+        const labels = {
+            not_sent: 'Not sent',
+            pending: 'Pending',
+            accepted: 'Accepted',
+            expired: 'Expired',
+            revoked: 'Revoked',
+            cancelled: 'Cancelled'
+        };
+        const colors = {
+            not_sent: 'secondary', pending: 'warning', accepted: 'success',
+            expired: 'danger', revoked: 'danger', cancelled: 'dark'
+        };
+        const summaries = {
+            not_sent: 'No account setup invitation has been issued for this staff member.',
+            pending: 'A secure setup link is still waiting to be used.',
+            accepted: 'The account setup link was sent and accepted.',
+            expired: 'The setup link expired before it was used.',
+            revoked: 'This setup link was cancelled by an administrator.',
+            cancelled: 'This setup link was cancelled.'
+        };
+        const badge = document.getElementById('staffInvitationBadge');
+        const summary = document.getElementById('staffInvitationSummary');
+        const details = document.getElementById('staffInvitationDetails');
+        const help = document.getElementById('staffInvitationHelp');
+
+        if (badge) {
+            badge.className = `badge text-bg-${colors[status] || 'secondary'}`;
+            badge.textContent = labels[status] || status;
+        }
+        if (summary) summary.textContent = summaries[status] || 'Invitation status is unavailable.';
+        if (details) {
+            const sentAt = staff.invitation_sent_at
+                ? new Date(staff.invitation_sent_at).toLocaleString()
+                : 'Not recorded';
+            const channel = staff.invitation_channel
+                ? String(staff.invitation_channel).replace(/\b\w/g, char => char.toUpperCase())
+                : 'Not recorded';
+            const delivery = staff.invitation_delivery_status || 'not_queued';
+            details.innerHTML = [
+                this.detailRow('Delivery status', delivery.replaceAll('_', ' ')),
+                this.detailRow('Last sent', sentAt),
+                this.detailRow('Channel', channel),
+                this.detailRow('Account status', staff.user_status || 'Not linked')
+            ].join('');
+        }
+
+        const canResend = Boolean(staff.invitation_can_resend);
+        card.querySelectorAll('[data-invitation-action="resend"]').forEach(button => {
+            button.dataset.userId = String(staff.user_id || '');
+            button.disabled = !canResend;
+            button.title = canResend
+                ? 'Create and deliver a new single-use setup link'
+                : 'This account cannot receive a replacement setup link';
+        });
+        const resetButton = card.querySelector('[data-invitation-action="reset-password"]');
+        if (resetButton) {
+            resetButton.dataset.staffId = String(staff.id || '');
+            resetButton.hidden = !staff.password_reset_available;
+        }
+        if (help) {
+            help.textContent = canResend
+                ? 'Resending creates a new single-use link and cancels the previous pending link.'
+                : staff.invitation_setup_completed
+                    ? 'Password setup is complete. Use password recovery or the reset action below instead of resending a setup link.'
+                    : staff.user_status && staff.user_status !== 'active'
+                        ? 'Restore the staff account before resending an invitation.'
+                        : 'This invitation cannot be resent from the directory.';
+        }
+    },
+
+    renderStaffReview() {
+        const host = document.getElementById('staffReviewContent');
+        if (!host) return;
+        const selectedAreas = [...(document.getElementById('learningAreas')?.selectedOptions || [])]
+            .map(option => option.textContent || '').filter(Boolean);
+        const primaryAreaLabel = document.querySelector('#primaryLearningArea option:checked')?.textContent || '';
+        const qualifications = this.collectQualifications();
+        const experience = this.collectExperience();
+        const qualificationLabels = {
+            certificate: 'Certificate', diploma: 'Diploma', degree: 'Degree',
+            postgraduate_diploma: 'Postgraduate diploma', masters: 'Masters',
+            phd: 'PhD', professional: 'Professional', other: 'Other'
+        };
+        const qualificationRows = qualifications.length
+            ? qualifications.map(item => this.detailRow(
+                `${item.title} · ${qualificationLabels[item.qualification_level] || 'Other'}`,
+                [item.institution, item.year_obtained, item.description].filter(Boolean).join(' · ')
+            )).join('')
+            : this.detailRow('Qualifications', 'None recorded');
+        const experienceRows = experience.length
+            ? experience.map(item => {
+                const period = [item.start_date, item.end_date].filter(Boolean).join(' – ');
+                return this.detailRow(
+                    `${item.position || 'Role'} · ${item.organization || 'Organisation'}`,
+                    [period, item.responsibilities].filter(Boolean).join(' · ') || 'Not provided'
+                );
+            }).join('')
+            : this.detailRow('Previous employment', 'None recorded');
+        const channelLabels = { email: 'Email', sms: 'SMS', both: 'Email and SMS' };
+        const channel = document.querySelector('input[name="invitationChannel"]:checked')?.value || 'email';
+        const photoAttached = Boolean(this.getValue('staffPhotoDataUrl'));
+        const isTeacher = this.isTeacherRole();
+        const nameOf = (list, id) => this.staffOptionLabel(list, id);
+
+        const employment = [
+            this.detailRow('First name', this.getValue('firstName')),
+            this.detailRow('Middle name', this.getValue('middleName') || 'Not provided'),
+            this.detailRow('Last name', this.getValue('lastName')),
+            this.detailRow('Email', this.getValue('email')),
+            this.detailRow('Phone', this.getValue('phone')),
+            this.detailRow('Department', nameOf(this.state.departments, this.getValue('department'))),
+            this.detailRow('Staff type', nameOf(this.state.staffTypes, this.getValue('staff_type_id'))),
+            this.detailRow('Staff category', nameOf(this.state.staffCategories, this.getValue('staff_category_id'))),
+            this.detailRow('Primary system role', nameOf(this.state.roles, this.getValue('roleId'))),
+            this.detailRow('Contract type', this.getValue('contractType')),
+            this.detailRow('Employment date', this.getValue('employmentDate') || 'Not provided'),
+            this.detailRow('Position', this.getValue('position') || 'Derived from role'),
+        ].join('');
+
+        const personal = [
+            this.detailRow('Identity document type', this.staffOptionLabel([
+                { id: 'national_id', name: 'National ID' },
+                { id: 'passport', name: 'Passport' },
+                { id: 'birth_certificate', name: 'Birth Certificate' },
+                { id: 'alien_id', name: 'Alien ID' },
+                { id: 'other', name: 'Other' },
+            ], this.getValue('idNumberType'), 'id')),
+            this.detailRow('Identity document number', this.getValue('nationalIdNo')),
+            this.detailRow('Date of birth', this.getValue('dateOfBirth') || 'Left for staff member'),
+            this.detailRow('Gender', this.getValue('gender') || 'Left for staff member'),
+            this.detailRow('Marital status', this.getValue('maritalStatus') || 'Left for staff member'),
+            this.detailRow('Residential address', this.getValue('address') || 'Left for staff member'),
+            this.detailRow('Communication email', this.getValue('communicationEmail') || 'Left for staff member'),
+            this.detailRow('Communication phone', this.getValue('communicationPhone') || 'Left for staff member'),
+        ].join('');
+
+        const payroll = [
+            this.detailRow('KRA PIN', this.getValue('kraPin') || 'N/A'),
+            this.detailRow('NSSF number', this.getValue('nssfNo') || 'N/A'),
+            this.detailRow('SHIF / NHIF number', this.getValue('nhifNo') || 'N/A'),
+            this.detailRow('Bank name', this.getValue('bankName') || 'N/A'),
+            this.detailRow('Bank account', this.getValue('bankAccount') || 'N/A'),
+            this.detailRow('M-Pesa phone', this.getValue('mpesaPhone') || 'N/A'),
+            ...(isTeacher ? [this.detailRow('TSC number', this.getValue('tscNo') || 'N/A')] : []),
+            this.detailRow('Individual salary', this.getValue('salary') || 'Use role rate'),
+        ].join('');
+
+        const family = [
+            this.detailRow('Emergency contact', this.getValue('emergencyContactName') || 'Not provided'),
+            this.detailRow('Emergency phone', this.getValue('emergencyContactPhone') || 'Not provided'),
+            this.detailRow('Relationship', this.getValue('emergencyContactRelationship') || 'Not provided'),
+            ...(isTeacher ? [
+                this.detailRow('Teaching / learning areas', selectedAreas.join(', ') || 'Not provided'),
+                this.detailRow('Primary learning area', primaryAreaLabel || 'Not set'),
+            ] : []),
+        ].join('') + qualificationRows;
+
+        const editing = this.currentEditingStaff;
+        const invitationRows = editing ? [
+            this.detailRow('Staff record status', editing.status || 'Not recorded'),
+            this.detailRow('Account status', editing.user_status || 'Not linked'),
+            this.detailRow('Invitation status', String(editing.invitation_status || 'not_sent').replaceAll('_', ' ')),
+            this.detailRow('Invitation last sent', editing.invitation_sent_at
+                ? new Date(editing.invitation_sent_at).toLocaleString()
+                : 'Not recorded'),
+        ] : [
+            this.detailRow('Send invitation via', channelLabels[channel] || 'Email'),
+        ];
+        const invitation = invitationRows.concat(
+            this.detailRow('Staff photo', photoAttached
+                ? 'New photo attached and ready to upload'
+                : editing?.photo_url
+                    ? 'Existing photo retained'
+                    : 'No photo selected')
+        ).join('');
+
+        host.innerHTML = [
+            this.staffReviewSection('Employment details', employment, 'staff-tab-employment'),
+            this.staffReviewSection('Identity & contact details', personal, 'staff-tab-personal'),
+            this.staffReviewSection('Payroll & compliance', payroll, 'staff-tab-payroll'),
+            this.staffReviewSection('Family & qualifications', family, 'staff-tab-details'),
+            this.staffReviewSection('Experience', experienceRows, 'staff-tab-experience'),
+            this.staffReviewSection('Invitation & photo', invitation, 'staff-tab-final'),
+        ].join('');
+    },
+
+    staffDraftKey(staffId = '') {
+        return `kingsway.staff.directory.draft.${staffId || 'new'}`;
+    },
+
+    readStaffDraft(staffId = '') {
+        try {
+            const raw = window.localStorage?.getItem(this.staffDraftKey(staffId));
+            if (!raw) return null;
+            const draft = JSON.parse(raw);
+            return draft && typeof draft === 'object' ? draft : null;
+        } catch (error) {
+            console.warn('[StaffProductionUI] Could not read saved staff draft:', error);
+            return null;
+        }
+    },
+
+    scheduleStaffDraftSave() {
+        if (this.staffDraftTimer) window.clearTimeout(this.staffDraftTimer);
+        this.staffDraftTimer = window.setTimeout(() => {
+            this.staffDraftTimer = null;
+            this.saveStaffDraft();
+        }, 250);
+    },
+
+    saveStaffDraft() {
+        const form = document.getElementById('staffForm');
+        if (!form) return;
+        const staffId = this.getValue('staffId') || '';
+        const draft = { staff_id: staffId, fields: {}, saved_at: new Date().toISOString() };
+        form.querySelectorAll('input, select, textarea').forEach((element) => {
+            if (!element.id || element.type === 'file') return;
+            if (element.type === 'radio') {
+                if (element.checked) draft.fields[element.name] = element.value;
+                return;
+            }
+            draft.fields[element.id] = element.value;
+        });
+        draft.qualifications = this.collectQualifications();
+        draft.experience = this.collectExperience();
+        draft.photo_data_url = this.getValue('staffPhotoDataUrl') || '';
+        draft.step = this.staffWizardStep || 0;
+        try {
+            window.localStorage?.setItem(this.staffDraftKey(staffId), JSON.stringify(draft));
+            this.setStaffDraftStatus(`Draft saved ${new Date().toLocaleTimeString()}`, true);
+        } catch (error) {
+            // Large camera images or a full local store must never block the form.
+            console.warn('[StaffProductionUI] Could not save staff draft:', error);
+            this.setStaffDraftStatus('Draft could not be saved on this device');
+        }
+    },
+
+    applyStaffDraft(draft) {
+        const fields = draft.fields || {};
+        Object.entries(fields).forEach(([key, value]) => {
+            const element = document.getElementById(key);
+            if (!element) return;
+            if (element.type === 'radio') element.checked = element.value === value;
+            else element.value = value ?? '';
+        });
+        if (fields.invitationChannel) {
+            document.querySelectorAll('input[name="invitationChannel"]').forEach(radio => {
+                radio.checked = radio.value === fields.invitationChannel;
+            });
+        }
+        this.renderQualificationRows(draft.qualifications || []);
+        this.renderExperienceRows(draft.experience || []);
+        if (draft.photo_data_url) this.showStaffPhotoPreview(draft.photo_data_url);
+        this.setStaffWizardStep(Number(draft.step || 0));
+    },
+
+    clearStaffDraft(showToast = false) {
+        const staffId = this.getValue('staffId') || '';
+        try { window.localStorage?.removeItem(this.staffDraftKey(staffId)); } catch (error) { console.warn(error); }
+        this.setStaffDraftStatus('Draft cleared');
+        if (showToast) this.showToast('Saved draft cleared. The fields you filled remain in the form.', 'info');
+    },
+
+    setStaffDraftStatus(message, restored = false) {
+        const status = document.getElementById('staffDraftStatus');
+        if (!status) return;
+        status.innerHTML = `<i class="bi ${restored ? 'bi-arrow-counterclockwise' : 'bi-cloud-check'} me-1"></i>${this.escapeHtml(message)}`;
+    },
+
+    setStaffWizardStep(index) {
+        const bounded = Math.max(0, Math.min(index, this.staffWizardSteps.length - 1));
+        this.staffWizardStep = bounded;
+        this.activateStaffTab(this.staffWizardSteps[bounded]);
+        const isLast = bounded === this.staffWizardSteps.length - 1;
+        const labels = ['Employment', 'Personal & Contact', 'Payroll & Compliance', 'Family & Qualifications', 'Experience', 'Invitation & Photo', 'Review'];
+        const label = document.getElementById('staffWizardStepLabel');
+        if (label) label.textContent = `Step ${bounded + 1} of ${this.staffWizardSteps.length} · ${labels[bounded] || ''}`;
+        const previous = document.getElementById('staffModalPrevBtn');
+        const next = document.getElementById('staffModalNextBtn');
+        const save = document.getElementById('saveStaffBtn');
+        if (previous) previous.disabled = bounded === 0;
+        if (next) next.hidden = isLast;
+        if (save) save.hidden = !isLast;
+        const photoStep = this.staffWizardSteps.indexOf('staff-tab-final');
+        if (bounded !== photoStep) this.stopStaffCamera();
+        if (this.staffWizardSteps[bounded] === 'staff-tab-review') this.renderStaffReview();
+        this.scheduleStaffDraftSave();
+    },
+
+    resetStaffPhoto() {
+        this.setValue('staffPhotoDataUrl', '');
+        const preview = document.getElementById('staffPhotoPreview');
+        const placeholder = document.getElementById('staffPhotoPlaceholder');
+        const input = document.getElementById('staffPhotoInput');
+        if (preview) { preview.src = ''; preview.style.display = 'none'; }
+        if (placeholder) placeholder.style.display = '';
+        if (input) input.value = '';
+        this.stopStaffCamera();
+    },
+
+    showStaffPhotoPreview(dataUrl) {
+        const preview = document.getElementById('staffPhotoPreview');
+        const placeholder = document.getElementById('staffPhotoPlaceholder');
+        this.setValue('staffPhotoDataUrl', dataUrl || '');
+        if (preview) { preview.src = dataUrl || ''; preview.style.display = dataUrl ? '' : 'none'; }
+        if (placeholder) placeholder.style.display = dataUrl ? 'none' : '';
+    },
+
+    async startStaffCamera() {
+        const video = document.getElementById('staffCameraVideo');
+        const capture = document.getElementById('captureStaffPhotoBtn');
+        const stop = document.getElementById('stopStaffCameraBtn');
+        if (!video || !navigator.mediaDevices?.getUserMedia) {
+            this.showToast('Live camera capture is not supported by this browser. Use upload from device instead.', 'warning');
+            return;
+        }
+        try {
+            this.stopStaffCamera();
+            this.staffCameraStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } },
+                audio: false
+            });
+            video.srcObject = this.staffCameraStream;
+            video.style.display = '';
+            if (capture) capture.disabled = false;
+            if (stop) stop.hidden = false;
+            await video.play();
+        } catch (error) {
+            console.error('[StaffProductionUI] Camera unavailable:', error);
+            this.showToast('Camera access was not granted. You can still upload a photo from your device.', 'warning');
+        }
+    },
+
+    stopStaffCamera() {
+        if (this.staffCameraStream) {
+            this.staffCameraStream.getTracks().forEach(track => track.stop());
+            this.staffCameraStream = null;
+        }
+        const video = document.getElementById('staffCameraVideo');
+        const capture = document.getElementById('captureStaffPhotoBtn');
+        const stop = document.getElementById('stopStaffCameraBtn');
+        if (video) { video.pause(); video.srcObject = null; video.style.display = 'none'; }
+        if (capture) capture.disabled = true;
+        if (stop) stop.hidden = true;
+    },
+
+    captureStaffPhoto() {
+        const video = document.getElementById('staffCameraVideo');
+        const canvas = document.getElementById('staffCameraCanvas');
+        if (!video?.videoWidth || !canvas) {
+            this.showToast('The camera is not ready yet.', 'warning');
+            return;
+        }
+        const maxSide = 900;
+        const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        this.showStaffPhotoPreview(canvas.toDataURL('image/jpeg', 0.82));
+        this.stopStaffCamera();
+        this.saveStaffDraft();
+        this.showToast('Photo captured. It will be saved with the staff record.', 'success');
+    },
+
+    async acceptStaffPhotoFile(file) {
+        if (!file?.type?.startsWith('image/')) {
+            this.showToast('Choose a JPEG, PNG or WebP image.', 'warning');
+            return;
+        }
+        try {
+            const dataUrl = await this.compressStaffImage(file, 900, 0.82);
+            this.showStaffPhotoPreview(dataUrl);
+            this.saveStaffDraft();
+        } catch (error) {
+            console.error('[StaffProductionUI] Photo processing failed:', error);
+            this.showToast('That image could not be processed. Try another file.', 'error');
+        }
+    },
+
+    compressStaffImage(file, maxSide = 900, quality = 0.82) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('Could not read the selected image.'));
+            reader.onload = () => {
+                const image = new Image();
+                image.onerror = () => reject(new Error('Could not decode the selected image.'));
+                image.onload = () => {
+                    const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(image.width * scale));
+                    canvas.height = Math.max(1, Math.round(image.height * scale));
+                    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                };
+                image.src = String(reader.result);
+            };
+            reader.readAsDataURL(file);
+        });
+    },
+
+    async dataUrlToFile(dataUrl, filename) {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+    },
+
+    async uploadStaffPhotoIfSelected(staffId) {
+        const dataUrl = this.getValue('staffPhotoDataUrl');
+        if (!dataUrl || !window.API?.staff?.uploadPhoto) return true;
+        try {
+            const file = await this.dataUrlToFile(dataUrl, `staff-${staffId}.jpg`);
+            await window.API.staff.uploadPhoto(staffId, file, {
+                description: 'Staff directory photograph',
+                tags: 'staff_directory'
+            });
+            return true;
+        } catch (error) {
+            console.error('[StaffProductionUI] Staff photo upload failed:', error);
+            this.showToast(error?.message || 'Staff saved, but the photo could not be uploaded. You can retry from the directory.', 'warning');
+            return false;
+        }
     },
 
     async saveStaff() {
@@ -1247,19 +1964,62 @@ const StaffProductionUI = {
         const staffId = document.getElementById('staffId').value;
         const data = {
             first_name: this.getValue('firstName'),
+            middle_name: this.getValue('middleName'),
             last_name: this.getValue('lastName'),
             email: this.getValue('email'),
+            phone: this.getValue('phone'),
+            id_number_type: this.getValue('idNumberType') || 'national_id',
+            national_id_no: this.getValue('nationalIdNo'),
             department_id: this.getValue('department') || null,
             staff_type_id: this.getValue('staff_type_id') || null,
             staff_category_id: this.getValue('staff_category_id') || null,
-            role_id: this.getValue('roleId') || undefined,
-            contract_type: this.getValue('contractType') || 'permanent'
+            role_id: this.getValue('roleId') || null,
+            contract_type: this.getValue('contractType') || 'permanent',
+            employment_date: this.getValue('employmentDate') || null,
+            position: this.getValue('position'),
+            invitation_channel: document.querySelector('input[name="invitationChannel"]:checked')?.value || 'email',
+
+            // Optional profile facts. Blank values stay pending for the staff member.
+            date_of_birth: this.getValue('dateOfBirth') || null,
+            gender: this.getValue('gender') || null,
+            national_id_no: this.getValue('nationalIdNo') || null,
+            marital_status: this.getValue('maritalStatus') || null,
+            address: this.getValue('address') || null,
+            communication_email: this.getValue('communicationEmail') || null,
+            communication_phone: this.getValue('communicationPhone') || null,
+            kra_pin: this.getValue('kraPin') || null,
+            nssf_no: this.getValue('nssfNo') || null,
+            nhif_no: this.getValue('nhifNo') || null,
+            bank_name: this.getValue('bankName') || null,
+            bank_account: this.getValue('bankAccount') || null,
+            mpesa_phone: this.getValue('mpesaPhone') || null,
+            tsc_no: this.getValue('tscNo') || null,
+            emergency_contact_name: this.getValue('emergencyContactName') || null,
+            emergency_contact_phone: this.getValue('emergencyContactPhone') || null,
+            emergency_contact_relationship: this.getValue('emergencyContactRelationship') || null,
+            learning_area_ids: [...(document.getElementById('learningAreas')?.selectedOptions || [])]
+                .map(option => Number(option.value)).filter(Boolean),
+            primary_learning_area_id: Number(this.getValue('primaryLearningArea')) || null,
         };
+
+        if (this.getValue('salary') !== '') data.salary = this.getValue('salary');
+        if (!data.position) delete data.position;
+        if (!data.primary_learning_area_id) delete data.primary_learning_area_id;
+
+        const qualifications = this.collectQualifications();
+        if (staffId) data.qualification_details = qualifications;
+        else data.qualifications = qualifications;
+        const experience = this.collectExperience();
+        if (staffId) data.experience_details = experience;
+        else data.experience = experience;
 
         const requiredForCreate = {
             first_name: 'First name',
             last_name: 'Last name',
             email: 'Email',
+            phone: 'Phone number',
+            id_number_type: 'Identity document type',
+            national_id_no: 'Identity document number',
             department_id: 'Department',
             staff_type_id: 'Staff type',
             staff_category_id: 'Staff category',
@@ -1276,25 +2036,138 @@ const StaffProductionUI = {
                 this.showToast(`Required fields missing: ${missing.join(', ')}`, 'warning');
                 return;
             }
+        } else if (!data.national_id_no || !data.id_number_type) {
+            this.showToast('Identity document type and number are required.', 'warning');
+            return;
         }
 
         try {
+            this.stopStaffCamera();
+            let savedStaffId = staffId;
             if (staffId) {
-                await window.API.staff.update(staffId, data);
-                this.showToast('Staff updated successfully', 'success');
+                const response = await window.API.staff.update(staffId, data);
+                this.showToast(response?.message || 'Staff updated successfully', 'success');
             } else {
-                await window.API.staff.create(data);
-                this.showToast('Staff created successfully', 'success');
+                const response = await window.API.staff.create(data);
+                const payload = this.extractPayload(response) || {};
+                savedStaffId = payload.id || payload.staff_id || null;
+                this.showToast(payload.message || response?.message || 'Staff created successfully', 'success');
             }
+
+            // The record is now committed. Clear the on-device draft even if a later
+            // photo upload fails, so reopening the form cannot create a duplicate.
+            try { window.localStorage?.removeItem(this.staffDraftKey(staffId)); } catch (error) { console.warn(error); }
+            if (savedStaffId) await this.uploadStaffPhotoIfSelected(savedStaffId);
 
             const modal = bootstrap.Modal.getInstance(document.getElementById('staffModal'));
             modal.hide();
-            
+
             await this.loadStaff();
         } catch (error) {
             console.error('Error saving staff:', error);
             this.showToast(error?.message || 'Failed to save staff', 'error');
         }
+    },
+
+    collectQualifications() {
+        return [...document.querySelectorAll('#staffQualificationRows .qualification-row')]
+            .map(row => ({
+                id: Number(row.dataset.qualificationId || 0) || undefined,
+                qualification_level: row.querySelector('[data-qual-field="qualification_level"]')?.value || 'other',
+                title: row.querySelector('[data-qual-field="title"]')?.value?.trim() || '',
+                institution: row.querySelector('[data-qual-field="institution"]')?.value?.trim() || '',
+                year_obtained: row.querySelector('[data-qual-field="year_obtained"]')?.value || null,
+                description: row.querySelector('[data-qual-field="description"]')?.value?.trim() || null,
+            }))
+            .filter(qualification => qualification.title && qualification.institution);
+    },
+
+    renderQualificationRows(qualifications = []) {
+        const host = document.getElementById('staffQualificationRows');
+        if (!host) return;
+        host.innerHTML = '';
+        const rows = Array.isArray(qualifications) && qualifications.length ? qualifications : [null];
+        rows.forEach(qualification => this.addQualificationRow(qualification));
+    },
+
+    addQualificationRow(qualification = null) {
+        const host = document.getElementById('staffQualificationRows');
+        if (!host) return;
+        const emptyRow = host.querySelector('.qualification-row');
+        if (emptyRow && !emptyRow.dataset.qualificationId
+            && !emptyRow.querySelector('[data-qual-field="title"]')?.value
+            && !emptyRow.querySelector('[data-qual-field="institution"]')?.value) {
+            emptyRow.remove();
+        }
+        const row = document.createElement('div');
+        row.className = 'qualification-row';
+        row.dataset.qualificationId = qualification?.id || '';
+        const levels = ['certificate','diploma','degree','postgraduate_diploma','masters','phd','professional','other'];
+        const level = qualification?.qualification_level || qualification?.level || 'other';
+        row.innerHTML = `
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3"><label class="form-label small mb-1">Level</label><select class="form-select form-select-sm" data-qual-field="qualification_level">${levels.map(item => `<option value="${item}"${item === level ? ' selected' : ''}>${this.escapeHtml(item.replaceAll('_', ' '))}</option>`).join('')}</select></div>
+                <div class="col-md-3"><label class="form-label small mb-1">Title *</label><input class="form-control form-control-sm" data-qual-field="title"></div>
+                <div class="col-md-3"><label class="form-label small mb-1">Institution *</label><input class="form-control form-control-sm" data-qual-field="institution"></div>
+                <div class="col-md-2"><label class="form-label small mb-1">Year</label><input type="number" class="form-control form-control-sm" data-qual-field="year_obtained" min="1900" max="${new Date().getFullYear() + 1}"></div>
+                <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger w-100" data-remove-qualification aria-label="Remove qualification"><i class="bi bi-x-lg"></i></button></div>
+                <div class="col-12"><label class="form-label small mb-1">Notes</label><textarea class="form-control form-control-sm" rows="2" data-qual-field="description"></textarea></div>
+            </div>
+        `;
+        row.querySelector('[data-qual-field="title"]').value = qualification?.title || qualification?.degree || '';
+        row.querySelector('[data-qual-field="institution"]').value = qualification?.institution || '';
+        row.querySelector('[data-qual-field="year_obtained"]').value = qualification?.year_obtained || qualification?.year || '';
+        row.querySelector('[data-qual-field="description"]').value = qualification?.description || qualification?.details || '';
+        host.appendChild(row);
+    },
+
+    collectExperience() {
+        return [...document.querySelectorAll('#staffExperienceRows .experience-row')]
+            .map(row => ({
+                organization: row.querySelector('[data-exp-field="organization"]')?.value?.trim() || '',
+                position: row.querySelector('[data-exp-field="position"]')?.value?.trim() || '',
+                start_date: row.querySelector('[data-exp-field="start_date"]')?.value || null,
+                end_date: row.querySelector('[data-exp-field="end_date"]')?.value || null,
+                responsibilities: row.querySelector('[data-exp-field="responsibilities"]')?.value?.trim() || null,
+            }))
+            .filter(entry => entry.organization || entry.position);
+    },
+
+    renderExperienceRows(entries = []) {
+        const host = document.getElementById('staffExperienceRows');
+        if (!host) return;
+        host.innerHTML = '';
+        const rows = Array.isArray(entries) && entries.length ? entries : [null];
+        rows.forEach(entry => this.addExperienceRow(entry));
+    },
+
+    addExperienceRow(entry = null) {
+        const host = document.getElementById('staffExperienceRows');
+        if (!host) return;
+        const emptyRow = host.querySelector('.experience-row');
+        if (emptyRow
+            && !emptyRow.querySelector('[data-exp-field="organization"]')?.value
+            && !emptyRow.querySelector('[data-exp-field="position"]')?.value) {
+            emptyRow.remove();
+        }
+        const row = document.createElement('div');
+        row.className = 'experience-row';
+        row.innerHTML = `
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3"><label class="form-label small mb-1">Organisation</label><input class="form-control form-control-sm" data-exp-field="organization"></div>
+                <div class="col-md-3"><label class="form-label small mb-1">Position</label><input class="form-control form-control-sm" data-exp-field="position"></div>
+                <div class="col-md-2"><label class="form-label small mb-1">Start date</label><input type="date" class="form-control form-control-sm" data-exp-field="start_date"></div>
+                <div class="col-md-2"><label class="form-label small mb-1">End date</label><input type="date" class="form-control form-control-sm" data-exp-field="end_date"></div>
+                <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger w-100" data-remove-experience aria-label="Remove experience"><i class="bi bi-x-lg"></i></button></div>
+                <div class="col-12"><label class="form-label small mb-1">Responsibilities</label><textarea class="form-control form-control-sm" rows="2" data-exp-field="responsibilities"></textarea></div>
+            </div>
+        `;
+        row.querySelector('[data-exp-field="organization"]').value = entry?.organization || '';
+        row.querySelector('[data-exp-field="position"]').value = entry?.position || '';
+        row.querySelector('[data-exp-field="start_date"]').value = entry?.start_date || '';
+        row.querySelector('[data-exp-field="end_date"]').value = entry?.end_date || '';
+        row.querySelector('[data-exp-field="responsibilities"]').value = entry?.responsibilities || '';
+        host.appendChild(row);
     },
 
     async viewStaff(staffId) {
@@ -1329,8 +2202,28 @@ const StaffProductionUI = {
         }
         try {
             const staff = await this.getStaffRecord(staffId);
+            this.currentEditingStaff = staff;
+            const invitationCard = document.getElementById('staffInvitationStatusCard');
+            const channelGroup = document.getElementById('invitationChannelGroup');
+            if (invitationCard) invitationCard.hidden = false;
+            if (channelGroup) channelGroup.hidden = true;
+            this.resetStaffPhoto();
             this.populateEditForm(staff);
             document.getElementById('staffModalTitle').textContent = `Edit ${staff.full_name || 'Staff Record'}`;
+            const subtitle = document.getElementById('staffModalSubtitle');
+            if (subtitle) subtitle.textContent = 'Update any staff detail. Your progress is saved on this device as you move between steps.';
+            this.setStaffWizardStep(0);
+
+            const draft = this.readStaffDraft(staffId);
+            if (draft) {
+                this.applyStaffDraft(draft);
+                this.setStaffDraftStatus('Saved draft restored on this device', true);
+            } else {
+                this.setStaffDraftStatus('Draft saves automatically');
+            }
+            this.syncTeacherOnlyFields();
+            this.primeStaffCommunicationDefaults();
+            this.renderStaffInvitationStatus(staff);
 
             const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('staffModal'));
             modal.show();
@@ -1365,21 +2258,71 @@ const StaffProductionUI = {
             first_name: firstName,
             last_name: lastName,
             full_name: staff.full_name || `${firstName} ${lastName}`.trim(),
-            display_position: staff.display_position || staff.position || ''
+            display_position: staff.display_position || staff.position || '',
+            department_id: staff.department_id || staff.department_assignment_id || '',
+            photo_url: staff.photo_url || staff.profile_pic_url || ''
         };
     },
 
     populateEditForm(staff) {
         const normalized = this.normalizeStaffRecord(staff);
+        const payroll = normalized.payroll_profile || {};
         this.setValue('staffId', normalized.id);
         this.setValue('firstName', normalized.first_name || '');
+        this.setValue('middleName', normalized.middle_name || '');
         this.setValue('lastName', normalized.last_name || '');
         this.setValue('email', normalized.email || '');
+        this.setValue('phone', normalized.phone || '');
+        this.setValue('idNumberType', normalized.id_number_type || 'national_id');
+        this.populateStaffClassificationDropdowns(normalized.staff_type_id || '', normalized.staff_category_id || '');
+
+        // Existing values must remain visible even when a lookup catalog is
+        // unavailable to the current administrator. Inject the stored option
+        // before selecting it rather than silently showing an empty field.
+        this.ensureSelectOption('department', normalized.department_id, normalized.department_name || normalized.department);
+        this.ensureSelectOption('staff_type_id', normalized.staff_type_id, normalized.staff_type_name);
+        this.ensureSelectOption('staff_category_id', normalized.staff_category_id, normalized.staff_category_name);
+        this.ensureSelectOption('roleId', normalized.role_id, normalized.role_name || normalized.role_names);
+
         this.setValue('department', normalized.department_id || '');
         this.setValue('staff_type_id', normalized.staff_type_id || '');
-        this.populateStaffClassificationDropdowns(normalized.staff_type_id || '', normalized.staff_category_id || '');
+        this.setValue('staff_category_id', normalized.staff_category_id || '');
         this.setValue('roleId', normalized.role_id || '');
         this.setValue('contractType', normalized.contract_type || 'permanent');
+        this.setValue('employmentDate', normalized.employment_date || '');
+        this.setValue('position', normalized.position || '');
+        this.populatePositionOptions();
+
+        this.setValue('dateOfBirth', normalized.date_of_birth || '');
+        this.setValue('gender', normalized.gender || '');
+        this.setValue('nationalIdNo', normalized.national_id_no || '');
+        this.setValue('maritalStatus', normalized.marital_status || '');
+        this.setValue('address', normalized.address || '');
+        this.setValue('communicationEmail', normalized.communication_email || '');
+        this.setValue('communicationPhone', normalized.communication_phone || '');
+
+        this.setValue('kraPin', normalized.kra_pin ?? payroll.kra_pin ?? '');
+        this.setValue('nssfNo', normalized.nssf_no ?? payroll.nssf_no ?? '');
+        this.setValue('nhifNo', normalized.nhif_no ?? payroll.nhif_no ?? '');
+        this.setValue('bankName', normalized.bank_name ?? payroll.bank_name ?? '');
+        this.setValue('bankAccount', normalized.bank_account ?? payroll.bank_account ?? '');
+        this.setValue('mpesaPhone', normalized.mpesa_phone ?? payroll.mpesa_phone ?? '');
+        this.setValue('tscNo', normalized.tsc_no || '');
+        this.setValue('salary', payroll.basic_salary ?? normalized.salary ?? '');
+
+        this.setValue('emergencyContactName', normalized.emergency_contact_name || '');
+        this.setValue('emergencyContactPhone', normalized.emergency_contact_phone || '');
+        this.setValue('emergencyContactRelationship', normalized.emergency_contact_relationship || '');
+        this.populateLearningAreaDropdowns(normalized.learning_area_ids || [], normalized.primary_learning_area_id || '');
+        this.renderQualificationRows(normalized.qualifications || []);
+        this.renderExperienceRows(normalized.experience || []);
+        if (normalized.photo_url || normalized.profile_pic_url) {
+            const preview = document.getElementById('staffPhotoPreview');
+            const placeholder = document.getElementById('staffPhotoPlaceholder');
+            if (preview) { preview.src = normalized.photo_url || normalized.profile_pic_url; preview.style.display = ''; }
+            if (placeholder) placeholder.style.display = 'none';
+        }
+        this.activateStaffTab('staff-tab-employment');
     },
 
     renderStaffProfile(staff) {
@@ -1456,6 +2399,18 @@ const StaffProductionUI = {
         if (element) element.value = value ?? '';
     },
 
+    ensureSelectOption(id, value, label) {
+        if (!value) return;
+        const select = document.getElementById(id);
+        if (!select) return;
+        const needle = String(value);
+        if ([...select.options].some(option => option.value === needle)) return;
+        const option = document.createElement('option');
+        option.value = needle;
+        option.textContent = String(label || needle);
+        select.insertBefore(option, select.firstChild);
+    },
+
     initials(name) {
         return String(name || 'S')
             .split(/\s+/)
@@ -1480,10 +2435,15 @@ const StaffProductionUI = {
             this.showToast('You do not have permission to delete staff', 'error');
             return;
         }
-        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this staff member?', { confirmText: 'Delete', danger: true }))) return;
+        if (!(await window.confirmAction(
+            'Confirm Deletion',
+            'Delete this staff member? Their record and history are retained for audit, but their account will be disabled and removed from the active directory.',
+            { confirmText: 'Delete', danger: true }
+        ))) return;
 
         try {
-            this.showToast('Staff deleted successfully', 'success');
+            const response = await window.API.staff.delete(staffId);
+            this.showToast(response?.message || 'Staff deleted successfully', 'success');
             await this.loadStaff();
         } catch (error) {
             console.error('Error deleting staff:', error);

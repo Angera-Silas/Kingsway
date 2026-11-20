@@ -16,6 +16,15 @@ use Throwable;
 use function App\API\Includes\formatResponse;
 use \App\API\Modules\users\UsersAPI;
 class StaffAPI extends BaseAPI {
+    /** Identity document types the directory wizard may record for a staff member. */
+    private const STAFF_IDENTITY_TYPES = [
+        'national_id' => 'National ID',
+        'passport' => 'Passport',
+        'birth_certificate' => 'Birth Certificate',
+        'alien_id' => 'Alien ID',
+        'other' => 'Other identification document',
+    ];
+
     private $service;
     private $mediaManager;
 
@@ -119,7 +128,7 @@ class StaffAPI extends BaseAPI {
             // The query below reads staff_context as `sc`; scope the projection
             // column instead of an unrelated `s` alias (which does not exist).
             [$scopeQuery, $scopesBindings] = DataScopeService::predicateFor('staff', 'sc');
-            $where = [$scopeQuery];
+            $where = [$scopeQuery, 'sc.deleted_at IS NULL'];
             $bindings = $scopesBindings;
             if (!empty($search)) {
                 $where[] = "(
@@ -1148,6 +1157,174 @@ class StaffAPI extends BaseAPI {
             $stmt->execute([$id]);
             $staff['experience'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Full directory record: the school administrator can edit every
+            // staff detail from a single tabbed form, so the detail response
+            // must include the normalized profile tables as well.
+            $personId = (int)($staff['person_id'] ?? 0);
+            $payroll = $this->db->prepare(
+                "SELECT kra_pin, nssf_no, nhif_no, mpesa_phone, bank_name, bank_account, basic_salary
+                   FROM staff_payroll_profiles WHERE staff_id = ? ORDER BY id DESC LIMIT 1"
+            );
+            $payroll->execute([$id]);
+            $payrollRow = $payroll->fetch(PDO::FETCH_ASSOC) ?: [];
+            $staff['payroll_profile'] = $payrollRow;
+            foreach (['kra_pin', 'nssf_no', 'nhif_no', 'mpesa_phone'] as $payrollKey) {
+                $staff[$payrollKey] = $payrollRow[$payrollKey] ?? null;
+            }
+            if (isset($payrollRow['mpesa_phone'])) $staff['mpesa_phone'] = $payrollRow['mpesa_phone'];
+
+            if ($personId > 0) {
+                $person = $this->db->prepare(
+                    "SELECT middle_name, dob AS date_of_birth, national_id_no FROM persons WHERE id = ? LIMIT 1"
+                );
+                $person->execute([$personId]);
+                $personRow = $person->fetch(PDO::FETCH_ASSOC) ?: [];
+                $staff['middle_name'] = $personRow['middle_name'] ?? null;
+                $staff['date_of_birth'] = $personRow['date_of_birth'] ?? null;
+                $staff['national_id_no'] = $personRow['national_id_no'] ?? null;
+
+                $address = $this->db->prepare(
+                    "SELECT address_line FROM person_addresses
+                      WHERE person_id = ? AND address_type = 'residential' AND valid_to IS NULL
+                      ORDER BY is_primary DESC, id DESC LIMIT 1"
+                );
+                $address->execute([$personId]);
+                $staff['address'] = $address->fetchColumn() ?: null;
+
+                $marital = $this->db->prepare(
+                    "SELECT marital_status FROM person_marital_statuses
+                      WHERE person_id = ? AND valid_to IS NULL ORDER BY id DESC LIMIT 1"
+                );
+                $marital->execute([$personId]);
+                $staff['marital_status'] = $marital->fetchColumn() ?: null;
+
+                $tsc = $this->db->prepare(
+                    "SELECT identifier_value FROM person_professional_identifiers
+                      WHERE person_id = ? AND identifier_type = 'tsc'
+                      ORDER BY is_primary DESC, id DESC LIMIT 1"
+                );
+                $tsc->execute([$personId]);
+                $staff['tsc_no'] = $tsc->fetchColumn() ?: null;
+
+                $identity = $this->db->prepare(
+                    "SELECT identifier_type, identifier_value FROM person_professional_identifiers
+                      WHERE person_id = ? AND identifier_type <> 'tsc'
+                      ORDER BY is_primary DESC, id DESC LIMIT 1"
+                );
+                $identity->execute([$personId]);
+                $identityRow = $identity->fetch(PDO::FETCH_ASSOC) ?: [];
+                $staff['id_number_type'] = $identityRow['identifier_type'] ?? 'national_id';
+                if (!empty($identityRow['identifier_value'])) {
+                    $staff['national_id_no'] = $identityRow['identifier_value'];
+                }
+
+                $emergency = $this->db->prepare(
+                    "SELECT name, phone, relationship FROM emergency_contacts
+                      WHERE person_id = ? ORDER BY id ASC LIMIT 1"
+                );
+                $emergency->execute([$personId]);
+                $emergencyRow = $emergency->fetch(PDO::FETCH_ASSOC) ?: [];
+                $staff['emergency_contact_name'] = $emergencyRow['name'] ?? null;
+                $staff['emergency_contact_phone'] = $emergencyRow['phone'] ?? null;
+                $staff['emergency_contact_relationship'] = $emergencyRow['relationship'] ?? null;
+
+                $contactPoints = $this->db->prepare(
+                    "SELECT channel, contact_value FROM person_contact_points
+                      WHERE person_id = ? AND purpose = 'communication'"
+                );
+                $contactPoints->execute([$personId]);
+                foreach ($contactPoints->fetchAll(PDO::FETCH_ASSOC) as $point) {
+                    if ($point['channel'] === 'email') $staff['communication_email'] = $point['contact_value'];
+                    if ($point['channel'] === 'phone') $staff['communication_phone'] = $point['contact_value'];
+                }
+            }
+
+            $learningAreas = $this->db->prepare(
+                "SELECT learning_area_id, is_primary FROM staff_learning_area_specializations
+                  WHERE staff_id = ? AND status <> 'inactive' ORDER BY is_primary DESC, learning_area_id ASC"
+            );
+            $learningAreas->execute([$id]);
+            $areaRows = $learningAreas->fetchAll(PDO::FETCH_ASSOC);
+            $staff['learning_area_ids'] = array_map(static fn(array $row): int => (int)$row['learning_area_id'], $areaRows);
+            $primaryArea = null;
+            foreach ($areaRows as $areaRow) {
+                if (!empty($areaRow['is_primary'])) { $primaryArea = (int)$areaRow['learning_area_id']; break; }
+            }
+            $staff['primary_learning_area_id'] = $primaryArea;
+
+            $userLookup = $this->db->prepare("SELECT id FROM users WHERE person_id = ? LIMIT 1");
+            $userLookup->execute([$personId]);
+            $staff['user_id'] = (int)$userLookup->fetchColumn() ?: ($staff['user_id'] ?? null);
+
+            // The Edit wizard must show what already happened to the account
+            // invitation. It never re-sends a link implicitly; resend is an
+            // explicit administrator action, and completed setups cannot be
+            // replaced with a new setup link.
+            $userId = (int)($staff['user_id'] ?? 0);
+            $staff['invitation_status'] = 'not_sent';
+            $staff['invitation_delivery_status'] = 'not_queued';
+            $staff['invitation_sent_at'] = null;
+            $staff['invitation_channel'] = null;
+            $staff['invitation_can_resend'] = false;
+            $staff['invitation_setup_completed'] = false;
+            $staff['password_reset_available'] = false;
+            if ($userId > 0) {
+                $account = $this->db->prepare(
+                    "SELECT u.status, u.force_password_change, u.password_changed_at,
+                            u.profile_completed_at, p.email
+                       FROM users u JOIN persons p ON p.id = u.person_id
+                      WHERE u.id = ? LIMIT 1"
+                );
+                $account->execute([$userId]);
+                $accountRow = $account->fetch(PDO::FETCH_ASSOC) ?: [];
+
+                $invitation = $this->db->prepare(
+                    "SELECT status, expires_at FROM user_invitations
+                      WHERE user_id = ? ORDER BY id DESC LIMIT 1"
+                );
+                $invitation->execute([$userId]);
+                $invitationRow = $invitation->fetch(PDO::FETCH_ASSOC) ?: [];
+                if (!empty($invitationRow['status'])) {
+                    $invitationState = (string)$invitationRow['status'];
+                    if ($invitationState === 'pending'
+                        && !empty($invitationRow['expires_at'])
+                        && strtotime((string)$invitationRow['expires_at']) <= time()) {
+                        $invitationState = 'expired';
+                    }
+                    $staff['invitation_status'] = $invitationState;
+                }
+
+                $message = $this->db->prepare(
+                    "SELECT channel, status, sent_at FROM outbound_messages
+                      WHERE user_id = ? AND template_key = 'staff_account_invitation'
+                      ORDER BY id DESC LIMIT 1"
+                );
+                $message->execute([$userId]);
+                $messageRow = $message->fetch(PDO::FETCH_ASSOC) ?: [];
+                $staff['invitation_delivery_status'] = $messageRow['status'] ?? 'not_queued';
+                $staff['invitation_sent_at'] = $messageRow['sent_at'] ?? null;
+                $staff['invitation_channel'] = $messageRow['channel'] ?? null;
+
+                $setupCompleted = empty($accountRow['force_password_change'])
+                    || !empty($accountRow['password_changed_at'])
+                    || !empty($accountRow['profile_completed_at']);
+                $staff['invitation_setup_completed'] = $setupCompleted;
+                $staff['invitation_can_resend'] = ($accountRow['status'] ?? '') === 'active' && !$setupCompleted;
+                $staff['password_reset_available'] = $setupCompleted
+                    && ($accountRow['status'] ?? '') === 'active'
+                    && trim((string)($accountRow['email'] ?? '')) !== '';
+            }
+
+            // Communication contact points are optional. When the staff member
+            // has not supplied different ones, the Employment email/phone are
+            // the correct defaults for the Edit form.
+            if (empty($staff['communication_email']) && !empty($staff['email'])) {
+                $staff['communication_email'] = $staff['email'];
+            }
+            if (empty($staff['communication_phone']) && !empty($staff['phone'])) {
+                $staff['communication_phone'] = $staff['phone'];
+            }
+
             $this->logAction('read', $id, "Retrieved staff member: {$staff['first_name']} {$staff['last_name']}");
             
             return $this->response(['status' => 'success', 'data' => $staff]);
@@ -1157,17 +1334,63 @@ class StaffAPI extends BaseAPI {
         }
     }
 
-    // Create new staff member
+    /**
+     * Treat the administrator's "N/A" entries as genuinely absent facts. Statutory
+     * identifiers are optional and must never be stored as fake values.
+     */
+    private static function optionalDirectoryValue($value): ?string
+    {
+        if ($value === null) return null;
+        $value = trim((string)$value);
+        if ($value === '' || in_array(strtolower($value), ['n/a', 'na', 'n.a.', 'none', 'not applicable', '-'], true)) {
+            return null;
+        }
+        return $value;
+    }
+
+    /** Resolve the selected identity document type, defaulting to National ID. */
+    private static function normalizeStaffIdentityType($value): ?string
+    {
+        $type = strtolower(trim((string)($value ?: 'national_id')));
+        $aliases = [
+            'id' => 'national_id',
+            'national id' => 'national_id',
+            'national id no' => 'national_id',
+            'passport no' => 'passport',
+            'passport number' => 'passport',
+            'birth certificate' => 'birth_certificate',
+            'birth cert' => 'birth_certificate',
+            'alien' => 'alien_id',
+        ];
+        $type = $aliases[$type] ?? $type;
+        return isset(self::STAFF_IDENTITY_TYPES[$type]) ? $type : null;
+    }
+
+    /** Create new staff member
+     * @param array $data
+     */
     public function create($data) {
         $ownsTransaction = false;
-        $invitationMessageId = null;
+        $emailMessageId = null;
+        $smsMessageId = null;
         $emailSent = false;
+        $smsSent = false;
         $invitationQueued = false;
+        $invitationChannel = strtolower(trim((string)($data['invitation_channel'] ?? 'email')));
+        if (!in_array($invitationChannel, ['email', 'sms', 'both'], true)) {
+            return $this->response([
+                'status' => 'error',
+                'message' => 'Choose email, SMS, or both as the invitation channel.',
+                'fields' => ['invitation_channel']
+            ], 400);
+        }
         try {
             $required = [
                 'first_name',
                 'last_name',
                 'email',
+                'phone',
+                'national_id_no',
                 'department_id',
                 'staff_type_id',
                 'staff_category_id',
@@ -1182,6 +1405,34 @@ class StaffAPI extends BaseAPI {
                     'fields' => $missing
                 ], 400);
             }
+            $normalizedPhone = PhoneNumberNormalizer::normalize((string)$data['phone']);
+            if ($normalizedPhone === null) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Enter a valid Kenyan mobile phone number.',
+                    'fields' => ['phone']
+                ], 400);
+            }
+            $data['phone'] = $normalizedPhone;
+
+            $identityType = self::normalizeStaffIdentityType($data['id_number_type'] ?? 'national_id');
+            $identityValue = trim((string)($data['national_id_no'] ?? ''));
+            if ($identityType === null) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Choose a valid identity document type.',
+                    'fields' => ['id_number_type']
+                ], 400);
+            }
+            if ($identityValue === '' || in_array(strtolower($identityValue), ['n/a', 'na', 'none', '-'], true)) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Enter the staff member’s identity document number.',
+                    'fields' => ['national_id_no']
+                ], 400);
+            }
+            $data['id_number_type'] = $identityType;
+            $data['national_id_no'] = $identityValue;
 
             // Delegate user+staff creation to UsersAPI (do not duplicate staff insert here)
 
@@ -1266,7 +1517,9 @@ class StaffAPI extends BaseAPI {
                 'supervisor_id' => $supervisorId,
                 'date_of_birth' => $data['date_of_birth'] ?? null,
                 'phone' => $data['phone'] ?? $data['phone_number'] ?? null,
+                'national_id_no' => $data['national_id_no'] ?? null,
                 'nssf_no' => $data['nssf_no'] ?? null,
+                'mpesa_phone' => $data['mpesa_phone'] ?? null,
                 'kra_pin' => $data['kra_pin'] ?? null,
                 'nhif_no' => $data['nhif_no'] ?? null,
                 'bank_name' => $data['bank_name'] ?? null,
@@ -1442,6 +1695,16 @@ class StaffAPI extends BaseAPI {
                 $data
             );
 
+            // Admin-entered optional details follow the same normalized storage
+            // as the staff member's complete-profile flow. Leaving a field blank
+            // simply means it stays pending for the staff member.
+            $personLookup = $this->db->prepare('SELECT person_id FROM staff WHERE id = ? LIMIT 1');
+            $personLookup->execute([(int)$staffId]);
+            $createdPersonId = (int)$personLookup->fetchColumn();
+            if ($createdPersonId > 0) {
+                $this->applyDirectoryProfileExtras((int)$staffId, $createdPersonId, $data);
+            }
+
             // Existing users with an established password keep their login.
             // A setup link can replace credentials, so issue it only for a new
             // or still-uninitialized account.
@@ -1455,13 +1718,35 @@ class StaffAPI extends BaseAPI {
                     (int) $staffId,
                     $data['email']
                 );
-                $invitationMessageId = $this->queueStaffInvitationEmail(
-                    (int) $userId,
-                    $data['email'],
-                    trim($data['first_name'] . ' ' . $data['last_name']),
-                    $username,
-                    $invitationToken
-                );
+                $staffName = trim($data['first_name'] . ' ' . $data['last_name']);
+                $deliveryChannels = $invitationChannel === 'both' ? ['email', 'sms'] : [$invitationChannel];
+                foreach ($deliveryChannels as $deliveryChannel) {
+                    if ($deliveryChannel === 'sms') {
+                        $invitationPhone = PhoneNumberNormalizer::normalize(
+                            $data['phone'] ?? ($data['staff_info']['phone'] ?? null)
+                        );
+                        if ($invitationPhone === null) {
+                            throw new InvalidArgumentException('A valid phone number is required to send the invitation by SMS.');
+                        }
+                        $smsMessageId = (new StaffMigrationService($this->db))->queueSmsInvitation(
+                            (int) $userId,
+                            $invitationPhone,
+                            $staffName,
+                            (string) $username,
+                            $invitationToken,
+                            (int) $this->getCurrentUserId()
+                        );
+                        $smsSent = true;
+                    } else {
+                        $emailMessageId = $this->queueStaffInvitationEmail(
+                            (int) $userId,
+                            $data['email'],
+                            $staffName,
+                            $username,
+                            $invitationToken
+                        );
+                    }
+                }
                 $invitationQueued = true;
             }
             // Ensure a placeholder profile picture. In the normalized schema the photo is a
@@ -1570,29 +1855,239 @@ class StaffAPI extends BaseAPI {
                 $ownsTransaction = false;
             }
 
-            if (empty($data['defer_invitation_delivery']) && $invitationMessageId !== null && !$this->db->inTransaction()) {
+            if (empty($data['defer_invitation_delivery']) && $emailMessageId !== null && !$this->db->inTransaction()) {
                 try {
-                    $delivery = (new StaffMigrationService($this->db))->processEmailQueue(1, $invitationMessageId);
+                    $delivery = (new StaffMigrationService($this->db))->processEmailQueue(1, $emailMessageId);
                     $emailSent = (int)($delivery['sent'] ?? 0) === 1;
                 } catch (Exception $mailError) {
                     \App\API\Services\Logger::legacyError('Manual staff invitation remains queued for retry: ' . $mailError->getMessage());
                 }
             }
 
+            if (!$invitationQueued) {
+                $message = 'Staff assignment created. Existing account credentials were preserved.';
+            } elseif ($invitationChannel === 'both') {
+                $message = 'Staff member created. Invitation sent by '
+                    . ($emailSent ? 'email' : 'queued email') . ' and SMS.';
+            } elseif ($invitationChannel === 'sms') {
+                $message = 'Staff member created and invitation SMS sent.';
+            } else {
+                $message = $emailSent
+                    ? 'Staff member created and invitation email sent.'
+                    : 'Staff member created. Invitation is queued for email delivery.';
+            }
+
             return $this->response([
                 'status' => 'success',
-                'message' => !$invitationQueued
-                    ? 'Staff assignment created. Existing account credentials were preserved.'
-                    : ($emailSent
-                    ? 'Staff member created and invitation email sent.'
-                    : 'Staff member created. Invitation is queued for email delivery.'),
-                'data' => ['id' => $staffId, 'staff_no' => $staffNo, 'invitation_queued' => $invitationQueued, 'email_sent' => $emailSent]
+                'message' => $message,
+                'data' => [
+                    'id' => $staffId,
+                    'staff_no' => $staffNo,
+                    'invitation_queued' => $invitationQueued,
+                    'invitation_channel' => $invitationChannel,
+                    'email_sent' => $emailSent,
+                    'sms_sent' => $smsSent,
+                    'email_message_id' => $emailMessageId,
+                    'sms_message_id' => $smsMessageId,
+                ]
             ], 201);
         } catch (Exception $e) {
             if ($ownsTransaction && $this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Write the optional fields an administrator may fill when adding a staff
+     * member. These are the same facts the staff member would otherwise supply
+     * in complete_staff_profile.php, stored in the same normalized tables.
+     */
+    private function applyDirectoryProfileExtras(int $staffId, int $personId, array $data): void
+    {
+        $identityUpdates = [];
+        $identityParams = [];
+        foreach ([
+            'middle_name' => 'middle_name',
+            'national_id_no' => 'national_id_no',
+            'date_of_birth' => 'dob',
+            'gender' => 'gender',
+        ] as $key => $column) {
+            if (array_key_exists($key, $data) && trim((string)$data[$key]) !== '') {
+                $identityUpdates[] = "$column = ?";
+                $identityParams[] = trim((string)$data[$key]);
+            }
+        }
+        if ($identityUpdates) {
+            $identityParams[] = $personId;
+            $this->db->prepare('UPDATE persons SET ' . implode(', ', $identityUpdates) . ' WHERE id = ?')
+                ->execute($identityParams);
+        }
+
+        if (!empty($data['address'])) {
+            $this->db->prepare(
+                "INSERT INTO person_addresses
+                    (person_id, address_type, address_line, is_primary, valid_from, created_at, updated_at)
+                 VALUES (?, 'residential', ?, 1, CURDATE(), NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE address_line = VALUES(address_line), is_primary = 1,
+                    valid_to = NULL, updated_at = NOW()"
+            )->execute([$personId, trim((string)$data['address'])]);
+        }
+
+        if (!empty($data['marital_status'])) {
+            $maritalStatus = strtolower(trim((string)$data['marital_status']));
+            if (!in_array($maritalStatus, ['single','married','divorced','widowed','separated','unknown'], true)) {
+                throw new InvalidArgumentException('Invalid marital status.');
+            }
+            $this->db->prepare(
+                'INSERT INTO person_marital_statuses (person_id, marital_status, valid_from, created_at)
+                 VALUES (?, ?, CURDATE(), NOW())
+                 ON DUPLICATE KEY UPDATE marital_status = VALUES(marital_status), valid_to = NULL'
+            )->execute([$personId, $maritalStatus]);
+        }
+
+        $payrollCols = [];
+        foreach (['kra_pin','nssf_no','nhif_no','mpesa_phone','bank_name','bank_account'] as $column) {
+            $value = self::optionalDirectoryValue($data[$column] ?? null);
+            if ($value !== null) $payrollCols[$column] = $value;
+        }
+        if ($payrollCols) {
+            $columns = array_keys($payrollCols);
+            $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+            $updates = implode(', ', array_map(static fn(string $column): string => "$column = VALUES($column)", $columns));
+            $this->db->prepare(
+                "INSERT INTO staff_payroll_profiles (staff_id, " . implode(', ', $columns) . ", status, created_at, updated_at)
+                 VALUES (?, $placeholders, 'active', NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE $updates, updated_at = NOW()"
+            )->execute(array_merge([$staffId], array_values($payrollCols)));
+        }
+
+        if (!empty($data['salary'])) {
+            (new \App\API\Services\StaffCompensationService($this->db))->saveIndividualSalary([
+                'staff_id' => $staffId,
+                'gross_salary' => $data['salary'],
+                'effective_from' => $data['salary_effective_from'] ?? date('Y-m-01'),
+            ], (int)($data['_admin_actor_user_id'] ?? 0) ?: null);
+        }
+
+        $tscNumberRaw = self::optionalDirectoryValue($data['tsc_no'] ?? null);
+        if ($tscNumberRaw !== null) {
+            $tscNumber = strtoupper($tscNumberRaw);
+            $duplicateTsc = $this->db->prepare(
+                "SELECT person_id FROM person_professional_identifiers
+                  WHERE identifier_type = 'tsc' AND LOWER(identifier_value) = LOWER(?) LIMIT 1"
+            );
+            $duplicateTsc->execute([$tscNumber]);
+            $owner = (int)$duplicateTsc->fetchColumn();
+            if ($owner > 0 && $owner !== $personId) {
+                throw new InvalidArgumentException('That TSC number is already recorded for another person.');
+            }
+            $this->db->prepare(
+                "INSERT INTO person_professional_identifiers
+                    (person_id, identifier_type, identifier_value, issuing_body, is_primary, created_at, updated_at)
+                 VALUES (?, 'tsc', ?, 'Teachers Service Commission', 1, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE identifier_value = VALUES(identifier_value), is_primary = 1, updated_at = NOW()"
+            )->execute([$personId, $tscNumber]);
+        }
+
+        // The main identity document is required, but its TYPE is administrator-owned.
+        // Store it in the same normalized identifier table used by profiles and imports.
+        $identityValue = self::optionalDirectoryValue($data['national_id_no'] ?? null);
+        if ($identityValue !== null) {
+            $identityType = self::normalizeStaffIdentityType($data['id_number_type'] ?? 'national_id');
+            if ($identityType === null) {
+                throw new InvalidArgumentException('Choose a valid identity document type.');
+            }
+            $duplicateIdentity = $this->db->prepare(
+                "SELECT person_id FROM person_professional_identifiers
+                  WHERE identifier_type = ? AND LOWER(identifier_value) = LOWER(?) LIMIT 1"
+            );
+            $duplicateIdentity->execute([$identityType, $identityValue]);
+            $owner = (int)$duplicateIdentity->fetchColumn();
+            if ($owner > 0 && $owner !== $personId) {
+                throw new InvalidArgumentException('That identity document number is already recorded for another person.');
+            }
+            $this->db->prepare(
+                "INSERT INTO person_professional_identifiers
+                    (person_id, identifier_type, identifier_value, issuing_body, is_primary, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 1, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE identifier_value = VALUES(identifier_value),
+                    issuing_body = VALUES(issuing_body), is_primary = 1, updated_at = NOW()"
+            )->execute([
+                $personId,
+                $identityType,
+                $identityValue,
+                self::STAFF_IDENTITY_TYPES[$identityType],
+            ]);
+        }
+
+        foreach (['communication_email' => 'email', 'communication_phone' => 'phone'] as $key => $channel) {
+            if (empty($data[$key])) continue;
+            $value = trim((string)$data[$key]);
+            if ($channel === 'email' && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                throw new InvalidArgumentException('Enter a valid communication email address.');
+            }
+            if ($channel === 'phone') {
+                $normalized = PhoneNumberNormalizer::normalize($value);
+                if ($normalized === null) throw new InvalidArgumentException('Enter a valid Kenyan mobile number for communication.');
+                $value = $normalized;
+            }
+            $this->db->prepare(
+                "INSERT INTO person_contact_points
+                    (person_id, channel, purpose, contact_value, is_primary, created_at, updated_at)
+                 VALUES (?, ?, 'communication', ?, 1, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE contact_value = VALUES(contact_value), is_primary = 1, updated_at = NOW()"
+            )->execute([$personId, $channel, $value]);
+        }
+
+        if (!empty($data['emergency_contact_name']) || !empty($data['emergency_contact_phone'])) {
+            $contactName = trim((string)($data['emergency_contact_name'] ?? 'Emergency Contact'));
+            $contactName = $contactName !== '' ? $contactName : 'Emergency Contact';
+            $contactPhone = trim((string)($data['emergency_contact_phone'] ?? ''));
+            if ($contactPhone !== '') {
+                $normalizedEmergencyPhone = PhoneNumberNormalizer::normalize($contactPhone);
+                if ($normalizedEmergencyPhone === null) {
+                    throw new InvalidArgumentException('Enter a valid Kenyan mobile number for the emergency contact.');
+                }
+                $contactPhone = $normalizedEmergencyPhone;
+            }
+            $this->db->prepare(
+                'INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
+                 VALUES (?, ?, ?, ?, NOW())
+                 ON DUPLICATE KEY UPDATE phone = VALUES(phone), relationship = VALUES(relationship)'
+            )->execute([
+                $personId,
+                $contactName,
+                $contactPhone !== '' ? $contactPhone : null,
+                !empty($data['emergency_contact_relationship']) ? trim((string)$data['emergency_contact_relationship']) : null,
+            ]);
+        }
+
+        if (!empty($data['learning_area_ids']) && is_array($data['learning_area_ids'])) {
+            $primaryAreaId = (int)($data['primary_learning_area_id'] ?? 0);
+            $areaIds = array_values(array_unique(array_filter(array_map('intval', $data['learning_area_ids']))));
+            $actor = (int)($data['_admin_actor_user_id'] ?? 0) ?: null;
+            foreach ($areaIds as $areaId) {
+                $this->db->prepare(
+                    "INSERT INTO staff_learning_area_specializations
+                        (staff_id, learning_area_id, specialization_level, is_primary, status, notes,
+                         created_by, approved_by, approved_at, effective_from, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, 'approved', NULL, ?, ?, NOW(), CURDATE(), NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE
+                        specialization_level = VALUES(specialization_level),
+                        is_primary = VALUES(is_primary), status = 'approved',
+                        approved_by = COALESCE(VALUES(approved_by), approved_by),
+                        approved_at = COALESCE(VALUES(approved_at), approved_at), updated_at = NOW()"
+                )->execute([
+                    $staffId,
+                    $areaId,
+                    $areaId === $primaryAreaId ? 'primary' : 'secondary',
+                    $areaId === $primaryAreaId ? 1 : 0,
+                    $actor,
+                    $actor,
+                ]);
+            }
         }
     }
 
@@ -1644,6 +2139,44 @@ class StaffAPI extends BaseAPI {
                     $personParams[] = $personId;
                     $this->db->prepare("UPDATE persons SET " . implode(', ', $personUpdates) . " WHERE id = ?")
                              ->execute($personParams);
+                }
+
+                // The directory editor always supplies the required identity document.
+                if (array_key_exists('national_id_no', $data) || array_key_exists('id_number_type', $data)) {
+                    $identityType = self::normalizeStaffIdentityType($data['id_number_type'] ?? 'national_id');
+                    $identityValue = self::optionalDirectoryValue($data['national_id_no'] ?? null);
+                    if ($identityType === null) {
+                        throw new InvalidArgumentException('Choose a valid identity document type.');
+                    }
+                    if ($identityValue === null) {
+                        throw new InvalidArgumentException('An identity document number is required.');
+                    }
+                    $duplicateIdentity = $this->db->prepare(
+                        "SELECT person_id FROM person_professional_identifiers
+                          WHERE identifier_type = ? AND LOWER(identifier_value) = LOWER(?) LIMIT 1"
+                    );
+                    $duplicateIdentity->execute([$identityType, $identityValue]);
+                    $owner = (int)$duplicateIdentity->fetchColumn();
+                    if ($owner > 0 && $owner !== (int)$personId) {
+                        throw new InvalidArgumentException('That identity document number is already recorded for another person.');
+                    }
+                    $this->db->prepare(
+                        "DELETE FROM person_professional_identifiers
+                          WHERE person_id = ? AND identifier_type <> 'tsc'
+                            AND identifier_type <> ?"
+                    )->execute([$personId, $identityType]);
+                    $this->db->prepare(
+                        "INSERT INTO person_professional_identifiers
+                            (person_id, identifier_type, identifier_value, issuing_body, is_primary, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, 1, NOW(), NOW())
+                         ON DUPLICATE KEY UPDATE identifier_value = VALUES(identifier_value),
+                            issuing_body = VALUES(issuing_body), is_primary = 1, updated_at = NOW()"
+                    )->execute([
+                        $personId,
+                        $identityType,
+                        $identityValue,
+                        self::STAFF_IDENTITY_TYPES[$identityType],
+                    ]);
                 }
             }
 
@@ -1709,7 +2242,7 @@ class StaffAPI extends BaseAPI {
                            'bank_name' => 'bank_name', 'bank_account' => 'bank_account'];
             foreach ($payrollMap as $in => $col) {
                 if (array_key_exists($in, $data)) {
-                    $payrollCols[$col] = $data[$in];
+                    $payrollCols[$col] = self::optionalDirectoryValue($data[$in]);
                 }
             }
             if ($payrollCols) {
@@ -1776,19 +2309,127 @@ class StaffAPI extends BaseAPI {
             if ($personId && (!empty($data['emergency_contact_name']) || !empty($data['emergency_contact_phone']))) {
                 $contactName = trim((string)($data['emergency_contact_name'] ?? 'Emergency Contact'));
                 $contactName = $contactName !== '' ? $contactName : 'Emergency Contact';
+                $contactPhone = trim((string)($data['emergency_contact_phone'] ?? ''));
+                $contactRelationship = trim((string)($data['emergency_contact_relationship'] ?? ''));
+                if ($contactPhone !== '') {
+                    $normalizedEmergencyPhone = PhoneNumberNormalizer::normalize($contactPhone);
+                    if ($normalizedEmergencyPhone === null) {
+                        throw new Exception('Enter a valid Kenyan mobile number for the emergency contact.');
+                    }
+                    $contactPhone = $normalizedEmergencyPhone;
+                }
                 $exists = $this->db->prepare(
-                    'SELECT id FROM emergency_contacts WHERE person_id = ? AND name = ? LIMIT 1'
+                    'SELECT id FROM emergency_contacts WHERE person_id = ? ORDER BY id ASC LIMIT 1'
                 );
-                $exists->execute([$personId, $contactName]);
-                if (!$exists->fetchColumn()) {
+                $exists->execute([$personId]);
+                $emergencyId = (int)$exists->fetchColumn();
+                if ($emergencyId > 0) {
+                    $this->db->prepare(
+                        'UPDATE emergency_contacts SET name = ?, phone = ?, relationship = ? WHERE id = ? AND person_id = ?'
+                    )->execute([$contactName, $contactPhone !== '' ? $contactPhone : null,
+                        $contactRelationship !== '' ? $contactRelationship : null, $emergencyId, $personId]);
+                } else {
                     $this->db->prepare(
                         'INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
                          VALUES (?, ?, ?, ?, NOW())'
                     )->execute([
                         $personId,
                         $contactName,
-                        $data['emergency_contact_phone'] ?? null,
-                        $data['emergency_contact_relationship'] ?? null,
+                        $contactPhone !== '' ? $contactPhone : null,
+                        $contactRelationship !== '' ? $contactRelationship : null,
+                    ]);
+                }
+            }
+
+            // TSC number is a professional identifier, never a free-text staff column.
+            if ($personId && array_key_exists('tsc_no', $data)) {
+                $tscNumberRaw = self::optionalDirectoryValue($data['tsc_no']);
+                $tscNumber = $tscNumberRaw === null ? '' : strtoupper($tscNumberRaw);
+                if ($tscNumber === '') {
+                    $this->db->prepare(
+                        "DELETE FROM person_professional_identifiers WHERE person_id = ? AND identifier_type = 'tsc'"
+                    )->execute([$personId]);
+                } else {
+                    $duplicateTsc = $this->db->prepare(
+                        "SELECT person_id FROM person_professional_identifiers
+                          WHERE identifier_type = 'tsc' AND LOWER(identifier_value) = LOWER(?) LIMIT 1"
+                    );
+                    $duplicateTsc->execute([$tscNumber]);
+                    $owner = (int)$duplicateTsc->fetchColumn();
+                    if ($owner > 0 && $owner !== (int)$personId) {
+                        throw new Exception('That TSC number is already recorded for another person.');
+                    }
+                    $this->db->prepare(
+                        "INSERT INTO person_professional_identifiers
+                            (person_id, identifier_type, identifier_value, issuing_body, is_primary, created_at, updated_at)
+                         VALUES (?, 'tsc', ?, 'Teachers Service Commission', 1, NOW(), NOW())
+                         ON DUPLICATE KEY UPDATE identifier_value = VALUES(identifier_value), is_primary = 1, updated_at = NOW()"
+                    )->execute([$personId, $tscNumber]);
+                }
+            }
+
+            // Communication email/phone are canonical contact points used by invitations.
+            if ($personId) {
+                foreach ([
+                    'communication_email' => ['email', 'email'],
+                    'communication_phone' => ['phone', 'phone'],
+                ] as $key => [$channel, $kind]) {
+                    if (!array_key_exists($key, $data)) continue;
+                    $value = trim((string)$data[$key]);
+                    if ($kind === 'email' && $value !== '' && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                        throw new Exception('Enter a valid communication email address.');
+                    }
+                    if ($kind === 'phone' && $value !== '') {
+                        $normalized = PhoneNumberNormalizer::normalize($value);
+                        if ($normalized === null) throw new Exception('Enter a valid Kenyan mobile number for communication.');
+                        $value = $normalized;
+                    }
+                    if ($value === '') {
+                        $this->db->prepare(
+                            "DELETE FROM person_contact_points WHERE person_id = ? AND channel = ? AND purpose = 'communication'"
+                        )->execute([$personId, $channel]);
+                    } else {
+                        $this->db->prepare(
+                            "INSERT INTO person_contact_points
+                                (person_id, channel, purpose, contact_value, is_primary, created_at, updated_at)
+                             VALUES (?, ?, 'communication', ?, 1, NOW(), NOW())
+                             ON DUPLICATE KEY UPDATE contact_value = VALUES(contact_value), is_primary = 1, updated_at = NOW()"
+                        )->execute([$personId, $channel, $value]);
+                    }
+                }
+            }
+
+            // Teaching specializations are governed claims. Admin entries are
+            // recorded as approved so the staff member is not blocked by review.
+            if (array_key_exists('learning_area_ids', $data) && is_array($data['learning_area_ids'])) {
+                $primaryAreaId = (int)($data['primary_learning_area_id'] ?? 0);
+                $areaIds = array_values(array_unique(array_filter(
+                    array_map('intval', $data['learning_area_ids'])
+                )));
+                $this->db->prepare(
+                    "DELETE FROM staff_learning_area_specializations
+                      WHERE staff_id = ? AND learning_area_id NOT IN (" .
+                    ($areaIds ? implode(',', array_fill(0, count($areaIds), '?')) : '0') . ")"
+                )->execute(array_merge([$id], $areaIds));
+                $actor = (int)($data['_admin_actor_user_id'] ?? 0) ?: null;
+                foreach ($areaIds as $areaId) {
+                    $this->db->prepare(
+                        "INSERT INTO staff_learning_area_specializations
+                            (staff_id, learning_area_id, specialization_level, is_primary, status, notes,
+                             created_by, approved_by, approved_at, effective_from, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, 'approved', NULL, ?, ?, NOW(), CURDATE(), NOW(), NOW())
+                         ON DUPLICATE KEY UPDATE
+                            specialization_level = VALUES(specialization_level),
+                            is_primary = VALUES(is_primary), status = 'approved',
+                            approved_by = COALESCE(VALUES(approved_by), approved_by),
+                            approved_at = COALESCE(VALUES(approved_at), approved_at), updated_at = NOW()"
+                    )->execute([
+                        $id,
+                        $areaId,
+                        $areaId === $primaryAreaId ? 'primary' : 'secondary',
+                        $areaId === $primaryAreaId ? 1 : 0,
+                        $actor,
+                        $actor,
                     ]);
                 }
             }
@@ -1815,17 +2456,18 @@ class StaffAPI extends BaseAPI {
                 }
             }
 
-            // Update qualifications if provided
-            if (!empty($data['qualification_details'])) {
-                // Preserve existing qualification identity and evidence links. A changed
-                // record is returned to pending review; omitted records are not silently
-                // deleted because they may be referenced by specialization evidence.
+            // Update qualifications when the tabbed editor submits the list. An
+            // empty list is an intentional clear; a changed record returns to
+            // pending review so its evidence is never treated as verified.
+            if (array_key_exists('qualification_details', $data) && is_array($data['qualification_details'])) {
                 $adminActor = (int)($data['_admin_actor_user_id'] ?? 0) ?: null;
+                $retainedQualificationIds = [];
                 foreach ($data['qualification_details'] as $qual) {
                     $level = (string)($qual['qualification_level'] ?? $qual['level'] ?? $qual['qualification_type'] ?? 'other');
                     if (!in_array($level, ['certificate','diploma','degree','postgraduate_diploma','masters','phd','professional','other'], true)) $level = 'other';
                     $legacyType = in_array($level, ['certificate','diploma','degree'], true) ? $level : 'other';
                     $qualificationId = (int)($qual['id'] ?? 0);
+                    if ($qualificationId > 0) $retainedQualificationIds[] = $qualificationId;
                     $title = trim((string)($qual['title'] ?? $qual['degree'] ?? ''));
                     $institution = trim((string)($qual['institution'] ?? ''));
                     $year = $qual['year_obtained'] ?? $qual['year'] ?? null;
@@ -1845,10 +2487,18 @@ class StaffAPI extends BaseAPI {
                         $stmt->execute([$id,$legacyType,$level,$adminActor,$title,$institution,$year ?: null,$description]);
                     }
                 }
+                $retainedQualificationIds = array_values(array_unique($retainedQualificationIds));
+                $placeholders = $retainedQualificationIds
+                    ? implode(', ', array_fill(0, count($retainedQualificationIds), '?'))
+                    : '0';
+                $this->db->prepare(
+                    "DELETE FROM staff_qualifications WHERE staff_id = ? AND id NOT IN ($placeholders)"
+                )->execute(array_merge([$id], $retainedQualificationIds));
             }
 
-            // Update experience if provided
-            if (!empty($data['experience_details'])) {
+            // The editor always submits the full experience list, so an empty
+            // list means the administrator deliberately cleared it.
+            if (array_key_exists('experience_details', $data) && is_array($data['experience_details'])) {
                 // Remove existing experience
                 $stmt = $this->db->prepare("DELETE FROM staff_experience WHERE staff_id = ?");
                 $stmt->execute([$id]);
@@ -1890,23 +2540,75 @@ class StaffAPI extends BaseAPI {
     }
 
     // Delete staff member (soft delete)
+    /**
+     * Soft-delete a staff member. Records and their history are preserved for
+     * audit and payroll, but the account can no longer sign in and the person
+     * disappears from the live directory. This is deliberately distinct from
+     * the reversible Deactivate Account action.
+     */
     public function delete($id) {
+        $ownsTransaction = false;
         try {
-            $stmt = $this->db->prepare("UPDATE staff SET status = 'inactive' WHERE id = ?");
-            $stmt->execute([$id]);
-
-            if ($stmt->rowCount() === 0) {
+            $lookup = $this->db->prepare(
+                "SELECT s.person_id, u.id AS user_id
+                   FROM staff s
+                   LEFT JOIN users u ON u.person_id = s.person_id
+                  WHERE s.id = ? AND s.deleted_at IS NULL
+                  LIMIT 1"
+            );
+            $lookup->execute([$id]);
+            $row = $lookup->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
                 return $this->response(['status' => 'error', 'message' => 'Staff not found'], 404);
             }
 
-            $this->logAction('delete', $id, "Deactivated staff member");
-            
+            $actorId = (int)$this->getCurrentUserId() ?: null;
+            $ownsTransaction = !$this->db->inTransaction();
+            if ($ownsTransaction) $this->db->beginTransaction();
+
+            $this->db->prepare(
+                "UPDATE staff SET status = 'inactive', deleted_at = NOW(), deleted_by = ?, updated_at = NOW()
+                  WHERE id = ? AND deleted_at IS NULL"
+            )->execute([$actorId, $id]);
+
+            $userId = (int)($row['user_id'] ?? 0);
+            if ($userId > 0) {
+                $this->db->prepare(
+                    "UPDATE users SET status = 'inactive', deleted_at = NOW(), deleted_by = ?, updated_at = NOW()
+                      WHERE id = ? AND deleted_at IS NULL"
+                )->execute([$actorId, $userId]);
+                $this->db->prepare(
+                    "UPDATE user_invitations SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                      WHERE user_id = ? AND status = 'pending'"
+                )->execute([$userId]);
+                $this->db->prepare(
+                    "UPDATE outbound_messages SET status = 'cancelled', last_error = 'Staff account deleted', updated_at = NOW()
+                      WHERE user_id = ? AND template_key = 'staff_account_invitation'
+                        AND status IN ('queued','retry')"
+                )->execute([$userId]);
+            }
+
+            if ($ownsTransaction) {
+                $this->db->commit();
+                $ownsTransaction = false;
+            }
+
+            \App\API\Includes\FileLogger::write('audit', [
+                'type' => 'staff_soft_deleted',
+                'staff_id' => (int)$id,
+                'user_id' => $userId ?: null,
+                'actor_id' => $actorId,
+                'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]);
+            $this->logAction('delete', $id, 'Soft-deleted staff member (record retained)');
+
             return $this->response([
                 'status' => 'success',
-                'message' => 'Staff deleted successfully'
+                'message' => 'Staff member deleted. The record was retained for audit.'
             ]);
 
         } catch (Exception $e) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -2505,7 +3207,12 @@ class StaffAPI extends BaseAPI {
                 pd.email AS email,
                 pd.phone AS phone,
                 pd.gender AS gender,
+                pd.photo_url AS photo_url,
                 u.status as user_status,
+                u.username AS username,
+                u.force_password_change AS setup_required,
+                u.profile_completed_at AS profile_completed_at,
+                sda.department_id AS department_id,
                 r.id as role_id,
                 r.name as role_name,
                 d.name as department_name,

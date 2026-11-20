@@ -42,7 +42,8 @@ final class FinanceCrudService
                 sa.account_name settlement_account_name, sa.account_identifier settlement_account_identifier,
                 GROUP_CONCAT(DISTINCT r.collection_product ORDER BY r.collection_product SEPARATOR ',') collection_products,
                 GROUP_CONCAT(DISTINCT r.reference_policy ORDER BY r.reference_policy SEPARATOR ',') reference_policies,
-                GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes
+                GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes,
+                GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') channel_codes
                 FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a
                 JOIN financial_account_kinds k ON k.id=a.account_kind_id
                 LEFT JOIN payment_providers p ON p.id=a.provider_id
@@ -51,6 +52,8 @@ final class FinanceCrudService
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r ON r.financial_account_id=a.id AND r.active=1
                 LEFT JOIN school_financial_account_purposes ap ON ap.financial_account_id=a.id
                 LEFT JOIN financial_account_purposes fp ON fp.id=ap.purpose_id
+                LEFT JOIN school_financial_account_channels ac ON ac.financial_account_id=a.id
+                LEFT JOIN financial_channels fc ON fc.id=ac.channel_id
                 GROUP BY a.id ORDER BY a.account_name")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 

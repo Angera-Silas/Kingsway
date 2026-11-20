@@ -6376,6 +6376,22 @@ window.API = {
         null,
         params,
       ),
+    getPayrollPayoutPlans: async (payrollId) =>
+      apiCall(`/finance/payrolls/${payrollId}/payout-plans`, "GET"),
+    savePayrollPayoutPlans: async (payrollId, allocations) =>
+      apiCall(`/finance/payrolls/${payrollId}/payout-plans`, "POST", { allocations }),
+    getPayrollPayoutLedger: async (month, year) =>
+      apiCall("/finance/payout-ledger", "GET", null, { month, year }),
+    confirmPayrollCashLeg: async (legId, reference) =>
+      apiCall(`/finance/payout-legs/${legId}/confirm-cash`, "POST", { reference }),
+    retryPayrollPayoutLeg: async (legId) =>
+      apiCall(`/finance/payout-legs/${legId}/retry`, "POST", {}),
+    releasePayroll: async (payrollId, payslipIds = []) =>
+      apiCall(`/finance/payrolls/${payrollId}/release`, "POST", { payslip_ids: payslipIds }),
+    updatePayrollStatutoryOptions: async (payslipId, options) =>
+      apiCall(`/finance/payrolls/${payslipId}/statutory-options`, "POST", { options }),
+    retryPayrollChildFees: async (payslipId) =>
+      apiCall(`/finance/payroll-child-fees/${payslipId}/retry`, "POST", {}),
     assignPayrollSourceAccounts: async (payrollId, allocations) =>
       apiCall(`/finance/payrolls/${payrollId}/source-allocations`, "POST", { allocations }),
     getPayrollSourceAllocations: async (payrollId) =>
@@ -6417,6 +6433,12 @@ window.API = {
         `/finance/bulk-payroll-preview?month=${month}&year=${year}`,
         "GET",
       ),
+    previewBulkPayrollWithOptions: async (month, year, statutoryOptions = {}) =>
+      apiCall("/finance/bulk-payroll-preview", "POST", {
+        month,
+        year,
+        statutory_options: statutoryOptions,
+      }),
     getCompensationSetup: async () => apiCall("/finance/compensation-setup", "GET"),
     saveRoleSalaryRate: async (data) => apiCall("/finance/role-salary-rates", "POST", data),
     saveStaffSalaryOverride: async (data) => apiCall("/finance/staff-salary-overrides", "POST", data),
@@ -9370,8 +9392,8 @@ window.API = {
       apiCall("/staff-migration/commit", "POST", { batch_id: batchId }),
     rollback: async (batchId) =>
       apiCall("/staff-migration/rollback", "POST", { batch_id: batchId }),
-    resendInvitation: async (userId) =>
-      apiCall("/staff-migration/resend-invitation", "POST", { user_id: userId }),
+    resendInvitation: async (userId, channel = "email") =>
+      apiCall("/staff-migration/resend-invitation", "POST", { user_id: userId, channel }),
     resendSetupOtp: async (userId) =>
       apiCall("/staff-migration/resend-setup-otp", "POST", { user_id: userId }),
     cancelInvitation: async (userId) =>
