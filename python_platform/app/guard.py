@@ -19,7 +19,11 @@ person to the authorized contact instead of confirming what exists.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
+import unicodedata
+from typing import Any
 
 # Phrases that probe for confidential technical detail.
 _CONFIDENTIAL_PATTERNS = tuple(
@@ -149,10 +153,13 @@ _PROMPT_INJECTION_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
         # Classic instruction override: "ignore/disregard/skip ...".
-        r"\b(ignore|skip|disregard|override|forget|drop|bypass)\s+"
-        r"(all|any|the|your|previous|prior|earlier|above|preceding|system|developer)?\s*"
-        r"(instructions?|rules?|guidelines?|policies|policy|prompt|constraints?|"
-        r"restrictions?|directions?|orders?|programming)\b",
+        # Up to three qualifiers: "ignore ALL PREVIOUS instructions" slipped
+        # past the original single-qualifier form.
+        r"\b(ignore|skip|disregard|override|forget|drop|bypass|disable|turn\s+off|switch\s+off)\s+"
+        r"(?:(?:all|any|the|your|my|of|previous|prior|earlier|above|preceding|system|developer|"
+        r"these|those|safety|school|kingsway|current|existing|original)\s+){0,3}"
+        r"(instructions?|rules?|guidelines?|policies|policy|prompts?|constraints?|"
+        r"restrictions?|directions?|orders?|programming|guardrails?|filters?|safeguards?)\b",
         # "do not / don't follow the rules" and "stop following ...".
         r"\b(do\s+not|don'?t|never|stop|quit)\s+(follow|obey|respect|adhere\s+to|"
         r"listen\s+to|comply\s+with)\b[^.]{0,40}\b(rules?|instructions?|guidelines?|"
@@ -182,36 +189,137 @@ _PROMPT_INJECTION_PATTERNS = tuple(
 )
 
 
-def is_prompt_injection(question: str) -> bool:
-    """True when the question attempts prompt injection or instruction override.
+# Attacks that apply to every audience: code/SQL/script injection, jailbreak
+# phrasing, secret extraction and "repeat what you were told" probes.
+_UNIVERSAL_ATTACK_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\bunion\s+(all\s+)?select\b|\bdrop\s+(table|database)\b|;\s*--|"
+        r"\bselect\s+\*\s+from\b|\binformation_schema\b|\bor\s+'?1'?\s*=\s*'?1\b|"
+        r"\bsleep\s*\(\s*\d|\bbenchmark\s*\(",
+        r"<\s*/?\s*script\b|javascript\s*:|\bon(error|load)\s*=|<\s*iframe\b",
+        r"\b(do\s+anything\s+now|dan\s+mode|no\s+(more\s+)?(rules|restrictions|filters|limits)|"
+        r"without\s+(any\s+)?(restrictions?|filters?|rules|limits|censorship|guardrails?))\b",
+        r"\b(api[\s_-]?keys?|\.env\b|environment\s+variables?|secret\s+keys?|"
+        r"access\s+tokens?|bearer\s+tokens?|private\s+keys?|connection\s+strings?)\b",
+        r"\b(repeat|print|output|show|echo|copy)\b[^.]{0,30}\b(text|words|everything|content|"
+        r"messages?)\s+(above|before|so\s+far|you\s+(were|have\s+been)\s+given)\b",
+        r"\bwhat\s+(were|are)\s+you\s+(told|instructed|programmed|configured)\b",
+        r"\b(sql\s+injection|prompt\s+injection|privilege\s+escalation|"
+        r"bypass\s+(the\s+)?(login|auth\w*|security|permissions?|filters?|guard\w*))\b",
+        r"\b(hack|exploit|brute[\s-]?force)\b[^.]{0,40}\b(system|server|database|login|"
+        r"account|password|portal|site|school)\b",
+    )
+)
+
+# Extra patterns for audiences who must never reach internal records: public
+# visitors and parents. Staff legitimately ask for class lists, so these are
+# not applied to them; their record access is governed by permissions instead.
+_EXTERNAL_AUDIENCE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(list|give|show|send|export|dump|share|tell)\b[^.?]{0,40}\b(all\s+|other\s+)?"
+        r"(students?|learners?|pupils?|children|kids|parents?|guardians?|staff|teachers?|"
+        r"employees?|families)\b[^.?]{0,40}\b(names?|phones?|numbers?|contacts?|e-?mails?|"
+        r"address(es)?|records?|details|data|marks|results|grades|fees?\s+balances?|"
+        r"balances?|salar(y|ies)|ids?)\b",
+        r"\b(who|which)\s+(students?|learners?|pupils?|children|parents?|families)\b[^.?]{0,40}"
+        r"\b(owe|owes|owing|arrears|balance|failed|scored|sick|disciplin\w*|expelled|suspended)\b",
+        r"\b(admin|staff|teacher|system)\s+(password|login|credentials?|portal\s+access)\b",
+        r"\b(internal|confidential|private)\s+(data|records?|information|reports?|files?|documents?)\b",
+    )
+)
+
+_ZERO_WIDTH = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\ufeff]")
+_SPACED_LETTERS = re.compile(r"\b(?:[a-z][\s._*\-|]{1,2}){3,}[a-z]\b")
+_LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s", "!": "i"})
+_BASE64_TOKEN = re.compile(r"[A-Za-z0-9+/]{24,}={0,2}")
+VALID_AUDIENCES = ("staff", "parent", "public")
+
+
+def _screening_variants(text: str) -> list[str]:
+    """Normalised forms of the text, so disguised attacks are seen plainly.
+
+    Covers look-alike Unicode (NFKC folds full-width and styled letters),
+    invisible characters, letters split by spaces or dots ("i g n o r e"),
+    leetspeak ("1gn0re") and instructions hidden in base64.
+    """
+    folded = unicodedata.normalize("NFKC", text)
+    folded = _ZERO_WIDTH.sub("", folded).lower()
+    joined = _SPACED_LETTERS.sub(lambda m: re.sub(r"[\s._*\-|]", "", m.group(0)), folded)
+    variants = [folded, joined, joined.translate(_LEET)]
+    for token in _BASE64_TOKEN.findall(text)[:5]:
+        try:
+            decoded = base64.b64decode(token + "=" * (-len(token) % 4), validate=True)
+            plain = decoded.decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            continue
+        if plain.isprintable():
+            variants.append(unicodedata.normalize("NFKC", plain).lower())
+    return variants
+
+
+def screen(text: str, audience: str = "staff", conversation: Any = None) -> dict:
+    """Deterministic verdict on one message and the user turns before it.
+
+    Returns {"malicious": bool, "category": str}. The matched phrase is never
+    returned or echoed. Earlier user turns are screened too, so an attack
+    planted in one message and "activated" in the next is still caught.
+    """
+    audience = audience if audience in VALID_AUDIENCES else "public"
+    texts: list[str] = []
+    if isinstance(text, str) and text.strip():
+        texts.append(text)
+    for turn in conversation if isinstance(conversation, list) else []:
+        if isinstance(turn, dict) and turn.get("role") == "user":
+            content = turn.get("content")
+            if isinstance(content, str) and content.strip():
+                texts.append(content)
+    groups = [("instruction_override", _PROMPT_INJECTION_PATTERNS),
+              ("attack_payload", _UNIVERSAL_ATTACK_PATTERNS)]
+    if audience != "staff":
+        groups.append(("internal_data_probe", _EXTERNAL_AUDIENCE_PATTERNS))
+    for item in texts:
+        for variant in _screening_variants(item[:4000]):
+            for category, patterns in groups:
+                if any(pattern.search(variant) for pattern in patterns):
+                    return {"malicious": True, "category": category}
+    return {"malicious": False, "category": ""}
+
+
+def is_prompt_injection(question: str, audience: str = "staff", conversation: Any = None) -> bool:
+    """True when the message (or an earlier user turn) is an attack.
 
     Deterministic and provider-free: a refusal cannot be talked around by the
     model, and the matched attack phrases are never echoed back. All user text
-    (question plus any embedded tool output) must pass through here before a
-    provider call.
+    must pass through here before a provider call.
     """
     if not isinstance(question, str) or not question.strip():
         return False
-    return any(pattern.search(question) for pattern in _PROMPT_INJECTION_PATTERNS)
+    return screen(question, audience, conversation)["malicious"]
+
+
+# Said plainly, to the person's face. Kept identical in PHP's
+# AiPromptGuardService::REFUSAL so every surface gives the same answer.
+MALICIOUS_PROMPT_MESSAGE = (
+    "That is a malicious prompt. I cannot run it. This session has been blocked "
+    "from sending further prompts, and the attempt has been recorded. I only "
+    "work within Kingsway Preparatory School's rules, and no message can switch "
+    "them off."
+)
 
 
 def prompt_injection_response(agent: dict | None = None) -> dict:
-    """Deterministic refusal for prompt injection attempts."""
+    """Deterministic, blunt refusal for prompt injection attempts."""
     return {
         "status": "refused",
+        "blocked": True,
         "answer": {
-            "body": "I cannot process requests that attempt to override my instructions or inspect my internal configuration. I am designed exclusively to assist with Kingsway Preparatory School operations, academic reports, and educational queries.",
+            "title": "Malicious prompt blocked",
+            "body": MALICIOUS_PROMPT_MESSAGE,
             "confidence": "high",
-            "next_steps": [
-                "Ask a question about school operations, reports or schedules.",
-                "Request a governed report within your role.",
-                "Contact your administrator if you need broader access.",
-            ],
-            "suggested_questions": [
-                "Which reports can I run?",
-                "Summarise my workspace.",
-                "What is pending my review today?",
-            ],
+            "next_steps": [],
+            "suggested_questions": [],
         },
         "tools_used": [],
         "provider_calls": 0,

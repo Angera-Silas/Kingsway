@@ -195,6 +195,24 @@ def _grounded_suggestions(
     return _next_steps(questions, limit=3, chars=140)
 
 
+def _blocked_answer() -> dict:
+    """The blunt refusal every assistant returns for a malicious prompt.
+
+    ``blocked`` tells PHP to block the session; the matched text is never
+    echoed back.
+    """
+    return {
+        "status": "blocked",
+        "blocked": True,
+        "title": "Malicious prompt blocked",
+        "body": guard.MALICIOUS_PROMPT_MESSAGE,
+        "next_steps": [],
+        "suggested_questions": [],
+        "sources": [],
+        "human_referral": None,
+    }
+
+
 class PublicAssistantSkill:
     """Public FAQ assistant — public corpus only, never authenticated data."""
 
@@ -208,6 +226,23 @@ class PublicAssistantSkill:
         question = str(question or "").strip()
         if not question or len(question) > MAX_QUESTION_CHARS:
             raise ValueError("A valid question of up to 500 characters is required.")
+
+        verdict = guard.screen(question, "public", conversation)
+        if verdict["malicious"]:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "prompt_injection_blocked",
+                    "audience": "public",
+                    "category": verdict["category"],
+                    "question_hash": hash_text(question),
+                },
+            )
+            return _blocked_answer()
+
+        # Bounded once, before either branch: the greeting branch read it
+        # before assignment and raised UnboundLocalError on every "hello".
+        safe_corpus = _bounded_corpus(corpus)
 
         if guard.is_smalltalk(question):
             self.journal.write(
@@ -250,7 +285,6 @@ class PublicAssistantSkill:
                 "human_referral": None,
             }
 
-        safe_corpus = _bounded_corpus(corpus)
         if not safe_corpus:
             return {
                 "status": "escalate",
@@ -353,6 +387,18 @@ class ParentAssistantSkill:
         question = str(question or "").strip()
         if not question or len(question) > MAX_QUESTION_CHARS:
             raise ValueError("A valid question of up to 500 characters is required.")
+        verdict = guard.screen(question, "parent", None)
+        if verdict["malicious"]:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "prompt_injection_blocked",
+                    "audience": "parent",
+                    "category": verdict["category"],
+                    "question_hash": hash_text(question),
+                },
+            )
+            return _blocked_answer()
         children = (context or {}).get("linked_children")
         if not isinstance(children, list) or not children:
             return {
@@ -424,6 +470,19 @@ class ResearchAssistantSkill:
             raise ValueError(
                 "A valid research question of up to 1000 characters is required."
             )
+        verdict = guard.screen(question, "staff", None)
+        if verdict["malicious"]:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "prompt_injection_blocked",
+                    "audience": "staff",
+                    "category": verdict["category"],
+                    "question_hash": hash_text(question),
+                },
+            )
+            return _blocked_answer()
+
 
         safe = []
         if isinstance(sources, list):

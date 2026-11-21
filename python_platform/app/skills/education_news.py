@@ -218,6 +218,16 @@ class EducationNewsSkill:
         # Best educational sources first, then bounded.
         collected.sort(key=lambda item: item["rank"], reverse=True)
         items = collected[:limit]
+
+        # A focused topic can legitimately have no fresh, profile-relevant hits
+        # on a given day (public engines vary). Rather than tell the operator
+        # "unavailable" and hand them a canned refusal, fall back once to the
+        # broad governed digest — the same fixed curated queries and the same
+        # profile filter, just across every topic. "all" cannot fall back
+        # further, so this recursion is bounded to one extra level.
+        if not items and keys != ALL_TOPICS:
+            return self.digest("all", limit)
+
         if self.journal is not None:
             self.journal.write(
                 "ai_generation",

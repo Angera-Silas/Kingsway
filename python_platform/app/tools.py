@@ -355,6 +355,13 @@ class ToolBridge:
             # the PHP relay whenever the direct read did not succeed.
             if direct.get("status") in {"ok", "success", "answered", "ready"}:
                 return direct
+            # A permission or validation decision is final; only a read failure
+            # ("unavailable") may fall back to the PHP relay. Otherwise a clear
+            # "your role does not grant that" became a vague unknown_dataset.
+            if direct.get("status") in {
+                "not_authorized", "invalid_query", "unknown_source", "unknown_dataset"
+            }:
+                return direct
         # External MCP tools run locally too, but only the ones the operator
         # configured by name. The client re-checks its own allowlist, so a
         # tool id invented by the model is refused twice over.
@@ -696,9 +703,18 @@ class ToolBridge:
         # Resolve the operator's CURRENT permissions from the master database.
         # Model-supplied permission strings are ignored: only the user id, set
         # by the authenticated edge, can widen or narrow scope.
-        effective = list(
-            self._access_resolver().resolve(user_id).get("permissions") or []
+        access = self._access_resolver().resolve(user_id)
+        # No verified staff user (e.g. the public assistant): no school data.
+        effective = (
+            list(access.get("permissions") or [])
+            if access.get("status") == "ok"
+            else []
         )
+        if bounded.get("source"):
+            result = self._dataset_service().query(bounded, effective, user_id)
+            if result.get("status") == "ok":
+                self._remember_rows(user_id, DATA_QUERY_TOOL, result)
+            return result
         result = self._dataset_service().rows(dataset, effective, user_id)
         if result.get("status") == "ok":
             self._remember_rows(user_id, DATA_QUERY_TOOL, result)
@@ -1311,10 +1327,33 @@ class ToolBridge:
             route = str(tool_input.get("route") or "dashboard")[:120]
             bounded["route"] = route
         elif tool == DATA_QUERY_TOOL:
-            # Only a dataset NAME may cross to PHP - never SQL, filters or rows.
+            # A dataset NAME, or a structured source query. Never SQL or rows:
+            # the query is compiled and column-checked in db_datasets.
             dataset = str(tool_input.get("dataset") or "").strip().lower()[:60]
             if dataset:
                 bounded["dataset"] = dataset
+            source = str(tool_input.get("source") or "").strip().lower()[:60]
+            if source:
+                bounded["source"] = source
+                bounded["measure"] = str(tool_input.get("measure") or "count").strip().lower()[:20]
+                column = str(tool_input.get("column") or "").strip()[:64]
+                if column:
+                    bounded["column"] = column
+                group_by = tool_input.get("group_by")
+                if isinstance(group_by, str):
+                    group_by = [group_by]
+                if isinstance(group_by, list):
+                    bounded["group_by"] = [str(c).strip()[:64] for c in group_by[:3] if str(c).strip()]
+                filters = tool_input.get("filters")
+                if isinstance(filters, dict):
+                    clean: dict[str, Any] = {}
+                    for key, value in list(filters.items())[:6]:
+                        if isinstance(value, list):
+                            value = [v for v in value[:20] if isinstance(v, (str, int, float))]
+                        elif not isinstance(value, (str, int, float)):
+                            continue
+                        clean[str(key).strip()[:64]] = value
+                    bounded["filters"] = clean
         elif tool == "charts.generate":
             question = str(tool_input.get("question") or "")[:500]
             chart_type = str(tool_input.get("chart_type") or "bar")[:20]

@@ -95,6 +95,102 @@ DATASETS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Read models an agent may query with a structured spec (data.query with
+# "source"). Each entry lists the permission codes that grant it; the codes are
+# resolved from the operator's user id, never supplied by the model, so a
+# teacher without a finance grant cannot read a finance source. The model picks
+# a source, a measure, group-by columns and equality filters; the SQL is always
+# compiled here, with every identifier checked against the live columns.
+QUERY_SOURCES: dict[str, dict[str, Any]] = {
+    "learner_placement_history": {
+        "permissions": ("students_view", "students_enrollment_view", "students_by_class_view",
+                        "academic_students_view", "students_all_permissions", "academics_all_permissions"),
+        "description": "Every enrolment in every academic year: academic_year_id, class_name, stream_name, "
+                       "enrollment_status (active, completed, graduated, transferred, withdrawn), student_status. "
+                       "Count learners with measure count_distinct on student_id. Graduating learners are the "
+                       "ACTIVE enrolments in Grade 9 of the current year.",
+    },
+    "learner_placement": {
+        "permissions": ("students_view", "students_enrollment_view", "students_by_class_view",
+                        "academic_students_view", "students_all_permissions", "academics_all_permissions"),
+        "description": "Current active placement of each active learner (class_name, stream_name).",
+    },
+    "student_fee_balances": {
+        "permissions": ("finance_view", "finance_fees_view", "fees_view", "students_fees_view",
+                        "finance_all_permissions"),
+        "description": "Fee position per learner account: balances, payment_status, days_overdue (aggregate only).",
+    },
+    "collection_rate_by_class": {
+        "permissions": ("finance_view", "finance_fees_view", "fees_view", "finance_all_permissions"),
+        "description": "Fee billed, collected and collection rate per class.",
+    },
+    "student_attendance_summary": {
+        "permissions": ("attendance_view", "attendance_class_view", "attendance_reports_view",
+                        "students_attendance_view", "attendance_all_permissions"),
+        "description": "Learner attendance records with date, status and class_name.",
+    },
+    "academic_years": {
+        "permissions": ("academic_view", "academics_view", "academic_calendar_view", "academics_all_permissions",
+                        "students_view", "finance_view", "attendance_view"),
+        "description": "Academic years: year_code, year_name, start_date, end_date, state, is_current.",
+    },
+    "academic_year_classes": {
+        "permissions": ("academic_view", "academics_view", "academic_classes_view", "academics_all_permissions"),
+        "description": "Classes offered in each academic year.",
+    },
+    "exam_context": {
+        "permissions": ("academic_exams_view", "academic_results_view", "academic_assessments_view",
+                        "academics_all_permissions"),
+        "description": "Assessment results with class, learning area and scores (aggregate only).",
+    },
+    "admission_workflow_context": {
+        "permissions": ("admission_view", "admission_applications_view", "admission_reports_view"),
+        "description": "Admission applications with stage/status and grade applied for.",
+    },
+    "staff_context": {
+        "permissions": ("staff_view", "staff_profiles_view", "staff_all_permissions"),
+        "description": "Staff records by department, role, employment type and status (aggregate only).",
+    },
+    "vehicles": {
+        "permissions": ("transport_view", "transport_vehicles_view", "transport_all_permissions"),
+        "description": "Transport fleet with status, capacity, service and insurance dates.",
+    },
+    "transport_assignment_context": {
+        "permissions": ("transport_view", "transport_passengers_view", "transport_routes_view",
+                        "transport_all_permissions"),
+        "description": "Learner transport assignments by route and status (aggregate only).",
+    },
+    "boarding_dorm_context": {
+        "permissions": ("boarding_view", "boarding_rooms_view", "boarding_students_view",
+                        "boarding_all_permissions"),
+        "description": "Boarding dormitory allocations by dorm and status (aggregate only).",
+    },
+}
+
+QUERY_MEASURES = {"count", "count_distinct", "sum", "avg", "min", "max"}
+MAX_GROUP_BY = 3
+MAX_FILTERS = 6
+MAX_FILTER_VALUES = 20
+# Columns that identify a person or hold personal detail. They can never be a
+# group-by or filter, so no answer narrows to one learner, guardian or staff
+# member. Counting distinct ids (e.g. student_id) stays allowed.
+_PERSONAL_COLUMN = re.compile(
+    r"(^|_)(full|first|last|middle|other|sur|given|parent|guardian|student|staff|learner|"
+    r"person|driver|teacher|employee|applicant)_?names?$|^name$|surname|phone|mobile|email|"
+    r"address|admission_no|adm_no|id_number|id_no|national_id|passport|birth|dob|nemis|upi|"
+    r"kra|nhif|nssf|bank|account_no|password|token|photo|signature|medical|allergy|"
+    r"diagnosis|note|remark|comment|reason",
+    re.IGNORECASE,
+)
+# Group/filter on these ids is allowed: they name a group, not a person.
+_DIMENSION_IDS = {
+    "academic_year_id", "class_id", "stream_id", "term_id", "academic_year_term_id",
+    "level_id", "route_id", "vehicle_id", "department_id", "dorm_id", "learning_area_id",
+    "academic_year_class_id", "student_type_id",
+}
+_PAYROLL_COLUMN = re.compile(r"salary|gross|net_pay|basic_pay|allowance|deduction|payroll|paye", re.IGNORECASE)
+_PAYROLL_PERMISSIONS = ("finance_payroll_view", "payroll_view", "finance_all_permissions")
+
 MAX_RESULT_ROWS = 200
 MAX_STRING_CHARS = 120
 _IDENT = re.compile(r"^[A-Za-z0-9_]+$")
@@ -179,6 +275,181 @@ class DirectDatasetService:
             ssl_verify_identity=bool(self.config.db_ssl_ca),
         )
 
+    def _resolve_table(self, connection, projection: str) -> tuple[str, str]:
+        """(schema, table) for a projection: the live replica, else the master view."""
+        from .read_models import PROJECTIONS
+
+        spec = PROJECTIONS.get(projection) or {}
+        definition = {
+            "projection": projection,
+            "target": spec.get("target") or f"mmv_{projection}",
+            "view": spec.get("source") or f"vw_{projection}",
+        }
+        ref = self._resolve_ref(connection, definition)
+        schema, table = (part.strip("`") for part in ref.split(".", 1))
+        return schema, table
+
+    def _columns(self, connection, schema: str, table: str) -> list[str]:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s ORDER BY ORDINAL_POSITION",
+                (schema, table),
+            )
+            return [str(row[0]) for row in cursor.fetchall() if row and row[0]]
+
+    @staticmethod
+    def _held(permissions: list[str]) -> set[str]:
+        return {str(p) for p in (permissions or [])}
+
+    def query_sources(self, permissions: list[str]) -> list[dict[str, str]]:
+        held = self._held(permissions)
+        return [
+            {"source": name, "description": spec["description"]}
+            for name, spec in QUERY_SOURCES.items()
+            if "*" in held or held.intersection(spec["permissions"])
+        ]
+
+    @staticmethod
+    def _usable_column(column: str, held: set[str], for_grouping: bool) -> bool:
+        if _PERSONAL_COLUMN.search(column):
+            return False
+        if _PAYROLL_COLUMN.search(column) and not (
+            "*" in held or held.intersection(_PAYROLL_PERMISSIONS)
+        ):
+            return False
+        if for_grouping and column.lower().endswith("id") and column.lower() not in _DIMENSION_IDS:
+            return False
+        return True
+
+    def query(
+        self, spec: dict[str, Any], permissions: list[str], user_id: int = 0
+    ) -> dict[str, Any]:
+        """Run one structured, permission-gated aggregate query on a read model.
+
+        ``permissions`` must be the operator's own grants resolved from the user
+        id. An anonymous caller (no user id) has none and is always refused, so
+        the public assistant can never reach school data through this path.
+        """
+        if int(user_id or 0) <= 0:
+            return {"status": "not_authorized", "message": "school data needs a signed-in staff member"}
+        held = self._held(permissions)
+        source = str(spec.get("source") or "").strip().lower()
+        available = [item["source"] for item in self.query_sources(permissions)]
+        definition = QUERY_SOURCES.get(source)
+        if definition is None:
+            return {"status": "unknown_source", "message": "choose one of the sources you may query",
+                    "available_sources": self.query_sources(permissions)}
+        if source not in available:
+            return {"status": "not_authorized",
+                    "message": "your role does not grant access to that information",
+                    "available_sources": self.query_sources(permissions)}
+        measure = str(spec.get("measure") or "count").strip().lower()
+        if measure not in QUERY_MEASURES:
+            return {"status": "invalid_query", "message": f"measure must be one of {sorted(QUERY_MEASURES)}"}
+
+        connection = None
+        try:
+            connection = self._open()
+            schema, table = self._resolve_table(connection, source)
+            columns = self._columns(connection, schema, table)
+            if not columns:
+                return {"status": "unavailable", "message": "that information could not be read right now"}
+            known = {c.lower(): c for c in columns}
+            groupable = [c for c in columns if self._usable_column(c, held, True)]
+
+            def pick(name: Any, for_grouping: bool) -> str | None:
+                real = known.get(str(name or "").strip().lower())
+                if real is None or not self._usable_column(real, held, for_grouping):
+                    return None
+                return real
+
+            column = None
+            if measure != "count":
+                column = known.get(str(spec.get("column") or "").strip().lower())
+                if column is None or (
+                    measure != "count_distinct" and not self._usable_column(column, held, False)
+                ) or (_PAYROLL_COLUMN.search(column) and not self._usable_column(column, held, False)):
+                    return {"status": "invalid_query", "message": "choose a measurable column",
+                            "columns": groupable}
+            group_by: list[str] = []
+            for name in list(spec.get("group_by") or [])[:MAX_GROUP_BY]:
+                real = pick(name, True)
+                if real is None:
+                    return {"status": "invalid_query", "message": f"cannot group by {str(name)[:60]}",
+                            "columns": groupable}
+                if real not in group_by:
+                    group_by.append(real)
+
+            where: list[str] = []
+            params: list[Any] = []
+            filters = spec.get("filters") if isinstance(spec.get("filters"), dict) else {}
+            for name, value in list(filters.items())[:MAX_FILTERS]:
+                real = pick(name, True)
+                if real is None:
+                    return {"status": "invalid_query", "message": f"cannot filter on {str(name)[:60]}",
+                            "columns": groupable}
+                if real.lower() == "academic_year_id" and str(value).strip().lower() == "current":
+                    years_schema, years_table = self._resolve_table(connection, "academic_years")
+                    where.append(
+                        f"{_ident(real)} = (SELECT `id` FROM {_ident(years_schema)}.{_ident(years_table)} "
+                        "WHERE `is_current` = 1 LIMIT 1)"
+                    )
+                    continue
+                values = value if isinstance(value, list) else [value]
+                values = [v for v in values[:MAX_FILTER_VALUES]
+                          if isinstance(v, (str, int, float, bool)) and not isinstance(v, bool)]
+                if not values:
+                    return {"status": "invalid_query", "message": f"filter {real} needs a value"}
+                where.append(f"{_ident(real)} IN ({', '.join(['%s'] * len(values))})")
+                params.extend(str(v)[:120] if isinstance(v, str) else v for v in values)
+
+            alias = "records" if measure == "count" else f"{measure}_{column}"
+            expression = (
+                "COUNT(*)" if measure == "count"
+                else f"COUNT(DISTINCT {_ident(column)})" if measure == "count_distinct"
+                else f"{measure.upper()}({_ident(column)})"
+            )
+            select = [_ident(c) for c in group_by] + [f"{expression} AS {_ident(alias)}"]
+            sql = f"SELECT {', '.join(select)} FROM {_ident(schema)}.{_ident(table)}"
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            if group_by:
+                sql += " GROUP BY " + ", ".join(_ident(c) for c in group_by)
+                sql += " ORDER BY " + ", ".join(_ident(c) for c in group_by)
+            sql += f" LIMIT {MAX_RESULT_ROWS}"
+            with connection.cursor() as cursor:
+                cursor.execute(sql, params)
+                names = [d[0] for d in (cursor.description or [])]
+                fetched = cursor.fetchall()[:MAX_RESULT_ROWS]
+            rows = sanitise([dict(zip(names, row)) for row in fetched])
+            if self.journal is not None:
+                self.journal.write("ai_generation", {
+                    "type": "direct_source_query", "operator_id": int(user_id or 0),
+                    "source": source, "measure": measure, "group_by": group_by,
+                    "filter_columns": [str(k)[:60] for k in filters], "row_count": len(rows),
+                })
+            return {
+                "status": "ok",
+                "source": source,
+                "columns": names,
+                "rows": rows,
+                "row_count": len(rows),
+                "granularity": "aggregate",
+                "query": {"measure": measure, "column": column, "group_by": group_by,
+                          "filters": {str(k): v for k, v in filters.items()}},
+                "note": "Computed directly from school records the operator is permitted to see; "
+                        "aggregate rows only. Quote these figures exactly.",
+            }
+        except Exception:  # noqa: BLE001 - one query must not fail a turn
+            return {"status": "unavailable", "message": "that information could not be read right now"}
+        finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
     def _resolve_ref(self, connection, definition: dict[str, Any]) -> str:
         """Prefer the published read-replica projection, else the master view."""
         reads = getattr(self.config, "db_reads_schema", "")
@@ -208,8 +479,12 @@ class DirectDatasetService:
         if definition is None:
             return {
                 "status": "unknown_dataset",
-                "message": "choose a dataset from those authorized for you",
+                "message": (
+                    "choose a dataset from those authorized for you, or query a "
+                    "source with {source, measure, column, group_by, filters}"
+                ),
                 "available": available,
+                "available_sources": self.query_sources(permissions),
             }
         if not self._allowed(permissions, definition):
             return {
@@ -259,7 +534,7 @@ class DirectDatasetService:
                 "message": "that dataset could not be read right now",
             }
         finally:
-            if connection is not None and self._connect is not None:
+            if connection is not None:
                 try:
                     connection.close()
                 except Exception:  # noqa: BLE001
@@ -371,7 +646,7 @@ class UserAccessResolver:
         except Exception:  # noqa: BLE001 - authorization failure fails closed
             return {"status": "unavailable"}
         finally:
-            if connection is not None and self._connect is not None:
+            if connection is not None:
                 try:
                     connection.close()
                 except Exception:  # noqa: BLE001

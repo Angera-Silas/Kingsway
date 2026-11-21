@@ -220,6 +220,14 @@ export function registerAgentRoutes(app) {
         throw new Error(`PHP authorization returned ${contextResponse.status} ${detail.slice(0, 200)}`);
       }
       const contextEnvelope = await contextResponse.json();
+      // PHP's prompt gate refused the question (malicious prompt or a blocked
+      // session). Deliver its refusal as the answer; the engine is never called.
+      if (contextEnvelope?.data?.blocked === true) {
+        const result = contextEnvelope.data.result || {};
+        sendEvent('final', { kind: 'final', ...result });
+        sendEvent('done', { duration_ms: 0, ttft_ms: 0 });
+        return;
+      }
       const context = contextEnvelope?.data?.context;
       if (!context || Number(context.user_id) !== Number(auth.userId)) throw new Error('PHP authorization context missing');
       const response = await fetch(`${pythonBaseUrl}/api/agents/assist/stream`, {
@@ -572,6 +580,11 @@ export function registerAgentRoutes(app) {
     const body = req.body || {};
     const { question } = body;
     const conversation = Array.isArray(body.conversation) ? body.conversation.slice(-6) : [];
+    // Anonymous ids only: the visitor id is random, the keys name survey questions.
+    const visitorId = typeof body.visitor_id === 'string' && /^[a-f0-9]{32}$/.test(body.visitor_id) ? body.visitor_id : '';
+    const askedKeys = Array.isArray(body.asked_keys)
+      ? body.asked_keys.filter((k) => typeof k === 'string' && /^[a-z_]{1,40}$/.test(k)).slice(0, 12)
+      : [];
 
     if (!question || typeof question !== 'string' || question.trim() === '' || question.length > 500) {
       return reply.code(422).send({ error: 'A question of up to 500 characters is required' });
@@ -587,8 +600,11 @@ export function registerAgentRoutes(app) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // PHP sees Node's address; pass the visitor's, proven by the secret.
+          'X-Internal-Secret': internalSecret,
+          'X-Visitor-IP': String(req.ip || ''),
         },
-        body: JSON.stringify({ question, conversation }),
+        body: JSON.stringify({ question, conversation, visitor_id: visitorId, asked_keys: askedKeys }),
       });
 
       if (!phpResponse.ok) {

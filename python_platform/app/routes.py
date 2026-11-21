@@ -538,6 +538,35 @@ def create_app(config: Config | None = None) -> Flask:
 
         return AcademicPlanningSkill(provider, journal)
 
+    @app.post("/api/guard/screen")
+    def guard_screen():
+        """Deterministic prompt-attack verdict for PHP's gate (no provider call).
+
+        PHP asks before relaying any question and blocks the session when the
+        verdict is malicious. Only the verdict and category are returned.
+        """
+        denied = _auth_or_worker()
+        if denied is not None:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        from . import guard as prompt_guard
+
+        verdict = prompt_guard.screen(
+            str(payload.get("text") or "")[:4000],
+            str(payload.get("audience") or "public"),
+            payload.get("conversation") if isinstance(payload.get("conversation"), list) else None,
+        )
+        if verdict["malicious"]:
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "prompt_injection_screened",
+                    "audience": str(payload.get("audience") or "public")[:10],
+                    "category": verdict["category"],
+                },
+            )
+        return jsonify({"success": True, "data": verdict})
+
     @app.post("/api/public/ai-faq")
     def public_assistant():
         """Public FAQ assistant. PHP authenticates the anonymous caller and

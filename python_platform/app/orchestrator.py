@@ -30,6 +30,13 @@ from .tools import (
     SYSTEM_ADMIN_PERMISSION,
 )
 
+# Briefing findings whose suggested action says nothing is outstanding.
+_NON_ACTIONABLE_RE = re.compile(
+    r"^(no|none|nothing)\b.*\b(pending|at this time|outstanding|required|needed|to (do|review))\b"
+    r"|^no action( is)? (needed|required)",
+    re.IGNORECASE,
+)
+
 MAX_TOOL_STEPS = 2
 MAX_TOOL_EXECUTIONS = 6
 # Three provider calls per turn: one to propose tools, one to answer
@@ -852,7 +859,13 @@ def _unsupported_numbers(
     numbers are legitimate evidence, not fabricated school data; without this,
     the guard flattened a good cited answer into a raw fee table.
     """
-    allowed: list[float] = [float(len(rows))]
+    # The row count is evidence only when the rows carry no head-count column.
+    # A per-class report has 12 rows (Playgroup..Grade 9); allowing "12" let a
+    # live turn report "Graduating students: 12" when the real figure was 34.
+    has_head_counts = any(
+        _is_head_count_column(str(key)) for row in rows for key in row
+    )
+    allowed: list[float] = [] if has_head_counts else [float(len(rows))]
     sums: dict[str, float] = {}
     for row in rows:
         for key, value in row.items():
@@ -1850,16 +1863,21 @@ class Orchestrator:
             severity = str(item.get("severity") or "info").lower()
             if severity not in allowed_severities:
                 severity = "info"
+            action = str(item.get("suggested_action") or "").strip()
+            # A "finding" whose action says nothing is pending is not a finding;
+            # it only crowds the panel (e.g. "Pending reviews: none at this time").
+            if _NON_ACTIONABLE_RE.search(action):
+                continue
+            cause = str(item.get("root_cause") or "").strip()
+            if cause.lower().startswith("not determinable"):
+                cause = ""
             findings.append(
                 {
                     "title": str(item.get("title") or "Finding")[:160],
                     "severity": severity,
-                    "root_cause": str(
-                        item.get("root_cause") or "not determinable from the scan"
-                    )[:240],
-                    "suggested_action": str(
-                        item.get("suggested_action")
-                        or "Review in the related workspace."
+                    "root_cause": cause[:240],
+                    "suggested_action": (
+                        action or "Review in the related workspace."
                     )[:240],
                 }
             )
@@ -2083,6 +2101,19 @@ class Orchestrator:
         # Refuse before triage: triage calls the provider, so checking later
         # would still leak the attack. Same pre-flight as the buffered path.
         if guard.is_prompt_injection(question):
+            # Journal it like the buffered path does; the stream path was silent.
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_prompt_injection_refusal",
+                    "operator_id": context.get("user_id"),
+                    "route": route,
+                    "module": module,
+                    "question_hash": hash_text(question),
+                    "provider_calls": 0,
+                    "stream": True,
+                },
+            )
             result = guard.prompt_injection_response(None)
             yield {"kind": "final", **result}
             return
@@ -2841,6 +2872,12 @@ class Orchestrator:
             last_rows_result,
             self._allowed_evidence_text(question, tool_results),
             strict_numbers=not self._is_analytical_question(question),
+        )
+        answer = self._guard_figures_without_evidence(
+            answer,
+            last_rows_result,
+            tools_used,
+            self._allowed_evidence_text(question, tool_results),
         )
         # "What's new in CBC/CBE" is current public information. The curated
         # education.news digest is profile-filtered (no Senior School content,
@@ -3781,7 +3818,12 @@ class Orchestrator:
         if any(term in query for term in cls._WEB_INTENT_TERMS):
             if "education.news" in agent_tools:
                 topic = "all"
-                if any(t in query for t in ("ministry", "moe", "education")):
+                # "education" alone is generic: it is not a Ministry-of-Education
+                # question. Mapping it to the narrow "moe" topic made a plain
+                # "What's new in education" return an empty digest and a canned
+                # refusal. Keep the broad "all" digest for that phrasing; only
+                # explicit ministry/MoE wording selects the "moe" topic.
+                if any(t in query for t in ("ministry", "moe")):
                     topic = "moe"
                 elif any(t in query for t in ("curriculum", "cbc", "cbe", "kicd")):
                     topic = "curriculum"
@@ -4548,6 +4590,12 @@ class Orchestrator:
             self._allowed_evidence_text(question, tool_results),
             strict_numbers=not self._is_analytical_question(question),
         )
+        answer = self._guard_figures_without_evidence(
+            answer,
+            last_rows_result,
+            tools_used,
+            self._allowed_evidence_text(question, tool_results),
+        )
         if answer is None:
             answer = {
                 "title": "Assistant ran out of steps",
@@ -4978,9 +5026,13 @@ class Orchestrator:
         results) supplies legitimate figures on a composite question so its
         cited prose is not mistaken for fabricated school data.
         """
-        if not isinstance(answer, dict) or not isinstance(last_rows_result, dict):
+        if not isinstance(answer, dict):
             return answer
-        rows = last_rows_result.get("rows")
+        rows = (
+            last_rows_result.get("rows")
+            if isinstance(last_rows_result, dict)
+            else None
+        )
         if not isinstance(rows, list) or not rows:
             return answer
         body = str(answer.get("body") or "")
@@ -5006,6 +5058,50 @@ class Orchestrator:
             **answer,
             "title": str(answer.get("title") or "Governed report"),
             "body": rendered,
+        }
+
+    _DATA_TOOLS = frozenset({"data.query", "reports.nlq", "analytics.summary", "data.polars"})
+
+    def _guard_figures_without_evidence(
+        self,
+        answer: dict[str, Any] | None,
+        last_rows_result: dict[str, Any] | None,
+        tools_used: list[str],
+        allowed_text: str = "",
+    ) -> dict[str, Any] | None:
+        """Never state a school figure when no data tool returned any rows.
+
+        A live turn asked how many learners graduate; data.query refused the
+        dataset name the model invented and the model answered "12" anyway,
+        labelled as grounded. With no rows there is nothing to quote, so any
+        figure not present in the question or an authorized web result is
+        fabricated: replace the answer with an honest one.
+        """
+        if not isinstance(answer, dict):
+            return answer
+        if not any(tool in self._DATA_TOOLS for tool in tools_used or []):
+            return answer
+        rows = (
+            last_rows_result.get("rows")
+            if isinstance(last_rows_result, dict)
+            else None
+        )
+        if isinstance(rows, list) and rows:
+            return answer
+        body = str(answer.get("body") or "")
+        if not _unsupported_numbers([], body, allowed_text):
+            return answer
+        return {
+            **answer,
+            "title": "No matching school data found",
+            "body": (
+                "I could not find school records that answer this question, so I "
+                "will not give a figure. The data I can read for your role did not "
+                "include it. Open the relevant module report, or ask me to look it "
+                "up a different way."
+            ),
+            "insufficient_data": True,
+            "citations": [],
         }
 
     # Advisory tools whose own returned content is already a complete, useful
