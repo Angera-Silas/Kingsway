@@ -31,6 +31,21 @@ final class PublicFaqService
      */
     public function corpus(WebsiteManager $manager): array
     {
+        // Live public facts (fees, curriculum, open/closed today, events,
+        // news, admission windows) come first so the source cap never drops
+        // them; the published website corpus follows.
+        $facts = (new PublicSchoolFactsService())->corpus($manager);
+        $seen = array_fill_keys(array_column($facts, 'id'), true);
+        $site = array_values(array_filter(
+            $this->websiteCorpus($manager),
+            static fn (array $s): bool => !isset($seen[$s['id']])
+        ));
+        return array_slice(array_merge($facts, $site), 0, self::MAX_SOURCES);
+    }
+
+    /** @return array<int, array{id:string,title:string,content:string}> */
+    private function websiteCorpus(WebsiteManager $manager): array
+    {
         $path = StorageRoot::path('public/faqs.json');
         $mtime = @filemtime($path);
 

@@ -2269,6 +2269,7 @@ const ENDPOINT_PERMISSIONS = {
   "/attendance/index": "attendance_view",
   "/reports/ai-research": "ai_research",
   "/public/ai-faq": null,
+  "/public/ai-feedback": null,
   "/system/security-signals": "system_view",
   "/system/ai-readiness": "system_view",
   "/system/ai-provider-health": "system_view",
@@ -3696,6 +3697,8 @@ async function apiCallDirect(
       // Public FAQ is source-grounded and deliberately anonymous; the backend
       // still validates input, provider output, and source citations.
       "/public/ai-faq",
+      // Optional anonymous survey answers from the public assistant.
+      "/public/ai-feedback",
     ]);
     const publicApiPatterns = [
       /^\/public\/(?:setup-invitation|student-verification|uniform-catalog)(?:\/|$)/,

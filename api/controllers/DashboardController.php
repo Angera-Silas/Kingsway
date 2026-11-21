@@ -144,6 +144,9 @@ class DashboardController extends BaseController
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
         }
+        if ($gate = $this->aiPromptGate($question, 'staff', [], $this->castStr($data['session_id'] ?? ''))) {
+            return $this->success($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
+        }
         $context = $this->buildAssistantContext((array) $data, $userId);
 
         // Explicit workflow authorization at the HTTP boundary (Gate 3)
@@ -236,6 +239,9 @@ class DashboardController extends BaseController
         $question = $this->castStr($data['question'] ?? '');
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+        if ($gate = $this->aiPromptGate($question, 'staff', [], $this->castStr($data['session_id'] ?? ''))) {
+            return $this->success($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
         }
 
         $context = $this->buildAssistantContext((array) $data, $userId);
@@ -392,6 +398,11 @@ class DashboardController extends BaseController
         $question = trim($this->castStr($data['question'] ?? ''));
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+        if ($gate = $this->aiPromptGate($question, 'staff', [], $this->castStr($data['session_id'] ?? ''))) {
+            // Node sees `blocked` and sends this as the final answer without
+            // ever calling the engine.
+            return $this->success(['blocked' => true, 'result' => $this->aiBlockedAnswer($gate)], 'Malicious prompt blocked');
         }
         $permissions = array_values(array_unique(array_map('strval', (array) (
             $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
@@ -806,6 +817,10 @@ class DashboardController extends BaseController
             return $this->unauthorized('A valid session is required');
         }
         $tool = $this->castStr($data['tool'] ?? '');
+        $taskQuestion = $this->castStr($data['question'] ?? '');
+        if ($taskQuestion !== '' && ($gate = $this->aiPromptGate($taskQuestion, 'staff', [], $this->castStr($data['session_id'] ?? '')))) {
+            return $this->respond($this->aiBlockedAnswer($gate), (string) $gate['message'], 403, false);
+        }
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
             $taskInput = array_merge((array) ($data['options'] ?? []), $data);

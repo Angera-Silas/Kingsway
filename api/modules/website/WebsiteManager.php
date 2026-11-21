@@ -444,7 +444,9 @@ class WebsiteManager extends BaseAPI
                           SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY id SEPARATOR '|||'), '|||', 1) AS status
                    FROM school_events
                    WHERE start_at >= CURDATE() AND status != 'cancelled'
-                   GROUP BY title
+                   -- Per year: grouping by title alone merged this year's and
+                   -- next year's December Holiday into one 2026-2027 event.
+                   GROUP BY title, YEAR(start_at)
                    ORDER BY MIN(start_at) ASC LIMIT 100";
             $rows = $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);

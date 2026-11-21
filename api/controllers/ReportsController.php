@@ -38,6 +38,9 @@ class ReportsController extends BaseController
         if (!$this->userHasPermission('ai_research')) return $this->forbidden('Research AI permission is required');
         $question = trim((string) ($data['question'] ?? ''));
         if ($question === '') return $this->badRequest('A research question is required');
+        if ($gate = $this->aiPromptGate($question, 'staff')) {
+            return $this->success($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
+        }
         try {
             $sources = $this->contract('App\\API\\Services\\ResearchSourceCatalog')->approved();
             return $this->success($this->contract('App\\API\\Services\\ResearchAiAssistantService')->ask($question, $sources), 'Research answer generated');
@@ -214,6 +217,9 @@ class ReportsController extends BaseController
             return $this->unauthorized('A valid session is required');
         }
         $question = (string) ($data['question'] ?? '');
+        if (trim($question) !== '' && ($gate = $this->aiPromptGate($question, 'staff'))) {
+            return $this->success($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
+        }
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
             $result = $this->contract(NlqQueryService::class)->ask(
