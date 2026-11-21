@@ -12,7 +12,13 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 try {
     \App\Config\Config::init();
 } catch (\Throwable $configError) {
-    error_log('[login] Config::init() failed: ' . $configError->getMessage());
+    // Managed logger (logging policy). It must never take the sign-in page
+    // down either, since config has already failed at this point.
+    try {
+        \App\API\Services\Logger::legacyError('[login] Config::init() failed: ' . $configError->getMessage());
+    } catch (\Throwable $loggerError) {
+        // Nothing further to do: the page still renders.
+    }
 }
 ?>
 <!doctype html>
