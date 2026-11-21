@@ -660,14 +660,14 @@ const StaffProductionUI = {
         if (filterSelect) {
             filterSelect.innerHTML = '<option value="">All Departments</option>' +
                 this.state.departments.map(dept => 
-                    `<option value="${dept.id}">${dept.name}</option>`
+                    `<option value="${dept.id}">${kwEscapeHtml(dept.name)}</option>`
                 ).join('');
         }
         
         if (formSelect) {
             formSelect.innerHTML = '<option value="">Select Department</option>' +
                 this.state.departments.map(dept => 
-                    `<option value="${dept.id}">${dept.name}</option>`
+                    `<option value="${dept.id}">${kwEscapeHtml(dept.name)}</option>`
                 ).join('');
         }
     },

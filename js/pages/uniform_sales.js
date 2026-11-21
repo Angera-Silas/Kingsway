@@ -224,7 +224,7 @@ const UniformSalesController = {
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start mb-3">
                                 <div>
-                                    <h5 class="card-title mb-1">${item.name}</h5>
+                                    <h5 class="card-title mb-1">${kwEscapeHtml(item.name)}</h5>
                                     <small class="text-muted"><code>${item.code}</code></small>
                                 </div>
                                 <span class="badge bg-${item.status === 'active' ? 'success' : 'secondary'}">${item.status}</span>
@@ -363,7 +363,7 @@ const UniformSalesController = {
             const select = document.getElementById('saleStudentId');
             select.innerHTML = '<option value="">Select Student...</option>' +
                 students.map(s => 
-                    `<option value="${s.id}">${s.first_name} ${s.last_name} (${s.admission_number || 'N/A'})</option>`
+                    `<option value="${s.id}">${kwEscapeHtml(s.first_name)} ${kwEscapeHtml(s.last_name)} (${kwEscapeHtml(s.admission_number || 'N/A')})</option>`
                 ).join('');
         } catch (error) {
             console.error('Error loading students:', error);
@@ -376,14 +376,14 @@ const UniformSalesController = {
     populateItemDropdowns: function() {
         const options = '<option value="">Select Uniform...</option>' +
             this.uniformItems.map(item => 
-                `<option value="${item.id}">${item.name} (${item.code})</option>`
+                `<option value="${item.id}">${kwEscapeHtml(item.name)} (${kwEscapeHtml(item.code)})</option>`
             ).join('');
 
         document.getElementById('saleItemId').innerHTML = options;
         document.getElementById('restockItemId').innerHTML = options;
         document.getElementById('filterItem').innerHTML = '<option value="">All Items</option>' +
             this.uniformItems.map(item => 
-                `<option value="${item.id}">${item.name}</option>`
+                `<option value="${item.id}">${kwEscapeHtml(item.name)}</option>`
             ).join('');
     },
 

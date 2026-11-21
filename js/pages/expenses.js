@@ -85,7 +85,7 @@ const expensesController = {
 
   _populateCategoryDropdowns: function () {
     const opts = this._categories.map(c =>
-      `<option value="${c.id}" data-type="${c.type}">${c.name}</option>`
+      `<option value="${c.id}" data-type="${c.type}">${kwEscapeHtml(c.name)}</option>`
     ).join('');
     const filterSel = document.getElementById('expCategoryFilter');
     if (filterSel) filterSel.innerHTML = '<option value="">All Categories</option>' + opts;

@@ -83,7 +83,7 @@ const TeacherPerformanceReviewsController = {
         const select = document.getElementById('filterSelect');
         if (!select) return;
         select.innerHTML = '<option value="">All</option>' + 
-            this.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
+            this.subjects.map(subject => `<option value="${subject.id}">${kwEscapeHtml(subject.name)}</option>`).join('');
     },
 
     bindEvents() {
