@@ -317,7 +317,8 @@ class OnboardingWorkflow extends WorkflowHandler
             }
 
             // Create user (password should be generated and sent via email in production)
-            $defaultPassword = password_hash('temp_password_' . uniqid(), PASSWORD_DEFAULT);
+            // Unguessable: uniqid() is time-based and could be brute-forced.
+            $defaultPassword = password_hash(bin2hex(random_bytes(24)), PASSWORD_DEFAULT);
 
             // Resolve role_id: accept numeric or role name
             $roleId = null;

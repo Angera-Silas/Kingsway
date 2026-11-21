@@ -80,34 +80,55 @@ class Config
         date_default_timezone_set((string) ($_ENV['APP_TIMEZONE'] ?? 'Africa/Nairobi'));
         ini_set('log_errors', '1');
         ini_set('error_log', $directory . '/php-errors-' . date('Y-m-d') . '.log');
-        if ($environment === 'production') {
+        if ($environment !== 'development') {
             ini_set('display_errors', '0');
             ini_set('display_startup_errors', '0');
+            ini_set('html_errors', '0');
+            ini_set('expose_php', '0');
         }
     }
 
     /**
-     * Detect current environment
+     * Detect the current environment, safely.
+     *
+     * Debug output (display_errors, DEBUG) must be impossible on a public
+     * host, whatever .env says:
+     *   - a blank or unknown APP_ENV is detected from the host (a blank value
+     *     used to yield '', so no environment config loaded and production's
+     *     display_errors=0 never ran);
+     *   - 'development' is honoured only on localhost or the CLI; a web
+     *     request on any other host is forced to 'production'.
+     * The effective value is written back to $_ENV/putenv so code that reads
+     * APP_ENV directly (logging, HSTS, webhook checks) agrees with it.
      */
     private static function detectEnvironment(): string
     {
-        // Override from .env file
-        if (isset($_ENV['APP_ENV'])) {
-            return $_ENV['APP_ENV'];
+        $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+        $host = preg_replace('/:\d+$/', '', $host) ?? $host;
+        $isCli = PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg';
+        $isLocalHost = $host === '' ? $isCli : in_array($host, ['localhost', '127.0.0.1', '::1', '[::1]'], true);
+
+        $requested = strtolower(trim((string) ($_ENV['APP_ENV'] ?? '')));
+        if (!in_array($requested, ['production', 'staging', 'development'], true)) {
+            if ($isLocalHost) {
+                $requested = 'development';
+            } elseif (strpos($host, 'staging') !== false || strpos($host, 'test') !== false) {
+                $requested = 'staging';
+            } else {
+                $requested = 'production';
+            }
+        }
+        // CLI without a host (scripts, tests) counts as local; any request that
+        // names a host is judged by that host.
+        if ($requested === 'development' && !$isLocalHost) {
+            error_log('SECURITY: APP_ENV=development ignored on public host; running as production.');
+            $requested = 'production';
         }
 
-        // Auto-detect from hostname
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        
-        if ($host === 'localhost' || strpos($host, '127.0.0.1') !== false) {
-            return 'development';
-        }
-
-        if (strpos($host, 'staging') !== false || strpos($host, 'test') !== false) {
-            return 'staging';
-        }
-
-        return 'production';
+        $_ENV['APP_ENV'] = $requested;
+        putenv('APP_ENV=' . $requested);
+        self::$config['APP_ENV'] = $requested;
+        return $requested;
     }
 
     /**
@@ -276,6 +297,11 @@ class Config
      */
     public static function isDebug(): bool
     {
+        // Debug is a development-only switch; DEBUG=true in a production
+        // .env is ignored.
+        if ((self::$environment ?? '') !== 'development') {
+            return false;
+        }
         return (bool) self::get('DEBUG', false);
     }
 

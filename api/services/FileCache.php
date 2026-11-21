@@ -175,7 +175,8 @@ class FileCache
 
     private static function decode(string $raw)
     {
-        $stored = @unserialize($raw);
+        // Never rebuild objects from a cache file (object injection).
+        $stored = @unserialize($raw, ['allowed_classes' => false]);
         if (!is_array($stored) || !array_key_exists('value', $stored)) {
             return self::$MISS;
         }
