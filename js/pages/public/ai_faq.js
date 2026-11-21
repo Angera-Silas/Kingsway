@@ -20,18 +20,115 @@
     return String(window.KINGSWAY_REALTIME_ORIGIN || '').replace(/\/+$/, '');
   }
 
+  // Anonymous visitor id: random, never tied to a name. The server hashes it;
+  // it keys the optional survey and any block on this browser.
+  function visitorId() {
+    try {
+      let id = localStorage.getItem('kingsway_visitor_id') || '';
+      if (!/^[a-f0-9]{32}$/.test(id)) {
+        const bytes = new Uint8Array(16);
+        (window.crypto || window.msCrypto).getRandomValues(bytes);
+        id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem('kingsway_visitor_id', id);
+      }
+      return id;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  const ASKED_KEY = 'kingsway_public_ai_feedback_asked';
+  function askedKeys() {
+    try {
+      const keys = JSON.parse(sessionStorage.getItem(ASKED_KEY) || '[]');
+      return Array.isArray(keys) ? keys.filter((k) => /^[a-z_]{1,40}$/.test(k)).slice(0, 12) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  function rememberAsked(key) {
+    const keys = askedKeys();
+    if (!keys.includes(key)) keys.push(key);
+    try { sessionStorage.setItem(ASKED_KEY, JSON.stringify(keys)); } catch (_) {}
+  }
+
   async function askAssistant(question, conversation) {
+    const payload = { question, conversation, visitor_id: visitorId(), asked_keys: askedKeys() };
     // Prefer the Node gateway when configured; keep the PHP endpoint as the
     // governed fallback so visitors always get an answer.
     const origin = gatewayOrigin();
     if (origin && window.API && typeof window.API.apiCall === 'function') {
       try {
-        return await window.API.apiCall(origin + '/api/agents/public-call', 'POST', { question, conversation });
+        return await window.API.apiCall(origin + '/api/agents/public-call', 'POST', payload);
       } catch (_) {
         /* fall through to PHP */
       }
     }
-    return window.callAPI('/public/ai-faq', 'POST', { question, conversation });
+    return window.callAPI('/public/ai-faq', 'POST', payload);
+  }
+
+  // Marketer mode: one optional, anonymous question with tap-to-answer
+  // options (or a short text box) and a Skip. Nothing is required.
+  function renderFeedbackPrompt(prompt, target) {
+    if (!target || !prompt || !/^[a-z_]{1,40}$/.test(String(prompt.key || ''))) return;
+    rememberAsked(prompt.key);
+    const card = document.createElement('div');
+    card.className = 'public-ai-feedback mt-3 p-2 border rounded';
+    const heading = document.createElement('p');
+    heading.className = 'small fw-semibold mb-1';
+    heading.textContent = String(prompt.question || '');
+    const note = document.createElement('p');
+    note.className = 'small text-muted mb-2';
+    note.textContent = String(prompt.notice || 'Optional and anonymous.');
+    const actions = document.createElement('div');
+    actions.className = 'd-flex flex-wrap gap-1';
+    const thank = (message) => {
+      card.replaceChildren();
+      const done = document.createElement('p');
+      done.className = 'small text-success mb-0';
+      done.textContent = message;
+      card.appendChild(done);
+    };
+    const send = async (answer) => {
+      actions.querySelectorAll('button, input').forEach((el) => { el.disabled = true; });
+      try {
+        await window.callAPI('/public/ai-feedback', 'POST', { question_key: prompt.key, answer, visitor_id: visitorId() });
+        thank('Thank you for sharing. It helps us serve families better.');
+      } catch (_) {
+        thank('Thank you.');
+      }
+    };
+    const options = Array.isArray(prompt.options) ? prompt.options.slice(0, 8) : [];
+    if (options.length) {
+      options.forEach((option) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-sm btn-outline-success';
+        button.textContent = String(option);
+        button.addEventListener('click', () => send(String(option)));
+        actions.appendChild(button);
+      });
+    } else {
+      const text = document.createElement('input');
+      text.type = 'text';
+      text.maxLength = 300;
+      text.className = 'form-control form-control-sm';
+      text.placeholder = 'Your answer (optional)';
+      const sendButton = document.createElement('button');
+      sendButton.type = 'button';
+      sendButton.className = 'btn btn-sm btn-success';
+      sendButton.textContent = 'Send';
+      sendButton.addEventListener('click', () => { if (text.value.trim()) send(text.value.trim()); });
+      actions.append(text, sendButton);
+    }
+    const skip = document.createElement('button');
+    skip.type = 'button';
+    skip.className = 'btn btn-sm btn-link text-muted';
+    skip.textContent = 'Skip';
+    skip.addEventListener('click', () => card.remove());
+    actions.appendChild(skip);
+    card.append(heading, note, actions);
+    target.appendChild(card);
   }
 
   function renderAnswer(answer, target) {
@@ -195,6 +292,15 @@
       try {
         const result = await askAssistant(question, conversation.slice(-12));
         renderAnswer(result || {}, answer);
+        if (result?.blocked === true) {
+          // The server has blocked this session; stop accepting prompts here too.
+          input.disabled = true;
+          submit.disabled = true;
+          input.placeholder = 'This session is blocked.';
+          status.textContent = 'Session blocked.';
+          return;
+        }
+        renderFeedbackPrompt(result?.feedback_prompt, answer);
         conversation.push({ role: 'user', content: question });
         conversation.push({ role: 'assistant', content: result?.body || result?.message || '' });
         saveConversation();
@@ -209,7 +315,7 @@
         status.textContent = error?.message || 'Request failed.';
       } finally {
         answer.removeAttribute('aria-busy');
-        submit.disabled = false;
+        if (!input.disabled) submit.disabled = false;
       }
     });
   });

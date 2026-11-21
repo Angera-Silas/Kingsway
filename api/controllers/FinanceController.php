@@ -1167,6 +1167,122 @@ class FinanceController extends BaseController
         return $this->handleResponse($this->api->assignPayrollSourceAccounts($payrollId, (array)($payload['allocations'] ?? []), (int)$this->getUserId()));
     }
 
+    /** POST /api/finance/payrolls/{id}/statutory-options */
+    public function postPayrollsStatutoryOptions($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $payslipId = (int)($id ?: ($payload['payslip_id'] ?? 0));
+        if (!$payslipId) return $this->badRequest('Payslip ID is required.');
+        $options = $payload['options'] ?? ($payload['statutory_options'] ?? []);
+        if (!is_array($options)) return $this->badRequest('Statutory options must be an object.');
+        return $this->handleResponse($this->api->updatePayrollStatutoryOptions(
+            $payslipId,
+            $options,
+            (int)$this->getUserId()
+        ));
+    }
+
+    /** GET /api/finance/payrolls/{id}/payout-plans */
+    public function getPayrollsPayoutPlans($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
+        $payrollId = (int)($id ?: ($data['payroll_id'] ?? 0));
+        if (!$payrollId) return $this->badRequest('Payroll run ID is required.');
+        return $this->handleResponse($this->api->getPayrollPayoutPlans($payrollId));
+    }
+
+    /** POST /api/finance/payrolls/{id}/payout-plans */
+    public function postPayrollsPayoutPlans($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $payrollId = (int)($id ?: ($payload['payroll_id'] ?? 0));
+        if (!$payrollId) return $this->badRequest('Payroll run ID is required.');
+        $allocations = $payload['allocations'] ?? ($payload['plans'] ?? []);
+        if (!is_array($allocations) || !$allocations) {
+            return $this->badRequest('At least one payout allocation is required.');
+        }
+        return $this->handleResponse($this->api->savePayrollPayoutPlans(
+            $payrollId,
+            $allocations,
+            (int)$this->getUserId()
+        ));
+    }
+
+    /** GET /api/finance/payout-ledger */
+    public function getPayoutLedger($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
+        $payload = array_merge($_GET, $data);
+        $month = (int)($payload['month'] ?? 0);
+        $year = (int)($payload['year'] ?? 0);
+        if ($month < 1 || $month > 12 || $year < 2000) {
+            return $this->badRequest('A valid payroll month and year are required.');
+        }
+        return $this->handleResponse($this->api->getPayrollPayoutLedger($month, $year));
+    }
+
+    /** POST /api/finance/payout-legs/{id}/confirm-cash */
+    public function postPayoutLegsConfirmCash($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','director','school administrator'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $legId = (int)($id ?: ($payload['payout_leg_id'] ?? 0));
+        $reference = trim((string)($payload['reference'] ?? ($payload['receipt_reference'] ?? '')));
+        if (!$legId) return $this->badRequest('Payout leg ID is required.');
+        if ($reference === '') return $this->badRequest('A cash receipt or cheque reference is required.');
+        return $this->handleResponse($this->api->confirmPayrollCashLeg(
+            $legId,
+            $reference,
+            (int)$this->getUserId()
+        ));
+    }
+
+    /** POST /api/finance/payout-legs/{id}/retry */
+    public function postPayoutLegsRetry($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','director','school administrator'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $legId = (int)($id ?: ($payload['payout_leg_id'] ?? 0));
+        if (!$legId) return $this->badRequest('Payout leg ID is required.');
+        return $this->handleResponse($this->api->retryPayrollPayoutLeg(
+            $legId,
+            (int)$this->getUserId()
+        ));
+    }
+
+    /** POST /api/finance/payroll-child-fees/{id}/retry */
+    public function postPayrollChildFeesRetry($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','director','school administrator'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $payslipId = (int)($id ?: ($payload['payslip_id'] ?? 0));
+        if (!$payslipId) return $this->badRequest('Payslip ID is required.');
+        return $this->handleResponse($this->api->retryPayrollChildFees($payslipId));
+    }
+
+    /** POST /api/finance/payrolls/{id}/release */
+    public function postPayrollsRelease($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','director','school administrator'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $payrollId = (int)($id ?: ($payload['payroll_id'] ?? 0));
+        if (!$payrollId) return $this->badRequest('Payroll run ID is required.');
+        $selectedPayslipIds = array_values(array_filter(array_map(
+            'intval',
+            (array)($payload['payslip_ids'] ?? [])
+        )));
+        return $this->handleResponse($this->api->markPayrollPaid(
+            $payrollId,
+            $payload['payment_reference'] ?? '',
+            $payload['payment_mode'] ?? null,
+            $payload['source_financial_account_id'] ?? null,
+            (int)$this->getUserId(),
+            $selectedPayslipIds
+        ));
+    }
+
     /**
      * POST /api/finance/payrolls/create-draft
      */
@@ -1382,12 +1498,35 @@ class FinanceController extends BaseController
     }
 
     /**
+     * POST /api/finance/bulk-payroll-preview
+     * Recalculate the preview with explicit per-employee statutory choices.
+     */
+    public function postBulkPayrollPreview($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $month = (int)($payload['month'] ?? ($payload['payroll_month'] ?? date('n')));
+        $year = (int)($payload['year'] ?? ($payload['payroll_year'] ?? date('Y')));
+        $options = $payload['statutory_options'] ?? [];
+        if (!is_array($options)) {
+            return $this->badRequest('statutory_options must be an object or employee list.');
+        }
+        $result = $this->api->getBulkPayrollPreview(
+            $month,
+            $year,
+            !$this->isPayrollReviewer(),
+            $options
+        );
+        return $this->handleResponse($result);
+    }
+
+    /**
      * POST /api/finance/process-bulk-payroll
      * Process multiple staff payroll records as one backend request
      */
     public function postProcessBulkPayroll($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $eligibilityPayload = $data ?: $this->getRequestData();
         if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $payload = $data ?: $this->getRequestData();
@@ -1421,7 +1560,7 @@ class FinanceController extends BaseController
      */
     public function postProcessPayrollWithDeductions($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $eligibilityPayload = $data ?: $this->getRequestData();
         if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $payload = $eligibilityPayload;

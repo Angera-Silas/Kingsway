@@ -176,6 +176,9 @@ class ParentPortalController extends BaseController
         if ($parentId < 1) {
             return $this->unauthorized('Parent authentication is required');
         }
+        if ($gate = $this->aiPromptGate((string) ($data['question'] ?? ''), 'parent')) {
+            return $this->success($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
+        }
         try {
             return $this->handleApiResponse(($this->contract(ParentAiAssistantService::class))->ask($this->parent, $parentId, (string) ($data['question'] ?? '')));
         } catch (\DomainException $e) {

@@ -144,6 +144,9 @@ class DashboardController extends BaseController
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
         }
+        if ($gate = $this->aiPromptGate($question, 'staff', [], $this->castStr($data['session_id'] ?? ''))) {
+            return $this->success($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
+        }
         $context = $this->buildAssistantContext((array) $data, $userId);
 
         // Explicit workflow authorization at the HTTP boundary (Gate 3)
@@ -236,6 +239,9 @@ class DashboardController extends BaseController
         $question = $this->castStr($data['question'] ?? '');
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+        if ($gate = $this->aiPromptGate($question, 'staff', [], $this->castStr($data['session_id'] ?? ''))) {
+            return $this->success($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
         }
 
         $context = $this->buildAssistantContext((array) $data, $userId);
@@ -392,6 +398,11 @@ class DashboardController extends BaseController
         $question = trim($this->castStr($data['question'] ?? ''));
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+        if ($gate = $this->aiPromptGate($question, 'staff', [], $this->castStr($data['session_id'] ?? ''))) {
+            // Node sees `blocked` and sends this as the final answer without
+            // ever calling the engine.
+            return $this->success(['blocked' => true, 'result' => $this->aiBlockedAnswer($gate)], 'Malicious prompt blocked');
         }
         $permissions = array_values(array_unique(array_map('strval', (array) (
             $this->user['effective_permissions'] ?? $this->user['permissions'] ?? []
@@ -806,6 +817,10 @@ class DashboardController extends BaseController
             return $this->unauthorized('A valid session is required');
         }
         $tool = $this->castStr($data['tool'] ?? '');
+        $taskQuestion = $this->castStr($data['question'] ?? '');
+        if ($taskQuestion !== '' && ($gate = $this->aiPromptGate($taskQuestion, 'staff', [], $this->castStr($data['session_id'] ?? '')))) {
+            return $this->respond($this->aiBlockedAnswer($gate), (string) $gate['message'], 403, false);
+        }
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
             $taskInput = array_merge((array) ($data['options'] ?? []), $data);
@@ -1098,6 +1113,38 @@ class DashboardController extends BaseController
     }
 
     /**
+     * GET /api/dashboard/assistant-today
+     *
+     * Deterministic coworker briefing for the current operator: today's
+     * schedule, what needs attention, and unread notifications. This is a
+     * direct, permission-scoped scan (no model call, no approval queue) - the
+     * same sections the assistant can request through the governed
+     * `assistant.workspace_scan` tool, exposed to the panel so a staff member
+     * sees their day immediately. Every section is gated by the operator's
+     * server-resolved effective permissions; nothing is broadened here.
+     */
+    public function getAssistantToday($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        try {
+            $route = strtolower(trim((string) ($_GET['route'] ?? $data['route'] ?? 'dashboard')));
+            $pdo = $this->getDb()->getConnection();
+            $permissions = $this->contract(AgentAssistant::class)
+                ->resolveEffectivePermissions($pdo, $userId);
+            $scan = (new \App\API\Services\WorkspaceBriefingScanner())
+                ->scan($pdo, $userId, $permissions, $route);
+            return $this->success($scan, 'Today at a glance');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] assistant today failed: ' . $e->getMessage());
+            return $this->serverError('Unable to prepare your day overview');
+        }
+    }
+
+    /**
      * POST /api/dashboard/agent-digest-worker
      * Cron-driven (curl line with X-Kingsway-Worker-Secret, never a staff
      * JWT): resolve every staff member holding assistant-relevant permissions
@@ -1111,9 +1158,29 @@ class DashboardController extends BaseController
             return $this->respond(null, 'Invalid worker credential', 403, false);
         }
         try {
+            // Default: staff with analytics access. A schedule may additionally
+            // target communications/website staff so the proactive education-
+            // news and public-content sections reach the people who publish.
+            // Only these known codes may be supplied by the worker payload; an
+            // invented code is ignored, so a schedule can never widen scope.
+            $selection = ['analytics_catalogue_view', '*'];
+            $requested = isset($data['include_permissions']) && is_array($data['include_permissions'])
+                ? array_values(array_map('strval', $data['include_permissions']))
+                : [];
+            $allowedExtra = [
+                'communications_announcements_create',
+                'communications_announcements_generate',
+                'website_content_manage',
+                'website_news_manage',
+                'website_events_manage',
+            ];
+            $selection = array_values(array_unique(array_merge(
+                $selection,
+                array_values(array_intersect($requested, $allowedExtra))
+            )));
             $pdo = $this->getDb()->getConnection();
             $permManager = $this->contract(\App\API\Modules\users\UserPermissionManager::class, $pdo);
-            $userIds = $permManager->userIdsWithPermissions(['analytics_catalogue_view', '*']);
+            $userIds = $permManager->userIdsWithPermissions($selection);
             $permissionsByUser = $permManager->effectivePermissionsByUser($userIds);
             $queued = 0;
             $skipped = 0;

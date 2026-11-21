@@ -300,12 +300,23 @@
                 <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
             </header>
             <div class="assistant-conversation flex-grow-1 overflow-y-auto p-3 p-md-4" id="global-ai-assistant-conversation" style="display:flex;flex-direction:column;">
-                <section id="global-ai-assistant-briefing" class="mb-3" aria-live="polite" aria-label="Workspace insights">
-                    <div class="text-muted small">Workspace insights will appear here when available.</div>
-                </section>
+                <!-- Insights fold away once a conversation has messages so the chat stays the focus. -->
+                <details id="global-ai-assistant-insights" class="assistant-insights mb-3" open>
+                    <summary class="assistant-insights-summary">
+                        <i class="bi bi-stars me-1" aria-hidden="true"></i>Your day &amp; workspace insights
+                    </summary>
+                    <div class="assistant-insights-body pt-2">
+                        <section id="global-ai-assistant-today" class="mb-3" aria-live="polite" aria-label="Your day at a glance">
+                            <div class="text-muted small">Getting your day ready…</div>
+                        </section>
+                        <section id="global-ai-assistant-briefing" aria-live="polite" aria-label="Workspace insights">
+                            <div class="text-muted small">Workspace insights will appear here when available.</div>
+                        </section>
+                    </div>
+                </details>
                 <section id="global-ai-assistant-task-status" class="mb-3" aria-live="polite" aria-label="Delegated assistant work"></section>
                 <!-- Thread: the single scrollable message container (never destroyed). Greeting is rendered here when empty. -->
-                <div id="global-ai-assistant-thread" class="assistant-thread flex-grow-1 overflow-y-auto p-3" aria-live="polite"></div>
+                <div id="global-ai-assistant-thread" class="assistant-thread" aria-live="polite"></div>
             </div>
 <!-- Composer -->
             <footer class="assistant-footer border-top p-3 flex-shrink-0" id="global-ai-assistant-footer">
@@ -389,6 +400,43 @@
                             <option value="en" selected>English</option>
                             <option value="sw">Kiswahili</option>
                         </select>
+                    </div>
+                    <hr>
+                    <h6 class="mb-2"><i class="bi bi-person-badge me-1"></i>Your assistant's personality</h6>
+                    <p class="form-text mt-0">Set how your coworker writes for you. These are preferences only — they never change what data you can access.</p>
+                    <div class="mb-3">
+                        <label for="pref-persona-tone" class="form-label">Tone</label>
+                        <select class="form-select" id="pref-persona-tone">
+                            <option value="professional">Professional</option>
+                            <option value="friendly">Friendly</option>
+                            <option value="concise">Concise</option>
+                            <option value="encouraging">Encouraging</option>
+                            <option value="formal">Formal</option>
+                            <option value="plain">Plain</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="pref-persona-detail" class="form-label">Level of detail</label>
+                        <select class="form-select" id="pref-persona-detail">
+                            <option value="brief">Brief</option>
+                            <option value="balanced" selected>Balanced</option>
+                            <option value="detailed">Detailed</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="pref-persona-focus" class="form-label">Your role focus</label>
+                        <input type="text" class="form-control" id="pref-persona-focus" maxlength="80" placeholder="e.g. finance and fees">
+                    </div>
+                    <div class="mb-3">
+                        <label for="pref-persona-goals" class="form-label">What you are working towards</label>
+                        <input type="text" class="form-control" id="pref-persona-goals" maxlength="160" placeholder="e.g. reduce fee arrears this term">
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="pref-persona-proactive" checked>
+                            <label class="form-check-label" for="pref-persona-proactive">Proactive suggestions and insights</label>
+                        </div>
+                        <div class="form-text">When on, your assistant surfaces suggestions and attention items without being asked.</div>
                     </div>
                     <div class="d-grid gap-2 mt-3">
                         <button type="button" class="btn btn-outline-danger" id="assistant-clear-history">

@@ -172,13 +172,22 @@ final class StaffMigrationController extends BaseController
             if (!$userId) {
                 throw new RuntimeException('user_id is required.');
             }
-            $invitation = $this->service->resendInvitation($userId, $this->actorId());
-            $delivery = $this->service->processEmailQueue(1, (int)($invitation['message_id'] ?? 0));
-            $invitation['email_sent'] = (int)($delivery['sent'] ?? 0) === 1;
-            return $this->success(
-                $invitation,
-                $invitation['email_sent'] ? 'Invitation email sent.' : 'Invitation is queued for email delivery.'
-            );
+            $channel = strtolower(trim((string)($data['channel'] ?? 'email')));
+            $invitation = $this->service->resendInvitation($userId, $this->actorId(), $channel);
+            $channel = (string)($invitation['channel'] ?? 'email');
+            if (in_array($channel, ['email', 'both'], true)) {
+                $delivery = $this->service->processEmailQueue(1, (int)($invitation['email_message_id'] ?? $invitation['message_id'] ?? 0));
+                $invitation['email_sent'] = (int)($delivery['sent'] ?? 0) === 1;
+            }
+            if (in_array($channel, ['sms', 'both'], true)) {
+                $invitation['sms_sent'] = true;
+            }
+            $message = $channel === 'both'
+                ? 'Invitation sent by ' . (!empty($invitation['email_sent']) ? 'email' : 'queued email') . ' and SMS.'
+                : ($channel === 'sms'
+                    ? 'Invitation SMS sent.'
+                    : (!empty($invitation['email_sent']) ? 'Invitation email sent.' : 'Invitation is queued for email delivery.'));
+            return $this->success($invitation, $message);
         });
     }
 

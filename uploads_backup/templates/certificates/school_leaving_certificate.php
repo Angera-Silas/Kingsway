@@ -36,46 +36,55 @@ $assessments = $facts['national_assessments'] ?? [];
 @page { size: A4 portrait; margin: 9mm; }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a24; font-size: 9.6pt; }
-.frame { border: 2.4mm double <?= $green ?>; padding: 1.4mm; height: 276mm; }
-.inner { border: 0.6mm solid <?= $gold ?>; height: 100%; padding: 5mm 8mm 4mm; position: relative; }
+/* Explicit content-box height (not height:100%) so Dompdf, WeasyPrint and
+   browsers all size the frame the same and it stays on one A4 page. */
+.frame { border: 2.4mm double <?= $green ?>; padding: 1.4mm; }
+.inner { box-sizing: content-box; border: 0.6mm solid <?= $gold ?>; height: 254mm; padding: 5mm 8mm 4mm; position: relative; }
 .center { text-align: center; }
-.arms { height: 25mm; }
+.arms { height: 20mm; }
 .republic { font-weight: 700; font-size: 11pt; letter-spacing: .6pt; margin-top: 1mm; }
 .rule { width: 26mm; border-top: 0.6mm solid #1f2a24; margin: 1.2mm auto; }
 .ministry { font-weight: 700; font-size: 10.2pt; letter-spacing: .4pt; }
 .school { width: 100%; border-collapse: collapse; margin-top: 3mm; background: <?= $soft ?>; border-top: 0.8mm solid <?= $green ?>; border-bottom: 0.8mm solid <?= $gold ?>; }
-.school td { padding: 2mm 3mm; vertical-align: middle; }
+.school td { padding: 1.5mm 3mm; vertical-align: middle; }
 .school .logo { width: 20mm; }
 .school .logo img { width: 17mm; }
 .school-name { color: <?= $green ?>; font-size: 15pt; font-weight: 800; letter-spacing: .5pt; text-transform: uppercase; }
 .school-meta { font-size: 8pt; color: #3c4a42; margin-top: .6mm; }
 .motto { font-style: italic; color: <?= $green ?>; font-size: 8.4pt; }
-.title { margin: 4mm 0 1mm; text-align: center; }
+.title { margin: 3mm 0 1mm; text-align: center; }
 .title span { display: inline-block; background: <?= $green ?>; color: #fff; font-weight: 800; font-size: 14pt; letter-spacing: 1.4pt; padding: 1.6mm 7mm; border-bottom: 0.9mm solid <?= $gold ?>; }
 .serial { width: 100%; border-collapse: collapse; font-size: 8.4pt; margin-bottom: 2mm; }
 .serial td { padding: .5mm 0; }
 .fields { width: 100%; border-collapse: collapse; margin-top: 1mm; }
-.fields td { padding: 1.55mm 0 0; vertical-align: bottom; white-space: nowrap; font-weight: 700; font-size: 9pt; }
+.fields td { padding: 1.1mm 0 0; vertical-align: bottom; white-space: nowrap; font-weight: 700; font-size: 9pt; }
 .fields td.v { border-bottom: 0.3mm dotted #445; font-weight: 700; color: <?= $green ?>; white-space: normal; font-family: "DejaVu Serif", Georgia, serif; font-size: 10pt; padding-left: 1.5mm; }
-.block { margin-top: 2.6mm; }
+.block { margin-top: 2mm; }
 .block .label { font-weight: 700; font-size: 9pt; }
-.block .text { border-bottom: 0.3mm dotted #445; min-height: 11mm; padding: .6mm 1mm; font-family: "DejaVu Serif", Georgia, serif; color: <?= $green ?>; font-size: 9.6pt; line-height: 1.45; }
+.block .text { border-bottom: 0.3mm dotted #445; min-height: 7mm; padding: .5mm 1mm; font-family: "DejaVu Serif", Georgia, serif; color: <?= $green ?>; font-size: 9.6pt; line-height: 1.45; }
 .assess { width: 100%; border-collapse: collapse; margin-top: 2mm; font-size: 8.6pt; }
 .assess th { background: <?= $soft ?>; color: <?= $green ?>; text-align: left; padding: 1mm 1.5mm; border-bottom: 0.4mm solid <?= $green ?>; }
 .assess td { padding: 1mm 1.5mm; border-bottom: 0.2mm solid #cfdcd3; }
-.sign { width: 100%; border-collapse: collapse; margin-top: 4mm; }
-.sign td { width: 33.3%; vertical-align: bottom; padding: 0 2.5mm; font-size: 8.4pt; }
-.line { border-bottom: 0.3mm solid #1f2a24; height: 9mm; }
+.sign { width: 100%; border-collapse: collapse; margin-top: 1mm; }
+.sign td { vertical-align: bottom; padding: 0 2mm; font-size: 8pt; white-space: nowrap; }
+.sign td.ls { width: 22%; }
+.sign td.hs { width: 31%; }
+.sign td.ds { width: 29%; }
+.sign td.st { width: 18%; padding: 0; }
+.line { border-bottom: 0.3mm solid #1f2a24; height: 8mm; }
 .cap { font-weight: 700; margin-top: .8mm; }
 .name { color: #3c4a42; }
-.issue { width: 100%; border-collapse: collapse; margin-top: 4mm; }
-.issue td { vertical-align: top; font-size: 8.6pt; }
-.stamp { border: 0.4mm dashed <?= $green ?>; border-radius: 50%; width: 34mm; height: 34mm; margin-left: auto; text-align: center; color: #6b7a71; font-size: 7.4pt; padding-top: 13mm; }
+.issue { margin-top: 1.5mm; font-size: 8.2pt; }
+.stamp { border: 0.4mm dashed <?= $green ?>; border-radius: 50%; width: 26mm; height: 26mm; margin-left: auto; text-align: center; color: #6b7a71; font-size: 6.6pt; padding-top: 9mm; }
+/* Faint school logo behind the certificate, centred in the inner frame. */
+.watermark { position: absolute; top: 72mm; left: 31mm; width: 120mm; text-align: center; z-index: 0; }
+.watermark img { width: 120mm; opacity: .08; }
 .foot { position: absolute; left: 8mm; right: 8mm; bottom: 3mm; text-align: center; font-size: 7.6pt; font-weight: 700; letter-spacing: .3pt; color: #3c4a42; border-top: 0.3mm solid <?= $gold ?>; padding-top: 1.2mm; }
 </style>
 </head>
 <body>
 <div class="frame"><div class="inner">
+  <?php if (!empty($school['logo'])): ?><div class="watermark"><img src="<?= $e($school['logo']) ?>" alt=""></div><?php endif; ?>
   <div class="center">
     <?php if (!empty($coatOfArms)): ?><img class="arms" src="<?= $e($coatOfArms) ?>" alt="Coat of arms of Kenya"><?php endif; ?>
     <div class="republic">REPUBLIC OF KENYA</div>
@@ -139,16 +148,14 @@ body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a24;
   <div class="block"><div class="label">LEARNER&rsquo;S PARTICIPATION IN CO-CURRICULAR ACTIVITIES</div><div class="text" style="min-height:8mm;"><?= nl2br($e($document['co_curricular'] ?? '')) ?></div></div>
 
   <table class="sign"><tr>
-    <td><div class="line"></div><div class="cap">LEARNER&rsquo;S SIGNATURE</div></td>
-    <td><div class="line"></div><div class="cap"><?= $e(mb_strtoupper((string) ($headteacher['title'] ?? 'Head teacher'))) ?>&rsquo;S SIGNATURE</div><div class="name"><?= $e($headteacher['name'] ?: 'Name: ............................................') ?></div></td>
-    <td><div class="line"></div><div class="cap">DIRECTOR&rsquo;S SIGNATURE</div><div class="name"><?= $e($director['name'] ?: 'Name: ............................................') ?></div></td>
+    <td class="ls"><div class="line"></div><div class="cap">LEARNER&rsquo;S SIGNATURE</div></td>
+    <td class="hs"><div class="line"></div><div class="cap"><?= $e(mb_strtoupper((string) ($headteacher['title'] ?? 'Head teacher'))) ?>&rsquo;S SIGNATURE</div><div class="name"><?= $e($headteacher['name'] ?: 'Name: ............................................') ?></div></td>
+    <td class="ds"><div class="line"></div><div class="cap">DIRECTOR&rsquo;S SIGNATURE</div><div class="name"><?= $e($director['name'] ?: 'Name: ............................................') ?></div></td>
+    <td class="st"><div class="stamp">OFFICIAL SCHOOL<br>RUBBER STAMP</div></td>
   </tr></table>
 
-  <table class="issue"><tr>
-    <td>DATE OF ISSUE: <strong><?= $e($d($document['issued_at'] ?? date('Y-m-d'))) ?></strong><br><br>
-      <span style="font-size:7.6pt;color:#3c4a42;">Verify with the school quoting serial no. <?= $e($document['serial_no'] ?? '') ?>.</span></td>
-    <td style="width:40mm;"><div class="stamp">OFFICIAL SCHOOL<br>RUBBER STAMP</div></td>
-  </tr></table>
+  <div class="issue">DATE OF ISSUE: <strong><?= $e($d($document['issued_at'] ?? date('Y-m-d'))) ?></strong>
+    <span style="font-size:7.6pt;color:#3c4a42;"> &middot; Verify with the school quoting serial no. <?= $e($document['serial_no'] ?? '') ?>.</span></div>
 
   <div class="foot">THIS CERTIFICATE WAS ISSUED WITHOUT ANY ERASURE OR ALTERATION WHATSOEVER</div>
 </div></div>

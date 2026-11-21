@@ -41,6 +41,7 @@ final class AgentToolExecutor
     private const READ_TOOLS = [
         'assistant.catalog' => 'workflow catalogue',
         'assistant.workspace_scan' => 'workspace scan',
+        'data.query' => 'permission-scoped dataset',
         'reports.insight_brief' => 'intelligence briefing',
         'reports.kpi_brief' => 'KPI brief',
         'reports.school_brief' => 'school brief',
@@ -184,7 +185,7 @@ final class AgentToolExecutor
             if (isset(self::REPORT_TOOLS[(string) $tool])) {
                 return $this->readReport((string) $tool, $context, (array) $input, $pdo);
             }
-            return $this->readGoverned((string) $tool, $context, (array) $input);
+            return $this->readGoverned((string) $tool, $context, (array) $input, $pdo);
         } catch (DomainException $e) {
             return ['status' => 'not_authorized', 'message' => 'access could not be confirmed'];
         } catch (Throwable $e) {
@@ -370,9 +371,32 @@ final class AgentToolExecutor
      * @param array<string,mixed> $input
      * @return array<string,mixed>
      */
-    private function readGoverned(string $tool, array $context, array $input): array
+    private function readGoverned(string $tool, array $context, array $input, ?PDO $pdo = null): array
     {
         $userId = (int) $context['user_id'];
+
+        if ($tool === 'data.query') {
+            $service = new PolarsDatasetService($pdo);
+            $dataset = strtolower(trim((string) ($input['dataset'] ?? '')));
+            if ($dataset === '') {
+                return [
+                    'status' => 'ok',
+                    'datasets' => $service->datasets(array_values(array_map('strval', (array) $context['permissions']))),
+                    'note' => 'Choose a dataset name, then analyse its rows with data.polars.',
+                ];
+            }
+            return $service->rows($dataset, array_values(array_map('strval', (array) $context['permissions'])));
+        }
+
+        if ($tool === 'assistant.workspace_scan') {
+            $pdo = $pdo ?? \App\Database\Database::getInstance()->getConnection();
+            return (new WorkspaceBriefingScanner())->scan(
+                $pdo,
+                $userId,
+                array_values(array_map('strval', (array) $context['permissions'])),
+                (string) ($input['route'] ?? '')
+            );
+        }
 
         if ($tool === 'assistant.catalog') {
             return [
@@ -405,6 +429,12 @@ final class AgentToolExecutor
 
         $workflow = WorkflowRegistry::resolve($tool) ?? [];
         $domain = (string) ($workflow['domain'] ?? '');
+        // Transport is a deterministic, no-approval insight: the same bounded
+        // aggregate builder that feeds the transport page also feeds the
+        // proactive briefing, so both show the same authorized signals.
+        if ($domain === 'transport' || str_contains(strtolower((string) ($input['route'] ?? '')), 'transport')) {
+            return $this->transportFinding($context);
+        }
         $reader = self::DOMAIN_READERS[$domain] ?? null;
         if ($reader === null) {
             return [
@@ -426,6 +456,67 @@ final class AgentToolExecutor
             'domain' => $domain,
             'summary' => (string) ($data['summary'] ?? self::summarise($data, (string) $reader['label'])),
             'metrics' => array_slice((array) ($data['metrics'] ?? $data), 0, 8),
+        ];
+    }
+
+    /**
+     * Deterministic transport signals for the proactive briefing. No provider
+     * call, no draft, no approval: figures come from the same allowlisted
+     * aggregate builder used by the transport insight card.
+     *
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    private function transportFinding(array $context): array
+    {
+        try {
+            $api = new \App\API\Modules\transport\TransportAPI();
+            $response = $api->getAiOperationsSummaryInput();
+            if (($response['success'] ?? false) !== true) {
+                return ['status' => 'unavailable', 'summary' => 'Transport signals are temporarily unavailable.'];
+            }
+            $signals = is_array($response['data'] ?? null) ? $response['data'] : [];
+        } catch (Throwable $e) {
+            return ['status' => 'unavailable', 'summary' => 'Transport signals are temporarily unavailable.'];
+        }
+
+        $int = static fn(string $key): int => max(0, (int) ($signals[$key] ?? 0));
+        $findings = [];
+        if ($int('overdue_service_count') > 0) {
+            $findings[] = $int('overdue_service_count') . ' active vehicle(s) are overdue for service.';
+        }
+        if ($int('expired_insurance_count') > 0) {
+            $findings[] = $int('expired_insurance_count') . ' active vehicle(s) have expired insurance.';
+        }
+        if ($int('routes_without_vehicle_count') > 0) {
+            $findings[] = $int('routes_without_vehicle_count') . ' active route(s) have no vehicle assigned.';
+        }
+        if ($int('active_vehicle_count') > $int('assigned_passenger_count') && $int('assigned_passenger_count') === 0) {
+            $findings[] = 'No learners are assigned to transport yet.';
+        }
+        if ($findings === []) {
+            $findings[] = 'No transport attention items from the current aggregate signals.';
+        }
+
+        return [
+            'status' => 'answered',
+            'domain' => 'transport',
+            'summary' => sprintf(
+                'Transport: %d active route(s), %d active vehicle(s), %d assigned passenger(s), %d available seats.',
+                $int('active_route_count'),
+                $int('active_vehicle_count'),
+                $int('assigned_passenger_count'),
+                $int('total_active_capacity')
+            ),
+            'metrics' => [
+                'active_routes' => $int('active_route_count'),
+                'active_vehicles' => $int('active_vehicle_count'),
+                'assigned_passengers' => $int('assigned_passenger_count'),
+                'available_seats' => $int('total_active_capacity'),
+            ],
+            'findings' => array_slice($findings, 0, 5),
+            'requires_approval' => false,
+            'note' => 'Advisory only; the transport register remains authoritative.',
         ];
     }
 
