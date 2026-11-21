@@ -14,6 +14,8 @@ use App\API\Modules\finance\BudgetApprovalWorkflow;
 use App\API\Modules\finance\ExpenseApprovalWorkflow;
 use App\API\Modules\finance\PayrollWorkflow;
 use App\API\Services\payments\DisbursementManager;
+use App\API\Services\payments\PayrollPayoutService;
+use App\API\Services\PayrollStatutoryService;
 use App\API\Services\payments\MpesaB2CService;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\KcbFundsTransferService;
@@ -67,6 +69,8 @@ class FinanceAPI extends BaseAPI
     private $expenseManager;
     private $reportingManager;
     private $disbursementManager;
+    private $payrollPayoutService;
+    private $payrollStatutoryService;
     private $departmentBudgetManager;
     private $accountsManager;
     private $paymentTerminalManager;
@@ -98,6 +102,8 @@ class FinanceAPI extends BaseAPI
         $this->expenseManager = new ExpenseManager();
         $this->reportingManager = new ReportingManager();
         $this->disbursementManager = new DisbursementManager();
+        $this->payrollPayoutService = new PayrollPayoutService();
+        $this->payrollStatutoryService = new PayrollStatutoryService();
         $this->departmentBudgetManager = new DepartmentBudgetManager($this->db);
         $this->accountsManager = new AccountsManager();
         $this->paymentTerminalManager = new PaymentTerminalManager();
@@ -893,6 +899,8 @@ class FinanceAPI extends BaseAPI
 
         [$prScope, $prParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
         $sql = "SELECT 
+                    pr.id AS payroll_id,
+                    pr.data_scope,
                     CONCAT(pr.year, '-', LPAD(pr.month, 2, '0')) AS payroll_period,
                     pr.month AS payroll_month,
                     pr.year AS payroll_year,
@@ -979,7 +987,9 @@ class FinanceAPI extends BaseAPI
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute(array_merge([$payrollId], $psParams, $sParams));
-        $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $payments = $this->attachPayrollDecisionsAndPayouts(
+            $stmt->fetchAll(PDO::FETCH_ASSOC)
+        );
 
         return formatResponse(true, ['payslips' => $payments], 'Staff payments retrieved successfully');
     }
@@ -1045,7 +1055,9 @@ class FinanceAPI extends BaseAPI
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute(array_merge([$payroll['payroll_month'], $payroll['payroll_year']], $payParams2, $staffParams));
-        $payroll['staff_payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $payroll['staff_payments'] = $this->attachPayrollDecisionsAndPayouts(
+            $stmt->fetchAll(PDO::FETCH_ASSOC)
+        );
 
         return formatResponse(true, ['payroll' => $payroll], 'Payroll retrieved successfully');
     }
@@ -1097,6 +1109,7 @@ class FinanceAPI extends BaseAPI
                     'allowances' => 0,
                     'other_deductions' => 0,
                     'children_deductions' => [],
+                    'statutory_options' => $data['statutory_options'] ?? [],
                     'processed_by' => $createdBy,
                 ]);
 
@@ -1111,7 +1124,7 @@ class FinanceAPI extends BaseAPI
             }
 
             if (empty($processed)) {
-                $this->db->prepare("UPDATE payroll_runs SET status = 'cancelled', workflow = 'cancelled' WHERE id = ?")
+                $this->db->prepare("UPDATE payroll_runs SET status = 'draft', workflow = 'cancelled' WHERE id = ?")
                     ->execute([$runId]);
                 return formatResponse(false, ['payroll_id' => $runId, 'failed' => $failed], 'No eligible staff payrolls were calculated');
             }
@@ -1150,6 +1163,12 @@ class FinanceAPI extends BaseAPI
         }
 
         // Reuse the same canonical calculator used when a payroll draft is built.
+        // Explicit recalculation choices replace the saved decision; an ordinary
+        // recalculation restores it so a reviewer cannot silently reset a
+        // statutory item to disabled.
+        $statutoryOptions = array_key_exists('statutory_options', $data)
+            ? $this->statutoryOptionsForStaff($data, (int) $payroll['staff_id'])
+            : $this->payrollStatutoryService->optionsForPayslip((int) $payroll['id']);
         $result = $this->processPayrollWithDeductions([
             'staff_id' => (int) $payroll['staff_id'],
             'payroll_month' => (int) $payroll['payroll_month'],
@@ -1157,6 +1176,7 @@ class FinanceAPI extends BaseAPI
             'allowances' => 0,
             'other_deductions' => 0,
             'children_deductions' => [],
+            'statutory_options' => $statutoryOptions,
             'processed_by' => $this->getCurrentUserId(),
         ]);
 
@@ -1306,6 +1326,213 @@ class FinanceAPI extends BaseAPI
     {
         try { return formatResponse(true, $this->disbursementManager->payrollSourceAllocationRows($payrollId)); }
         catch (\Throwable $e) { return formatResponse(false, null, $e->getMessage()); }
+    }
+
+    /**
+     * Return the authoritative mixed-rail payout plan for one payroll run.
+     */
+    public function getPayrollPayoutPlans(int $payrollRunId): array
+    {
+        try {
+            return formatResponse(true, [
+                'payroll_id' => $payrollRunId,
+                'plans' => $this->payrollPayoutService->plansForPayroll($payrollRunId),
+            ], 'Payroll payout plans retrieved');
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Save/replace payout legs before release. The server validates the plan
+     * total, source account, rail support and recipient details.
+     */
+    public function savePayrollPayoutPlans(int $payrollRunId, array $allocations, int $actorUserId): array
+    {
+        try {
+            return formatResponse(true, $this->payrollPayoutService->savePlans(
+                $payrollRunId,
+                $allocations,
+                $actorUserId
+            ), 'Payroll payout plans saved');
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Save one employee's independent statutory decisions and recalculate the
+     * affected draft payslip without changing any non-statutory deduction.
+     */
+    public function updatePayrollStatutoryOptions(int $payslipId, array $options, int $actorUserId): array
+    {
+        try {
+            $this->db->beginTransaction();
+            [$scopeSql, $scopeParams] = DataScopeService::predicateFor('payslips');
+            $stmt = $this->db->prepare(
+                "SELECT * FROM payslips WHERE id = ? AND $scopeSql LIMIT 1 FOR UPDATE"
+            );
+            $stmt->execute(array_merge([$payslipId], $scopeParams));
+            $payslip = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if (!$payslip) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Payroll draft not found', 404);
+            }
+            if ((string) ($payslip['payslip_status'] ?? '') !== 'draft') {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Only a draft payroll can change statutory decisions');
+            }
+
+            $normalised = PayrollStatutoryService::normaliseOptions($options);
+            $grossSalary = (float) ($payslip['gross_salary'] ?? 0);
+            $effectiveDate = sprintf(
+                '%04d-%02d-01',
+                (int) $payslip['payroll_year'],
+                (int) $payslip['payroll_month']
+            );
+            $statutory = $this->calculateSelectedStatutory(
+                $grossSalary,
+                (int) $payslip['payroll_year'],
+                $effectiveDate,
+                $normalised
+            );
+            $newStatutoryTotal = (float) $statutory['nssf']
+                + (float) $statutory['shif']
+                + (float) $statutory['paye']
+                + (float) $statutory['housing_levy'];
+            $nonStatutoryDeductions = (float) ($payslip['child_fees_deduction'] ?? 0)
+                + (float) ($payslip['other_deductions_total'] ?? 0);
+            $netSalary = round($grossSalary - $newStatutoryTotal - $nonStatutoryDeductions, 2);
+            if ($netSalary < 0) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'These statutory decisions produce a negative net salary.');
+            }
+
+            $breakdown = json_decode((string) ($payslip['deductions_breakdown'] ?? ''), true);
+            if (!is_array($breakdown)) $breakdown = [];
+            $breakdown['statutory_options'] = $normalised;
+            $breakdown['statutory_deductions'] = [
+                'paye' => (float) $statutory['paye'],
+                'nssf' => (float) $statutory['nssf'],
+                'shif' => (float) $statutory['shif'],
+                'housing_levy' => (float) $statutory['housing_levy'],
+            ];
+            $breakdown['other_deductions'] = (float) ($payslip['other_deductions_total'] ?? 0);
+
+            try {
+                $this->db->prepare(
+                    "UPDATE payslips
+                     SET nssf_contribution=?, nhif_contribution=0, shif_contribution=?,
+                         employer_nssf_contribution=?, employer_housing_levy=?,
+                         paye_tax=?, housing_levy=?, net_salary=?,
+                         deductions_breakdown=?, updated_at=NOW()
+                     WHERE id=? AND payslip_status='draft'"
+                )->execute([
+                    (float) $statutory['nssf'],
+                    (float) $statutory['shif'],
+                    (float) $statutory['employer_nssf'],
+                    (float) $statutory['employer_housing_levy'],
+                    (float) $statutory['paye'],
+                    (float) $statutory['housing_levy'],
+                    $netSalary,
+                    json_encode($breakdown, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    $payslipId,
+                ]);
+                $this->payrollStatutoryService->saveForPayslip([
+                    'id' => (int) $payslipId,
+                    'staff_id' => (int) $payslip['staff_id'],
+                    'payroll_month' => (int) $payslip['payroll_month'],
+                    'payroll_year' => (int) $payslip['payroll_year'],
+                    'data_scope' => (string) $payslip['data_scope'],
+                ], $normalised, $actorUserId);
+                $this->db->commit();
+            } catch (\Throwable $error) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+                throw $error;
+            }
+
+            return formatResponse(true, [
+                'payslip_id' => $payslipId,
+                'staff_id' => (int) $payslip['staff_id'],
+                'statutory_options' => $normalised,
+                'nssf' => (float) $statutory['nssf'],
+                'shif' => (float) $statutory['shif'],
+                'paye' => (float) $statutory['paye'],
+                'housing_levy' => (float) $statutory['housing_levy'],
+                'employer_nssf' => (float) $statutory['employer_nssf'],
+                'employer_housing_levy' => (float) $statutory['employer_housing_levy'],
+                'net_salary' => $netSalary,
+            ], 'Statutory decisions saved');
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Return the complete monthly payout transaction ledger.
+     */
+    public function getPayrollPayoutLedger(int $month, int $year): array
+    {
+        try {
+            if ($month < 1 || $month > 12 || $year < 2000) {
+                return formatResponse(false, null, 'A valid payroll month and year are required');
+            }
+            return formatResponse(true, [
+                'month' => $month,
+                'year' => $year,
+                'ledger' => $this->payrollPayoutService->monthlyLedger($month, $year),
+            ], 'Payroll payout ledger retrieved');
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Confirm a manually paid cash leg. Repeated calls are idempotent.
+     */
+    public function confirmPayrollCashLeg(int $legId, string $reference, int $actorUserId): array
+    {
+        try {
+            return formatResponse(true, $this->payrollPayoutService->confirmCashLeg(
+                $legId,
+                $reference,
+                $actorUserId
+            ), 'Cash payroll leg confirmed');
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Create a new provider attempt for one confirmed failed payout leg.
+     */
+    public function retryPayrollPayoutLeg(int $legId, int $actorUserId): array
+    {
+        try {
+            return formatResponse(true, $this->payrollPayoutService->retryLeg(
+                $legId,
+                $actorUserId
+            ), 'Payroll payout leg queued for retry');
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Retry child-fee transfers that failed after a salary was fully settled.
+     */
+    public function retryPayrollChildFees(int $payslipId): array
+    {
+        try {
+            return formatResponse(
+                true,
+                (new \App\API\Services\PayrollChildFeeTransferService($this->db))
+                    ->retryFailedForPayslip($payslipId),
+                'Child-fee transfer retry completed'
+            );
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
     }
 
     public function getPayrollSummary($data)
@@ -2093,9 +2320,6 @@ class FinanceAPI extends BaseAPI
             'department_id' => 'Department',
             'role_count' => 'Assigned role',
             'basic_salary' => 'Basic salary',
-            'kra_pin' => 'KRA PIN',
-            'nssf_no' => 'NSSF number',
-            'nhif_no' => 'NHIF/SHIF number',
             'phone' => 'Phone number',
         ];
 
@@ -2123,6 +2347,118 @@ class FinanceAPI extends BaseAPI
         $mobileReady = trim((string)($staff['mpesa_phone'] ?? $staff['phone'] ?? '')) !== '';
         if (!$bankReady && !$mobileReady) $missing[] = 'Bank details or M-Pesa phone number';
         return $missing;
+    }
+
+    /**
+     * Resolve one employee's statutory switches from a single-staff or bulk
+     * payload. Missing switches deliberately mean disabled.
+     */
+    private function statutoryOptionsForStaff(array $payload, int $staffId): array
+    {
+        $source = $payload['statutory_options'] ?? [];
+        if (!is_array($source)) return PayrollStatutoryService::DEFAULT_OPTIONS;
+
+        // A list may contain one row per employee.
+        if (array_is_list($source)) {
+            foreach ($source as $row) {
+                if (!is_array($row)) continue;
+                $rowStaffId = (int) ($row['staff_id'] ?? 0);
+                if ($rowStaffId === $staffId) {
+                    return PayrollStatutoryService::normaliseOptions($row['options'] ?? $row);
+                }
+            }
+            return PayrollStatutoryService::DEFAULT_OPTIONS;
+        }
+
+        // A single row may identify its employee explicitly.
+        if (isset($source['staff_id'])) {
+            $rowStaffId = (int) $source['staff_id'];
+            if ($rowStaffId !== $staffId) return PayrollStatutoryService::DEFAULT_OPTIONS;
+            return PayrollStatutoryService::normaliseOptions($source['options'] ?? $source);
+        }
+
+        // Direct single-staff switches.
+        if (array_key_exists('paye', $source) || array_key_exists('nssf', $source)
+            || array_key_exists('shif', $source) || array_key_exists('housing_levy', $source)
+            || array_key_exists('paye_enabled', $source) || array_key_exists('nssf_enabled', $source)
+            || array_key_exists('shif_enabled', $source) || array_key_exists('housing_levy_enabled', $source)) {
+            return PayrollStatutoryService::normaliseOptions($source);
+        }
+
+        // Bulk payload keyed by employee id.
+        foreach ([(string) $staffId, $staffId] as $key) {
+            if (isset($source[$key]) && is_array($source[$key])) {
+                return PayrollStatutoryService::normaliseOptions($source[$key]);
+            }
+        }
+        return PayrollStatutoryService::DEFAULT_OPTIONS;
+    }
+
+    /**
+     * Attach the durable statutory decision and payout plan to payslip rows.
+     * The payout legs remain authoritative for mixed cash/bank/M-Pesa payouts;
+     * the legacy payslip source-account fields are only a summary.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<int,array<string,mixed>>
+     */
+    private function attachPayrollDecisionsAndPayouts(array $rows): array
+    {
+        if (!$rows) return [];
+        $optionsByPayslip = $this->payrollStatutoryService->optionsForPayslips($rows);
+        foreach ($rows as &$row) {
+            $payslipId = (int) ($row['id'] ?? $row['payslip_id'] ?? 0);
+            $row['statutory_options'] = $optionsByPayslip[$payslipId]
+                ?? PayrollStatutoryService::DEFAULT_OPTIONS;
+            $row['payout_legs'] = $payslipId > 0
+                ? $this->payrollPayoutService->plansForPayslip($payslipId)
+                : [];
+        }
+        unset($row);
+        return $rows;
+    }
+
+    /**
+     * Calculate only the employee statutory items explicitly selected for this
+     * payslip. Disabled items and their linked employer contributions are zero.
+     */
+    private function calculateSelectedStatutory(
+        float $grossSalary,
+        int $payrollYear,
+        string $effectiveDate,
+        array $options
+    ): array {
+        $options = PayrollStatutoryService::normaliseOptions($options);
+        $nssf = $options['nssf'] ? $this->calculateNSSF($grossSalary, $payrollYear, $effectiveDate) : 0.0;
+        $shif = $options['shif'] ? $this->calculateSHIF($grossSalary, $payrollYear, $effectiveDate) : 0.0;
+
+        $housingRule = $this->statutoryRule('Housing Levy', 'employee_employer_contribution', $payrollYear, $effectiveDate);
+        $housingLevy = 0.0;
+        $employerHousingLevy = 0.0;
+        if ($options['housing_levy']) {
+            $housingLevy = round($grossSalary * ((float) ($housingRule['employee_rate'] ?? 0) / 100), 2);
+            $employerHousingLevy = round($grossSalary * ((float) ($housingRule['employer_rate'] ?? 0) / 100), 2);
+            if ($housingRule['cap_amount'] !== null) {
+                $cap = (float) $housingRule['cap_amount'];
+                $housingLevy = min($housingLevy, $cap);
+                $employerHousingLevy = min($employerHousingLevy, $cap);
+            }
+        }
+
+        $employerNssf = $options['nssf'] ? $this->calculateEmployerNSSF($grossSalary, $payrollYear, $effectiveDate) : 0.0;
+        $paye = $options['paye']
+            ? $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housingLevy), $payrollYear)
+            : 0.0;
+
+        return [
+            'options' => $options,
+            'nssf' => round($nssf, 2),
+            'shif' => round($shif, 2),
+            'housing_levy' => round($housingLevy, 2),
+            'employer_nssf' => round($employerNssf, 2),
+            'employer_housing_levy' => round($employerHousingLevy, 2),
+            'paye' => round($paye, 2),
+        ];
     }
 
     /**
@@ -2299,7 +2635,7 @@ class FinanceAPI extends BaseAPI
     /**
      * Prepare a bulk payroll preview using configured salary, allowances and deductions.
      */
-    public function getBulkPayrollPreview($month, $year, bool $preparationOnly = false)
+    public function getBulkPayrollPreview($month, $year, bool $preparationOnly = false, ?array $statutoryOptions = null)
     {
         try {
             $periodStart = sprintf('%04d-%02d-01', (int) $year, (int) $month);
@@ -2324,14 +2660,28 @@ class FinanceAPI extends BaseAPI
                 $otherDeductions = $eligible ? $this->getActiveStaffDeductionsTotal($staff['id'], $periodStart, $periodEnd) : 0;
                 $awardLines = $eligible ? $this->getPayrollAwardLines((int)$staff['id'],$periodStart) : [];
                 $grossSalary = $basicSalary + $allowances;
-                $nssf = $eligible ? $this->calculateNSSF($grossSalary, $year) : 0;
-                $shif = $eligible ? $this->calculateSHIF($grossSalary, $year) : 0;
-                $housingRule = $this->statutoryRule('Housing Levy', 'employee_employer_contribution', $year);
-                $housingLevy = $eligible ? round($grossSalary * ((float)($housingRule['employee_rate'] ?? 0) / 100), 2) : 0;
-                if ($housingLevy > 0 && $housingRule['cap_amount'] !== null) {
-                    $housingLevy = min($housingLevy, (float)$housingRule['cap_amount']);
+                if ($statutoryOptions === null && $existing) {
+                    $options = $this->payrollStatutoryService->optionsForPayslip((int) $existing['id']);
+                } else {
+                    $options = $this->statutoryOptionsForStaff(
+                        ['statutory_options' => $statutoryOptions ?? []],
+                        (int) $staff['id']
+                    );
                 }
-                $paye = $eligible ? $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housingLevy), $year) : 0;
+                if (!$eligible) {
+                    $options = PayrollStatutoryService::DEFAULT_OPTIONS;
+                }
+                $statutory = $eligible
+                    ? $this->calculateSelectedStatutory($grossSalary, (int) $year, $periodStart, $options)
+                    : [
+                        'options' => PayrollStatutoryService::DEFAULT_OPTIONS,
+                        'nssf' => 0.0, 'shif' => 0.0, 'housing_levy' => 0.0,
+                        'employer_nssf' => 0.0, 'employer_housing_levy' => 0.0, 'paye' => 0.0,
+                    ];
+                $nssf = (float) $statutory['nssf'];
+                $shif = (float) $statutory['shif'];
+                $housingLevy = (float) $statutory['housing_levy'];
+                $paye = (float) $statutory['paye'];
                 $totalDeductions = $nssf + $shif + $paye + $housingLevy + $otherDeductions;
 
                 $rows[] = [
@@ -2343,9 +2693,14 @@ class FinanceAPI extends BaseAPI
                     'allowances' => $allowances,
                     'salary_source' => $staff['salary_override'] ? 'individual_override' : 'primary_role',
                     'award_lines' => $awardLines,
-                    'statutory_deductions' => $nssf + $shif + $paye,
+                    'statutory_options' => $options,
+                    'statutory_deductions' => $nssf + $shif + $paye + $housingLevy,
+                    'nssf_deduction' => $nssf,
                     'shif_deduction' => $shif,
+                    'paye_deduction' => $paye,
                     'housing_levy' => $housingLevy,
+                    'employer_nssf_contribution' => (float) $statutory['employer_nssf'],
+                    'employer_housing_levy' => (float) $statutory['employer_housing_levy'],
                     'other_deductions' => $otherDeductions,
                     'net_salary' => $grossSalary - $totalDeductions,
                     'payroll_eligible' => $eligible,
@@ -2530,6 +2885,10 @@ class FinanceAPI extends BaseAPI
             $manualOtherDeductions = $preparationOnly ? 0 : ($data['other_deductions'] ?? 0);
             $childrenDeductions = $preparationOnly ? [] : ($data['children_deductions'] ?? []);
             $processedBy = $data['processed_by'] ?? null;
+            $statutoryOptionsProvided = array_key_exists('statutory_options', $data);
+            $statutoryOptions = $statutoryOptionsProvided
+                ? $this->statutoryOptionsForStaff($data, (int) $staffId)
+                : null;
 
             if (!$staffId) {
                 return formatResponse(false, null, 'Staff ID required');
@@ -2556,6 +2915,27 @@ class FinanceAPI extends BaseAPI
             $profile = $this->getPayrollEligibilityProfile($staffId, $payrollPeriodStart);
             $basicSalary = (float) ($profile['basic_salary'] ?? 0);
 
+            // A recalculation without an explicit decision restores the saved
+            // per-employee choice. New payslips default every statutory item to
+            // disabled as required by the school's payroll policy.
+            $savedOptionsStmt = $this->db->prepare(
+                "SELECT id FROM payslips
+                 WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
+                   AND data_scope = ? LIMIT 1"
+            );
+            $savedOptionsStmt->execute([
+                (int) $staffId,
+                (int) $payrollMonth,
+                (int) $payrollYear,
+                DataScopeService::recordScope(),
+            ]);
+            $savedPayslip = $savedOptionsStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if (!$statutoryOptionsProvided) {
+                $statutoryOptions = $savedPayslip
+                    ? $this->payrollStatutoryService->optionsForPayslip((int) $savedPayslip['id'])
+                    : PayrollStatutoryService::DEFAULT_OPTIONS;
+            }
+
             $configuredAllowances = $this->getActiveStaffAllowancesTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
             $configuredDeductions = $this->getActiveStaffDeductionsTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
             $awardBreakdown = $this->getPayrollAwardLines((int)$staffId,$payrollPeriodStart);
@@ -2570,22 +2950,22 @@ class FinanceAPI extends BaseAPI
 
             $grossSalary = $basicSalary + $totalAllowances;
 
-            // Calculate statutory deductions
+            // Calculate only the employee statutory items explicitly selected
+            // for this payslip. Every disabled item is persisted as zero.
             $effectiveDate = sprintf('%04d-%02d-01', $payrollYear, $payrollMonth);
-            $nssf = $this->calculateNSSF($grossSalary, $payrollYear, $effectiveDate);
-            $shif = $this->calculateSHIF($grossSalary, $payrollYear, $effectiveDate);
-            $housingRule = $this->statutoryRule('Housing Levy', 'employee_employer_contribution', $payrollYear, $effectiveDate);
-            $housingLevy = round($grossSalary * ((float)($housingRule['employee_rate'] ?? 0) / 100), 2);
-            if ($housingLevy > 0 && $housingRule['cap_amount'] !== null) {
-                $housingLevy = min($housingLevy, (float)$housingRule['cap_amount']);
-            }
-            $employerNssf = $this->calculateEmployerNSSF($grossSalary, $payrollYear, $effectiveDate);
-            $employerHousingLevy = round($grossSalary * ((float)($housingRule['employer_rate'] ?? 0) / 100), 2);
-            if ($employerHousingLevy > 0 && $housingRule['cap_amount'] !== null) {
-                $employerHousingLevy = min($employerHousingLevy, (float)$housingRule['cap_amount']);
-            }
-            // KRA permits SHIF and the employee Housing Levy to reduce taxable income.
-            $paye = $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housingLevy), $payrollYear);
+            $statutory = $this->calculateSelectedStatutory(
+                $grossSalary,
+                (int) $payrollYear,
+                $effectiveDate,
+                $statutoryOptions
+            );
+            $statutoryOptions = $statutory['options'];
+            $nssf = (float) $statutory['nssf'];
+            $shif = (float) $statutory['shif'];
+            $housingLevy = (float) $statutory['housing_levy'];
+            $employerNssf = (float) $statutory['employer_nssf'];
+            $employerHousingLevy = (float) $statutory['employer_housing_levy'];
+            $paye = (float) $statutory['paye'];
 
             // Calculate children fee deduction total
             $totalChildrenFees = 0;
@@ -2704,6 +3084,16 @@ class FinanceAPI extends BaseAPI
             }
 
             $breakdownJson = !empty($childFeesBreakdown) ? json_encode($childFeesBreakdown) : null;
+            $deductionsBreakdownJson = json_encode([
+                'statutory_options' => $statutoryOptions,
+                'statutory_deductions' => [
+                    'paye' => $paye,
+                    'nssf' => $nssf,
+                    'shif' => $shif,
+                    'housing_levy' => $housingLevy,
+                ],
+                'other_deductions' => $configuredDeductions + $manualOtherDeductions,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
             // Ensure a payroll run (period-level master) exists for this month/year
             [$runScope, $runParams] = DataScopeService::predicateFor('payroll_runs');
@@ -2736,24 +3126,35 @@ class FinanceAPI extends BaseAPI
                 }
             }
 
-            // Check if payslip already exists for this staff + period
-            $checkSql = "SELECT id FROM payslips WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?";
+            // Check if payslip already exists for this staff + period.
+            // The local unique key does not include data_scope, so include the
+            // active workspace explicitly and never overwrite another scope.
+            $checkSql = "SELECT id FROM payslips
+                         WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
+                           AND data_scope = ? LIMIT 1";
             $checkStmt = $this->db->prepare($checkSql);
-            $checkStmt->execute([$staffId, $payrollMonth, $payrollYear]);
-            $existing = $checkStmt->fetch();
+            $checkStmt->execute([
+                (int) $staffId,
+                (int) $payrollMonth,
+                (int) $payrollYear,
+                DataScopeService::recordScope(),
+            ]);
+            $existing = $checkStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
             if ($existing) {
                 if ($preparationOnly) {
                     $this->db->rollBack();
                     return formatResponse(false, null, 'A payroll draft already exists for this staff member and period. It must be reviewed or amended by an authorised administrator.');
                 }
-                // Update existing payslip
+                // Update existing payslip. Every disabled statutory item is
+                // persisted explicitly as zero, including the linked employer
+                // contribution.
                 $sql = "UPDATE payslips SET
                             basic_salary = ?,
                             gross_salary = ?,
                             allowances_total = ?,
                             nssf_contribution = ?,
-                            nhif_contribution = ?,
+                            nhif_contribution = 0,
                             shif_contribution = ?,
                             employer_nssf_contribution = ?,
                             employer_housing_levy = ?,
@@ -2761,12 +3162,13 @@ class FinanceAPI extends BaseAPI
                             housing_levy = ?,
                             child_fees_deduction = ?,
                             other_deductions_total = ?,
+                            deductions_breakdown = ?,
                             net_salary = ?,
                             child_fees_breakdown = ?,
                             payroll_awards_breakdown = ?,
                             payslip_status = 'draft',
                             updated_at = NOW()
-                        WHERE id = ?";
+                        WHERE id = ? AND data_scope = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([
                     $basicSalary,
@@ -2774,37 +3176,39 @@ class FinanceAPI extends BaseAPI
                     $totalAllowances,
                     $nssf,
                     $shif,
-                    $shif,
                     $employerNssf,
                     $employerHousingLevy,
                     $paye,
                     $housingLevy,
                     $totalChildrenFees,
                     $configuredDeductions + $manualOtherDeductions,
+                    $deductionsBreakdownJson,
                     $netSalary,
                     $breakdownJson,
                     $awardBreakdownJson,
-                    $existing['id']
+                    (int) $existing['id'],
+                    DataScopeService::recordScope(),
                 ]);
-                $payrollId = $existing['id'];
+                $payrollId = (int) $existing['id'];
             } else {
-                // Insert new payslip
+                // Insert new payslip with the same authoritative field order.
                 $sql = "INSERT INTO payslips
-                        (staff_id, payroll_month, payroll_year, basic_salary, allowances_total, gross_salary,
+                        (staff_id, data_scope, payroll_month, payroll_year, basic_salary, allowances_total, gross_salary,
                          nssf_contribution, nhif_contribution, shif_contribution, employer_nssf_contribution, employer_housing_levy,
                          paye_tax, housing_levy, child_fees_deduction,
-                         other_deductions_total, net_salary, child_fees_breakdown, payroll_awards_breakdown, payslip_status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')";
+                         other_deductions_total, net_salary, deductions_breakdown, child_fees_breakdown,
+                         payroll_awards_breakdown, payslip_status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([
-                    $staffId,
-                    $payrollMonth,
-                    $payrollYear,
+                    (int) $staffId,
+                    DataScopeService::recordScope(),
+                    (int) $payrollMonth,
+                    (int) $payrollYear,
                     $basicSalary,
                     $totalAllowances,
                     $grossSalary,
                     $nssf,
-                    $shif,
                     $shif,
                     $employerNssf,
                     $employerHousingLevy,
@@ -2813,11 +3217,23 @@ class FinanceAPI extends BaseAPI
                     $totalChildrenFees,
                     $configuredDeductions + $manualOtherDeductions,
                     $netSalary,
+                    $deductionsBreakdownJson,
                     $breakdownJson,
-                    $awardBreakdownJson
+                    $awardBreakdownJson,
                 ]);
-                $payrollId = $this->db->lastInsertId();
+                $payrollId = (int) $this->db->lastInsertId();
             }
+
+            // Persist the explicit decision in the same transaction as the
+            // calculated payslip so a zero amount always has an auditable
+            // explanation.
+            $this->payrollStatutoryService->saveForPayslip([
+                'id' => (int) $payrollId,
+                'staff_id' => (int) $staffId,
+                'payroll_month' => (int) $payrollMonth,
+                'payroll_year' => (int) $payrollYear,
+                'data_scope' => DataScopeService::recordScope(),
+            ], $statutoryOptions ?? PayrollStatutoryService::DEFAULT_OPTIONS, (int) ($processedBy ?: $this->getCurrentUserId()));
 
             if (!$isTestWorkspace) {
                 $this->persistPayrollChildFeeTransfers($payrollId, $childFeesBreakdown);
@@ -2842,7 +3258,8 @@ class FinanceAPI extends BaseAPI
                 'children_fees' => $totalChildrenFees,
                 'other_deductions' => $configuredDeductions + $manualOtherDeductions,
                 'total_deductions' => $totalDeductions,
-                'net_salary' => $netSalary
+                'net_salary' => $netSalary,
+                'statutory_options' => $statutoryOptions ?? PayrollStatutoryService::DEFAULT_OPTIONS,
             ], 'Payroll processed successfully');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
@@ -3073,6 +3490,12 @@ class FinanceAPI extends BaseAPI
                 'paye' => $payroll['paye_tax'],
                 'housing_levy' => $payroll['housing_levy']
             ];
+            $payroll['statutory_options'] = $this->payrollStatutoryService->optionsForPayslip(
+                (int) $payroll['id']
+            );
+            $payroll['payout_legs'] = $this->payrollPayoutService->plansForPayslip(
+                (int) $payroll['id']
+            );
 
             return formatResponse(true, $payroll, 'Detailed payslip retrieved');
         } catch (Exception $e) {
@@ -3212,6 +3635,7 @@ class FinanceAPI extends BaseAPI
                         COALESCE(ps.shif_contribution, ps.nhif_contribution) AS shif_deduction,
                         ps.paye_tax AS paye_deduction,
                         ps.other_deductions_total AS other_deductions,
+                        pr.id AS payroll_run_id,
                         pr.status AS payroll_run_status
                     FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr ON pr.month = ps.payroll_month AND pr.year = ps.payroll_year AND pr.data_scope = ps.data_scope
@@ -3247,7 +3671,9 @@ class FinanceAPI extends BaseAPI
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
-            $payrolls = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $payrolls = $this->attachPayrollDecisionsAndPayouts(
+                $stmt->fetchAll(PDO::FETCH_ASSOC)
+            );
 
             return formatResponse(true, $payrolls, 'Payroll list retrieved');
         } catch (Exception $e) {
@@ -3586,25 +4012,74 @@ class FinanceAPI extends BaseAPI
     public function approvePayroll($payrollId, $approvedBy = null)
     {
         try {
-            [$scopeSql, $scopeParams] = DataScopeService::predicateFor('payslips');
-            $stmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year, data_scope FROM payslips WHERE id = ? AND $scopeSql LIMIT 1");
-            $stmt->execute(array_merge([$payrollId], $scopeParams));
-            $current = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$current) {
-                return formatResponse(false, null, 'Payroll not found');
-            }
-            if ($current['payslip_status'] !== 'draft') {
-                return formatResponse(false, null, 'Only pending payroll can be approved');
+            $payrollId = (int) $payrollId;
+            [$runScope, $runParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
+            $runStmt = $this->db->prepare(
+                "SELECT pr.id, pr.month, pr.year, pr.data_scope, pr.status
+                 FROM payroll_runs pr WHERE pr.id = ? AND $runScope LIMIT 1"
+            );
+            $runStmt->execute(array_merge([$payrollId], $runParams));
+            $run = $runStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            // Keep the old payslip-ID call shape as a compatibility fallback for
+            // open browser tabs, while all new callers use payroll_runs.id.
+            if (!$run) {
+                [$scopeSql, $scopeParams] = DataScopeService::predicateFor('payslips');
+                $stmt = $this->db->prepare(
+                    "SELECT payslip_status, payroll_month, payroll_year, data_scope
+                     FROM payslips WHERE id = ? AND $scopeSql LIMIT 1"
+                );
+                $stmt->execute(array_merge([$payrollId], $scopeParams));
+                $legacy = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$legacy) return formatResponse(false, null, 'Payroll not found');
+                $run = [
+                    'id' => 0,
+                    'month' => (int) $legacy['payroll_month'],
+                    'year' => (int) $legacy['payroll_year'],
+                    'data_scope' => (string) $legacy['data_scope'],
+                    'status' => 'draft',
+                ];
             }
 
-            $sql = "UPDATE payslips SET payslip_status = 'approved', signed_by = ?, paid_at = NULL, updated_at = NOW()
-                    WHERE payroll_month = ? AND payroll_year = ? AND data_scope = ? AND payslip_status <> 'paid'";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$approvedBy, $current['payroll_month'], $current['payroll_year'], $current['data_scope']]);
-            $run = $this->db->prepare("UPDATE payroll_runs SET status='approved', workflow='approved' WHERE month=? AND year=? AND data_scope=?");
-            $run->execute([$current['payroll_month'], $current['payroll_year'], $current['data_scope']]);
+            if (!in_array((string) $run['status'], ['draft', 'approved'], true)) {
+                return formatResponse(false, null, 'Only a draft payroll can be approved');
+            }
 
-            return formatResponse(true, ['payroll_id' => $payrollId, 'payroll_month' => $current['payroll_month'], 'payroll_year' => $current['payroll_year'], 'status' => 'approved'], 'Payroll approved for payment release');
+            $stmt = $this->db->prepare(
+                "UPDATE payslips
+                 SET payslip_status = 'approved', signed_by = ?, paid_at = NULL, updated_at = NOW()
+                 WHERE payroll_month = ? AND payroll_year = ? AND data_scope = ?
+                   AND payslip_status = 'draft'"
+            );
+            $stmt->execute([
+                (int) ($approvedBy ?: $this->getCurrentUserId()),
+                (int) $run['month'],
+                (int) $run['year'],
+                (string) $run['data_scope'],
+            ]);
+            $approvedCount = $stmt->rowCount();
+            if ($approvedCount < 1 && (string) $run['status'] !== 'approved') {
+                return formatResponse(false, null, 'No draft payroll records are ready for approval');
+            }
+
+            $runStmt = $this->db->prepare(
+                "UPDATE payroll_runs SET status = 'approved', workflow = 'approved'
+                 WHERE month = ? AND year = ? AND data_scope = ?"
+            );
+            $runStmt->execute([
+                (int) $run['month'],
+                (int) $run['year'],
+                (string) $run['data_scope'],
+            ]);
+
+            return formatResponse(true, [
+                'payroll_id' => (int) $run['id'] ?: $payrollId,
+                'payroll_run_id' => (int) $run['id'] ?: null,
+                'payroll_month' => (int) $run['month'],
+                'payroll_year' => (int) $run['year'],
+                'approved_count' => $approvedCount,
+                'status' => 'approved',
+            ], 'Payroll approved for payment release');
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -3658,6 +4133,8 @@ class FinanceAPI extends BaseAPI
                     'other_deductions' => 0,
                     'children_deductions' => [],
                     'children_deductions_explicit' => true,
+                    'statutory_options' => $data['statutory_options'] ?? [],
+                    'processed_by' => $data['processed_by'] ?? $this->getCurrentUserId(),
                     'preparation_only' => !empty($data['preparation_only']),
                 ]);
 
@@ -3691,32 +4168,49 @@ class FinanceAPI extends BaseAPI
     {
         try {
             DataScopeService::requireLiveExternalAction('Payroll payment release');
-            $statusStmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? AND data_scope='live' LIMIT 1");
-            $statusStmt->execute([$payrollId]);
-            $payroll = $statusStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$payroll) {
-                throw new Exception('Payroll not found');
-            }
-            if ($payroll['payslip_status'] !== 'approved') {
-                throw new Exception('Payroll must be approved by the director before payment can be released');
-            }
+            $payrollId = (int) $payrollId;
 
-            $runView = ReadReplicaService::masterRef('vw_payroll_runs_payslips');
-            $runStmt = $this->db->prepare("SELECT id, month, year, status FROM {$runView} WHERE payslip_id=? AND data_scope='live' LIMIT 1");
+            // The public contract is payroll_runs.id. Resolve a legacy
+            // payslip-ID call only to keep an already-open browser tab usable.
+            $runStmt = $this->db->prepare(
+                "SELECT id, month, year, status FROM payroll_runs
+                 WHERE id = ? AND data_scope = 'live' LIMIT 1"
+            );
             $runStmt->execute([$payrollId]);
-            $run = $runStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$run || $run['status'] !== 'approved') {
+            $run = $runStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if (!$run) {
+                $legacyStmt = $this->db->prepare(
+                    "SELECT payroll_month, payroll_year FROM payslips
+                     WHERE id = ? AND data_scope = 'live' LIMIT 1"
+                );
+                $legacyStmt->execute([$payrollId]);
+                $legacy = $legacyStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$legacy) throw new Exception('Payroll not found');
+                $runStmt = $this->db->prepare(
+                    "SELECT id, month, year, status FROM payroll_runs
+                     WHERE month = ? AND year = ? AND data_scope = 'live' LIMIT 1"
+                );
+                $runStmt->execute([
+                    (int) $legacy['payroll_month'],
+                    (int) $legacy['payroll_year'],
+                ]);
+                $run = $runStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            }
+            if (!$run) throw new Exception('Payroll not found');
+            if (!in_array((string) $run['status'], ['approved', 'processing'], true)) {
                 throw new Exception('The payroll run must be approved before payment can be released.');
             }
-            $method = in_array($paymentMode, ['mpesa', 'airtel_money'], true) ? 'mobile_money' : 'bank';
-            $this->db->prepare("UPDATE payslips SET payment_method = ?, payment_reference = NULL, payment_status = 'pending', updated_at = NOW() WHERE payroll_month = ? AND payroll_year = ? AND data_scope='live' AND payslip_status = 'approved'")
-                ->execute([$method, $run['month'], $run['year']]);
-            $releaseData = $sourceFinancialAccountId ? ['source_financial_account_id' => (int)$sourceFinancialAccountId] : [];
-            if ($selectedPayslipIds) {
-                $releaseData['payslip_ids'] = $selectedPayslipIds;
-            }
-            $result = $this->disbursementManager->processPayrollDisbursement((int) $run['id'], (int) ($userId ?: $this->getCurrentUserId()), $releaseData);
-            return formatResponse(true, $result, 'Payroll disbursement initiated');
+
+            // A selected payslip list is part of the release command, not a
+            // detail derived from the run. Preserve it when resuming a batch
+            // that is already processing so unpaid legs are not accidentally
+            // widened to the whole payroll run.
+            $result = $this->payrollPayoutService->releasePayroll(
+                (int) $run['id'],
+                (int) ($userId ?: $this->getCurrentUserId()),
+                $selectedPayslipIds
+            );
+            return formatResponse(true, $result, 'Payroll payout release initiated');
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();

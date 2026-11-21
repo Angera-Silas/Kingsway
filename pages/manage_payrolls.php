@@ -87,9 +87,91 @@
 #viewPayslipModal .modal-header { border-bottom: 2px solid #1f2a44; }
 #viewPayslipModal .modal-title { font-weight: 650; }
 .director-payroll-page :is(.btn, button, a, .form-select, .form-control):focus-visible { outline: 2px solid var(--pr-info); outline-offset: 2px; }
+
+/* Statutory decisions: four independent switches, never one master toggle. */
+.director-payroll-page .statutory-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-top: 1px solid var(--pr-ink);
+    border-bottom: 1px solid var(--pr-rule);
+}
+.director-payroll-page .statutory-choice {
+    min-height: 5.25rem;
+    padding: .8rem .85rem;
+    background: var(--pr-paper);
+    border: 0;
+    border-right: 1px solid var(--pr-rule);
+}
+.director-payroll-page .statutory-choice:last-child { border-right: 0; }
+.director-payroll-page .statutory-choice-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-bottom: .35rem;
+}
+.director-payroll-page .statutory-choice-label { font-size: .82rem; font-weight: 650; color: var(--pr-ink); }
+.director-payroll-page .statutory-choice-amount {
+    font-size: .8rem;
+    color: var(--pr-muted);
+    font-variant-numeric: tabular-nums;
+}
+.director-payroll-page .statutory-choice-note { font-size: .72rem; color: var(--pr-muted); margin: .3rem 0 0; }
+.director-payroll-page .statutory-choice.is-on { box-shadow: inset 0 3px 0 var(--pr-info); }
+.director-payroll-page .statutory-choice.is-on .statutory-choice-amount { color: var(--pr-ink); font-weight: 650; }
+
+/* Bulk review keeps the four decisions visible beside each employee. */
+.director-payroll-page .bulk-statutory-grid { display: grid; grid-template-columns: repeat(2, minmax(5.5rem, 1fr)); gap: .25rem .45rem; }
+.director-payroll-page .bulk-statutory-item {
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+    font-size: .72rem;
+    color: var(--pr-muted);
+    white-space: nowrap;
+}
+.director-payroll-page .bulk-statutory-item.is-on { color: var(--pr-ink); font-weight: 650; }
+.director-payroll-page .bulk-statutory-item input { margin: 0; }
+
+/* Payout planning reads as a routing sheet rather than a generic card stack. */
+.director-payroll-page .payout-plan-intro { border-left: 4px solid var(--pr-info); padding: .7rem .85rem; background: var(--pr-wash); color: var(--pr-ink); }
+.director-payroll-page .payout-plan-list { display: grid; gap: .9rem; }
+.director-payroll-page .payout-plan-person { border-top: 2px solid var(--pr-ink); padding-top: .65rem; }
+.director-payroll-page .payout-plan-person-head { display: flex; justify-content: space-between; gap: .75rem; align-items: baseline; margin-bottom: .55rem; }
+.director-payroll-page .payout-plan-person-name { font-weight: 700; color: var(--pr-ink); }
+.director-payroll-page .payout-plan-person-meta { font-size: .78rem; color: var(--pr-muted); font-variant-numeric: tabular-nums; }
+.director-payroll-page .payout-leg {
+    display: grid;
+    grid-template-columns: minmax(8rem, .8fr) minmax(12rem, 1.5fr) minmax(8rem, .8fr) minmax(10rem, 1.2fr) auto;
+    gap: .5rem;
+    align-items: end;
+    padding: .55rem 0 .55rem .75rem;
+    border-left: 2px solid var(--pr-rule);
+}
+.director-payroll-page .payout-leg + .payout-leg { border-top: 1px dashed var(--pr-rule); }
+.director-payroll-page .payout-leg.is-invalid { border-left-color: var(--pr-danger); }
+.director-payroll-page .payout-leg-total { font-size: .76rem; color: var(--pr-muted); font-variant-numeric: tabular-nums; }
+.director-payroll-page .payout-plan-footer { display: flex; justify-content: space-between; gap: .75rem; align-items: center; margin-top: .55rem; }
+.director-payroll-page .payout-plan-balance { font-weight: 700; font-variant-numeric: tabular-nums; }
+.director-payroll-page .payout-plan-balance.is-balanced { color: var(--pr-success); }
+.director-payroll-page .payout-plan-balance.is-unbalanced { color: var(--pr-danger); }
+
+/* Monthly transaction ledger. */
+.director-payroll-page #payoutLedgerTable { font-size: .82rem; margin: 0; }
+.director-payroll-page #payoutLedgerTable thead th { background: none; border-bottom: 1px solid var(--pr-ink); color: var(--pr-muted); font-size: .74rem; font-weight: 650; padding: .45rem .55rem; }
+.director-payroll-page #payoutLedgerTable tbody td { border-color: var(--pr-rule); padding: .5rem .55rem; vertical-align: middle; }
+.director-payroll-page .ledger-method { font-weight: 650; color: var(--pr-ink); }
+.director-payroll-page .ledger-reference { font-size: .74rem; color: var(--pr-muted); }
+.director-payroll-page .ledger-action-btn { border: 1px solid var(--pr-rule); background: var(--pr-paper); color: var(--pr-ink); border-radius: 4px; padding: .2rem .4rem; font-size: .72rem; }
+.director-payroll-page .ledger-action-btn:hover { border-color: var(--pr-ink); }
+.director-payroll-page .ledger-action-btn.retry { color: var(--pr-danger); }
 @media (max-width: 768px) {
     .director-payroll-page .payroll-actions { justify-content: flex-start; }
     .director-payroll-page .payroll-metric + .payroll-metric { border-left: 0; padding-left: 0; border-top: 1px solid var(--pr-rule); }
+    .director-payroll-page .statutory-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .director-payroll-page .statutory-choice:nth-child(2) { border-right: 0; }
+    .director-payroll-page .statutory-choice:nth-child(-n+2) { border-bottom: 1px solid var(--pr-rule); }
+    .director-payroll-page .payout-leg { grid-template-columns: 1fr; border-left: 0; border-top: 1px solid var(--pr-rule); padding-left: 0; }
 }
 </style>
 
@@ -114,9 +196,9 @@
                         <i class="bi bi-arrow-clockwise me-1"></i> Refresh
                     </button>
                     <button class="payroll-action-btn primary" id="paySelectedPayrollBtn" data-payment-control hidden disabled onclick="PayrollManagerController.paySelected()">
-                        <i class="bi bi-cash-coin me-1"></i> Pay Selected
+                        <i class="bi bi-signpost-split me-1"></i> Plan Payout
                     </button>
-                    <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showBulkPayrollModal()">
+                    <button class="payroll-action-btn primary" onclick="PayrollManagerController.showBulkPayrollModal()">
                         <i class="bi bi-people-cog me-1"></i> Bulk Payroll
                     </button>
                     <button class="payroll-action-btn ghost" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showCompensationModal()">
@@ -245,6 +327,44 @@
             </nav>
         </div>
     </div>
+
+    <!-- Monthly payout ledger: one row per plan leg or provider transaction. -->
+    <div class="payroll-panel" id="payrollPayoutLedgerPanel">
+        <div class="payroll-panel-header">
+            <div>
+                <h5>Payout Ledger</h5>
+                <div class="small text-muted" id="payoutLedgerScope">Monthly provider and cash movements</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="payroll-action-btn" onclick="PayrollManagerController.exportPayoutLedgerCsv()">
+                    <i class="bi bi-file-csv me-1"></i> Export CSV
+                </button>
+                <button type="button" class="payroll-action-btn" onclick="PayrollManagerController.printPayrollReport()">
+                    <i class="bi bi-printer me-1"></i> Print Monthly Roll
+                </button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table mb-0" id="payoutLedgerTable">
+                <thead>
+                    <tr>
+                        <th scope="col">Staff</th>
+                        <th scope="col">Method</th>
+                        <th scope="col">Source Account</th>
+                        <th scope="col" class="text-end">Amount</th>
+                        <th scope="col">Reference</th>
+                        <th scope="col">Provider Reference</th>
+                        <th scope="col">Attempt</th>
+                        <th scope="col">Status</th>
+                        <th scope="col" class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="payoutLedgerTableBody">
+                    <tr><td colspan="9" class="text-center py-4 text-muted">Loading payout ledger…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <!-- Process Payroll Modal -->
@@ -312,11 +432,58 @@
                     </div>
                 </div>
 
-                <!-- Step 2: Children & Fee Deductions -->
-                <div id="payrollStep2" class="d-none" data-review-only>
+                <!-- Step 2: Independent statutory decisions -->
+                <div id="payrollStatutoryStep" class="d-none">
                     <hr style="border-color: var(--payroll-line); margin: 20px 0;">
                     <div class="step-header">
                         <div class="step-number">2</div>
+                        <div class="step-title">Statutory Deductions</div>
+                        <span class="status-badge pending" id="statutorySelectionSummary">All items off</span>
+                    </div>
+                    <div class="alert alert-light border-0 mb-3 py-2" style="border-left: 3px solid var(--pr-info) !important; color: var(--pr-muted); font-size: .82rem;">
+                        Choose each deduction for this employee. Every item starts off; a missing KRA PIN, NSSF number or SHIF number does not prevent payroll drafting.
+                    </div>
+                    <div class="statutory-choice-grid" id="statutoryChoiceGrid">
+                        <label class="statutory-choice" data-statutory-card="paye">
+                            <span class="statutory-choice-head">
+                                <span class="statutory-choice-label">PAYE</span>
+                                <input type="checkbox" class="form-check-input" id="statutoryPayeToggle" data-statutory-key="paye" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                            </span>
+                            <span class="statutory-choice-amount" id="statutoryPayeAmount">KES 0.00</span>
+                            <span class="statutory-choice-note">Employee income tax</span>
+                        </label>
+                        <label class="statutory-choice" data-statutory-card="nssf">
+                            <span class="statutory-choice-head">
+                                <span class="statutory-choice-label">NSSF</span>
+                                <input type="checkbox" class="form-check-input" id="statutoryNssfToggle" data-statutory-key="nssf" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                            </span>
+                            <span class="statutory-choice-amount" id="statutoryNssfAmount">KES 0.00</span>
+                            <span class="statutory-choice-note">Employee contribution</span>
+                        </label>
+                        <label class="statutory-choice" data-statutory-card="shif">
+                            <span class="statutory-choice-head">
+                                <span class="statutory-choice-label">SHIF</span>
+                                <input type="checkbox" class="form-check-input" id="statutoryShifToggle" data-statutory-key="shif" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                            </span>
+                            <span class="statutory-choice-amount" id="statutoryShifAmount">KES 0.00</span>
+                            <span class="statutory-choice-note">Employee contribution</span>
+                        </label>
+                        <label class="statutory-choice" data-statutory-card="housing_levy">
+                            <span class="statutory-choice-head">
+                                <span class="statutory-choice-label">Housing levy</span>
+                                <input type="checkbox" class="form-check-input" id="statutoryHousingToggle" data-statutory-key="housing_levy" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                            </span>
+                            <span class="statutory-choice-amount" id="statutoryHousingAmount">KES 0.00</span>
+                            <span class="statutory-choice-note">Employee and school contribution</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Step 3: Children & Fee Deductions -->
+                <div id="payrollStep2" class="d-none" data-review-only>
+                    <hr style="border-color: var(--payroll-line); margin: 20px 0;">
+                    <div class="step-header">
+                        <div class="step-number">3</div>
                         <div class="step-title">Children Fee Deductions</div>
                         <span class="status-badge processing" id="childrenCountBadge">0 children</span>
                     </div>
@@ -344,11 +511,11 @@
                     </div>
                 </div>
 
-                <!-- Step 3: Salary Calculation -->
+                <!-- Step 4: Salary Calculation -->
                 <div id="payrollStep3" class="d-none">
                     <hr style="border-color: var(--payroll-line); margin: 20px 0;">
                     <div class="step-header">
-                        <div class="step-number">3</div>
+                        <div class="step-number">4</div>
                         <div class="step-title">Salary Breakdown</div>
                     </div>
 
@@ -520,6 +687,7 @@
                                 <th class="text-end">Basic</th>
                                 <th class="text-end">Allowances</th>
                                 <th class="text-end">Statutory Ded.</th>
+                                <th scope="col">Statutory Items</th>
                                 <th class="text-end">Other Ded.</th>
                                 <th class="text-end">Housing Levy</th>
                                 <th class="text-end">Net Pay</th>
@@ -592,60 +760,54 @@
     </div>
 </div>
 
-<!-- Payroll Payment Mode Modal -->
-<div class="modal fade" id="payrollPaymentModeModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
-        <div class="modal-content" style="border: none; border-radius: 12px; overflow: hidden;">
-            <div class="modal-header border-0" style="background: linear-gradient(135deg, #0d4f2a, #198754); color: white;">
-                <h5 class="modal-title">
-                    <i class="bi bi-cash-coin"></i> Release Payroll Payment
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body py-4">
-                <div class="mb-3">
-                    <div class="alert alert-warning small mb-3">
-                        Select the salary source account above. The system validates its payroll purpose, disbursement permission, account mapping, and the latest available provider balance before sending payments.
-                    </div>
-                    <label class="form-label fw-bold">Payment Mode</label>
-                    <div class="row g-2" id="paymentModeOptions">
-                        <div class="col-6">
-                            <input type="radio" class="btn-check" name="paymentMode" id="modeBank" value="bank" checked>
-                            <label class="btn btn-outline-success w-100 py-3" for="modeBank">
-                                <i class="bi bi-bank"></i><br>Bank
-                            </label>
-                        </div>
-                        <div class="col-6">
-                            <input type="radio" class="btn-check" name="paymentMode" id="modeCash" value="cash">
-                            <label class="btn btn-outline-success w-100 py-3" for="modeCash">
-                                <i class="bi bi-cash-stack"></i><br>Cash
-                            </label>
-                        </div>
-                        <div class="col-6">
-                            <input type="radio" class="btn-check" name="paymentMode" id="modeMpesa" value="mpesa">
-                            <label class="btn btn-outline-success w-100 py-3" for="modeMpesa">
-                                <i class="bi bi-phone"></i><br>M-Pesa
-                            </label>
-                        </div>
-                        <div class="col-6">
-                            <input type="radio" class="btn-check" name="paymentMode" id="modeAirtel" value="airtel_money">
-                            <label class="btn btn-outline-success w-100 py-3" for="modeAirtel">
-                                <i class="bi bi-phone"></i><br>Airtel Money
-                            </label>
-                        </div>
-                    </div>
+<!-- Mixed payout plan and release -->
+<div class="modal fade" id="payrollPayoutPlanModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header border-0" style="background: var(--pr-ink); color: white;">
+                <div>
+                    <h5 class="modal-title"><i class="bi bi-signpost-split me-2"></i>Plan Payroll Payout</h5>
+                    <div class="small" id="payoutPlanScope" style="color: rgba(255,255,255,.76);"></div>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Payment Reference (Optional)</label>
-                    <input type="text" id="paymentReferenceInput" class="form-control" placeholder="e.g. TRX-12345 or Cheque No.">
-                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-footer border-0" style="background: #f5f5dc;">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
-                    <i class="bi bi-x-circle"></i> Cancel
+            <div class="modal-body">
+                <div class="payout-plan-intro mb-3">
+                    Route each employee's net salary through one or more cash, bank or M-Pesa legs. Each leg keeps its own source account, amount, reference and status.
+                </div>
+                <div class="payout-plan-list" id="payoutPlanList"></div>
+            </div>
+            <div class="modal-footer border-0" style="background: var(--pr-wash);">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-primary" id="savePayrollPayoutPlansBtn" onclick="PayrollManagerController.savePayoutPlans()">
+                    <i class="bi bi-check2-square me-1"></i> Save payout routes
                 </button>
-                <button type="button" class="btn text-white" id="payrollPaymentConfirmOk" style="background: #0d4f2a;">
-                    <i class="bi bi-check-circle"></i> Mark as Paid
+                <button type="button" class="btn btn-primary" id="releasePayrollPayoutsBtn" onclick="PayrollManagerController.releaseSelectedPayouts()">
+                    <i class="bi bi-send-check me-1"></i> Release selected payouts
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Manual cash receipt confirmation -->
+<div class="modal fade" id="payrollCashConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-receipt me-2"></i>Confirm cash receipt</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted" id="cashConfirmStaffName"></p>
+                <label class="form-label" for="cashConfirmReferenceInput">Receipt or cheque reference</label>
+                <input type="text" class="form-control" id="cashConfirmReferenceInput" maxlength="150" placeholder="Enter the receipt or cheque number" autocomplete="off">
+                <div class="form-text">The confirmation is recorded against this cash leg and cannot be reused for another payment.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="cashConfirmSubmitBtn" onclick="PayrollManagerController.confirmCashPayout()">
+                    Confirm receipt
                 </button>
             </div>
         </div>
@@ -691,4 +853,3 @@
 
 <?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
 <?php asset_script($appBase, 'js/pages/payroll_manager.js'); ?>
-<?php asset_script($appBase, 'js/pages/payroll_source_account.js'); ?>

@@ -21,12 +21,20 @@ from .behavior import BehaviorStore
 from .chat_sessions import ChatSessionStore
 from .conversation import ConversationStore
 from .journal import Journal, hash_text
+from .personality import personality_lines
 from .providers import Provider, ProviderError
 from .tools import (
     ANALYTICS_CHART_TYPES,
     DOCUMENT_TOOL,
     ToolBridge,
     SYSTEM_ADMIN_PERMISSION,
+)
+
+# Briefing findings whose suggested action says nothing is outstanding.
+_NON_ACTIONABLE_RE = re.compile(
+    r"^(no|none|nothing)\b.*\b(pending|at this time|outstanding|required|needed|to (do|review))\b"
+    r"|^no action( is)? (needed|required)",
+    re.IGNORECASE,
 )
 
 MAX_TOOL_STEPS = 2
@@ -336,8 +344,22 @@ def _number_tokens(text: str) -> list[float]:
     return found
 
 
-_HEAD_COUNT_WORDS = ("student", "learner", "pupil", "family", "families", "guardian", "parent",
-                     "staff", "teacher", "applicant", "count", "headcount", "number_of", "num_")
+_HEAD_COUNT_WORDS = (
+    "student",
+    "learner",
+    "pupil",
+    "family",
+    "families",
+    "guardian",
+    "parent",
+    "staff",
+    "teacher",
+    "applicant",
+    "count",
+    "headcount",
+    "number_of",
+    "num_",
+)
 
 
 def _is_head_count_column(column: str) -> bool:
@@ -370,7 +392,9 @@ _COLUMN_WORDS = {
 }
 
 
-def _column_for(sentence: str, numeric_columns: list[str], superlatives: list[int]) -> str:
+def _column_for(
+    sentence: str, numeric_columns: list[str], superlatives: list[int]
+) -> str:
     """Which numeric column a superlative sentence is claiming about.
 
     Picked by proximity, not by first match: "highest total arrears ... 48
@@ -438,16 +462,11 @@ def _claims_contradict_rows(rows: list[dict[str, Any]], body: str) -> bool:
             word in lowered
             for word in ("highest", "largest", "biggest", "greatest", "most", "top")
         )
-        asks_low = any(
-            word in lowered
-            for word in ("lowest", "smallest", "least")
-        )
+        asks_low = any(word in lowered for word in ("lowest", "smallest", "least"))
         if not asks_high and not asks_low:
             continue
         superlatives = [
-            lowered.find(word)
-            for word in _SUPERLATIVE_WORDS
-            if lowered.find(word) >= 0
+            lowered.find(word) for word in _SUPERLATIVE_WORDS if lowered.find(word) >= 0
         ]
         mentioned = [label for label in labels if label and label in sentence]
         numbers = _number_tokens(sentence)
@@ -465,7 +484,9 @@ def _claims_contradict_rows(rows: list[dict[str, Any]], body: str) -> bool:
             # The sentence names rows: the row the data calls the extreme must
             # be one of them. This is the reliable signal - a swapped
             # "highest"/"lowest" always names the wrong row.
-            for wants_high in (True, False) if (asks_high and asks_low) else (asks_high,):
+            for wants_high in (
+                (True, False) if (asks_high and asks_low) else (asks_high,)
+            ):
                 truth_label, _truth_value = (
                     max(values, key=lambda item: item[1])
                     if wants_high
@@ -521,6 +542,193 @@ def _looks_like_refusal(body: str) -> bool:
     )
 
 
+_META_PREAMBLE_MARKERS = (
+    "let me ",
+    "let's ",
+    "i need to",
+    "i'll ",
+    "i will ",
+    "first,",
+    "i'll help",
+    "i will help",
+    "to answer this",
+    "i want to",
+    "before i ",
+    "i should ",
+    "i must ",
+)
+
+
+def _looks_like_planning_preamble(body: str) -> bool:
+    """Detect a model narrating its plan instead of answering the operator.
+
+    A weak model emits "Let me start by understanding what's being asked... I
+    need to check what data I have..." and stops there. That is meta-commentary,
+    not an answer, and it must not reach the browser. A genuine answer almost
+    always has structure (a heading, a table, or bolded figures); a bare plan
+    does not. Keeping this check narrow avoids rejecting short valid replies.
+    """
+    text = str(body or "").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    if not any(marker in lowered for marker in _META_PREAMBLE_MARKERS):
+        return False
+    # A real answer carries formatting; a planning monologue does not.
+    structured = any(mark in text for mark in ("#", "|", "**"))
+    return not structured
+
+
+# Tool-internals that must never appear in a staff answer. A weak model echoes
+# the tool envelope back as narration ("I'm not seeing any rows from the
+# data.query call in the envelope you just sent..."), which is meaningless - and
+# misleading - to a teacher. These are dropped from the final answer body; the
+# authoritative figures still come from the governed tool results.
+_META_CHATTER_TOKENS = (
+    "data.query",
+    "data.polars",
+    "reports.nlq",
+    "the envelope",
+    "tool result",
+    "governed data isn't available",
+    "governed data is not available",
+    "permission-scoped dataset",
+    "permission‑scoped dataset",
+    "permission‑scoped data",
+    # Process narration a weak model emits before an otherwise good answer
+    "already executed in this turn",
+    "i used the web search tool",
+    "the search returned",
+    "to provide a timely answer",
+    "let me fetch",
+    "let me check",
+    "let me look",
+    "i'll retrieve",
+    "i’ll retrieve",
+)
+
+
+def _strip_meta_chatter(body: str) -> str:
+    """Remove process narration from a final answer without touching its content.
+
+    The model sometimes prefixes a real, web-grounded answer with paragraphs
+    about which tool it checked and what the tool envelope contained. Those
+    paragraphs are internal chatter, not information for the operator. Dropping
+    them is safe because every figure the answer relies on is still checked
+    against governed evidence by ``_guard_grounded_answer`` afterwards.
+    """
+    text = str(body or "")
+    if not text.strip():
+        return text
+    kept = []
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    for index, stripped in enumerate(paragraphs):
+        # Models emit typographic apostrophes ("isn’t", "I’ll"). Normalise
+        # quotes for matching only - the answer text itself is never rewritten.
+        lowered = (
+            stripped.lower()
+            .replace("\u2018", "'")
+            .replace("\u2019", "'")
+            .replace("\u201c", '"')
+            .replace("\u201d", '"')
+        )
+        if any(token in lowered for token in _META_CHATTER_TOKENS):
+            continue
+        if re.match(r"^step\s*\d+\b", lowered):
+            continue
+        if index == 0 and any(
+            lowered.startswith(marker) for marker in ("i'll ", "i’ll ", "i will ")
+        ):
+            # A one-sentence opening intention ("I'll retrieve the latest…")
+            # is narration, not an answer. A substantive first-person
+            # recommendation carries a clause, a figure or a list and survives.
+            if "," not in stripped and not any(ch.isdigit() for ch in stripped):
+                continue
+        kept.append(stripped)
+    return "\n\n".join(kept)
+
+
+# Opening process narration that must never be streamed to the browser. The
+# final answer already passes through _strip_meta_chatter, but the SSE deltas
+# are sent before finalization, so an operator could see "Let me fetch the
+# news..." followed by the real answer. These markers are intentionally narrow:
+# a substantive first-person recommendation carries a figure, a list or
+# structure and is preserved.
+_STREAM_PREAMBLE_MARKERS = (
+    "let me ",
+    "let's ",
+    "lets ",
+    "i'll ",
+    "i’ll ",
+    "i will ",
+    "i see ",
+    "i can see ",
+    "based on the ",
+    "i need to ",
+    "i'm going to ",
+    "i am going to ",
+    "i'm checking ",
+    "i am checking ",
+)
+
+
+def _is_stream_preamble(sentence: str) -> bool:
+    """True when a complete streamed sentence is process narration only."""
+    text = str(sentence or "").strip()
+    if not text:
+        return False
+    low = (
+        text.lower()
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+    )
+    if not any(low.startswith(marker) for marker in _STREAM_PREAMBLE_MARKERS):
+        return False
+    # A real answer may legitimately begin with "I'll..." or "I found 3...".
+    # Figures, structure and newlines mark content, not chatter.
+    if any(ch.isdigit() for ch in text):
+        return False
+    if "|" in text or "**" in text or "\n" in text:
+        return False
+    return True
+
+
+def _filter_stream_preamble(buffer: str) -> tuple[str, str]:
+    """Return (safe text to emit, incomplete trailing sentence to keep)."""
+    remaining = str(buffer or "")
+    kept: list[str] = []
+    while True:
+        match = re.search(r"[.!?…\n]", remaining)
+        if not match:
+            break
+        sentence = remaining[: match.end()]
+        remaining = remaining[match.end() :]
+        if not _is_stream_preamble(sentence):
+            kept.append(sentence)
+    return "".join(kept), remaining
+
+
+def _could_become_refusal(body: str) -> bool:
+    """True while the streamed prose is still a possible refusal prefix.
+
+    The refusal sentence is short and the model emits it as the very first
+    text. Holding these bytes back until we know whether the reply is a
+    refusal stops the canned denial reaching the browser before the
+    orchestrator can replace it with governed data.
+    """
+    text = str(body or "").strip().lower()
+    if not text:
+        return True
+    if _looks_like_refusal(text):
+        return True
+    # Is everything streamed so far a prefix of the refusal opening? If the
+    # model diverges ("I can help...") the next byte breaks the prefix and the
+    # held text is released as normal prose.
+    return _REFUSAL_OPENING.startswith(text)
+
+
 def _command_outcome_answer(tool: str, result: Any) -> dict[str, Any] | None:
     """Deterministic answer from a slash command's own tool result.
 
@@ -541,9 +749,12 @@ def _command_outcome_answer(tool: str, result: Any) -> dict[str, Any] | None:
             "want changed, and approve it. Nothing is sent until you approve."
         )
         if draft_id:
-            body = f"Draft #{int(draft_id)} is queued for your review. " + body.split(
-                "A draft has been prepared and queued for your review. ", 1
-            )[-1]
+            body = (
+                f"Draft #{int(draft_id)} is queued for your review. "
+                + body.split(
+                    "A draft has been prepared and queued for your review. ", 1
+                )[-1]
+            )
         return {
             "title": "Draft queued for review",
             "body": body,
@@ -617,17 +828,23 @@ def _rows_bearing_result(result: Any) -> dict[str, Any] | None:
     for candidate in (result, result.get("answer")):
         if isinstance(candidate, dict):
             summary = candidate.get("summary")
-            if isinstance(summary, dict) and summary and not any(
-                isinstance(v, (dict, list)) for v in summary.values()
+            if (
+                isinstance(summary, dict)
+                and summary
+                and not any(isinstance(v, (dict, list)) for v in summary.values())
             ):
                 return {**candidate, "rows": [summary]}
     return None
 
 
-_DATE_LIKE = re.compile(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{4}/\d{4}\b|\b\d{1,2}:\d{2}\b")
+_DATE_LIKE = re.compile(
+    r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{4}/\d{4}\b|\b\d{1,2}:\d{2}\b"
+)
 
 
-def _unsupported_numbers(rows: list[dict[str, Any]], body: str) -> list[float]:
+def _unsupported_numbers(
+    rows: list[dict[str, Any]], body: str, allowed_text: str = ""
+) -> list[float]:
     """Figures stated in the prose that the governed rows do not contain.
 
     Allowed: any value in the rows (numbers inside labels such as "Grade 7"
@@ -635,8 +852,20 @@ def _unsupported_numbers(rows: list[dict[str, Any]], body: str) -> list[float]:
     count. Dates, year ranges and small ordinals (< 10, e.g. "step 2") are
     ignored. Head-count columns are deliberately NOT summed, so "555 learners"
     built by adding per-class counts is rejected.
+
+    ``allowed_text`` carries figures the operator quoted in the question or that
+    an authorized web/news tool returned. On a composite question (e.g. "what is
+    the probability we reach 90% collection given current MoE guidance?") those
+    numbers are legitimate evidence, not fabricated school data; without this,
+    the guard flattened a good cited answer into a raw fee table.
     """
-    allowed: list[float] = [float(len(rows))]
+    # The row count is evidence only when the rows carry no head-count column.
+    # A per-class report has 12 rows (Playgroup..Grade 9); allowing "12" let a
+    # live turn report "Graduating students: 12" when the real figure was 34.
+    has_head_counts = any(
+        _is_head_count_column(str(key)) for row in rows for key in row
+    )
+    allowed: list[float] = [] if has_head_counts else [float(len(rows))]
     sums: dict[str, float] = {}
     for row in rows:
         for key, value in row.items():
@@ -652,11 +881,27 @@ def _unsupported_numbers(rows: list[dict[str, Any]], body: str) -> list[float]:
                 except ValueError:
                     number = None
             lowered = str(key).lower()
-            if number is not None and not _is_head_count_column(lowered) and (
-                lowered.startswith("total") or "amount" in lowered or "arrears" in lowered or "balance" in lowered
+            if (
+                number is not None
+                and not _is_head_count_column(lowered)
+                and (
+                    lowered.startswith("total")
+                    or "amount" in lowered
+                    or "arrears" in lowered
+                    or "balance" in lowered
+                )
             ):
                 sums[lowered] = sums.get(lowered, 0.0) + number
     allowed.extend(sums.values())
+    # Prose drops a leading minus sign ("total balance -28,785" is read as the
+    # token 28,785), while a numeric row value keeps it. Mirror each allowed
+    # figure's magnitude so a legitimate negative balance is not called fake.
+    allowed.extend(abs(number) for number in list(allowed))
+    # Numbers the operator quoted in the question, or that an authorized
+    # web/news tool returned, are legitimate evidence on a composite question.
+    # They are not school figures the model invented, so do not reject them.
+    if allowed_text:
+        allowed.extend(_number_tokens(_DATE_LIKE.sub(" ", str(allowed_text))))
     text = _DATE_LIKE.sub(" ", str(body or ""))
     unsupported: list[float] = []
     for match in re.finditer(r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)(\s*%)?", text):
@@ -694,7 +939,7 @@ def _flatten_row(row: dict[str, Any]) -> str:
         elif isinstance(value, (int, float)):
             text = str(value)
         elif isinstance(value, str):
-            text = value.strip()[:80]
+            text = guard.neutralize_untrusted(value.strip(), 80)
         elif value is None:
             continue
         else:
@@ -792,6 +1037,14 @@ class Orchestrator:
         """
         agent = None
         routing = "default"
+        # Advisory coworker prompts ("what should we post", "give me
+        # suggestions for today") are not report queries. They used to fall
+        # through to the default reports agent, which ran an empty report and
+        # told the operator it had no reliable answer. Route them first to the
+        # agent that owns the advisory tool.
+        advisory = agents.advisory_agent_for(question)
+        if advisory is not None:
+            return advisory, "advisory"
         if self._is_report_query(question):
             agent = agents.AGENTS.get("reports.agent")
             routing = "report_query"
@@ -988,7 +1241,10 @@ class Orchestrator:
             )
             if spec is not None:
                 chart = spec.get("chart")
-                if isinstance(chart, dict) and chart.get("type") in ANALYTICS_CHART_TYPES:
+                if (
+                    isinstance(chart, dict)
+                    and chart.get("type") in ANALYTICS_CHART_TYPES
+                ):
                     payload["chart_type"] = str(chart["type"])
                 title = str(spec.get("title") or "")
                 if title:
@@ -1055,6 +1311,27 @@ class Orchestrator:
         context = {**context, "instruction": instruction}
         question = bound_question(question_clean or question_raw)
 
+        # Prompt injection must be refused BEFORE agent triage: triage itself
+        # calls the provider, so checking later would still leak the attack to a
+        # model. The refusal is deterministic and costs zero provider calls.
+        started_guard = time.monotonic()
+        if guard.is_prompt_injection(question):
+            self._observe_outcome(user_id, route, module, None, [], "refused")
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_prompt_injection_refusal",
+                    "operator_id": user_id,
+                    "route": route,
+                    "module": module,
+                    "question_hash": hash_text(question),
+                    "duration_ms": int((time.monotonic() - started_guard) * 1000),
+                    "provider_calls": 0,
+                    "request_id": request_id,
+                },
+            )
+            return guard.prompt_injection_response(None)
+
         agent, routing = self._select_agent(
             question,
             route,
@@ -1063,6 +1340,8 @@ class Orchestrator:
         )
 
         # Deterministic pre-flight, before any provider call:
+        #   - a prompt-injection attempt (ignore rules, reveal prompt, escalate
+        #     privileges) is refused locally with zero provider calls;
         #   - a confidentiality probe is refused locally and never reaches a
         #     model, so school/Angisoft internals cannot be exfiltrated by
         #     prompt injection;
@@ -1261,6 +1540,38 @@ class Orchestrator:
             request_id,
         )
         hints = self.behavior.hints(user_id)
+
+        # Proactive coworker sections. All three are deterministic and bounded
+        # and run through the same governed tool edge, so this scheduled digest
+        # keeps users updated WITHOUT a model call and WITHOUT broadening scope:
+        #   - today: what the operator is already entitled to see (schedule,
+        #     attention, notifications) via the PHP re-authorized scan;
+        #   - education_news: current MoE/CBC/CBE/global headlines from the
+        #     curated public-web digest (each with a source to verify);
+        #   - public_content: post ideas/headlines/drafts, which the tool itself
+        #     refuses for anyone without a communications/website grant.
+        today = self.tools.execute(
+            user_id,
+            permissions,
+            "assistant.workspace_scan",
+            {"route": "dashboard"},
+            request_id,
+        )
+        education = self.tools.execute(
+            user_id,
+            permissions,
+            "education.news",
+            {"topic": "all", "limit": 5},
+            request_id,
+        )
+        content = self.tools.execute(
+            user_id,
+            permissions,
+            "public_content.advisor",
+            {"purpose": "general", "channel": "website", "limit": 3},
+            request_id,
+        )
+
         digest = {
             "status": "ready",
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
@@ -1273,7 +1584,30 @@ class Orchestrator:
                 "metrics": list(brief.get("metrics") or [])[:10],
                 "as_of": str(brief.get("as_of") or ""),
             },
+            "today": {
+                "status": str(today.get("status") or "unavailable"),
+                "date": str(today.get("date") or ""),
+                "sections": self._digest_scan_sections(today),
+                "unread_notification_count": int(
+                    today.get("unread_notification_count") or 0
+                ),
+            },
+            "education_news": {
+                "status": str(education.get("status") or "unavailable"),
+                "headlines": [str(h) for h in (education.get("headlines") or [])[:5]],
+                "note": str(education.get("note") or ""),
+            },
         }
+        # Omit public-content guidance entirely for operators without the
+        # grant; never leak an authorization decision as a visible section.
+        if str(content.get("status") or "") not in ("not_authorized", "unavailable"):
+            digest["public_content"] = {
+                "status": str(content.get("status") or "advisory"),
+                "post_ideas": [str(i) for i in (content.get("post_ideas") or [])[:3]],
+                "headlines": [str(h) for h in (content.get("headlines") or [])[:3]],
+                "event_ideas": [str(i) for i in (content.get("event_ideas") or [])[:3]],
+                "note": str(content.get("note") or ""),
+            }
         self.journal.write(
             "ai_generation",
             {
@@ -1282,9 +1616,25 @@ class Orchestrator:
                 "cadence": cadence,
                 "alert_count": digest["insight_brief"]["alert_count"],
                 "hints_known": bool(hints.get("known")),
+                "today_items": sum(
+                    len(s or []) for s in digest["today"]["sections"].values()
+                ),
+                "education_headlines": len(digest["education_news"]["headlines"]),
+                "public_content_included": "public_content" in digest,
             },
         )
         return digest
+
+    @staticmethod
+    def _digest_scan_sections(scan: dict[str, Any]) -> dict[str, list[str]]:
+        """Flatten the deterministic scan to short, bounded lines per section."""
+        sections: dict[str, list[str]] = {}
+        raw = scan.get("sections") or {}
+        if isinstance(raw, dict):
+            for name, section in raw.items():
+                items = (section or {}).get("items") or []
+                sections[str(name)] = [str(line) for line in items[:5]]
+        return sections
 
     # ------------------------------------------------------------- briefing
     def briefing(self, context: dict, route: str) -> dict[str, Any]:
@@ -1513,16 +1863,21 @@ class Orchestrator:
             severity = str(item.get("severity") or "info").lower()
             if severity not in allowed_severities:
                 severity = "info"
+            action = str(item.get("suggested_action") or "").strip()
+            # A "finding" whose action says nothing is pending is not a finding;
+            # it only crowds the panel (e.g. "Pending reviews: none at this time").
+            if _NON_ACTIONABLE_RE.search(action):
+                continue
+            cause = str(item.get("root_cause") or "").strip()
+            if cause.lower().startswith("not determinable"):
+                cause = ""
             findings.append(
                 {
                     "title": str(item.get("title") or "Finding")[:160],
                     "severity": severity,
-                    "root_cause": str(
-                        item.get("root_cause") or "not determinable from the scan"
-                    )[:240],
-                    "suggested_action": str(
-                        item.get("suggested_action")
-                        or "Review in the related workspace."
+                    "root_cause": cause[:240],
+                    "suggested_action": (
+                        action or "Review in the related workspace."
                     )[:240],
                 }
             )
@@ -1598,12 +1953,14 @@ class Orchestrator:
         response: dict[str, Any],
         allowed: list[str],
         already_run: set[str] | None = None,
-    ) -> tuple[list[tuple[str, dict[str, Any]]], str | None]:
+    ) -> tuple[list[tuple[str, dict[str, Any]]], list[str]]:
         """Validate one tool proposal, or a batch of up to MAX_TOOLS_PER_STEP.
 
-        Accepts the legacy single {"tool":..,"tool_input":..} shape and the
-        batched {"tools":[{tool,tool_input}..]} shape. Every entry is checked
-        against the agent allowlist before anything executes.
+        Accepts the legacy single {"tool":..,"tool_input":..} shape, the compact
+        {"action":"<tool id>",...} shape, and the batched
+        {"tools":[{tool,tool_input}..]} shape. Every entry is checked against
+        the agent allowlist before anything executes. Returns the accepted
+        requests and the list of rejected tool ids.
         """
         proposals: list[tuple[str, dict[str, Any]]] = []
         # Seeded with what already ran so a prefetched governed read is never
@@ -1622,6 +1979,15 @@ class Orchestrator:
         else:
             tool_id = str(response.get("tool") or "").strip()
             raw_input = response.get("tool_input")
+            if not tool_id:
+                # Some providers emit the compact form
+                # {"action":"<tool id>","tool_input":{...}} instead of the
+                # documented {"action":"tool","tool":"<tool id>",...}. Accept
+                # it when the action names a real governed tool, otherwise a
+                # valid request collapses into a placeholder answer.
+                action = str(response.get("action") or "").strip()
+                if action in allowed:
+                    tool_id = action
             proposals.append(
                 (tool_id, raw_input if isinstance(raw_input, dict) else {})
             )
@@ -1637,13 +2003,10 @@ class Orchestrator:
             else:
                 seen.add(tool_id)
                 valid.append((tool_id, tool_input))
-        note = None
-        if rejected:
-            note = (
-                "error: tool not available to this agent; available tools: "
-                + ", ".join(allowed)
-            )
-        return valid, note
+        # Return the list of rejected ids, NOT a formatted string: callers join
+        # it and slice it as a list. A string here silently produced notes like
+        # "these tools are not available: e, r, r, o, r, :" from "error:".
+        return valid, rejected
 
     def _run_tools_parallel(
         self,
@@ -1735,6 +2098,26 @@ class Orchestrator:
             question_clean, slash_instruction = guard.extract_slash(question_raw)
         question = bound_question(question_clean or question_raw)
 
+        # Refuse before triage: triage calls the provider, so checking later
+        # would still leak the attack. Same pre-flight as the buffered path.
+        if guard.is_prompt_injection(question):
+            # Journal it like the buffered path does; the stream path was silent.
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_prompt_injection_refusal",
+                    "operator_id": context.get("user_id"),
+                    "route": route,
+                    "module": module,
+                    "question_hash": hash_text(question),
+                    "provider_calls": 0,
+                    "stream": True,
+                },
+            )
+            result = guard.prompt_injection_response(None)
+            yield {"kind": "final", **result}
+            return
+
         agent, routing = self._select_agent(
             question,
             route,
@@ -1816,6 +2199,14 @@ class Orchestrator:
         tools_used = [
             tool_id for tool_id, result in prefetched if self._tool_succeeded(result)
         ]
+        # Raw advisory results from both the prefetch path and any tool the
+        # model calls this turn. If the model later refuses, these let us render
+        # the content it actually retrieved instead of a neutral placeholder.
+        advisory_results: dict[str, dict[str, Any]] = {
+            tool_id: result
+            for tool_id, result in prefetched
+            if tool_id in self._ADVISORY_CONTENT_TOOLS
+        }
         # The last governed result that carried rows, so a streamed turn that
         # spends its budget on tools can still answer with the real figures.
         last_rows_result: dict[str, Any] | None = None
@@ -1859,9 +2250,9 @@ class Orchestrator:
             chart = _bounded_chart_result(forced_tool, forced_result)
             if chart is not None and len(charts) < 3:
                 charts.append(chart)
-            artifact = _analytics_artifact(forced_tool, forced_result) or _document_artifact(
+            artifact = _analytics_artifact(
                 forced_tool, forced_result
-            )
+            ) or _document_artifact(forced_tool, forced_result)
             if artifact is not None and len(artifacts) < 3:
                 artifacts.append(artifact)
         elif context.get("forced_tool"):
@@ -1869,9 +2260,7 @@ class Orchestrator:
             # have run as a prefetch, and its result is still what the
             # follow-up draws from.
             command_turn = True
-            forced_source_result = self._command_source_result(
-                context, prefetched
-            )
+            forced_source_result = self._command_source_result(context, prefetched)
         if context.get("forced_follow_up"):
             follow_up = self._run_follow_up(
                 context,
@@ -1935,12 +2324,24 @@ class Orchestrator:
                 (result for tool_id, result in prefetched if tool_id == "reports.nlq"),
                 {},
             )
-            answer_data = nlq_result.get("answer") if isinstance(nlq_result.get("answer"), dict) else nlq_result
+            answer_data = (
+                nlq_result.get("answer")
+                if isinstance(nlq_result.get("answer"), dict)
+                else nlq_result
+            )
             report_code = str(answer_data.get("report_code") or "UNKNOWN")
             report_title = str(answer_data.get("report_title") or "")
             row_count = int(answer_data.get("row_count") or 0)
-            columns = answer_data.get("columns") if isinstance(answer_data.get("columns"), list) else []
-            rows = answer_data.get("rows") if isinstance(answer_data.get("rows"), list) else []
+            columns = (
+                answer_data.get("columns")
+                if isinstance(answer_data.get("columns"), list)
+                else []
+            )
+            rows = (
+                answer_data.get("rows")
+                if isinstance(answer_data.get("rows"), list)
+                else []
+            )
             # The deterministic rendering is the FALLBACK: it is always correct
             # because it reads the authorized columns, but the model writes the
             # answer the staff member sees so both surfaces give the same
@@ -1967,12 +2368,34 @@ class Orchestrator:
                 "rows do not support. Today's date in Africa/Nairobi is "
                 f"{datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
             )
+        elif any(
+            tool_id == "data.query" and _rows_bearing_result(result) is not None
+            for tool_id, result in prefetched
+        ):
+            # data.query releases rows straight from the read-only school data
+            # after PHP re-checks the operator's permission. These are first-class
+            # evidence, not an "unrelated prefetch": telling the model otherwise
+            # made it ignore the correct figures and fall back to a denial.
+            grounding_note = (
+                "The data.query rows below are authorized, permission-scoped "
+                "school records released for this operator. Answer from them: "
+                "quote the exact figures, compute the trend or comparison the "
+                "question asks for, and give practical next steps. For a "
+                "prediction or probability, state it as a bounded estimate from "
+                "these figures, never a certainty. Public-web results below are "
+                "current context - cite their source URLs. Never invent a value "
+                "that is not in the rows. Today's date in Africa/Nairobi is "
+                f"{datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
+            )
         else:
             grounding_note = (
-                "Prefetched results may be unrelated to this question. Never use "
-                "a briefing or workflow catalogue as evidence for school records. "
-                "For any other school-data question, request reports.nlq with the "
-                f"user's question before answering. Today's date in Africa/Nairobi is "
+                "Use only relevant, authorized tool_results below as evidence. "
+                "A briefing or workflow catalogue is not evidence for a "
+                "school-records question. Public-web results are current context: "
+                "cite their source URLs and verify against the official source "
+                "before acting. If a current school figure is needed, request "
+                "data.query (a named dataset) or reports.nlq with the user's "
+                "question before answering. Today's date in Africa/Nairobi is "
                 f"{datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
             )
         base_envelope = {
@@ -2032,7 +2455,12 @@ class Orchestrator:
             body = ""
             buffered = ""
             emitted = 0
+            prose_pending = ""
+            prose_tail = ""
+            refusal_in_round = False
+            final_text_so_far = ""
             is_tool_frame: bool | None = None
+            frame_start = -1
             action: str | None = None
             answer_body_cursor: int | None = None
             answer_body_closed = False
@@ -2040,22 +2468,77 @@ class Orchestrator:
             try:
                 for delta in self.provider.stream(messages, {"task": "chat"}):
                     buffered += delta
+                    if is_tool_frame is not True and frame_start < 0:
+                        # A model often writes a one-line preamble before its JSON
+                        # action. Recognising a frame only when the first byte is
+                        # '{' mistook that tool call for prose, so the tool never
+                        # ran and the operator got a placeholder instead of the
+                        # answer. Anchor on the "action" key and take the brace
+                        # that opens its object, wherever it appears.
+                        match = re.search(r'"action"\s*:\s*"', buffered)
+                        if match:
+                            frame_start = buffered.rfind("{", 0, match.start())
+                            if frame_start >= 0:
+                                prose = output_guard.scrub(
+                                    buffered[emitted:frame_start]
+                                )
+                                if prose:
+                                    safe, prose_tail = _filter_stream_preamble(
+                                        prose_tail + prose
+                                    )
+                                    if safe:
+                                        yield {"kind": "delta", "text": safe}
+                                        rendered_any = True
+                                emitted = frame_start
+                                is_tool_frame = True
                     if is_tool_frame is None:
                         stripped = buffered.lstrip()
-                        if stripped:
-                            is_tool_frame = stripped.startswith("{")
+                        # Still possibly the start of a JSON frame: wait for the
+                        # "action" key before streaming those bytes as prose.
+                        if stripped and not stripped.startswith(("{", "`", "[")):
+                            is_tool_frame = False
                     if is_tool_frame is False:
-                        # Prose: pass every byte straight through as it lands,
+                        # Prose: pass bytes straight through as they land,
                         # through the same confidentiality scrub the buffered
                         # answer gets. Streamed text reaches the browser through
                         # the PHP SSE relay untouched, so without this the
                         # streamed surface could name an internal report code the
                         # buffered surface redacts.
-                        text = output_guard.scrub(buffered[emitted:])
-                        if text:
-                            yield {"kind": "delta", "text": text}
+                        #
+                        # Hold back the opening bytes until we know the reply is
+                        # not the guardrail's canned authorization denial. A weak
+                        # model reaches for that sentence for in-scope questions
+                        # it could answer from governed data; letting it stream
+                        # meant the operator saw a refusal before the
+                        # orchestrator could replace it with the real answer.
+                        prose_pending += buffered[emitted:]
                         emitted = len(buffered)
-                        rendered_any = True
+                        if refusal_in_round:
+                            # Every chunk after the denial opens is dropped too.
+                            # Without this sticky flag only the first chunk was
+                            # suppressed and the rest of "…current role (…) does
+                            # not have authorization…" still reached the browser.
+                            prose_pending = ""
+                            continue
+                        if _looks_like_refusal(prose_pending):
+                            # Drop the denial entirely; finalization turns it
+                            # into a governed-tool nudge below.
+                            refusal_in_round = True
+                            prose_pending = ""
+                            continue
+                        if _could_become_refusal(prose_pending):
+                            # Still a possible prefix ("I c..."); wait for the
+                            # next bytes to disambiguate before streaming.
+                            continue
+                        text = output_guard.scrub(prose_pending)
+                        prose_pending = ""
+                        if text:
+                            safe, prose_tail = _filter_stream_preamble(
+                                prose_tail + text
+                            )
+                            if safe:
+                                yield {"kind": "delta", "text": safe}
+                                rendered_any = True
                     elif is_tool_frame:
                         # Tool proposals must remain private until validated,
                         # but the final action's JSON answer body is safe to
@@ -2090,6 +2573,16 @@ class Orchestrator:
                                         buffered, answer_body_cursor
                                     )
                                 )
+                                # A refusal can also arrive wrapped in a final
+                                # JSON frame. Accumulate the decoded body so the
+                                # canned denial is recognised and dropped there
+                                # too, not just in the plain-prose branch.
+                                if refusal_in_round or _looks_like_refusal(
+                                    final_text_so_far + piece
+                                ):
+                                    refusal_in_round = True
+                                    continue
+                                final_text_so_far += piece
                                 piece = output_guard.scrub(piece)
                                 if piece:
                                     yield {"kind": "delta", "text": piece}
@@ -2098,12 +2591,32 @@ class Orchestrator:
                 provider_error = str(error)[:200]
                 break
 
+            # A held prose prefix that never resolved into a refusal is still a
+            # valid answer (e.g. a one-word reply). Release it rather than
+            # losing it when the provider closes the stream mid-prefix.
+            if prose_pending and not refusal_in_round:
+                text = output_guard.scrub(prose_pending)
+                prose_pending = ""
+                if text:
+                    safe, prose_tail = _filter_stream_preamble(prose_tail + text)
+                    # The final fragment may have no sentence terminator. If it
+                    # is itself process narration, drop it; otherwise release it
+                    # so short valid answers are never lost.
+                    if prose_tail and not _is_stream_preamble(prose_tail):
+                        safe += prose_tail
+                    prose_tail = ""
+                    if safe:
+                        yield {"kind": "delta", "text": safe}
+                        rendered_any = True
+
             body = buffered.strip()
             if not body:
                 break
 
             if is_tool_frame:
-                proposal = self._json_object(body)
+                proposal = self._json_object(
+                    buffered[frame_start:] if frame_start >= 0 else body
+                )
                 if (
                     stream_delegations < MAX_DELEGATIONS
                     and str(proposal.get("action") or "") == "delegate"
@@ -2185,10 +2698,14 @@ class Orchestrator:
                             role_ids=context.get("role_ids"),
                         )
                         tools_used.append(tool_id)
+                        if tool_id in self._ADVISORY_CONTENT_TOOLS:
+                            advisory_results[tool_id] = result
                         chart = _bounded_chart_result(tool_id, result)
                         if chart is not None and len(charts) < 3:
                             charts.append(chart)
-                        artifact = _analytics_artifact(tool_id, result) or _document_artifact(tool_id, result)
+                        artifact = _analytics_artifact(
+                            tool_id, result
+                        ) or _document_artifact(tool_id, result)
                         if artifact is not None and len(artifacts) < 3:
                             artifacts.append(artifact)
                         tool_results.append(self._compact_result(tool_id, result))
@@ -2255,7 +2772,81 @@ class Orchestrator:
                 # A further tool request breaches the step budget: fall through
                 # and answer from the governed results gathered so far.
 
-            parsed = self._parse_answer_text(body)
+            # The guardrail block gives a weak model a ready-made refusal
+            # sentence, and it reaches for that sentence as a "safe" default on
+            # in-scope questions it could answer from governed data. By this
+            # point the deterministic pre-flight has already cleared the
+            # question (injection, confidentiality, smalltalk) and only a tool
+            # result can signal a real denial - so a canned refusal here is a
+            # model failure, not an authorization decision. Never ship it.
+            planning_preamble = _looks_like_planning_preamble(body)
+            if _looks_like_refusal(body) or planning_preamble:
+                can_nudge = (
+                    not command_turn
+                    and attempt + 1 < MAX_STREAM_ROUNDS
+                    and stream_tool_steps < MAX_STREAM_TOOL_STEPS
+                    and any(
+                        tool in allowed_tools
+                        for tool in ("data.query", "reports.nlq", "analytics.summary")
+                    )
+                )
+                if can_nudge:
+                    carried.append({"role": "assistant", "content": body[:1500]})
+                    carried.append(
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "question": question,
+                                    "note": (
+                                        "the previous reply narrated a plan instead "
+                                        "of answering"
+                                        if planning_preamble
+                                        else "the previous reply used the canned "
+                                        "authorization-refusal sentence"
+                                    ),
+                                    "instruction": (
+                                        (
+                                            "That reply was meta-commentary about "
+                                            "what you intended to do, not an answer. "
+                                            "Do NOT describe your plan, list steps, "
+                                            "or narrate what you are checking. Answer "
+                                            "the operator DIRECTLY and SUBSTANTIVELY "
+                                            "now: give the forecast, the probability, "
+                                            "the evidence and the single recommended "
+                                            "action from the governed results already "
+                                            "supplied. If a figure is missing, request "
+                                            "ONE governed data tool with a JSON tool "
+                                            "frame, then answer from the rows."
+                                        )
+                                        if planning_preamble
+                                        else (
+                                            "That refusal was incorrect: this request "
+                                            "passed the scope checks and the operator "
+                                            "is authorized. Do NOT use the "
+                                            "authorization-refusal sentence. If the "
+                                            "supplied results do not answer the "
+                                            "question, request ONE governed data tool "
+                                            "now (data.query to list or read the "
+                                            "matching dataset, or reports.nlq with the "
+                                            "question) using the JSON tool frame, then "
+                                            "answer from the rows you get back."
+                                        )
+                                    ),
+                                },
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+                    continue
+                # No retry budget left: render real governed rows if we have
+                # them, otherwise the neutral fallback. The refusal itself is
+                # never returned to the operator.
+                parsed = (
+                    self._rows_answer(last_rows_result) if last_rows_result else None
+                )
+            else:
+                parsed = self._parse_answer_text(_strip_meta_chatter(body))
             if parsed:
                 if command_turn and (
                     _looks_like_refusal(str(parsed.get("body") or ""))
@@ -2266,14 +2857,64 @@ class Orchestrator:
                     ) or self._rows_answer(last_rows_result)
                     if rendered is not None:
                         parsed = {**parsed, **rendered}
-                answer = self._guard_grounded_answer(parsed, last_rows_result)
+                answer = self._guard_grounded_answer(
+                    parsed,
+                    last_rows_result,
+                    self._allowed_evidence_text(question, tool_results),
+                    strict_numbers=not self._is_analytical_question(question),
+                )
             break
 
         outcome = "answered" if answer else "unavailable"
         degraded = False
-        answer = self._guard_grounded_answer(answer, last_rows_result)
+        answer = self._guard_grounded_answer(
+            answer,
+            last_rows_result,
+            self._allowed_evidence_text(question, tool_results),
+            strict_numbers=not self._is_analytical_question(question),
+        )
+        answer = self._guard_figures_without_evidence(
+            answer,
+            last_rows_result,
+            tools_used,
+            self._allowed_evidence_text(question, tool_results),
+        )
+        # "What's new in CBC/CBE" is current public information. The curated
+        # education.news digest is profile-filtered (no Senior School content,
+        # no encyclopedia noise) and source-bearing, whereas the model's own
+        # prose can reintroduce off-profile items from the raw web.search tool
+        # and mislabel public web facts as "Based on school records". For these
+        # questions the governed, filtered digest is authoritative.
+        if agents.is_education_news_question(question):
+            news_rendered = self._advisory_answer_from_result(
+                "education.news", advisory_results.get("education.news") or {}
+            )
+            if news_rendered is not None:
+                answer = news_rendered
+                outcome = "answered"
+        # "Give me three useful suggestions for my work" is a workspace-review
+        # prompt. The wording model sometimes answers it with a bare zero-row
+        # reports.nlq result (routing=advisory, agent=reports.agent) even though
+        # the governed workspace-scan / insight-brief content was prefetched.
+        # For these questions the deterministic advisory renderer is
+        # authoritative, so the operator always gets real suggestions.
+        if agents.is_advisory_suggestion_question(question):
+            suggestion_rendered = self._advisory_prefetch_answer(
+                list(advisory_results.items())
+            )
+            if suggestion_rendered is not None:
+                answer = suggestion_rendered
+                outcome = "answered"
         if answer is None:
-            if deterministic_answer:
+            # The wording model may answer an in-scope advisory question with a
+            # canned refusal or pure process narration. The governed advisory
+            # tool already returned exactly what was asked for, so render that
+            # content instead of the neutral "couldn't verify that" placeholder.
+            advisory = self._advisory_prefetch_answer(list(advisory_results.items()))
+            if advisory is not None:
+                answer = advisory
+                outcome = "answered"
+            elif deterministic_answer:
                 # The provider did not deliver, but the authorized rows are in
                 # hand: render them deterministically so the staff member still
                 # gets the real figures instead of an error bubble.
@@ -2442,6 +3083,12 @@ class Orchestrator:
                 value = str(incoming.get(key) or "").strip()[:40]
                 if value:
                     prefs[key] = value
+            if "personality" in incoming:
+                from .personality import clean_personality
+
+                profile = clean_personality(incoming.get("personality"))
+                if profile:
+                    prefs["personality"] = profile
         return prefs
 
     @staticmethod
@@ -2455,6 +3102,8 @@ class Orchestrator:
             lines.append(f"Preferred language: {language[:40]}")
         if prefs.get("auto_charts") is False:
             lines.append("Charts: only when explicitly requested")
+        # Stable per-user coworker personality (advisory, lower-trust).
+        lines.extend(personality_lines(prefs.get("personality")))
         return lines
 
     @staticmethod
@@ -2823,7 +3472,9 @@ class Orchestrator:
         report_code = str(answer_data.get("report_code") or "")
         report_title = str(answer_data.get("report_title") or "").strip()
         row_count = int(answer_data.get("row_count") or 0)
-        rows = answer_data.get("rows") if isinstance(answer_data.get("rows"), list) else []
+        rows = (
+            answer_data.get("rows") if isinstance(answer_data.get("rows"), list) else []
+        )
         rows = [row for row in rows if isinstance(row, dict)]
 
         display_title = report_title
@@ -3038,6 +3689,222 @@ class Orchestrator:
         return followups[:3]
 
     # ----------------------------------------------------------- report query detection
+    # Deterministic prefetch intent. No model call, no extra latency: each
+    # question is classified once, provider-free, into the governed tools whose
+    # evidence it actually needs. This exists because a blind reports.nlq
+    # prefetch mapped "active vehicles overdue for service" to the fee-arrears
+    # report, and the prompt then called those wrong rows "your evidence".
+    _WEB_INTENT_TERMS = (
+        "web",
+        "internet",
+        "online",
+        "latest",
+        "current",
+        "news",
+        "what's new",
+        "whats new",
+        "trend",
+        "ministry of education",
+        "moe",
+        "cbc",
+        "cbe",
+        "kicd",
+        "knec",
+        "around the world",
+        "global",
+        "guidance",
+        "regulation",
+        "this term",
+        "curriculum design",
+    )
+    _DATASET_INTENTS: tuple[tuple[tuple[str, ...], str], ...] = (
+        (
+            (
+                "fleet",
+                "vehicle",
+                "bus",
+                "transport",
+                "capacity",
+                "insurance",
+                "service due",
+                "overdue for service",
+                "driver",
+            ),
+            "fleet_by_status",
+        ),
+        (
+            (
+                "fee balance",
+                "fee",
+                "arrears",
+                "payment status",
+                "collection",
+                "collected",
+                "outstanding",
+            ),
+            "fee_balance_by_status",
+        ),
+        (("attendance", "present", "absent", "late"), "attendance_by_class"),
+        (
+            (
+                "classes per year",
+                "how many classes",
+                "number of classes",
+                "class count",
+            ),
+            "classes_by_year",
+        ),
+    )
+    _DATA_INTENT_TERMS = (
+        "how many",
+        "count",
+        "total",
+        "balance",
+        "arrears",
+        "list",
+        "show",
+        "report",
+        "summary",
+        "by class",
+        "per class",
+        "attendance",
+        "enrolled",
+        "admission",
+        "vehicles",
+        "fleet",
+        "classes",
+    )
+    # Fixed, public-safe search queries. The operator's question is never sent
+    # to a search engine (it can contain school data); only these curated
+    # strings leave the platform.
+    _WEB_QUERIES: tuple[tuple[tuple[str, ...], str], ...] = (
+        (
+            ("vehicle", "fleet", "transport", "bus", "safety", "ntsa", "driver"),
+            "Kenya public service vehicle safety regulations NTSA current guidance",
+        ),
+        (
+            ("fee", "capitation", "school fee", "arrears", "collection"),
+            "Kenya Ministry of Education school capitation and fee guidelines current",
+        ),
+        (
+            ("cbc", "cbe", "kicd", "curriculum", "strand", "scheme", "lesson"),
+            "Kenya KICD CBC CBE curriculum guidance current",
+        ),
+        (
+            ("exam", "assessment", "knec", "rubric"),
+            "Kenya KNEC CBC assessment guidance current",
+        ),
+    )
+    _GENERIC_WEB_QUERY = (
+        "Kenya CBC education current guidance KICD Ministry of Education"
+    )
+
+    @classmethod
+    def _prefetch_intent(
+        cls, question: str, agent_tools: set[str], forced_tool: str = ""
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """The governed tools whose evidence this question actually needs.
+
+        A slash command names its own tool, so intent prefetching is skipped for
+        those turns. Otherwise the plan can combine current public information
+        with a named school dataset: prediction, hypothesis and decision questions
+        need BOTH, and neither alone answers them.
+        """
+        plan: list[tuple[str, dict[str, Any]]] = []
+        if forced_tool and forced_tool != "reports.nlq":
+            return plan
+        query = str(question or "").lower()
+
+        if any(term in query for term in cls._WEB_INTENT_TERMS):
+            if "education.news" in agent_tools:
+                topic = "all"
+                # "education" alone is generic: it is not a Ministry-of-Education
+                # question. Mapping it to the narrow "moe" topic made a plain
+                # "What's new in education" return an empty digest and a canned
+                # refusal. Keep the broad "all" digest for that phrasing; only
+                # explicit ministry/MoE wording selects the "moe" topic.
+                if any(t in query for t in ("ministry", "moe")):
+                    topic = "moe"
+                elif any(t in query for t in ("curriculum", "cbc", "cbe", "kicd")):
+                    topic = "curriculum"
+                elif any(t in query for t in ("exam", "assessment", "knec")):
+                    topic = "assessment"
+                elif any(t in query for t in ("global", "world", "trend")):
+                    topic = "global"
+                plan.append(("education.news", {"topic": topic, "limit": 5}))
+            if "web.search" in agent_tools:
+                search_query = next(
+                    (
+                        public_query
+                        for terms, public_query in cls._WEB_QUERIES
+                        if any(term in query for term in terms)
+                    ),
+                    cls._GENERIC_WEB_QUERY,
+                )
+                plan.append(("web.search", {"query": search_query, "limit": 5}))
+
+        dataset = next(
+            (
+                name
+                for terms, name in cls._DATASET_INTENTS
+                if any(term in query for term in terms)
+            ),
+            None,
+        )
+        if dataset and "data.query" in agent_tools:
+            plan.append(("data.query", {"dataset": dataset}))
+
+        looks_like_data = any(term in query for term in cls._DATA_INTENT_TERMS)
+        if dataset is None and "reports.nlq" in agent_tools:
+            if looks_like_data or not plan:
+                plan.append(("reports.nlq", {"question": question}))
+        return plan
+
+    # A question that asks the model to REASON (predict, test a hypothesis,
+    # decide, forecast) is allowed to derive figures the rows do not literally
+    # contain: sums, rates, percentages, probabilities. Those are analysis, not
+    # fabricated school records. Literal lookups ("how many vehicles", "what are
+    # the fee arrears by class") must still quote the rows exactly. Keeping these
+    # two classes apart is what stops the number guard from turning a genuinely
+    # intelligent answer into a raw table.
+    _ANALYTICAL_TERMS = (
+        "predict",
+        "prediction",
+        "probability",
+        "probability",
+        "forecast",
+        "estimate",
+        "hypothesis",
+        "hypothesise",
+        "hypothesize",
+        "test that",
+        "evidence supports",
+        "supports your hypothesis",
+        "decide",
+        "decision",
+        "risk",
+        "likelihood",
+        "what if",
+        "given current",
+        "combine that",
+        "join three",
+        "tomorrow",
+        "next week",
+        "trend",
+        "projection",
+        "assign a probability",
+        "reach 90%",
+        "concentrated",
+        "spread evenly",
+        "suggest the one action",
+        "single decision",
+    )
+
+    @classmethod
+    def _is_analytical_question(cls, question: str) -> bool:
+        q = str(question or "").lower()
+        return any(term in q for term in cls._ANALYTICAL_TERMS)
+
     def _is_report_query(self, question: str) -> bool:
         """Check if the question is a governed-report query that should route to reports.agent."""
         q = question.lower()
@@ -3142,29 +4009,21 @@ class Orchestrator:
         role_ids: list[int] | None = None,
         context: dict | None = None,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Prefetch deterministic data for the question before the model answers.
+        """Prefetch the governed evidence this question actually needs.
 
-        For any agent with the NLQ tool, run reports.nlq proactively so the
-        model receives real governed data in the first turn. For other agents,
-        only fetch briefing or catalogue when explicitly asked.
+        Intent classification (provider-free) picks the right tools: a fleet
+        question gets the fleet dataset, a fee question the fee dataset, a
+        question about current guidance gets public-web results, and a
+        prediction/decision question gets BOTH. The old code ran reports.nlq for
+        every agent that owned it, so "active vehicles overdue for service" was
+        answered with fee-arrears rows presented to the model as its evidence.
         """
         question_lower = str(question or "").lower()
-        candidates = []
         agent_tools = set(agent.get("tools", ()))
-
-        # Data-first: proactively run the governed NLQ tool for any agent that
-        # has the NLQ tool, so the model receives real row data instead of
-        # hallucinating - but NOT when this turn already knows which governed
-        # tool it wants. A slash action command names its own tool; prefetching
-        # a school report on top of it spent a governed report run on every
-        # /web, /crawl, /draft and /help turn and put an unrelated report's
-        # rows in front of the model as if they were the evidence.
-        forced_tool = str(context.get("forced_tool") or "")
-        command_wants_its_own_tool = bool(forced_tool) and (
-            forced_tool != "reports.nlq"
-        )
-        if "reports.nlq" in agent_tools and not command_wants_its_own_tool:
-            candidates.append(("reports.nlq", {"question": question}))
+        forced_tool = str((context or {}).get("forced_tool") or "")
+        # A slash command names its own tool; never pile unrelated evidence on
+        # top of it (that spent a report run on every /web, /crawl and /draft).
+        candidates = self._prefetch_intent(question, agent_tools, forced_tool)
 
         asks_for_briefing = any(
             term in question_lower
@@ -3184,9 +4043,35 @@ class Orchestrator:
                 "what can you do",
             )
         )
+        # Advisory coworker prompts need the same deterministic evidence the
+        # proactive cards use. Without it the model fell back to an empty
+        # reports.nlq run and told the operator it had no reliable answer.
+        # Use the shared phrase set so routing (agents.is_advisory_suggestion_question)
+        # and prefetch agree on what counts as a suggestions/workspace-review
+        # prompt. The old inline list omitted "three useful suggestions",
+        # "give me suggestions" and "my schedule today", so those questions
+        # routed as advisory but prefetched nothing and fell back to a bare
+        # zero-row reports.nlq result.
+        asks_for_advice = agents.is_advisory_suggestion_question(question)
 
         if asks_for_briefing and "reports.insight_brief" in agent_tools:
             candidates.append(("reports.insight_brief", {"cadence": "daily"}))
+        if asks_for_advice and "reports.insight_brief" in agent_tools:
+            candidates.append(("reports.insight_brief", {"cadence": "daily"}))
+        if asks_for_advice:
+            # Re-authorized by PHP against the caller's own grants, so this is
+            # safe to prefetch even though it is not a model-callable tool.
+            candidates.append(("assistant.workspace_scan", {"route": "dashboard"}))
+        # A "what should we post / content ideas" question must deterministically
+        # fetch the communications agent's advisory tool. Previously the model
+        # was trusted to call it; when it refused first, no governed result
+        # existed and the turn collapsed to "I couldn't verify that". Prefetch
+        # makes the substantive post ideas available regardless of model mood.
+        if (
+            agents.is_public_content_question(question)
+            and "public_content.advisor" in agent_tools
+        ):
+            candidates.append(("public_content.advisor", {"include_news": True}))
         if asks_for_catalog and "assistant.catalog" in agent_tools:
             candidates.append(("assistant.catalog", {}))
 
@@ -3300,7 +4185,9 @@ class Orchestrator:
             chart = _bounded_chart_result(tool_id, result)
             if chart is not None:
                 charts.append(chart)
-            artifact = _analytics_artifact(tool_id, result) or _document_artifact(tool_id, result)
+            artifact = _analytics_artifact(tool_id, result) or _document_artifact(
+                tool_id, result
+            )
             if artifact is not None:
                 artifacts.append(artifact)
             rows_bearing = _rows_bearing_result(result)
@@ -3341,9 +4228,9 @@ class Orchestrator:
             chart = _bounded_chart_result(forced_tool, forced_result)
             if chart is not None:
                 charts.append(chart)
-            artifact = _analytics_artifact(forced_tool, forced_result) or _document_artifact(
+            artifact = _analytics_artifact(
                 forced_tool, forced_result
-            )
+            ) or _document_artifact(forced_tool, forced_result)
             if artifact is not None:
                 artifacts.append(artifact)
             rows_bearing = _rows_bearing_result(forced_result)
@@ -3356,9 +4243,7 @@ class Orchestrator:
             # the source the follow-up draws from. Nesting the follow-up inside
             # the block above meant /forecast never computed its projection.
             command_turn = True
-            forced_source_result = self._command_source_result(
-                context, prefetched
-            )
+            forced_source_result = self._command_source_result(context, prefetched)
         if context.get("forced_follow_up"):
             follow_up = self._run_follow_up(
                 context,
@@ -3555,7 +4440,11 @@ class Orchestrator:
                     tool_steps >= MAX_TOOL_STEPS
                     or len(tools_used) >= MAX_TOOL_EXECUTIONS
                 ):
-                    answer = self._rows_answer(last_rows_result) if last_rows_result else None
+                    answer = (
+                        self._rows_answer(last_rows_result)
+                        if last_rows_result
+                        else None
+                    )
                     if answer is None:
                         answer = {
                             "title": "Assistant ran out of steps",
@@ -3656,9 +4545,9 @@ class Orchestrator:
                     chart = _bounded_chart_result(tool_id, tool_result)
                     if chart is not None:
                         charts.append(chart)
-                    artifact = _analytics_artifact(tool_id, tool_result) or _document_artifact(
+                    artifact = _analytics_artifact(
                         tool_id, tool_result
-                    )
+                    ) or _document_artifact(tool_id, tool_result)
                     if artifact is not None:
                         artifacts.append(artifact)
                     rows_bearing = _rows_bearing_result(tool_result)
@@ -3695,7 +4584,18 @@ class Orchestrator:
 
         if answer is None:
             answer = self._rows_answer(last_rows_result) if last_rows_result else None
-        answer = self._guard_grounded_answer(answer, last_rows_result)
+        answer = self._guard_grounded_answer(
+            answer,
+            last_rows_result,
+            self._allowed_evidence_text(question, tool_results),
+            strict_numbers=not self._is_analytical_question(question),
+        )
+        answer = self._guard_figures_without_evidence(
+            answer,
+            last_rows_result,
+            tools_used,
+            self._allowed_evidence_text(question, tool_results),
+        )
         if answer is None:
             answer = {
                 "title": "Assistant ran out of steps",
@@ -3920,6 +4820,10 @@ class Orchestrator:
             "success",
             "answered",
             "ready",
+            # public_content.advisor returns advisory content (ideas, drafts,
+            # channel guidance) under this status. It is a successful governed
+            # result, not a failure, and must be recognised as evidence.
+            "advisory",
         }
 
     @staticmethod
@@ -3949,13 +4853,19 @@ class Orchestrator:
                 continue
             if isinstance(value, (list, tuple)):
                 items = [
-                    str(v)[:120]
+                    guard.neutralize_untrusted(str(v), 120)
+                    if isinstance(v, str)
+                    else str(v)[:120]
                     for v in list(value)[:6]
                     if isinstance(v, (str, int, float))
                 ]
                 if items:
                     compact[field] = items
-            elif isinstance(value, (str, int, float, bool)) or value is None:
+            elif isinstance(value, str):
+                # Tool output (especially web/fetch/crawl) is untrusted data.
+                # Neutralize embedded instructions before it reaches the model.
+                compact[field] = guard.neutralize_untrusted(value)
+            elif isinstance(value, (int, float, bool)) or value is None:
                 compact[field] = value
         encoded = json.dumps({tool_id: compact}, ensure_ascii=False, default=str)
         if len(encoded) > MAX_TOOL_RESULT_CHARS:
@@ -4064,8 +4974,43 @@ class Orchestrator:
             "escalation_required": False,
         }
 
+    # Tools whose returned figures are legitimate external evidence, not
+    # fabricated school data. Used to build the allow-text for the number guard.
+    _EXTERNAL_EVIDENCE_TOOLS = frozenset(
+        {
+            "web.search",
+            "web.fetch",
+            "web.crawl",
+            "education.news",
+            "public_content.advisor",
+        }
+    )
+
+    @classmethod
+    def _allowed_evidence_text(cls, question: str, tool_results: list[str]) -> str:
+        """Figures the operator asked about or an authorized web tool returned.
+
+        The question itself may quote a target ("reach 90% collection"); a web
+        result carries current figures. Neither was invented by the model, so
+        the number guard must not treat them as fabricated school records.
+        Briefer/staff-notice tool text is deliberately excluded - it is advice,
+        not evidence for a data answer.
+        """
+        parts = [str(question or "")]
+        for entry in tool_results:
+            if not isinstance(entry, str):
+                continue
+            head = entry.lstrip()[:120]
+            if any(f'"{tool}"' in head for tool in cls._EXTERNAL_EVIDENCE_TOOLS):
+                parts.append(entry)
+        return " ".join(parts)
+
     def _guard_grounded_answer(
-        self, answer: dict[str, Any] | None, last_rows_result: dict[str, Any] | None
+        self,
+        answer: dict[str, Any] | None,
+        last_rows_result: dict[str, Any] | None,
+        allowed_text: str = "",
+        strict_numbers: bool = True,
     ) -> dict[str, Any] | None:
         """Replace an answer whose prose contradicts the rows it was given.
 
@@ -4076,19 +5021,35 @@ class Orchestrator:
         figures on screen are the ones the server actually authorized. The
         model's next steps and follow-up questions are kept - they are advice,
         not data.
+
+        ``allowed_text`` (the operator's question plus any authorized web/news
+        results) supplies legitimate figures on a composite question so its
+        cited prose is not mistaken for fabricated school data.
         """
-        if not isinstance(answer, dict) or not isinstance(last_rows_result, dict):
+        if not isinstance(answer, dict):
             return answer
-        rows = last_rows_result.get("rows")
+        rows = (
+            last_rows_result.get("rows")
+            if isinstance(last_rows_result, dict)
+            else None
+        )
         if not isinstance(rows, list) or not rows:
             return answer
         body = str(answer.get("body") or "")
         dict_rows = [row for row in rows if isinstance(row, dict)]
-        # A figure the report did not return is never shown as school data:
-        # replace the prose with the deterministic rendering of the real rows.
-        if not body or not (
-            _claims_contradict_rows(dict_rows, body) or _unsupported_numbers(dict_rows, body)
-        ):
+        # Two distinct guarantees, deliberately separated:
+        #   1. A named row must not be misrepresented as the extreme. This is a
+        #      factual contradiction and is checked for EVERY answer.
+        #   2. A figure must come from the rows - but only for literal report
+        #      lookups. A prediction/hypothesis/decision legitimately derives
+        #      sums, rates and probabilities that the rows do not contain;
+        #      rejecting those turned intelligent answers into a dumb raw table.
+        unsupported = (
+            _unsupported_numbers(dict_rows, body, allowed_text)
+            if strict_numbers
+            else []
+        )
+        if not body or not (_claims_contradict_rows(dict_rows, body) or unsupported):
             return answer
         rendered = self._generate_nlq_answer("", last_rows_result)
         if not rendered:
@@ -4099,8 +5060,204 @@ class Orchestrator:
             "body": rendered,
         }
 
+    _DATA_TOOLS = frozenset({"data.query", "reports.nlq", "analytics.summary", "data.polars"})
+
+    def _guard_figures_without_evidence(
+        self,
+        answer: dict[str, Any] | None,
+        last_rows_result: dict[str, Any] | None,
+        tools_used: list[str],
+        allowed_text: str = "",
+    ) -> dict[str, Any] | None:
+        """Never state a school figure when no data tool returned any rows.
+
+        A live turn asked how many learners graduate; data.query refused the
+        dataset name the model invented and the model answered "12" anyway,
+        labelled as grounded. With no rows there is nothing to quote, so any
+        figure not present in the question or an authorized web result is
+        fabricated: replace the answer with an honest one.
+        """
+        if not isinstance(answer, dict):
+            return answer
+        if not any(tool in self._DATA_TOOLS for tool in tools_used or []):
+            return answer
+        rows = (
+            last_rows_result.get("rows")
+            if isinstance(last_rows_result, dict)
+            else None
+        )
+        if isinstance(rows, list) and rows:
+            return answer
+        body = str(answer.get("body") or "")
+        if not _unsupported_numbers([], body, allowed_text):
+            return answer
+        return {
+            **answer,
+            "title": "No matching school data found",
+            "body": (
+                "I could not find school records that answer this question, so I "
+                "will not give a figure. The data I can read for your role did not "
+                "include it. Open the relevant module report, or ask me to look it "
+                "up a different way."
+            ),
+            "insufficient_data": True,
+            "citations": [],
+        }
+
+    # Advisory tools whose own returned content is already a complete, useful
+    # answer. When the wording model emits a canned refusal or pure narration,
+    # we must not throw this content away and show the neutral placeholder.
+    _ADVISORY_CONTENT_TOOLS = frozenset(
+        {
+            "public_content.advisor",
+            "education.news",
+            "reports.insight_brief",
+            "assistant.workspace_scan",
+        }
+    )
+
+    @staticmethod
+    def _advisory_answer_from_result(
+        tool_id: str, result: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Render a substantive answer straight from a successful advisory tool.
+
+        The tool has already applied the operator's permissions and neutralized
+        untrusted text, so this is safe to show directly. It is the deterministic
+        guarantee behind the advisory coworker: even if the model refuses, the
+        operator still gets the post ideas, news headlines or workspace review
+        the tool actually returned instead of "I couldn't verify that".
+        """
+        if not isinstance(result, dict):
+            return None
+        # A denial or an empty result must never be dressed up as an answer.
+        status = str(result.get("status") or "")
+        if status in {"not_authorized", "unavailable", "error", "invalid_topic"}:
+            return None
+
+        lines: list[str] = []
+        next_steps: list[str] = []
+        if tool_id == "public_content.advisor":
+            groups = (
+                ("post_ideas", "Post ideas"),
+                ("headlines", "Headlines"),
+                ("event_ideas", "Event ideas"),
+                ("news_headlines", "Education news you can draw on"),
+            )
+            for key, heading in groups:
+                values = [
+                    str(v).strip() for v in (result.get(key) or []) if str(v).strip()
+                ][:6]
+                if values:
+                    lines.append(f"**{heading}**")
+                    lines.extend(f"- {v}" for v in values)
+            draft = str(result.get("draft") or "").strip()
+            if draft:
+                lines.append("**Draft to review**")
+                lines.append(draft[:1500])
+            how = [
+                str(v).strip() for v in (result.get("how_to") or []) if str(v).strip()
+            ][:5]
+            next_steps = how
+            title = "What to post — ideas and draft"
+        elif tool_id == "education.news":
+            headlines = [
+                str(v).strip()
+                for v in (result.get("headlines") or [])
+                if str(v).strip()
+            ][:8]
+            for h in headlines:
+                lines.append(f"- {h}")
+            title = "What's new in education"
+        else:  # reports.insight_brief / assistant.workspace_scan
+            summary = str(result.get("summary") or "").strip()
+            if summary:
+                lines.append(summary[:1500])
+            sections = result.get("sections")
+            if isinstance(sections, dict) and sections:
+                # The scanner returns structured sections (schedule, attention,
+                # notifications). Present them as clean, grouped, actionable
+                # suggestions rather than dumping the prefixed combined lines.
+                section_titles = (
+                    ("schedule", "Today's schedule"),
+                    ("attention", "Needs your attention"),
+                    ("notifications", "Notifications"),
+                )
+                for key, heading in section_titles:
+                    section = sections.get(key)
+                    if not isinstance(section, dict):
+                        continue
+                    values = [
+                        str(v).strip()
+                        for v in (section.get("items") or section.get("lines") or [])
+                        if str(v).strip()
+                    ][:6]
+                    if values:
+                        lines.append(f"**{heading}**")
+                        lines.extend(f"- {v}" for v in values)
+            if not lines:
+                # Fall back to the combined lines when a sectioned shape is not
+                # available (e.g. the deterministic insight-brief tool).
+                risks = [
+                    str(v).strip()
+                    for v in (result.get("lines") or result.get("alerts") or [])
+                    if str(v).strip()
+                ][:8]
+                for r in risks:
+                    lines.append(f"- {r}")
+            title = (
+                "Your school briefing"
+                if tool_id == "reports.insight_brief"
+                else "Your workspace review"
+            )
+
+        note = str(result.get("note") or "").strip()
+        if note:
+            lines.append(note)
+        body = "\n".join(line for line in lines if line).strip()
+        if not body:
+            return None
+        return {
+            "title": title,
+            "body": body[:4000],
+            "next_steps": next_steps
+            or ["Review this in the relevant school workspace before acting."],
+            "suggested_questions": [],
+            "escalation_required": False,
+        }
+
+    @classmethod
+    def _advisory_prefetch_answer(
+        cls, prefetched: list[tuple[str, dict[str, Any]]]
+    ) -> dict[str, Any] | None:
+        """Pick the richest successful advisory result and render it.
+
+        ``prefetched`` is the list of (tool_id, raw_result) pairs gathered for
+        this turn. Advisory tools are tried in priority order so a posting
+        question surfaces post ideas, while a news question surfaces headlines.
+        """
+        preferred = (
+            "public_content.advisor",
+            "assistant.workspace_scan",
+            "reports.insight_brief",
+            "education.news",
+        )
+        by_tool = {
+            tool_id: result
+            for tool_id, result in prefetched
+            if tool_id in cls._ADVISORY_CONTENT_TOOLS
+        }
+        for tool_id in preferred:
+            result = by_tool.get(tool_id)
+            if result is None:
+                continue
+            rendered = cls._advisory_answer_from_result(tool_id, result)
+            if rendered is not None:
+                return rendered
+        return None
+
     def _fallback_answer(
-        tools_used: list[str], tool_results: list[str]
+        self, tools_used: list[str], tool_results: list[str]
     ) -> dict[str, Any]:
         return {
             "title": "I couldn’t verify that",

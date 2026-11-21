@@ -167,24 +167,35 @@ class KcbTransferReconciliationService
             if ((int) $children->fetchColumn() > 0) {
                 throw new RuntimeException('A retry is already pending or completed for this transfer.');
             }
-            $countStmt = $this->db->prepare('SELECT COUNT(*) FROM disbursement_transactions WHERE retry_of_disbursement_id = ?');
-            $countStmt->execute([$disbursementId]);
+            $payoutLegId = (int) ($row['payroll_payout_leg_id'] ?? 0);
+            if ($payoutLegId > 0) {
+                $countStmt = $this->db->prepare(
+                    'SELECT COUNT(*) FROM disbursement_transactions WHERE payroll_payout_leg_id = ?'
+                );
+                $countStmt->execute([$payoutLegId]);
+            } else {
+                $countStmt = $this->db->prepare('SELECT COUNT(*) FROM disbursement_transactions WHERE retry_of_disbursement_id = ?');
+                $countStmt->execute([$disbursementId]);
+            }
             $attempt = (int) $countStmt->fetchColumn() + 1;
-            $idempotency = substr((string) $row['idempotency_reference'], 0, 140) . '-R' . $attempt;
-            $providerReference = strtoupper(substr('KR' . base_convert((string) $disbursementId, 10, 36) . $attempt . bin2hex(random_bytes(3)), 0, 12));
+            $idempotency = $payoutLegId > 0
+                ? sprintf('PAYROLL-LEG-%d-RETRY-%d', $payoutLegId, $attempt)
+                : substr((string) $row['idempotency_reference'], 0, 140) . '-R' . $attempt;
+            $providerReference = strtoupper(substr('KR' . base_convert((string) $disbursementId, 10, 36) . $attempt, 0, 12));
 
             $insert = $this->db->prepare("INSERT INTO disbursement_transactions
                 (disbursement_type,payment_purpose,source_financial_account_id,payroll_id,payslip_id,
-                 refund_request_id,expense_id,statutory_remittance_attempt_id,recipient_id,recipient_name,
+                 payroll_payout_leg_id,refund_request_id,expense_id,statutory_remittance_attempt_id,
+                 recipient_id,recipient_type,recipient_name,
                  amount,currency,idempotency_reference,account_number,bank_code,bank_name,channel,status,
                  reconciliation_status,retry_of_disbursement_id,submitted_by,approved_by,approved_at,released_at,
                  next_status_inquiry_at,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending','awaiting_callback',?,?,?,NOW(),NOW(),
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending','awaiting_callback',?,?,?,NOW(),NOW(),
                         DATE_ADD(NOW(), INTERVAL 2 MINUTE),NOW())");
             $insert->execute([
                 $row['disbursement_type'], $row['payment_purpose'], $row['source_financial_account_id'],
-                $row['payroll_id'], $row['payslip_id'], $row['refund_request_id'], $row['expense_id'],
-                $row['statutory_remittance_attempt_id'],
+                $row['payroll_id'], $row['payslip_id'], $payoutLegId ?: null,
+                $row['refund_request_id'], $row['expense_id'], $row['statutory_remittance_attempt_id'],
                 // Carry the parent's discriminator so a retry of a supplier or
                 // parent payment does not silently become 'unknown'.
                 $row['recipient_id'], $row['recipient_type'] ?? 'unknown', $row['recipient_name'],
@@ -211,20 +222,34 @@ class KcbTransferReconciliationService
             'idempotency_reference' => $idempotency,
         ]);
         $accepted = in_array($result['status'] ?? '', ['success', 'pending'], true);
-        $this->db->prepare("UPDATE disbursement_transactions SET request_id=?,transaction_ref=?,status=?,
-            reconciliation_status=?,result_description=?,callback_data=?,failed_at=IF(?='failed',NOW(),NULL)
-            WHERE id=?")->execute([
-                $result['request_id'] ?? null, $result['transaction_ref'] ?? $providerReference,
-                $accepted ? 'pending' : 'failed', $accepted ? 'awaiting_callback' : 'manual_review',
-                $result['message'] ?? null, json_encode($result), $accepted ? 'pending' : 'failed', $newId,
-            ]);
+        $this->db->prepare(
+            "UPDATE disbursement_transactions
+             SET request_id=?, transaction_ref=?, status='pending',
+                 reconciliation_status=?, provider_status=?, result_description=?,
+                 callback_data=?, failed_at=NULL
+             WHERE id=?"
+        )->execute([
+            $result['request_id'] ?? null,
+            $result['transaction_ref'] ?? $providerReference,
+            $accepted ? 'awaiting_callback' : 'manual_review',
+            $accepted ? 'SUBMITTED' : 'SUBMISSION_UNCERTAIN',
+            $result['message'] ?? null,
+            json_encode($result),
+            $newId,
+        ]);
         $this->syncBusinessRecordForRetry($row, $newId, $accepted, $result['transaction_ref'] ?? $providerReference);
         if (!$accepted) {
             $this->raiseException($newId, 'retry_submission_uncertain', 'The retry was not accepted cleanly. Verify the bank statement before another attempt.');
         }
         $this->resolveException($disbursementId, $actorUserId, 'A safely linked retry was created as disbursement #' . $newId . '.');
-        $this->audit($newId, $actorUserId, 'retry_submitted', null, $accepted ? 'pending' : 'manual_review', ['parent_disbursement_id' => $disbursementId, 'provider_response' => $result]);
-        return ['status' => $accepted ? 'pending' : 'manual_review', 'disbursement_id' => $newId, 'retry_of_disbursement_id' => $disbursementId, 'transaction_ref' => $result['transaction_ref'] ?? $providerReference];
+        $this->audit($newId, $actorUserId, 'retry_submitted', null, $accepted ? 'awaiting_callback' : 'manual_review', ['parent_disbursement_id' => $disbursementId, 'provider_response' => $result]);
+        return [
+            'status' => 'pending',
+            'reconciliation_status' => $accepted ? 'awaiting_callback' : 'manual_review',
+            'disbursement_id' => $newId,
+            'retry_of_disbursement_id' => $disbursementId,
+            'transaction_ref' => $result['transaction_ref'] ?? $providerReference,
+        ];
     }
 
     public function resolveManually(int $disbursementId, string $outcome, string $evidence, int $actorUserId): array
@@ -342,6 +367,12 @@ class KcbTransferReconciliationService
 
     private function syncBusinessRecordForRetry(array $row, int $newId, bool $accepted, string $reference): void
     {
+        if (!empty($row['payroll_payout_leg_id'])) {
+            // A mixed payout payslip is settled by its active legs, not by one
+            // provider transaction. Let the leg service aggregate the states.
+            (new PayrollPayoutService($this->db))->applyDisbursementOutcome($newId);
+            return;
+        }
         if (!empty($row['payslip_id'])) {
             $this->db->prepare("UPDATE payslips SET payment_status=?,payment_reference=?,notes=CONCAT(COALESCE(notes,''),'\nKCB safe retry #',?),updated_at=NOW() WHERE id=?")
                 ->execute([$accepted ? 'processing' : 'failed', $reference, $newId, $row['payslip_id']]);

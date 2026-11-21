@@ -27,7 +27,11 @@ $name = (string) ($facts['full_name'] ?? '');
 $cleared = array_values(array_filter($learner['checks'] ?? [], static fn ($c) => ($c['status'] ?? '') === 'cleared'));
 $entered = $facts['admission_date'] ? $d($facts['admission_date']) : ($facts['admission_year'] ?? '');
 $assessments = $facts['national_assessments'] ?? [];
-$placeLine = implode(', ', array_filter([$dest['sub_county'] ?? '', !empty($dest['county']) ? $dest['county'] . ' County' : '']));
+$financeNote = '';
+foreach ($learner['checks'] ?? [] as $c) {
+    if (($c['type'] ?? '') === 'finance') { $financeNote = trim((string) ($c['note'] ?? '')); break; }
+}
+$placeLine =implode(', ', array_filter([$dest['sub_county'] ?? '', !empty($dest['county']) ? $dest['county'] . ' County' : '']));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -35,44 +39,49 @@ $placeLine = implode(', ', array_filter([$dest['sub_county'] ?? '', !empty($dest
 <meta charset="utf-8">
 <title>Transfer Letter</title>
 <style>
-@page { size: A4 portrait; margin: 11mm 13mm; }
+@page { size: A4 portrait; margin: 9mm 13mm; }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a24; font-size: 9.4pt; line-height: 1.38; }
+body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a24; font-size: 9pt; line-height: 1.25; }
+p { margin: 1.6mm 0; }
 .gov { width: 100%; border-collapse: collapse; }
 .gov td { vertical-align: middle; }
-.gov .arms img { height: 17mm; }
+.gov .arms img { height: 15mm; }
 .gov .gtext { text-align: center; font-weight: 700; font-size: 9pt; letter-spacing: .5pt; }
 .head { width: 100%; border-collapse: collapse; margin-top: 2mm; background: <?= $soft ?>; border-top: 1mm solid <?= $green ?>; border-bottom: 0.8mm solid <?= $gold ?>; }
-.head td { padding: 2mm 3mm; vertical-align: middle; }
+.head td { padding: 1.5mm 3mm; vertical-align: middle; }
 .head .logo { width: 20mm; }
 .head .logo img { width: 17mm; }
 .school-name { color: <?= $green ?>; font-size: 15pt; font-weight: 800; text-transform: uppercase; letter-spacing: .4pt; }
 .meta { font-size: 8pt; color: #3c4a42; }
 .motto { font-style: italic; color: <?= $green ?>; font-size: 8.2pt; }
-.refs { width: 100%; border-collapse: collapse; margin-top: 4mm; font-size: 9pt; }
-.to { margin-top: 3mm; }
-.re { margin: 3mm 0 2mm; font-weight: 800; text-decoration: underline; color: <?= $green ?>; }
-.details { width: 100%; border-collapse: collapse; margin: 2mm 0; font-size: 9pt; }
-.details td { border: 0.25mm solid #b9cdbf; padding: 1.1mm 2mm; vertical-align: top; }
-.details td.k { background: <?= $soft ?>; font-weight: 700; width: 32%; color: <?= $green ?>; }
-.section { font-weight: 800; color: <?= $green ?>; margin-top: 2.6mm; font-size: 9.2pt; border-bottom: 0.3mm solid <?= $gold ?>; padding-bottom: .4mm; }
-.report td { padding: .8mm 0; vertical-align: top; }
+.refs { width: 100%; border-collapse: collapse; margin-top: 2.5mm; font-size: 9pt; }
+.to { margin-top: 2mm; }
+.re { margin: 2mm 0 1.5mm; font-weight: 800; text-decoration: underline; color: <?= $green ?>; }
+.details { width: 100%; border-collapse: collapse; margin: 1.5mm 0; font-size: 8.6pt; }
+.details td { border: 0.25mm solid #b9cdbf; padding: .7mm 1.6mm; vertical-align: top; width: 30%; }
+.details td.k { background: <?= $soft ?>; font-weight: 700; width: 20%; color: <?= $green ?>; }
+.section { font-weight: 800; color: <?= $green ?>; margin-top: 2mm; font-size: 9.2pt; border-bottom: 0.3mm solid <?= $gold ?>; padding-bottom: .4mm; }
+.report td { padding: .5mm 0; vertical-align: top; }
 .report td.k { width: 30%; font-weight: 700; }
-.chips span { display: inline-block; border: 0.25mm solid <?= $green ?>; color: <?= $green ?>; padding: .2mm 2mm; margin: .6mm 1mm 0 0; font-size: 8.2pt; }
-.sign { width: 100%; border-collapse: collapse; margin-top: 5mm; }
+.chips span { display: inline-block; border: 0.25mm solid <?= $green ?>; color: <?= $green ?>; padding: 0 1.6mm; margin: 0 1mm 0 0; font-size: 8pt; }
+.sign { width: 100%; border-collapse: collapse; margin-top: 0; }
 .sign td { vertical-align: bottom; padding-right: 4mm; font-size: 8.6pt; }
-.line { border-bottom: 0.3mm solid #1f2a24; height: 9mm; }
+.line { border-bottom: 0.3mm solid #1f2a24; height: 12mm; }
 .cap { font-weight: 700; margin-top: .6mm; }
-.stamp { border: 0.4mm dashed <?= $green ?>; border-radius: 50%; width: 30mm; height: 30mm; text-align: center; color: #6b7a71; font-size: 7pt; padding-top: 11mm; margin-left: auto; }
-.official { margin-top: 4mm; border: 0.4mm solid <?= $green ?>; }
+.stamp { border: 0.4mm dashed <?= $green ?>; border-radius: 50%; width: 25mm; height: 25mm; text-align: center; color: #6b7a71; font-size: 6.6pt; padding-top: 8.5mm; margin-left: auto; }
+.official { margin-top: 2mm; page-break-inside: avoid; border: 0.4mm solid <?= $green ?>; }
 .official .t { background: <?= $green ?>; color: #fff; font-weight: 800; font-size: 8.4pt; padding: 1mm 2mm; letter-spacing: .4pt; border-bottom: 0.7mm solid <?= $gold ?>; }
 .official table { width: 100%; border-collapse: collapse; font-size: 8.4pt; }
-.official td { padding: 2.2mm 2mm; vertical-align: bottom; }
+.official td { padding: 1.3mm 2mm; vertical-align: bottom; }
 .official .dots { border-bottom: 0.3mm dotted #445; }
+/* Faint school logo behind the letter, centred on every page. */
+.watermark { position: fixed; top: 80mm; left: 32mm; width: 120mm; text-align: center; z-index: 0; }
+.watermark img { width: 120mm; opacity: .08; }
 .foot { margin-top: 2.5mm; font-size: 7.4pt; color: #556; text-align: center; }
 </style>
 </head>
 <body>
+  <?php if (!empty($school['logo'])): ?><div class="watermark"><img src="<?= $e($school['logo']) ?>" alt=""></div><?php endif; ?>
   <table class="gov"><tr>
     <td style="width:20%;"></td>
     <td class="gtext"><?php if (!empty($coatOfArms)): ?><div class="arms"><img src="<?= $e($coatOfArms) ?>" alt="Coat of arms of Kenya"></div><?php endif; ?>REPUBLIC OF KENYA<br>MINISTRY OF EDUCATION</td>
@@ -113,15 +122,13 @@ body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a24;
     <tr><td class="k">Date of birth</td><td><?= $e($d($facts['dob'])) ?></td><td class="k">Gender</td><td><?= $e($facts['gender']) ?></td></tr>
     <tr><td class="k">Date of admission</td><td><?= $e($entered) ?><?= !empty($facts['admission_class']) ? ' (' . $e($facts['admission_class']) . ')' : '' ?></td><td class="k">Grade at leaving</td><td><?= $e(trim(($facts['leaving_class'] ?? '') . ' ' . ($facts['leaving_stream'] ?? ''))) ?></td></tr>
     <tr><td class="k">Date of leaving</td><td><?= $e($d($document['leaving_date'] ?? '')) ?></td><td class="k">Academic year</td><td><?= $e($facts['academic_year'] ?? '') ?></td></tr>
-    <tr><td class="k">Reason for transfer</td><td colspan="3"><?= $e($dest['reason'] ?? '') ?></td></tr>
+    <tr><td class="k">Reason</td><td colspan="3"><?= $e($dest['reason'] ?? '') ?></td></tr>
     <?php foreach ($assessments as $a): ?>
     <tr><td class="k"><?= $e($a['exam_type']) ?> (<?= $e($a['exam_year']) ?>)</td><td colspan="3">Assessment no. <?= $e($a['assessment_number']) ?><?= !empty($a['overall_level']) ? ' &middot; Overall level: ' . $e($a['overall_level']) : '' ?><?= $a['total_points'] !== null && $a['total_points'] !== '' ? ' &middot; Points: ' . $e($a['total_points']) : '' ?></td></tr>
     <?php endforeach; ?>
+    <tr><td class="k">Clearance</td><td colspan="3"><span class="chips"><?php foreach ($cleared as $c): ?><span>&#10003; <?= $e($c['label']) ?></span><?php endforeach; ?></span>
+      <div style="margin-top:.6mm;">Fees: <?= $e(($learner['balance'] ?? 0) == 0 ? 'fully settled' : ($financeNote !== '' ? $financeNote : 'settled')) ?>. No school property or library books are held by the learner.</div></td></tr>
   </table>
-
-  <div class="section">CLEARANCE</div>
-  <div class="chips"><?php foreach ($cleared as $c): ?><span>&#10003; <?= $e($c['label']) ?></span><?php endforeach; ?></div>
-  <div style="font-size:8.6pt;margin-top:1mm;">Fees: <?= $e(($learner['balance'] ?? 0) == 0 ? 'fully settled' : ($learner['checks'][0]['note'] ?? 'settled')) ?>. No school property or library books are held by the learner.</div>
 
   <div class="section">HEAD TEACHER&rsquo;S REPORT</div>
   <table class="report" style="width:100%;border-collapse:collapse;">
@@ -130,7 +137,7 @@ body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a24;
     <tr><td class="k">Co-curricular activities</td><td><?= nl2br($e($document['co_curricular'] ?? '')) ?></td></tr>
   </table>
 
-  <p style="margin-top:2.6mm;"><strong>NEMIS:</strong>
+  <p style="margin-top:2mm;"><strong>NEMIS:</strong>
   <?php if (!empty($learner['nemis_released_at'])): ?>
     The learner was released from this school&rsquo;s NEMIS account on <?= $e($d($learner['nemis_released_at'])) ?>. Kindly admit the learner on NEMIS using the UPI above.
   <?php else: ?>
@@ -138,14 +145,16 @@ body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a24;
   <?php endif; ?>
   Any learning records you may need will be provided on request.</p>
 
-  <p>We wish the learner success in your school.</p>
-  <p>Yours faithfully,</p>
-
-  <table class="sign"><tr>
-    <td style="width:36%;"><div class="line"></div><div class="cap"><?= $e($headteacher['name'] ?: 'Name: ..........................................') ?></div><div><?= $e($headteacher['title'] ?? 'Head teacher') ?></div></td>
-    <td style="width:36%;"><div class="line"></div><div class="cap"><?= $e($director['name'] ?: 'Name: ..........................................') ?></div><div>Director</div></td>
-    <td><div class="stamp">OFFICIAL SCHOOL<br>STAMP</div></td>
-  </tr></table>
+  <table class="sign">
+    <tr>
+      <td colspan="2" style="vertical-align:top;"><p>We wish the learner success in your school.</p><p>Yours faithfully,</p></td>
+      <td rowspan="2" style="width:28%;vertical-align:bottom;"><div class="stamp">OFFICIAL SCHOOL<br>STAMP</div></td>
+    </tr>
+    <tr>
+      <td style="width:36%;"><div class="line"></div><div class="cap"><?= $e($headteacher['name'] ?: 'Name: ..........................................') ?></div><div><?= $e($headteacher['title'] ?? 'Head teacher') ?></div></td>
+      <td style="width:36%;"><div class="line"></div><div class="cap"><?= $e($director['name'] ?: 'Name: ..........................................') ?></div><div>Director</div></td>
+    </tr>
+  </table>
 
   <div class="official">
     <div class="t">FOR OFFICIAL USE &mdash; SUB-COUNTY DIRECTOR OF EDUCATION</div>

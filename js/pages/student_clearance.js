@@ -4,8 +4,11 @@
  * Lists the learners who left in the selected year (shared year filter,
  * default current) with their outcome, final fee position and the five
  * clearance checks. Opening a learner starts the clearance (finance is set
- * from the fee account) and records each department's decision. The leaving
- * certificate prints only when every mandatory check is cleared.
+ * from the fee account) and records each department's decision. Once every
+ * mandatory check is cleared the exit document is issued as a PDF: the school
+ * leaving certificate (graduates, withdrawals) or the transfer letter
+ * (transfers, with the receiving school); a transfer is then completed with
+ * the NEMIS release date.
  */
 var StudentClearanceController = {
   state: { yearId: null, data: null, current: null, request: 0 },
@@ -25,7 +28,9 @@ var StudentClearanceController = {
     this.el('clrSearch')?.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => this.load(), 300); });
     this.el('clrExportBtn')?.addEventListener('click', () => this.exportCSV());
     this.el('clrPrintBtn')?.addEventListener('click', () => this.printList());
-    this.el('clrCertificateBtn')?.addEventListener('click', () => this.printCertificate());
+    this.el('clrCertificateBtn')?.addEventListener('click', () => this.openDocument());
+    this.el('clrDocForm')?.addEventListener('submit', (e) => { e.preventDefault(); this.issueDocument(); });
+    this.el('clrTransferBtn')?.addEventListener('click', () => this.completeTransfer());
     this.el('clrTable')?.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-clr-open]');
       if (btn) this.open(Number(btn.dataset.clrOpen));
@@ -108,6 +113,8 @@ var StudentClearanceController = {
       window.showNotification?.(e?.message || 'The clearance could not be opened.', 'error');
       return;
     }
+    const nemis = this.el('clrNemisDate');
+    if (nemis) nemis.value = '';
     this.renderModal();
     bootstrap.Modal.getOrCreateInstance(this.el('clrModal')).show();
     this.load();
@@ -130,9 +137,41 @@ var StudentClearanceController = {
         </div>
         <input type="text" class="form-control form-control-sm mt-2" id="clrNote_${c.type}" placeholder="${c.type === 'finance' ? 'How was it settled? (paid, refunded, transferred, written off)' : 'Note (required when blocked)'}" value="">
       </div>`).join('');
-    this.el('clrCertificateBtn').disabled = !l.certificate_ready;
-    this.el('clrCertificateBtn').title = l.certificate_ready ? '' : 'Every mandatory check must be cleared first.';
+    const label = l.document_label || 'School leaving certificate';
+    const doc = l.document;
+    const btn = this.el('clrCertificateBtn');
+    btn.disabled = !l.certificate_ready;
+    btn.title = l.certificate_ready ? '' : 'Every mandatory check must be cleared first.';
+    btn.innerHTML = `<i class="bi bi-${l.document_type === 'transfer_letter' ? 'envelope-paper' : 'award'} me-1"></i>${doc ? 'Reprint' : 'Issue'} ${this.esc(label.toLowerCase())}`;
+    this.el('clrDocStatus').innerHTML = doc
+      ? `<strong>${this.esc(label)}</strong> <span class="badge bg-success">Issued</span>
+         <div class="small text-muted">Serial ${this.esc(doc.serial_no)}, issued ${this.esc(this.date(doc.issued_at))}, printed ${Number(doc.print_count || 0)} time${Number(doc.print_count) === 1 ? '' : 's'}.</div>`
+      : `<strong>${this.esc(label)}</strong> <span class="badge bg-secondary">Not issued</span>
+         <div class="small text-muted">${l.certificate_ready ? 'Every mandatory check is cleared. Issue it below.' : 'Issued once every mandatory check is cleared.'}</div>`;
+    const transfer = this.el('clrTransfer');
+    const transferring = l.outcome_key === 'transferring';
+    const transferred = l.outcome_key === 'transferred';
+    transfer.classList.toggle('d-none', !(transferring || transferred));
+    this.el('clrTransferForm').classList.toggle('d-none', !transferring);
+    this.el('clrTransferDone').classList.toggle('d-none', !transferred);
+    if (transferred) {
+      this.el('clrTransferDone').innerHTML = `<strong>Transfer completed</strong><div class="small text-muted">${l.nemis_released_at ? `Released on NEMIS on ${this.esc(this.date(l.nemis_released_at))}.` : 'No NEMIS release date was recorded.'}</div>`;
+    } else if (transferring) {
+      const done = this.el('clrTransferBtn');
+      if (done) {
+        done.disabled = !l.can_complete_transfer;
+        done.title = l.can_complete_transfer ? '' : 'Clear every mandatory check and issue the transfer letter first.';
+      }
+      const nemis = this.el('clrNemisDate');
+      if (nemis && !nemis.value) nemis.value = new Date().toISOString().slice(0, 10);
+    }
     window.YearMode?.refresh?.(this.el('clrModal'));
+  },
+
+  date(v) {
+    if (!v) return '';
+    const t = new Date(String(v).replace(' ', 'T'));
+    return Number.isNaN(t.getTime()) ? String(v) : t.toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' });
   },
 
   async decide(type, status) {
@@ -150,32 +189,111 @@ var StudentClearanceController = {
     }
   },
 
-  printCertificate() {
+  /** Opens the issue form with what the document will print and the stored report. */
+  async openDocument() {
     const l = this.state.current;
     if (!l || !l.certificate_ready) return;
-    const school = window.SCHOOL_CONFIG || {};
-    const today = new Date().toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' });
-    const host = this.el('clrCertificate');
-    host.innerHTML = `<div class="cert">
-        <div class="cert-school">${this.esc(school.name || '')}</div>
-        <h1>Leaving certificate</h1>
-        <p>This is to certify that the learner named below was a pupil of this school and has been cleared by every department.</p>
-        <dl>
-          <dt>Name</dt><dd>${this.esc(l.name)}</dd>
-          <dt>Admission number</dt><dd>${this.esc(l.admission_no)}</dd>
-          <dt>Last class</dt><dd>${this.esc(l.class)}</dd>
-          <dt>Left as</dt><dd>${this.esc(l.outcome)}</dd>
-          <dt>Academic year</dt><dd>${this.esc(this.state.data?.year?.code || '')}</dd>
-          <dt>Clearance</dt><dd>${l.checks.filter((c) => c.status === 'cleared').map((c) => this.esc(c.label)).join(', ')}</dd>
-          <dt>Date issued</dt><dd>${this.esc(today)}</dd>
-        </dl>
-        <div class="cert-sign"><div>Headteacher</div><div>School stamp</div></div>
-      </div>`;
-    host.classList.remove('d-none');
-    document.body.classList.add('clr-printing-certificate');
-    const done = () => { document.body.classList.remove('clr-printing-certificate'); host.classList.add('d-none'); window.removeEventListener('afterprint', done); };
-    window.addEventListener('afterprint', done);
-    window.print();
+    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('students')) return window.showNotification?.('You do not have permission to print.', 'error');
+    let ctx;
+    try {
+      const r = await this.api('/api/students/clearance-document', 'GET', null, { student_id: l.student_id, academic_year_id: this.state.data.year.id });
+      if (r?.success === false) throw new Error(r.message);
+      ctx = this.unwrap(r) || {};
+    } catch (e) {
+      window.showNotification?.(e?.message || 'The document could not be loaded.', 'error');
+      return;
+    }
+    const f = ctx.facts || {};
+    const def = ctx.defaults || {};
+    const transfer = l.document_type === 'transfer_letter';
+    this.el('clrDocTitle').textContent = l.document_label || 'School leaving certificate';
+    this.el('clrDocMeta').textContent = ctx.document?.serial_no ? `Reprint of ${ctx.document.serial_no}` : 'A serial number is assigned when it is issued.';
+    const fact = (k, v, warn = false) => `<div class="col-6 col-md-4 clr-fact"><dl class="mb-0"><dt>${k}</dt><dd class="${warn ? 'text-danger' : ''}">${this.esc(v || 'Not recorded')}</dd></dl></div>`;
+    this.el('clrDocFacts').innerHTML = [
+      fact('Learner', f.full_name), fact('Admission no.', f.admission_no), fact('UPI (NEMIS) no.', f.upi, !f.upi),
+      fact('Assessment no.', f.assessment_number), fact('Date of birth', this.date(f.dob), !f.dob),
+      fact('Admitted', [this.date(f.admission_date) || f.admission_year, f.admission_class].filter(Boolean).join(', ')),
+      fact('Leaving grade', [f.leaving_class, f.leaving_stream].filter(Boolean).join(' ')), fact('Academic year', f.academic_year),
+    ].join('');
+    this.el('clrDocDestination').classList.toggle('d-none', !transfer);
+    const dest = ctx.learner?.destination || l.destination || {};
+    const set = (id, v) => { const x = this.el(id); if (x) x.value = v ?? ''; };
+    set('clrDestSchool', dest.school); set('clrDestCode', dest.school_code); set('clrDestCounty', dest.county);
+    set('clrDestSubCounty', dest.sub_county); set('clrDestReason', dest.reason);
+    set('clrDocLeaving', String(def.leaving_date || '').slice(0, 10));
+    set('clrDocAcademic', def.academic_report); set('clrDocConduct', def.conduct); set('clrDocCo', def.co_curricular);
+    this.el('clrDocSubmit').innerHTML = `<i class="bi bi-file-earmark-pdf me-1"></i>${ctx.document ? 'Reprint' : 'Issue'} and open PDF`;
+    bootstrap.Modal.getOrCreateInstance(this.el('clrDocModal')).show();
+  },
+
+  async issueDocument() {
+    const l = this.state.current;
+    if (!l) return;
+    const v = (id) => this.el(id)?.value?.trim() || '';
+    const transfer = l.document_type === 'transfer_letter';
+    const missing = [];
+    if (transfer && !v('clrDestSchool')) missing.push('the receiving school');
+    if (!v('clrDocAcademic')) missing.push('the academic ability report');
+    if (!v('clrDocConduct')) missing.push('the conduct report');
+    if (missing.length) return window.showNotification?.(`Fill in ${missing.join(', ')}.`, 'warning');
+    const payload = {
+      student_id: l.student_id,
+      academic_year_id: this.state.data.year.id,
+      leaving_date: v('clrDocLeaving') || null,
+      academic_report: v('clrDocAcademic'),
+      conduct: v('clrDocConduct'),
+      co_curricular: v('clrDocCo') || null,
+    };
+    if (transfer) Object.assign(payload, {
+      destination_school: v('clrDestSchool'), destination_school_code: v('clrDestCode') || null,
+      destination_county: v('clrDestCounty') || null, destination_sub_county: v('clrDestSubCounty') || null,
+      reason: v('clrDestReason') || null,
+    });
+    const submit = this.el('clrDocSubmit');
+    submit.disabled = true;
+    try {
+      const r = await this.api('/api/students/clearance-document-issue', 'POST', payload);
+      if (r?.success === false) throw new Error(r.message);
+      const out = this.unwrap(r) || {};
+      bootstrap.Modal.getOrCreateInstance(this.el('clrDocModal')).hide();
+      window.showNotification?.(`${l.document_label} ${out.serial_no || ''} issued.`, 'success');
+      const url = out.url || out.download_url;
+      if (url) window.PrintManager?.openDocument ? window.PrintManager.openDocument(url, { title: l.document_label }) : window.open(url, '_blank', 'noopener');
+      await this.refreshCurrent();
+    } catch (e) {
+      window.showNotification?.(e?.message || 'The document could not be issued.', 'error');
+    } finally {
+      submit.disabled = false;
+    }
+  },
+
+  async completeTransfer() {
+    const l = this.state.current;
+    if (!l || !l.can_complete_transfer) return;
+    const released = this.el('clrNemisDate')?.value || null;
+    const ok = window.confirm(`Complete the transfer of ${l.name}? The learner's enrolment and status become transferred.`);
+    if (!ok) return;
+    try {
+      const r = await this.api('/api/students/clearance-transfer-complete', 'POST', { student_id: l.student_id, academic_year_id: this.state.data.year.id, nemis_released_at: released });
+      if (r?.success === false) throw new Error(r.message);
+      this.state.current = this.unwrap(r);
+      this.renderModal();
+      window.showNotification?.('Transfer completed.', 'success');
+      this.load();
+    } catch (e) {
+      window.showNotification?.(e?.message || 'The transfer could not be completed.', 'error');
+    }
+  },
+
+  /** Re-reads the open learner (document serial, transfer state) and the list. */
+  async refreshCurrent() {
+    const l = this.state.current;
+    if (!l) return;
+    try {
+      const r = await this.api('/api/students/clearance-start', 'POST', { student_id: l.student_id, academic_year_id: this.state.data.year.id });
+      if (r?.success !== false) { this.state.current = this.unwrap(r); this.renderModal(); }
+    } catch (e) { /* the list reload below still shows the change */ }
+    this.load();
   },
 
   exportCSV() {

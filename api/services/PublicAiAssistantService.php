@@ -84,6 +84,20 @@ final class PublicAiAssistantService
         // decided to refer the visitor to a person (no usable source, or an
         // answer it could not ground). That is a normal outcome, not an error.
         $engineStatus = (string) ($result['status'] ?? '');
+        // The engine's own guard caught an attack the gate did not: return its
+        // refusal as-is (it has no sources by design).
+        if ($engineStatus === 'blocked' || ($result['blocked'] ?? false) === true) {
+            return [
+                'status' => 'blocked',
+                'blocked' => true,
+                'title' => 'Malicious prompt blocked',
+                'body' => AiPromptGuardService::REFUSAL,
+                'next_steps' => [],
+                'suggested_questions' => [],
+                'sources' => [],
+                'human_referral' => null,
+            ];
+        }
         if ($engineStatus === 'escalate' && !isset($result['body'])) {
             return [
                 'status' => 'escalate',

@@ -2269,6 +2269,7 @@ const ENDPOINT_PERMISSIONS = {
   "/attendance/index": "attendance_view",
   "/reports/ai-research": "ai_research",
   "/public/ai-faq": null,
+  "/public/ai-feedback": null,
   "/system/security-signals": "system_view",
   "/system/ai-readiness": "system_view",
   "/system/ai-provider-health": "system_view",
@@ -2276,6 +2277,7 @@ const ENDPOINT_PERMISSIONS = {
   "/dashboard/agent-assist": null,
   "/dashboard/agent-assist-stream": null,
   "/dashboard/workspace-briefing": null,
+  "/dashboard/assistant-today": null,
   "/system/ai-security-review-queue": "system_view",
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
   "/attendance/ai-exception-summaries": { GET: "attendance_view" },
@@ -3695,6 +3697,8 @@ async function apiCallDirect(
       // Public FAQ is source-grounded and deliberately anonymous; the backend
       // still validates input, provider output, and source citations.
       "/public/ai-faq",
+      // Optional anonymous survey answers from the public assistant.
+      "/public/ai-feedback",
     ]);
     const publicApiPatterns = [
       /^\/public\/(?:setup-invitation|student-verification|uniform-catalog)(?:\/|$)/,
@@ -6376,6 +6380,22 @@ window.API = {
         null,
         params,
       ),
+    getPayrollPayoutPlans: async (payrollId) =>
+      apiCall(`/finance/payrolls/${payrollId}/payout-plans`, "GET"),
+    savePayrollPayoutPlans: async (payrollId, allocations) =>
+      apiCall(`/finance/payrolls/${payrollId}/payout-plans`, "POST", { allocations }),
+    getPayrollPayoutLedger: async (month, year) =>
+      apiCall("/finance/payout-ledger", "GET", null, { month, year }),
+    confirmPayrollCashLeg: async (legId, reference) =>
+      apiCall(`/finance/payout-legs/${legId}/confirm-cash`, "POST", { reference }),
+    retryPayrollPayoutLeg: async (legId) =>
+      apiCall(`/finance/payout-legs/${legId}/retry`, "POST", {}),
+    releasePayroll: async (payrollId, payslipIds = []) =>
+      apiCall(`/finance/payrolls/${payrollId}/release`, "POST", { payslip_ids: payslipIds }),
+    updatePayrollStatutoryOptions: async (payslipId, options) =>
+      apiCall(`/finance/payrolls/${payslipId}/statutory-options`, "POST", { options }),
+    retryPayrollChildFees: async (payslipId) =>
+      apiCall(`/finance/payroll-child-fees/${payslipId}/retry`, "POST", {}),
     assignPayrollSourceAccounts: async (payrollId, allocations) =>
       apiCall(`/finance/payrolls/${payrollId}/source-allocations`, "POST", { allocations }),
     getPayrollSourceAllocations: async (payrollId) =>
@@ -6417,6 +6437,12 @@ window.API = {
         `/finance/bulk-payroll-preview?month=${month}&year=${year}`,
         "GET",
       ),
+    previewBulkPayrollWithOptions: async (month, year, statutoryOptions = {}) =>
+      apiCall("/finance/bulk-payroll-preview", "POST", {
+        month,
+        year,
+        statutory_options: statutoryOptions,
+      }),
     getCompensationSetup: async () => apiCall("/finance/compensation-setup", "GET"),
     saveRoleSalaryRate: async (data) => apiCall("/finance/role-salary-rates", "POST", data),
     saveStaffSalaryOverride: async (data) => apiCall("/finance/staff-salary-overrides", "POST", data),
@@ -8798,6 +8824,10 @@ window.API = {
     // route; "generating" means a background job is preparing them.
     getWorkspaceBriefing: async (route = "dashboard") =>
       apiCall("/dashboard/workspace-briefing", "GET", null, { route }),
+    // Deterministic, permission-scoped coworker "today" scan (no model, no
+    // approval queue): schedule, attention items and unread notifications.
+    getAssistantToday: async (route = "dashboard") =>
+      apiCall("/dashboard/assistant-today", "GET", null, { route }),
 
     // Assistant session management. Each method accepts either its scalar
     // arguments or a pre-built params object, because both call styles exist.
@@ -9370,8 +9400,8 @@ window.API = {
       apiCall("/staff-migration/commit", "POST", { batch_id: batchId }),
     rollback: async (batchId) =>
       apiCall("/staff-migration/rollback", "POST", { batch_id: batchId }),
-    resendInvitation: async (userId) =>
-      apiCall("/staff-migration/resend-invitation", "POST", { user_id: userId }),
+    resendInvitation: async (userId, channel = "email") =>
+      apiCall("/staff-migration/resend-invitation", "POST", { user_id: userId, channel }),
     resendSetupOtp: async (userId) =>
       apiCall("/staff-migration/resend-setup-otp", "POST", { user_id: userId }),
     cancelInvitation: async (userId) =>

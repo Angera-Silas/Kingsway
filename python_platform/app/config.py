@@ -228,3 +228,13 @@ class Config:
         self.db_read_timeout = max(
             30, min(900, _env_int("KINGSWAY_DB_READ_TIMEOUT", 300))
         )
+        # Direct, read-only dataset access for the Python engine. The platform
+        # owner approved expanding Python to query the school database with its
+        # own credentials, coordinated with PHP's governed PolarsDatasetService:
+        # both layers enforce the same named-dataset allowlist and permission
+        # gates. Enabled only when credentials and the reads/master schema are
+        # configured; otherwise data.query keeps using the PHP relay.
+        self.direct_db_access = _env_bool("KINGSWAY_PYTHON_DIRECT_DB_ACCESS", True)
+        self.direct_db_configured = bool(
+            self.db_host and self.db_user and self.db_master_schema
+        )

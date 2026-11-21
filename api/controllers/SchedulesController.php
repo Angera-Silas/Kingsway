@@ -1044,6 +1044,9 @@ class SchedulesController extends BaseController
             }
             $message = substr(trim((string)($data['message'] ?? '')), 0, 2000);
             if ($message === '') $message = 'Review the timetable planning context, ask for missing constraints, and propose the next safe planning step.';
+            if ($gate = $this->aiPromptGate($message, 'staff')) {
+                return $this->respond($this->aiBlockedAnswer($gate), (string) $gate['message'], 403, false);
+            }
             $constraints = [
             'class_band' => substr(trim((string)($data['class_band'] ?? '')), 0, 80),
             'class_count' => (string)max(0, min(200, (int)($data['class_count'] ?? 0))),

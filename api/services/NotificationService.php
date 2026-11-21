@@ -416,31 +416,155 @@ class NotificationService
         ];
     }
 
-    /** Push upcoming-event reminders into the user feed (idempotent by window/type/reference). */
+    /**
+     * Push upcoming-event reminders into the user feed — at most once per
+     * reminder window, never once per calendar day.
+     *
+     * The academic calendar mirrors a multi-day holiday as one `school_events`
+     * row PER DAY (the December Holiday has ~45 rows). The old implementation
+     * treated each row as an independent event, so every day that entered the
+     * 7/3/1-day windows pushed a fresh reminder with a different reference_id
+     * — a reminder almost every day, still labelled "Upcoming" long after the
+     * holiday had begun. `push()`'s unique key could not help because no two
+     * days shared a reference_id.
+     *
+     * Here each contiguous same-title/type calendar series is collapsed into
+     * one logical event with a stable id (its earliest mirror row). Stale and
+     * per-day reminders are pruned once, then at most one "Upcoming" and one
+     * "Tomorrow" reminder are emitted per logical event while it is genuinely
+     * ahead of us. The pruning converges after the first load, so it does not
+     * reset read_status or churn the unread count on every refresh.
+     */
     public function ensureEventReminders(\PDO $pdo, int $userId): void
     {
-        $service = $this;
-        foreach ([['7_days', 3, 7], ['3_days', 1, 3], ['24_hours', 0, 1]] as [$window, $lower, $upper]) {
-            $stmt = $pdo->prepare(
-                "SELECT id, title, start_at, location FROM school_events
-                  WHERE status IN ('upcoming','ongoing')
-                    AND start_at > DATE_ADD(NOW(), INTERVAL {$lower} DAY)
-                    AND start_at <= DATE_ADD(NOW(), INTERVAL {$upper} DAY)"
-            );
-            $stmt->execute();
-            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $event) {
-                $when = date('D, d M Y \\a\\t H:i', strtotime($event['start_at']));
-                $title = $window === '24_hours' ? 'Tomorrow: ' . $event['title'] : 'Upcoming: ' . $event['title'];
-                $message = "Reminder: {$event['title']} is scheduled for {$when}.";
-                if (!empty($event['location'])) $message .= ' Venue: ' . $event['location'] . '.';
-                $service->push($userId, 'reminder', $title, $message, 'medium', [
-                    'action_url' => 'home.php?route=school_events&event_id=' . (int) $event['id'],
-                    'reference_type' => 'school_event',
-                    'reference_id' => (int) $event['id'],
-                    'reminder_window' => $window,
-                ]);
+        $stmt = $pdo->prepare(
+            "SELECT id, title, type, start_at, end_at, location, status
+               FROM school_events
+              WHERE start_at IS NOT NULL AND status <> 'cancelled'
+                -- Only the span reminders can concern: a series that began in
+                -- the last 120 days (to recognise it as already started) up to
+                -- the end of the 7-day window. Reading the whole table on every
+                -- feed load grew without bound. Reminders pointing outside this
+                -- span are stale and pruned below, which is correct.
+                AND start_at >= :from_day
+                AND start_at < :to_day
+              ORDER BY title, type, start_at, id"
+        );
+        // Bounds computed here (not DATE_SUB) so the query is portable.
+        $stmt->execute([
+            ':from_day' => date('Y-m-d 00:00:00', strtotime('-120 days')),
+            ':to_day' => date('Y-m-d 00:00:00', strtotime('+9 days')),
+        ]);
+        $events = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        // Collapse per-day calendar mirrors of one event into contiguous runs:
+        // same title/type whose days touch (no gap) form a single logical event
+        // with the earliest row id as a stable reference. A gap — or a New Year
+        // boundary — starts a new run, so two distinct same-title events are
+        // never merged and one holiday spanning December/January stays whole.
+        $series = [];
+        $byId = [];  // event id => series index, for pruning old reminders
+        $currentIndex = null;
+        foreach ($events as $event) {
+            $id = (int) $event['id'];
+            $startDay = strtotime(date('Y-m-d', strtotime($event['start_at'])));
+            $endDay = strtotime(date('Y-m-d', strtotime($event['end_at'] ?: $event['start_at'])));
+            $signature = $this->eventSeriesKey($event);
+            $contiguous = $currentIndex !== null
+                && $series[$currentIndex]['signature'] === $signature
+                && $startDay <= $series[$currentIndex]['end_day'] + 86400;
+            if ($contiguous) {
+                $series[$currentIndex]['end_day'] = max($series[$currentIndex]['end_day'], $endDay);
+            } else {
+                $series[] = [
+                    'signature' => $signature,
+                    'canonical_id' => $id,
+                    'start_day' => $startDay,
+                    'end_day' => $endDay,
+                    'meta' => $event,
+                ];
+                $currentIndex = array_key_last($series);
+            }
+            $byId[$id] = $currentIndex;
+        }
+
+        $today = strtotime(date('Y-m-d'));
+
+        // 1. Prune reminders that are stale (their series has begun or the
+        //    event is gone) or are per-day duplicates left by the old code.
+        $oldStmt = $pdo->prepare(
+            "SELECT id, reference_id FROM notifications
+              WHERE user_id = :uid AND type = 'reminder'
+                AND reference_type = 'school_event'"
+        );
+        $oldStmt->execute([':uid' => $userId]);
+        $deleteStmt = $pdo->prepare(
+            "DELETE FROM notifications WHERE id = :id AND user_id = :uid"
+        );
+        $existsStmt = $pdo->prepare(
+            "SELECT 1 FROM notifications
+              WHERE user_id = :uid AND type = 'reminder'
+                AND reference_type = 'school_event'
+                AND reference_id = :ref AND reminder_window = :window
+              LIMIT 1"
+        );
+        foreach ($oldStmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $refId = (int) $row['reference_id'];
+            $seriesIndex = $byId[$refId] ?? null;
+            $stale = $seriesIndex === null;
+            if (!$stale) {
+                $target = $series[$seriesIndex];
+                // Stale if the event already started, or this is not the
+                // canonical (one-per-series) row the new logic emits.
+                $stale = $target['start_day'] <= $today
+                    || $target['canonical_id'] !== $refId;
+            }
+            if ($stale) {
+                $deleteStmt->execute([':id' => (int) $row['id'], ':uid' => $userId]);
             }
         }
+
+        // 2. Emit at most one reminder per window per logical event, only
+        //    while it is genuinely upcoming and inside the seven-day window.
+        foreach ($series as $target) {
+            $daysAway = (int) round(($target['start_day'] - $today) / 86400);
+            if ($daysAway < 1 || $daysAway > 7) {
+                continue;
+            }
+            $event = $target['meta'];
+            $prefix = $daysAway === 1 ? 'Tomorrow: ' : 'Upcoming: ';
+            $window = $daysAway === 1 ? 'tomorrow' : 'upcoming';
+            // Explicit check keeps repeated feed loads idempotent on every
+            // driver; push()'s unique key remains the race-condition backstop.
+            $existsStmt->execute([
+                ':uid' => $userId,
+                ':ref' => $target['canonical_id'],
+                ':window' => $window,
+            ]);
+            if ($existsStmt->fetchColumn()) {
+                continue;
+            }
+            $when = date('D, d M Y', $target['start_day']);
+            $message = $target['end_day'] > $target['start_day']
+                ? "Reminder: {$event['title']} begins {$when} and runs until " . date('D, d M Y', $target['end_day']) . "."
+                : "Reminder: {$event['title']} is scheduled for {$when}.";
+            if (!empty($event['location'])) {
+                $message .= ' Venue: ' . $event['location'] . '.';
+            }
+            $this->push($userId, 'reminder', $prefix . $event['title'], $message, 'medium', [
+                'action_url' => 'home.php?route=school_events&event_id=' . $target['canonical_id'],
+                'reference_type' => 'school_event',
+                'reference_id' => $target['canonical_id'],
+                'reminder_window' => $window,
+            ]);
+        }
+    }
+
+    /** Signature used to group per-day calendar mirrors into one event. */
+    private function eventSeriesKey(array $event): string
+    {
+        return strtolower(trim((string) ($event['title'] ?? '')))
+            . '|' . strtolower(trim((string) ($event['type'] ?? '')));
     }
 
     /**
