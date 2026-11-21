@@ -856,6 +856,11 @@
             storeName: "ai_workspace_cache",
             ttl: AI_BRIEFING_TTL,
             params: { route },
+            // A "generating" response is a transient state, not a usable
+            // snapshot. Caching it makes every bounded poll read the same
+            // stale placeholder and give up even after the briefing is ready.
+            // Retries must go to the network so the ready state is seen.
+            forceRefresh: attempt > 0,
             fetcher: () => fetchWorkspaceBriefing(route),
           })
         : await fetchWorkspaceBriefing(route);
@@ -998,6 +1003,93 @@
     } finally {
       if (button) button.disabled = false;
     }
+  }
+
+  // Coworker "Today" card: a deterministic, permission-scoped scan surfaced
+  // directly to the panel (no model round trip, no approval queue). It answers
+  // the daily questions staff actually ask - what is on today, what needs me,
+  // and what have I missed - using only data their role already grants.
+  let aiTodayRequestId = 0;
+  let aiTodayRoute = "";
+
+  async function loadAssistantToday() {
+    const host = $("#global-ai-assistant-today");
+    if (!host) return;
+    const route = currentRoute() || "dashboard";
+    const requestId = ++aiTodayRequestId;
+    if (route !== aiTodayRoute) {
+      aiTodayRoute = route;
+      host.innerHTML = '<div class="text-muted small">Reviewing your day…</div>';
+    }
+    try {
+      const payload = await window.API?.dashboard?.getAssistantToday?.(route);
+      if (requestId !== aiTodayRequestId) return;
+      const scan = payload?.data !== undefined ? payload.data : payload;
+      if (!scan || scan.status !== "ok") {
+        host.innerHTML = '<div class="alert alert-secondary small mb-0">Your day overview is unavailable right now.</div>';
+        return;
+      }
+      host.innerHTML = renderAssistantToday(scan);
+    } catch {
+      if (requestId !== aiTodayRequestId) return;
+      host.innerHTML = '<div class="alert alert-secondary small mb-0">Your day overview is unavailable right now.</div>';
+    }
+  }
+
+  function todaySection(label, icon, section) {
+    const items = Array.isArray(section?.items) ? section.items : [];
+    if (!items.length) return "";
+    const shown = items.slice(0, 3);
+    return `<div class="ai-today-row mb-2">
+      <div class="small fw-semibold text-muted mb-1"><i class="bi bi-${icon} me-1"></i>${escapeHtml(label)}</div>
+      <ul class="small mb-0 ps-3">${shown.map((item) => `<li>${escapeHtml(String(item))}</li>`).join("")}</ul>
+    </div>`;
+  }
+
+  function renderAssistantToday(scan) {
+    const sections = scan.sections || {};
+    const date = String(scan.date || "");
+    const unread = Math.max(0, Number(scan.unread_notification_count || 0));
+    const attention = (sections.attention?.items || []).length;
+    const greeting = new Date().getHours() < 12 ? "Good morning" : new Date().getHours() < 17 ? "Good afternoon" : "Good evening";
+    const parts = ['<div class="card border-primary-subtle shadow-sm"><div class="card-body p-3">'];
+    parts.push(`<div class="d-flex align-items-center justify-content-between mb-2">
+      <h6 class="mb-0"><i class="bi bi-stars text-primary me-2"></i>${greeting}</h6>
+      <small class="text-muted">${escapeHtml(date)}</small>
+    </div>`);
+    const chips = [];
+    if (attention > 0) chips.push(`<span class="badge text-bg-warning">${attention} need${attention === 1 ? "s" : ""} attention</span>`);
+    if (unread > 0) chips.push(`<span class="badge text-bg-info">${unread} unread</span>`);
+    if (!chips.length) chips.push('<span class="badge text-bg-success">All clear</span>');
+    parts.push(`<div class="d-flex flex-wrap gap-1 mb-3">${chips.join("")}</div>`);
+
+    const body =
+      todaySection("Today's schedule", "calendar2-check", sections.schedule) +
+      todaySection("Needs your attention", "exclamation-triangle", sections.attention) +
+      todaySection("Notifications", "bell", sections.notifications);
+    parts.push(body || '<div class="alert alert-success small py-2 px-3">Nothing needs your attention right now.</div>');
+
+    // Quick actions prefill the composer so a staff member can ask a coworker
+    // question in one click. These are prompts, never background writes.
+    parts.push(`<div class="ai-today-actions d-flex flex-wrap gap-1 mt-3 pt-2 border-top">
+      <button type="button" class="btn btn-sm btn-outline-primary" data-ai-today-ask="What's new in Kenya's CBC and CBE curriculum this week?"><i class="bi bi-newspaper me-1"></i>Education news</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-ai-today-ask="Suggest what the school should post this week and how."><i class="bi bi-megaphone me-1"></i>Posting ideas</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-ai-today-ask="Give me three useful suggestions for my work today."><i class="bi bi-lightbulb me-1"></i>Suggestions</button>
+    </div>`);
+    parts.push('</div></div>');
+
+    // Defer listener binding until after insertion. Reuse the established
+    // opener so the question is actually submitted through the governed
+    // stream path, not merely typed into the box.
+    queueMicrotask(() => {
+      document.querySelectorAll("#global-ai-assistant-today [data-ai-today-ask]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const question = button.getAttribute("data-ai-today-ask") || "";
+          if (question) openAssistantWith(question);
+        });
+      });
+    });
+    return parts.join("");
   }
 
   function renderWorkspaceBriefing(briefing, fromSnapshot, updating) {
@@ -1174,8 +1266,10 @@
         await loadAssistantSession(currentSessionId);
       }
       try {
-        // Use the existing submit logic inline
-        const form = $("#global-ai-assistant-form");
+        // Use the existing submit logic inline. The mounted composer id is
+        // `global-ai-assistant-query`; the old `global-ai-assistant-form`
+        // lookup made every queued question a silent no-op.
+        const form = $("#global-ai-assistant-query");
         const input = $("#global-ai-assistant-question");
         if (form && input) {
           input.value = question;
@@ -1558,6 +1652,13 @@
         response_style: responseStyle?.value || "balanced",
         auto_charts: autoCharts?.checked === true,
         language: language?.value || "en",
+        personality: {
+          tone: $("#pref-persona-tone")?.value || "professional",
+          verbosity: $("#pref-persona-detail")?.value || "balanced",
+          focus: ($("#pref-persona-focus")?.value || "").trim(),
+          goals: ($("#pref-persona-goals")?.value || "").trim(),
+          proactive: $("#pref-persona-proactive")?.checked !== false,
+        },
       };
       try {
         localStorage.setItem("kw_assistant_prefs", JSON.stringify(prefs));
@@ -2666,13 +2767,23 @@
   function loadAssistantPreferences() {
     // Load preferences into settings modal
     window.API.dashboard.getAssistantPreferences?.().then((res) => {
-      const prefs = res?.data || {};
+      // api.js already unwraps the envelope, so `res` is the payload itself.
+      // Accepting both shapes keeps this safe if the transport changes.
+      const prefs = res?.data || res || {};
       const saveHistory = $("#pref-save-history");
       const responseStyle = $("#pref-response-style");
       const autoCharts = $("#pref-auto-charts");
+      const languageField = $("#pref-language");
       if (saveHistory) saveHistory.checked = prefs.save_history !== false;
       if (responseStyle) responseStyle.value = prefs.response_style || "balanced";
       if (autoCharts) autoCharts.checked = prefs.auto_charts === true;
+      if (languageField) languageField.value = prefs.language || "en";
+      const persona = prefs.personality || {};
+      if ($("#pref-persona-tone")) $("#pref-persona-tone").value = persona.tone || "professional";
+      if ($("#pref-persona-detail")) $("#pref-persona-detail").value = persona.verbosity || "balanced";
+      if ($("#pref-persona-focus")) $("#pref-persona-focus").value = persona.focus || "";
+      if ($("#pref-persona-goals")) $("#pref-persona-goals").value = persona.goals || "";
+      if ($("#pref-persona-proactive")) $("#pref-persona-proactive").checked = persona.proactive !== false;
     }).catch(() => {});
   }
 
@@ -3288,16 +3399,65 @@
       }
     );
 
+    let assistantPanelHydrated = false;
+    function hydrateOpenAssistantPanel() {
+      if (assistantPanelHydrated) return;
+      assistantPanelHydrated = true;
+      initAssistantChrome();
+      renderAssistantHistory();
+      initAiAssistantQuery();
+      initProactiveAssistant();
+      void loadAssistantToday();
+      void loadWorkspaceBriefing(0);
+      void restoreDelegatedTask();
+    }
+
     $("#globalAiAssistantPanel")?.addEventListener(
       "show.bs.offcanvas",
+      hydrateOpenAssistantPanel
+    );
+    $("#globalAiAssistantPanel")?.addEventListener(
+      "hidden.bs.offcanvas",
       () => {
-        initAssistantChrome();
-        renderAssistantHistory();
-        initAiAssistantQuery();
-        initProactiveAssistant();
-        void loadWorkspaceBriefing(0);
-        void restoreDelegatedTask();
+        assistantPanelHydrated = false;
       }
+    );
+    // A persisted-open panel is restored by ui_state_manager, which can add
+    // `.show` before this script attaches its Bootstrap listeners. Watching the
+    // class attribute catches that restore regardless of load order; the flag
+    // keeps every path from loading the data twice.
+    // `$` is querySelector and already returns the element (or null) — do not
+    // index it with `[0]`, which would be undefined and disable every check.
+    const assistantPanelEl = $("#globalAiAssistantPanel");
+    if (assistantPanelEl && window.MutationObserver) {
+      const panelObserver = new MutationObserver(() => {
+        if (assistantPanelEl.classList.contains("show")) {
+          hydrateOpenAssistantPanel();
+        }
+      });
+      panelObserver.observe(assistantPanelEl, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    }
+    if (assistantPanelEl?.classList.contains("show")) {
+      hydrateOpenAssistantPanel();
+    }
+    // Hard reload: ui_state_manager restores `.show` on DOMContentLoaded, which
+    // can run AFTER bindEvents() captured a not-yet-open panel, so neither the
+    // class check above nor the Bootstrap `show` event was observable at bind
+    // time. Defer a few guarded checks past the boot sequence so a persisted-
+    // open panel always hydrates its insight regions without needing a manual
+    // close/reopen. The flag keeps this idempotent — no duplicate data loads.
+    [0, 300, 1200].forEach((delay) =>
+      window.setTimeout(() => {
+        if (
+          assistantPanelEl?.classList.contains("show") &&
+          !assistantPanelHydrated
+        ) {
+          hydrateOpenAssistantPanel();
+        }
+      }, delay)
     );
 
     $("#globalAiAssistantPanel")?.addEventListener(
@@ -3430,6 +3590,7 @@
     bindEvents();
     window.addEventListener("kingsway:page-loaded", () => {
       if ($("#globalAiAssistantPanel")?.classList.contains("show")) {
+        void loadAssistantToday();
         void loadWorkspaceBriefing(0);
       }
     });

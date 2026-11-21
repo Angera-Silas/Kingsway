@@ -261,7 +261,11 @@ class ChatSessionStore:
             with self._lock, closing(self._connect()) as connection:
                 row = connection.execute(
                     "SELECT 1 FROM chat_sessions WHERE id = ? AND user_id = ? AND assistant_domain = ?",
-                    (str(session_id or ""), int(user_id), self._clean_domain(assistant_domain)),
+                    (
+                        str(session_id or ""),
+                        int(user_id),
+                        self._clean_domain(assistant_domain),
+                    ),
                 ).fetchone()
             return row is not None
         except Exception:
@@ -629,6 +633,14 @@ class ChatSessionStore:
                 text = str(value or "").strip()[:40]
                 if text:
                     clean[key] = text
+        # Per-user personality profile: validated and bounded by its own
+        # schema. Stored nested so it is erasable with the rest of the prefs.
+        if "personality" in (prefs or {}):
+            from .personality import clean_personality
+
+            profile = clean_personality(prefs["personality"])
+            if profile:
+                clean["personality"] = profile
         try:
             with self._lock, closing(self._connect()) as connection:
                 connection.execute(
@@ -689,7 +701,11 @@ class ChatSessionStore:
 
     @staticmethod
     def _clean_domain(value: Any) -> str:
-        return "system_admin" if str(value or "").strip().lower() == "system_admin" else "staff"
+        return (
+            "system_admin"
+            if str(value or "").strip().lower() == "system_admin"
+            else "staff"
+        )
 
     @staticmethod
     def _load_topics(raw: Any) -> list[str]:

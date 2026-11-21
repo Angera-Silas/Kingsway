@@ -125,10 +125,10 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(
             r"\b(?:Source|Data source|Source view|Source table|Backed by|"
             r"Pulled from|Fetched from)\s*:(?!\s*(?:https?://|www\.|[a-z0-9\-]+\.(?:com|org|net|edu|gov|ke|co\.ke|ac\.ke|go\.ke)\b))"
-            r"[^\n.;]{0,120}",
+            r"[^\n.;]{0,120}\b",
             re.I,
         ),
-        "Based on school records",
+        "Based on school records.",
     ),
 )
 
@@ -166,6 +166,39 @@ def _scrub_sql(text: str) -> str:
     return _DDL_RE.sub(_ddl, text)
 
 
+# A public citation is provenance the answer is required to show. Scrubbing must
+# never eat its label or its URL: the "Source: <internal id>" rule used to run
+# straight through "[Source: KICD website](https://www.kicd.go.ke)" and leave
+# "[Based on school records..kicd.go.ke)" on screen. Protect whole citations and
+# bare public URLs with inert placeholders before the rules run, then restore
+# them verbatim afterwards. The placeholder has no dots, slashes or keywords so
+# none of the regexes above can match it.
+_PUBLIC_MARKDOWN_LINK_RE = re.compile(
+    r"\[[^\]\n]{0,200}\]\(\s*(?:https?://|www\.)[^\s)\n]{1,500}\)"
+)
+_PUBLIC_BARE_URL_RE = re.compile(r"(?<![\w(])(?:https?://|www\.)[^\s<>\"')\]]{1,500}")
+_CITATION_TOKEN = "__KWPUBLICCITE{}__"
+
+
+def _protect_citations(text: str) -> tuple[str, list[str]]:
+    """Swap public citations for tokens, returning the text and originals."""
+    originals: list[str] = []
+
+    def _store(match: re.Match[str]) -> str:
+        originals.append(match.group(0))
+        return _CITATION_TOKEN.format(len(originals) - 1)
+
+    text = _PUBLIC_MARKDOWN_LINK_RE.sub(_store, text)
+    text = _PUBLIC_BARE_URL_RE.sub(_store, text)
+    return text, originals
+
+
+def _restore_citations(text: str, originals: list[str]) -> str:
+    for index, original in enumerate(originals):
+        text = text.replace(_CITATION_TOKEN.format(index), original)
+    return text
+
+
 def scrub_text(text: str) -> str:
     """Remove internal markers and secret material from one string."""
     if not isinstance(text, str) or not text:
@@ -173,6 +206,7 @@ def scrub_text(text: str) -> str:
     if len(text) > MAX_STRING:
         text = text[:MAX_STRING] + "…"
 
+    text, citations = _protect_citations(text)
     text = _TOOL_ID_RE.sub("the school system", text)
     text = _OBJECT_RE.sub("school data", text)
     text = _REGISTRY_CODE_RE.sub("the school report", text)
@@ -180,7 +214,7 @@ def scrub_text(text: str) -> str:
     text = _SNAKE_CASE_RE.sub(_humanize_snake, text)
     for pattern, replacement in _PATTERNS:
         text = pattern.sub(replacement, text)
-    return _scrub_sql(text)
+    return _restore_citations(_scrub_sql(text), citations)
 
 
 def scrub(value: Any, _depth: int = 0) -> Any:
@@ -218,7 +252,9 @@ def scrub(value: Any, _depth: int = 0) -> Any:
 # text and go through the scrub like everything else; its media field is a data
 # URI the engine produced from authorized rows and is carried through intact.
 _ARTIFACT_MEDIA_FIELDS = ("url", "image", "download_name")
-_DATA_URI_RE = re.compile(r"^data:([a-z0-9.+-]+/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$")
+_DATA_URI_RE = re.compile(
+    r"^data:([a-z0-9.+-]+/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$"
+)
 # `text/` is deliberately absent: an HTML or markdown "artifact" would be
 # rendered as a page by the browser, which is not a document download and is a
 # vector for injecting script into the app.
@@ -282,7 +318,6 @@ def scrub_artifact(value: Any, _depth: int = 0) -> Any:
             clean_name += "_"
         out[clean_name] = cleaned
     return out
-
 
 
 def contains_internal_reference(value: Any) -> bool:

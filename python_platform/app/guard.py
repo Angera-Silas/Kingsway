@@ -31,9 +31,18 @@ _CONFIDENTIAL_PATTERNS = tuple(
         r"\b(show|list|give|tell|what(?:'s| is)|describe|explain|reveal|walk)\b[^?.]{0,40}"
         r"\b(folder|directory|file|repo|repository|tree)s?\b",
         r"\bwhere\s+(is|are|do)\b[^?.]{0,40}\b(stored|saved|kept|located|file|folder|directory)\b",
-        # schema, tables and internal records
-        r"\b(database|db|schema|table|column|index|view|stored\s+procedure|migration|"
-        r"foreign\s+key|primary\s+key|table\s+name|column\s+name)\b",
+        # schema, tables and internal records. A bare "database"/"db" is NOT a
+        # probe: staff legitimately ask the agents to read "our school database".
+        # Only introspective qualifiers (schema, structure, credentials, ...)
+        # turn it into a confidentiality matter. "what/which database" is a
+        # direct question about the platform and is still refused below.
+        r"\b(schema|stored\s+procedure|migration|foreign\s+key|primary\s+key|"
+        r"table\s+name|column\s+name)\b",
+        r"\b(databases?|db)\b[^?.]{0,30}\b(schema|structure|design|layout|"
+        r"credentials?|passwords?|host|port|connection|dump|export)\b",
+        r"\b(schema|structure|design|layout|credentials?|dump|export)\b"
+        r"[^?.]{0,30}\b(databases?|db)\b",
+        r"\b(what|which)\s+(databases?|db)\b",
         r"\b(dump|export|schema\s+of|structure\s+of)\b[^?.]{0,30}\b(database|db|table|schema)\b",
         r"\b(sql|query)\b[^?.]{0,20}\b(show|reveal|give|send)\b",
         # Bare "list all tables" style probes, minus ordinary school language
@@ -136,20 +145,51 @@ _STUDENT_STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 
-_PROMPT_INJECTION_PATTERNS = (
+_PROMPT_INJECTION_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
-        r"\b(ignore|skip|disregard)\s+(all|previous|the\s+)?(instructions|system\s+prompt|developer\s+mode|rules)\b",
-        r"\b(system\s+prompt|your\s+prompt|the\s+prompt)\b",
-        r"\b(developer\s+mode|code\s+mode|admin\s+mode)\b",
-        r"\b(roleplay|act\s+as|pretend\s+to\s+be)\b",
-        r"\b(reveal|show|give|tell)\s+(your\s+)?(system\s+)?prompt\b",
+        # Classic instruction override: "ignore/disregard/skip ...".
+        r"\b(ignore|skip|disregard|override|forget|drop|bypass)\s+"
+        r"(all|any|the|your|previous|prior|earlier|above|preceding|system|developer)?\s*"
+        r"(instructions?|rules?|guidelines?|policies|policy|prompt|constraints?|"
+        r"restrictions?|directions?|orders?|programming)\b",
+        # "do not / don't follow the rules" and "stop following ...".
+        r"\b(do\s+not|don'?t|never|stop|quit)\s+(follow|obey|respect|adhere\s+to|"
+        r"listen\s+to|comply\s+with)\b[^.]{0,40}\b(rules?|instructions?|guidelines?|"
+        r"prompt|restrictions?|policies|policy|system)\b",
+        # Prompt/system/developer introspection and mode escalation.
+        r"\b(system\s+prompt|your\s+prompt|the\s+prompt|hidden\s+prompt|"
+        r"initial\s+prompt|developer\s+message|developer\s+instructions?)\b",
+        r"\b(developer\s+mode|code\s+mode|admin\s+mode|god\s+mode|jail\s?break|"
+        r"unrestricted\s+mode|debug\s+mode)\b",
+        # Persona takeover: "you are now ...", "new instructions:", "pretend".
+        r"\b(you\s+are\s+now|from\s+now\s+on\s+you|new\s+instructions?\s*:|"
+        r"your\s+new\s+(role|task|instructions?)|act\s+as\s+if\s+(you\s+)?(have|had|"
+        r"there\s+are)\s+(no|without)\b)",
+        r"\b(roleplay|act\s+as|pretend\s+to\s+be|pretend\s+you)\b[^.]{0,60}"
+        r"\b(admin|system|developer|unrestricted|no\s+rules|ignore)\b",
+        r"\b(reveal|show|give|tell|print|repeat|display|leak|dump)\s+"
+        r"(me\s+)?(your\s+|the\s+|hidden\s+)?(system\s+)?(prompt|instructions?|"
+        r"rules?|configuration|config)\b",
+        # Role-tag spoofing injected into the message body.
+        r"(?:^|\n)\s*(?:\[?\s*(?:system|developer|assistant)\s*\]?)\s*:",
+        # Privilege escalation phrasing aimed at the permission model.
+        r"\b(grant|give|escalate)\s+(me\s+)?(all|full|admin|root|superuser|"
+        r"unrestricted)\s+(permissions?|access|rights?|privileges)\b",
+        r"\b(print|show|list|dump)\s+(all\s+)?(database\s+)?(users?|password|"
+        r"credentials?|secrets?)\b",
     )
 )
 
 
 def is_prompt_injection(question: str) -> bool:
-    """True when the question attempts prompt injection."""
+    """True when the question attempts prompt injection or instruction override.
+
+    Deterministic and provider-free: a refusal cannot be talked around by the
+    model, and the matched attack phrases are never echoed back. All user text
+    (question plus any embedded tool output) must pass through here before a
+    provider call.
+    """
     if not isinstance(question, str) or not question.strip():
         return False
     return any(pattern.search(question) for pattern in _PROMPT_INJECTION_PATTERNS)
@@ -182,6 +222,43 @@ def prompt_injection_response(agent: dict | None = None) -> dict:
             "domain": (agent or {}).get("domain", "system"),
         },
     }
+
+
+# Neutralizes instruction-like text found inside untrusted tool output (web
+# pages, crawled content, report text). Rather than dropping the content - which
+# would blind the assistant to a legitimate page - it rewrites the few phrases
+# that could be read as commands into a harmless marker, so the model sees the
+# information but cannot treat it as an order.
+_UNTRUSTED_COMMAND_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(ignore|disregard|forget|override|skip)\b[^.]{0,60}\b( instructions?| rules?| prompt| previous| above| system)\b",
+        r"\b(you are now|from now on you|new instructions?\s*:|your new (role|task))\b",
+        r"\b(developer mode|admin mode|god mode|jailbreak|unrestricted mode)\b",
+        r"\b(grant|give|escalate|assign)\b[^.]{0,40}\b(admin|root|full|all|unrestricted)\b[^.]{0,20}\b(access|permission|rights?|privileges?|mode)\b",
+        r"\b(reveal|show|print|dump)\b[^.]{0,40}\b(system prompt|instructions?|secrets?|password|credentials?|api key)\b",
+        r"(?:^|\n)\s*(?:\[?\s*(?:system|developer|assistant)\s*\]?)\s*:",
+    )
+)
+_NEUTRALIZED = "[untrusted text removed]"
+
+
+def neutralize_untrusted(text: str, limit: int | None = None) -> str:
+    """Make untrusted tool/web text safe to place in a prompt.
+
+    Matches are replaced with a neutral marker rather than echoed, so a hostile
+    page cannot smuggle instructions into the model or learn what tripped the
+    filter. Non-instruction content is preserved so the answer can still cite
+    the page.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    cleaned = text
+    for pattern in _UNTRUSTED_COMMAND_PATTERNS:
+        cleaned = pattern.sub(_NEUTRALIZED, cleaned)
+    if limit is not None and len(cleaned) > limit:
+        cleaned = cleaned[:limit]
+    return cleaned
 
 
 def is_confidential(question: str) -> bool:

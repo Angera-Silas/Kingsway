@@ -2276,6 +2276,7 @@ const ENDPOINT_PERMISSIONS = {
   "/dashboard/agent-assist": null,
   "/dashboard/agent-assist-stream": null,
   "/dashboard/workspace-briefing": null,
+  "/dashboard/assistant-today": null,
   "/system/ai-security-review-queue": "system_view",
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
   "/attendance/ai-exception-summaries": { GET: "attendance_view" },
@@ -8820,6 +8821,10 @@ window.API = {
     // route; "generating" means a background job is preparing them.
     getWorkspaceBriefing: async (route = "dashboard") =>
       apiCall("/dashboard/workspace-briefing", "GET", null, { route }),
+    // Deterministic, permission-scoped coworker "today" scan (no model, no
+    // approval queue): schedule, attention items and unread notifications.
+    getAssistantToday: async (route = "dashboard") =>
+      apiCall("/dashboard/assistant-today", "GET", null, { route }),
 
     // Assistant session management. Each method accepts either its scalar
     // arguments or a pre-built params object, because both call styles exist.

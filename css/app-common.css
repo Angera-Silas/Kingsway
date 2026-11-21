@@ -1382,6 +1382,22 @@ table.table thead th[scope="col"] {
 .ai-briefing-finding[data-severity="critical"] {
   border-left-color: var(--bs-danger);
 }
+/* Coworker "Today" card: compact, permission-scoped schedule / attention /
+   notification rows plus one-click coworker prompts. */
+.offcanvas.ai-assistant-panel #global-ai-assistant-today .card {
+  background: var(--app-surface, #fff);
+}
+.offcanvas.ai-assistant-panel #global-ai-assistant-today .ai-today-row {
+  padding-left: .25rem;
+}
+.offcanvas.ai-assistant-panel #global-ai-assistant-today .ai-today-row ul {
+  max-height: 5.5rem;
+  overflow-y: auto;
+}
+.offcanvas.ai-assistant-panel #global-ai-assistant-today .ai-today-actions .btn {
+  white-space: normal;
+  text-align: left;
+}
 @media print {
   .offcanvas.ai-assistant-panel {
     display: none !important;
