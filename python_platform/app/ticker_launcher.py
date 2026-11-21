@@ -32,6 +32,7 @@ Proof of life, all under the application's logs directory:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import signal
 import subprocess
@@ -90,6 +91,33 @@ def _is_ticker(pid: int) -> bool:
     except OSError:
         return True  # no /proc: trust the PID file
     return b"ticker.py" in cmdline
+
+
+def _heartbeat_stale(directory: Path, pid: int) -> float | None:
+    """Seconds since this ticker last proved it is working, when too long.
+
+    A live process is not a working ticker: production tickers have been
+    found alive (cmdline still ticker.py) but frozen at the same hour every
+    morning, and the launcher answered "already_running" for hours. The
+    ticker rewrites ticker.status.json every ~5 s; a heartbeat older than
+    TICKER_STALE_SECONDS (default 180) means it is stuck. A ticker that has
+    not written status yet is judged by the age of its PID file instead.
+    Returns the stall age in seconds, or None when the ticker is healthy.
+    """
+    stale_after = max(30.0, float(os.environ.get("TICKER_STALE_SECONDS", "180")))
+    now = time.time()
+    try:
+        status = json.loads((directory / "ticker.status.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        status = {}
+    if int(status.get("pid") or 0) == pid and status.get("heartbeat_epoch"):
+        age = now - float(status["heartbeat_epoch"])
+    else:
+        try:
+            age = now - (directory / "ticker.pid").stat().st_mtime
+        except OSError:
+            return None
+    return age if age > stale_after else None
 
 
 def fingerprint(root: Path = APP_ROOT, environ: dict | None = None) -> str:
@@ -219,6 +247,21 @@ def _ensure(directory: Path, started_by: str) -> subprocess.Popen | None:
         existing_pid = None
 
     if existing_pid and existing_pid != os.getpid() and _is_ticker(existing_pid):
+        stalled = _heartbeat_stale(directory, existing_pid)
+        if stalled is not None:
+            timeout = float(os.environ.get("TICKER_STOP_TIMEOUT", "15"))
+            outcome = _stop(existing_pid, timeout)
+            print(
+                f"[TICKER-LAUNCH] Ticker {existing_pid} alive but stalled "
+                f"{int(stalled)}s (no heartbeat); replacing it: {outcome}",
+                flush=True,
+            )
+            _journal({"event": "replaced_stalled", "old_pid": existing_pid,
+                      "stalled_seconds": int(stalled), "stop": outcome})
+            process = _spawn(directory, started_by)
+            pid_path.write_text(str(process.pid), encoding="utf-8")
+            fp_path.write_text(current, encoding="utf-8")
+            return process
         if _read(fp_path) == current:
             print(f"[TICKER-LAUNCH] Ticker up to date (PID: {existing_pid})", flush=True)
             _journal({"event": "already_running", "pid": existing_pid})
