@@ -91,8 +91,9 @@
     <div class="container d-flex flex-wrap justify-content-between align-items-center gap-2">
       <p>&copy; <?= date('Y') ?> Kingsway Preparatory School. All rights reserved. Maintained by <a href="https://www.angisoft.co.ke" target="_blank" rel="noopener">AngiSoft Technologies</a>.</p>
       <p>
-        <a href="<?= $appBase ?>/index.php">Privacy Policy</a> &nbsp;·&nbsp;
-        <a href="<?= $appBase ?>/index.php">Terms of Use</a> &nbsp;·&nbsp;
+        <a href="<?= $appBase ?>/<?= htmlspecialchars(public_route_url('privacy-policy')) ?>">Privacy Policy</a> &nbsp;·&nbsp;
+        <a href="<?= $appBase ?>/<?= htmlspecialchars(public_route_url('terms-of-use')) ?>">Terms of Use</a> &nbsp;·&nbsp;
+        <a href="<?= $appBase ?>/<?= htmlspecialchars(public_route_url('cookie-policy')) ?>">Cookie Policy</a> &nbsp;·&nbsp;
         <a href="<?= $appBase ?>/home.php">Staff Portal</a>
       </p>
     </div>

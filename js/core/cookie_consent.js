@@ -17,6 +17,14 @@
     return location.protocol === 'https:';
   }
 
+  // The public header publishes the policy URL (route tokens are server-side);
+  // pages without it fall back to the site home.
+  function cookiePolicyUrl() {
+    const meta = document.querySelector('meta[name="kingsway-cookie-policy"]');
+    const url = (meta && meta.getAttribute('content')) || ((window.APP_BASE || '') + '/index.php');
+    return String(url).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  }
+
   function buildCookieAttributes(days) {
     const maxAge = Math.max(0, Math.floor(days * 86400));
     const expires = new Date(Date.now() + maxAge * 1000).toUTCString();
@@ -90,8 +98,8 @@
           <h2 id="cookie-consent-title">Cookie Consent</h2>
         </header>
         <p id="cookie-consent-desc" class="cookie-consent-text">
-          This website uses cookies to improve your experience, analyze traffic, and enable core functionality.
-          <a href="/privacy-policy" target="_blank" rel="noopener">Read our Privacy Policy</a>
+          We use essential cookies to keep this site secure and remember your choices. We do not use advertising or tracking cookies.
+          <a href="${cookiePolicyUrl()}" target="_blank" rel="noopener">Read our Cookie Policy</a>
         </p>
         <div class="cookie-consent-actions">
           <button type="button" class="btn btn-primary cookie-btn-accept" data-action="accept">

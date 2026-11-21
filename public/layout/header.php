@@ -18,6 +18,9 @@ $pageDescriptions = [
   'gallery' => 'Explore the Kingsway Preparatory School gallery — photos and videos of school life, facilities, events, and student activities.',
   'downloads' => 'Access public school documents and downloads from Kingsway Preparatory School.',
   'uniform-catalog' => 'Browse the Kingsway Preparatory School uniform catalogue.',
+  'privacy-policy' => 'How Kingsway Preparatory School collects, uses and protects personal data under the Kenya Data Protection Act, 2019.',
+  'terms-of-use' => 'Terms for using the Kingsway Preparatory School website, admissions, parent portal and online payments.',
+  'cookie-policy' => 'The cookies and browser storage used by the Kingsway Preparatory School website and portals.',
 ];
 $pageDescription = $pageDescription ?? ($pageDescriptions[$activePage] ?? 'Kingsway Preparatory School — Nurturing Excellence, Character & Leadership in Londiani, Kenya.');
 $siteBase = rtrim((string) (defined('BASE_URL') ? BASE_URL : $appBase), '/');
@@ -62,6 +65,7 @@ $organizationData = [
   <?php endif; ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="kingsway-cookie-policy" content="<?= htmlspecialchars($appBase . '/' . public_route_url('cookie-policy'), ENT_QUOTES, 'UTF-8') ?>">
   <title><?= htmlspecialchars($pageTitle) ?> | Kingsway Preparatory School</title>
   <meta name="description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
   <link rel="canonical" href="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
