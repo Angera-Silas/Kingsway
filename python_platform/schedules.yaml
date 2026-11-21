@@ -770,6 +770,15 @@ jobs:
   payload:
     limit: 30
   interval: 30
+- name: system_log_monitor
+  # 24/7 watch of PHP error/security journals; alerts system admins by
+  # SMS (critical) and email digest. Uses the default worker secret
+  # (COMMUNICATION_WORKER_SECRET), like the outbox. Successful runs are not
+  # traced to http/audit logs.
+  kind: http
+  endpoint: /api/system/log-monitor-worker
+  payload: {}
+  interval: 2
 - name: outbox
   kind: http
   endpoint: /api/communications/process-outbox

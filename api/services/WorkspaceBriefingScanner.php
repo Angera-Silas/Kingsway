@@ -176,6 +176,32 @@ final class WorkspaceBriefingScanner
             }
         }
 
+        // System administrators: the 24/7 log monitor's findings.
+        if ($this->hasAny($permissions, ['system_admin', 'system_view', 'system_all_permissions'])) {
+            try {
+                $monitor = (new SystemLogMonitorService())->status();
+                if (!$monitor['running']) {
+                    $items[] = 'The system log monitor has not run in the last 2 minutes; check the ticker.';
+                }
+                $since = time() - 86400;
+                $counts = ['critical' => 0, 'error' => 0];
+                $titles = [];
+                foreach ($monitor['recent'] as $finding) {
+                    if (strtotime((string) $finding['at']) < $since || !isset($counts[$finding['severity']])) continue;
+                    $counts[$finding['severity']] += (int) $finding['count'];
+                    if ($finding['severity'] === 'critical') $titles[$finding['title']] = true;
+                }
+                if ($counts['critical'] > 0) {
+                    $items[] = "{$counts['critical']} critical system event(s) in the last 24 h: " . implode(', ', array_slice(array_keys($titles), 0, 3)) . '.';
+                }
+                if ($counts['error'] > 0) {
+                    $items[] = "{$counts['error']} system error(s) or security warning(s) logged in the last 24 h.";
+                }
+            } catch (Throwable $e) {
+                // Optional signal.
+            }
+        }
+
         if ($items === []) $items[] = 'No attention items from the current authorized signals.';
 
         return [

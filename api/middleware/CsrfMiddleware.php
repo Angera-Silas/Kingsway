@@ -90,6 +90,7 @@ class CsrfMiddleware
         'communications/sms-opt-out-callback',
         'communications/sms-subscription-callback',
         'communications/process-outbox',
+        'system/log-monitor-worker',
         'communications/sync-sms-contacts',
         'staff-migration/process-invitation-email',
         'attendance/gate-event',

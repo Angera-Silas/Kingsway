@@ -1,3 +1,17 @@
+// Shared HTML escaper for page scripts that build markup with template
+// strings. Any value that came from a user (names, titles, notes) must pass
+// through it before it reaches innerHTML.
+if (typeof window.kwEscapeHtml !== "function") {
+  window.kwEscapeHtml = function (value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  };
+}
+
 // Only define API_BASE_URL if not already defined
 if (typeof API_BASE_URL === "undefined") {
   var API_BASE_URL = (window.APP_BASE || "") + "/api";

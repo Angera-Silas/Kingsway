@@ -59,7 +59,7 @@ const pettyCashController = {
     try {
       const r = await callAPI('/finance/expense-categories', 'GET');
       this._categories = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const opts = this._categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      const opts = this._categories.map(c => `<option value="${c.id}">${kwEscapeHtml(c.name)}</option>`).join('');
       document.getElementById('pcCategoryFilter') && (document.getElementById('pcCategoryFilter').innerHTML = '<option value="">All Categories</option>' + opts);
       document.getElementById('pc_category_id')   && (document.getElementById('pc_category_id').innerHTML   = '<option value="">— Select category —</option>' + opts);
     } catch (e) { /* non-fatal */ }

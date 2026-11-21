@@ -462,6 +462,12 @@ class ControllerRouter
                 ? $method . ' /' . $controllerName . '/' . $resource
                 : $method . ' /' . $controllerName . (is_numeric($id) ? '/' . $id : '');
 
+            // The log monitor runs every few seconds; a successful heartbeat
+            // must not flood http/audit logs (failures are still traced).
+            if ($success && $route === 'POST /system/log-monitor-worker') {
+                return;
+            }
+
             Logger::request(($success ? 'OK ' : 'ERR ') . $code . ' ' . $route, [
                 'method' => $method,
                 'controller' => $controllerName,

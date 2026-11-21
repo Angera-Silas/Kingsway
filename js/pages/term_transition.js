@@ -74,7 +74,7 @@ const termTransitionController = {
         if (doneTitle) doneTitle.textContent = `${n} is Now Active!`;
       }
       const rolloverBtn = document.getElementById('ttRolloverBtn');
-      if (rolloverBtn) rolloverBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable' + (this._nextTerm ? ` to ${this._nextTerm.name}` : '');
+      if (rolloverBtn) rolloverBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable' + (this._nextTerm ? ` to ${kwEscapeHtml(this._nextTerm.name)}` : '');
 
       const proceed = document.querySelector('#ttStep1 button[onclick*="goStep(2)"]');
       if (proceed) {
@@ -222,7 +222,7 @@ const termTransitionController = {
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to close term.'; errEl.classList.remove('d-none'); }
     } finally {
-      if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-lock me-1"></i> Close ${this._currentTerm?.name}`; }
+      if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-lock me-1"></i> Close ${kwEscapeHtml(this._currentTerm?.name)}`; }
     }
   },
 

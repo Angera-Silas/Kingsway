@@ -54,7 +54,7 @@ const MySchemesOfWorkController = {
       const yearSelect = document.getElementById('academicYearSelect');
       if (yearSelect) {
         yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+          years.map(year => `<option value="${year.id}">${kwEscapeHtml(year.name)}</option>`).join('');
         
         // Set current academic year if available
         if (this.state.currentAcademicYear) {

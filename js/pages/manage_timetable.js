@@ -685,7 +685,7 @@ const timetableController = (() => {
       )
       .join("");
     const roomOpts = rooms
-      .map((r) => `<option value="${r.id}" ${(td.dataset.roomId || "") == r.id ? "selected" : ""}>${r.name}${r.code ? ` (${r.code})` : ""}</option>`)
+      .map((r) => `<option value="${r.id}" ${(td.dataset.roomId || "") == r.id ? "selected" : ""}>${kwEscapeHtml(r.name)}${r.code ? ` (${kwEscapeHtml(r.code)})` : ""}</option>`)
       .join("");
     td.innerHTML = `
       <select class="form-select form-select-sm mb-1 edit-subject">${subOpts}</select>
