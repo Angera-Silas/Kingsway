@@ -300,15 +300,23 @@
                 <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
             </header>
             <div class="assistant-conversation flex-grow-1 overflow-y-auto p-3 p-md-4" id="global-ai-assistant-conversation" style="display:flex;flex-direction:column;">
-                <section id="global-ai-assistant-today" class="mb-3" aria-live="polite" aria-label="Your day at a glance">
-                    <div class="text-muted small">Getting your day ready…</div>
-                </section>
-                <section id="global-ai-assistant-briefing" class="mb-3" aria-live="polite" aria-label="Workspace insights">
-                    <div class="text-muted small">Workspace insights will appear here when available.</div>
-                </section>
+                <!-- Insights fold away once a conversation has messages so the chat stays the focus. -->
+                <details id="global-ai-assistant-insights" class="assistant-insights mb-3" open>
+                    <summary class="assistant-insights-summary">
+                        <i class="bi bi-stars me-1" aria-hidden="true"></i>Your day &amp; workspace insights
+                    </summary>
+                    <div class="assistant-insights-body pt-2">
+                        <section id="global-ai-assistant-today" class="mb-3" aria-live="polite" aria-label="Your day at a glance">
+                            <div class="text-muted small">Getting your day ready…</div>
+                        </section>
+                        <section id="global-ai-assistant-briefing" aria-live="polite" aria-label="Workspace insights">
+                            <div class="text-muted small">Workspace insights will appear here when available.</div>
+                        </section>
+                    </div>
+                </details>
                 <section id="global-ai-assistant-task-status" class="mb-3" aria-live="polite" aria-label="Delegated assistant work"></section>
                 <!-- Thread: the single scrollable message container (never destroyed). Greeting is rendered here when empty. -->
-                <div id="global-ai-assistant-thread" class="assistant-thread flex-grow-1 overflow-y-auto p-3" aria-live="polite"></div>
+                <div id="global-ai-assistant-thread" class="assistant-thread" aria-live="polite"></div>
             </div>
 <!-- Composer -->
             <footer class="assistant-footer border-top p-3 flex-shrink-0" id="global-ai-assistant-footer">

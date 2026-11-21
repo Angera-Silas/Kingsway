@@ -1065,6 +1065,36 @@ table.table thead th[scope="col"] {
 .ai-assistant-panel .assistant-conversation #global-ai-assistant-empty-state {
   margin: auto 0;
 }
+/* The conversation pane is the ONLY scroller. The thread grows with its
+   content; as a nested flex scroller it shrank to its padding and hid chats. */
+.ai-assistant-panel .assistant-thread {
+  flex: 1 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+.ai-assistant-panel .assistant-insights {
+  flex: 0 0 auto;
+  border: 1px solid #e2e8f0;
+  border-radius: .75rem;
+  background: #f8fafc;
+  padding: .5rem .75rem;
+}
+.ai-assistant-panel .assistant-insights-summary {
+  cursor: pointer;
+  font-size: .85rem;
+  font-weight: 600;
+  color: #475569;
+  list-style-position: inside;
+}
+.ai-assistant-panel .assistant-insights:not([open]) .assistant-insights-summary::after {
+  content: " · tap to expand";
+  font-weight: 400;
+  color: #94a3b8;
+}
+.ai-assistant-panel .assistant-insights-body {
+  max-height: 45vh;
+  overflow-y: auto;
+}
 .ai-assistant-panel .assistant-footer {
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;

@@ -1139,7 +1139,8 @@
             <span class="badge text-bg-${severity === "critical" ? "danger" : severity === "warning" ? "warning" : "info"} text-uppercase">${escapeHtml(severity)}</span>
           </div>`
         );
-        if (finding?.root_cause) {
+        // A cause the scan could not determine is filler, not information.
+        if (finding?.root_cause && !/^not determinable/i.test(String(finding.root_cause).trim())) {
           parts.push(
             `<p class="small mb-1 mt-1"><span class="text-muted fw-semibold">Likely cause:</span> ${escapeHtml(finding.root_cause)}</p>`
           );
@@ -1416,10 +1417,17 @@
   }
 
   function scrollAssistantToBottom() {
-    const thread = $("#global-ai-assistant-thread");
-    const target = thread || $("#global-ai-assistant-conversation");
+    // The conversation pane is the single scroller; the thread grows inside it.
+    const target = $("#global-ai-assistant-conversation");
     if (!target) return;
     target.scrollTop = target.scrollHeight;
+  }
+
+  // Fold the day/workspace insights away while a conversation is on screen,
+  // and reopen them for a fresh chat, so the messages are never pushed out.
+  function setAssistantInsightsOpen(open) {
+    const insights = $("#global-ai-assistant-insights");
+    if (insights) insights.open = !!open;
   }
 
   async function createAssistantSession() {
@@ -1488,10 +1496,12 @@
     if (!thread) return;
     const messages = (session && session.messages) || [];
     if (!messages.length) {
+      setAssistantInsightsOpen(true);
       thread.innerHTML = getGreetingHtml();
       bindAssistantPromptChips(thread);
       return;
     }
+    setAssistantInsightsOpen(false);
     thread.innerHTML = messages
       .map((msg) => {
         if (msg.role === "user") {
@@ -1546,6 +1556,7 @@
   function clearConversation() {
     const thread = $("#global-ai-assistant-thread");
     if (!thread) return;
+    setAssistantInsightsOpen(true);
     thread.innerHTML = getGreetingHtml();
     bindAssistantPromptChips(thread);
   }
@@ -2540,6 +2551,7 @@
 
         // Add user bubble to conversation thread
         thread.querySelector("#global-ai-assistant-empty-state")?.remove();
+        setAssistantInsightsOpen(false);
         const userBubble = document.createElement("div");
         userBubble.className = "d-flex justify-content-end mb-3";
         userBubble.innerHTML = `<div class="user-bubble chat-bubble max-w-75">${escapeHtml(question)}</div>`;
