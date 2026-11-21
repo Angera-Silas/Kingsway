@@ -825,7 +825,7 @@ class FeeStructureViewerController {
                                   .map(
                                     (item) => `
                                     <tr>
-                                        <td>${item.name}</td>
+                                        <td>${kwEscapeHtml(item.name)}</td>
                                         <td>${item.description || "-"}</td>
                                         <td class="text-end">${this.formatCurrency(item.amount)}</td>
                                     </tr>
@@ -947,7 +947,7 @@ class FeeStructureViewerController {
           title: 'Fee Items',
           content: feeItems.map(item => `
             <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee;">
-              <span>${item.name}</span>
+              <span>${kwEscapeHtml(item.name)}</span>
               <span>${this.formatCurrency(item.amount)}</span>
             </div>
           `).join('')

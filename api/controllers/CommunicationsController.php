@@ -1367,7 +1367,9 @@ class CommunicationsController extends BaseController
     {
         $secret = defined('COMMUNICATION_WEBHOOK_SECRET') ? (string) COMMUNICATION_WEBHOOK_SECRET : '';
         if ($secret === '') {
-            return strtolower((string) ($_ENV['APP_ENV'] ?? 'development')) !== 'production';
+            // Fail closed: an unset secret is tolerated only in local
+            // development, never on staging/production (or a blank APP_ENV).
+            return strtolower((string) ($_ENV['APP_ENV'] ?? '')) === 'development';
         }
         $provided = $_SERVER['HTTP_X_KINGSWAY_WEBHOOK_SECRET']
             ?? ($_SERVER['HTTP_X_KINGSWAY_WEBHOOK_TOKEN'] ?? ($_GET['token'] ?? ($data['webhook_secret'] ?? ($data['token'] ?? ''))));

@@ -39,7 +39,7 @@ const staffScheduleController = {
       const sel = document.getElementById('ssTermFilter');
       if (sel) {
         sel.innerHTML = '<option value="">Current Term</option>' +
-          terms.map(t => `<option value="${t.id}" ${t.id == this._termId ? 'selected' : ''}>${t.name} ${t.year || ''}</option>`).join('');
+          terms.map(t => `<option value="${t.id}" ${t.id == this._termId ? 'selected' : ''}>${kwEscapeHtml(t.name)} ${kwEscapeHtml(t.year || '')}</option>`).join('');
       }
 
       const badge = document.getElementById('ssTimetableTerm');

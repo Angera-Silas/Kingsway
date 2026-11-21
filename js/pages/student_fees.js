@@ -964,7 +964,7 @@ const StudentFeesController = {
     if (current) this.ui.assistanceYear.value = String(current.id);
     const programsResp = await window.API.finance.getScholarshipPrograms();
     const programs = programsResp?.data ?? programsResp ?? [];
-    this.ui.assistanceProgram.innerHTML = (Array.isArray(programs) ? programs : []).map((p) => `<option value="${p.id}" data-type="${p.coverage_type}" data-pct="${p.default_percentage || ""}">${p.name}</option>`).join("");
+    this.ui.assistanceProgram.innerHTML = (Array.isArray(programs) ? programs : []).map((p) => `<option value="${p.id}" data-type="${p.coverage_type}" data-pct="${kwEscapeHtml(p.default_percentage || "")}">${kwEscapeHtml(p.name)}</option>`).join("");
     this.ui.assistanceProgram.onchange = () => {
       const option = this.ui.assistanceProgram.selectedOptions[0];
       if (option?.dataset.type) this.ui.assistanceCoverage.value = option.dataset.type;

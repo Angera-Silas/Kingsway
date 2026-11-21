@@ -301,7 +301,7 @@ const academicsController = {
             const classLevelSelect = document.getElementById('classGradeLevel');
             if (classLevelSelect && levels.length > 0) {
                 classLevelSelect.innerHTML = '<option value="">Select Grade Level</option>' +
-                    levels.map(level => `<option value="${level.id}">${level.name}</option>`).join('');
+                    levels.map(level => `<option value="${level.id}">${kwEscapeHtml(level.name)}</option>`).join('');
             }
             
             // Populate class teacher dropdown in modals
@@ -328,7 +328,7 @@ const academicsController = {
             // Populate stream class dropdown
             const streamClassSelect = document.getElementById('streamClass');
             const assignClassSelect = document.getElementById('assignClass');
-            const classOptions = classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            const classOptions = classes.map(c => `<option value="${c.id}">${kwEscapeHtml(c.name)}</option>`).join('');
             if (streamClassSelect && classes.length > 0) {
                 streamClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
             }

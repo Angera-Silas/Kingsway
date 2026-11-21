@@ -76,7 +76,7 @@ const staffManagementController = {
       if (el) {
         el.innerHTML = '<option value="">-- Select Supervisor --</option>';
         supervisors.forEach((s) => {
-          el.innerHTML += `<option value="${s.id}">${s.first_name} ${s.last_name} (${s.staff_no || s.position || "Staff"})</option>`;
+          el.innerHTML += `<option value="${s.id}">${kwEscapeHtml(s.first_name)} ${kwEscapeHtml(s.last_name)} (${kwEscapeHtml(s.staff_no || s.position || "Staff")})</option>`;
         });
       }
     } catch (error) {
@@ -114,7 +114,7 @@ const staffManagementController = {
           ? '<option value="">All Departments</option>'
           : '<option value="">Select Department</option>';
         this.departments.forEach((dept) => {
-          el.innerHTML += `<option value="${dept.id}">${dept.name}</option>`;
+          el.innerHTML += `<option value="${dept.id}">${kwEscapeHtml(dept.name)}</option>`;
         });
       }
     });
@@ -996,7 +996,7 @@ const staffManagementController = {
       if (filterEl && filterEl.options.length <= 1) {
         this.allStaff.forEach((s) => {
           if (s.staff_type === "teaching") {
-            filterEl.innerHTML += `<option value="${s.id}">${s.first_name} ${s.last_name}</option>`;
+            filterEl.innerHTML += `<option value="${s.id}">${kwEscapeHtml(s.first_name)} ${kwEscapeHtml(s.last_name)}</option>`;
           }
         });
       }
@@ -1073,7 +1073,7 @@ const staffManagementController = {
     this.allStaff
       .filter((s) => s.staff_type === "teaching" && s.status === "active")
       .forEach((s) => {
-        staffSelect.innerHTML += `<option value="${s.id}">${s.first_name} ${s.last_name}</option>`;
+        staffSelect.innerHTML += `<option value="${s.id}">${kwEscapeHtml(s.first_name)} ${kwEscapeHtml(s.last_name)}</option>`;
       });
 
     // Populate classes
@@ -1139,7 +1139,7 @@ const staffManagementController = {
     this.allStaff
       .filter((s) => s.staff_type === "teaching" && s.status === "active")
       .forEach((s) => {
-        staffSelect.innerHTML += `<option value="${s.id}">${s.first_name} ${s.last_name}</option>`;
+        staffSelect.innerHTML += `<option value="${s.id}">${kwEscapeHtml(s.first_name)} ${kwEscapeHtml(s.last_name)}</option>`;
       });
 
     // Populate subjects
@@ -1250,7 +1250,7 @@ const staffManagementController = {
       const filterEl = document.getElementById("performanceStaffFilter");
       if (filterEl && filterEl.options.length <= 1) {
         this.allStaff.forEach((s) => {
-          filterEl.innerHTML += `<option value="${s.id}">${s.first_name} ${s.last_name}</option>`;
+          filterEl.innerHTML += `<option value="${s.id}">${kwEscapeHtml(s.first_name)} ${kwEscapeHtml(s.last_name)}</option>`;
         });
       }
       // Load overview performance data for all teaching staff
@@ -1367,7 +1367,7 @@ const staffManagementController = {
       this.allStaff
         .filter((s) => s.staff_type === "teaching" && s.status === "active")
         .forEach((s) => {
-          staffSelect.innerHTML += `<option value="${s.id}">${s.first_name} ${s.last_name}</option>`;
+          staffSelect.innerHTML += `<option value="${s.id}">${kwEscapeHtml(s.first_name)} ${kwEscapeHtml(s.last_name)}</option>`;
         });
     }
     this.scheduleLoaded = true;
@@ -1430,7 +1430,7 @@ const staffManagementController = {
             if (entry) {
               return `<td class="p-2">
                 <div class="bg-light p-2 rounded border-start border-3 border-primary">
-                  <strong class="text-primary">${entry.subject}</strong><br>
+                  <strong class="text-primary">${kwEscapeHtml(entry.subject)}</strong><br>
                   <small class="text-muted">${entry.class}${entry.stream ? " - " + entry.stream : ""}</small>
                   ${entry.room ? "<br><small class='text-info'><i class='bi bi-geo-alt'></i> " + entry.room + "</small>" : ""}
                 </div>

@@ -283,6 +283,36 @@ class SystemController extends BaseController
         } catch (\Throwable $e) { return $this->serverError('Security signals are temporarily unavailable'); }
     }
 
+    /**
+     * POST /api/system/log-monitor-worker
+     * Ticker job (schedules.yaml: system_log_monitor). Reads new error and
+     * security journal lines and alerts system administrators by SMS/email.
+     */
+    public function postLogMonitorWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        try {
+            return $this->success($this->contract('App\\API\\Services\\SystemLogMonitorService')->run(), 'Logs checked');
+        } catch (\Throwable $e) {
+            return $this->serverError('Log monitor run failed');
+        }
+    }
+
+    // GET /api/system/log-monitor — recent findings for the system admin and assistant.
+    public function getLogMonitor($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            return $this->success($this->contract('App\\API\\Services\\SystemLogMonitorService')->status(), 'Log monitor status');
+        } catch (\Throwable $e) {
+            return $this->serverError('Log monitor status is unavailable');
+        }
+    }
+
     // POST /api/system/ai-security-review-queue
     public function postAiSecurityReviewQueue($id = null, $data = [], $segments = [])
     {
