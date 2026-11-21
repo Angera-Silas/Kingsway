@@ -67,8 +67,9 @@ class StaffPayrollManager extends BaseAPI
 
             $status = $data['status'] ?? 'pending';
 
-            // Payroll eligibility gate: staff must have all statutory IDs,
-            // payment details, at least one role, and a salary set.
+            // Payroll eligibility gate: payment details, at least one role,
+            // and a salary set. Statutory identifiers are optional because each
+            // statutory item is selected independently per employee.
             $eligibilitySql = "SELECT
                 s.staff_no, COALESCE(spp.basic_salary, 0) AS salary, spp.bank_name, spp.bank_account,
                 p.phone,
@@ -97,8 +98,7 @@ class StaffPayrollManager extends BaseAPI
             $checks = [
                 'staff_no' => 'Staff number', 'department_id' => 'Department',
                 'role_count' => 'Assigned role', 'salary' => 'Basic salary',
-                'kra_pin' => 'KRA PIN', 'nssf_no' => 'NSSF number',
-                'nhif_no' => 'NHIF/SHIF number', 'phone' => 'Phone number',
+                'phone' => 'Phone number',
                 'bank_name' => 'Bank name', 'bank_account' => 'Bank account',
             ];
             $eligMissing = [];

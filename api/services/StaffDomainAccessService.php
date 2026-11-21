@@ -220,7 +220,7 @@ final class StaffDomainAccessService
                           AND (rs.effective_to IS NULL OR rs.effective_to>=?)
                         ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1
                     ),0) AS salary, s.employment_date,
-                    p.first_name, p.last_name,
+                    p.first_name, p.last_name, p.phone,
                     spp.bank_name, spp.bank_account, spp.mpesa_phone, spp.kra_pin, spp.nssf_no, spp.nhif_no
              FROM ' . ReadReplicaService::masterRef('staff') . ' s
              JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = s.person_id
@@ -240,9 +240,9 @@ final class StaffDomainAccessService
         $bankReady = !empty($staff['bank_name']) && !empty($staff['bank_account']);
         $mobileReady = !empty($staff['mpesa_phone']) || !empty($staff['phone']);
         if (!$bankReady && !$mobileReady) $reasons[] = 'Bank details or M-Pesa phone number are required';
-        if (empty($staff['kra_pin'])) $reasons[] = 'KRA PIN is missing';
-        if (empty($staff['nssf_no'])) $reasons[] = 'NSSF number is missing';
-        if (empty($staff['nhif_no'])) $reasons[] = 'Health insurance number is missing';
+        // Statutory identifiers are optional payroll metadata. PAYE, NSSF,
+        // SHIF and the housing levy are selected independently per employee,
+        // so a missing identifier must never block drafting the payslip.
 
         return [
             'eligible' => $reasons === [],

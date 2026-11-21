@@ -113,7 +113,7 @@ class RateLimitMiddleware
     private static function isPublicAiEndpoint(): bool
     {
         $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
-        return strpos($path, '/public/ai-faq') !== false;
+        return strpos($path, '/public/ai-faq') !== false || strpos($path, '/public/ai-feedback') !== false;
     }
 
     private static function isPublicLeadsEndpoint(): bool

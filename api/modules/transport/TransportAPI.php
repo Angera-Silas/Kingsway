@@ -43,7 +43,52 @@ class TransportAPI extends BaseAPI
         $response = $this->getSummary();
         if (($response['success'] ?? false) !== true) return $response;
         $summary = is_array($response['data'] ?? null) ? $response['data'] : [];
+        try {
+            $summary = array_merge($summary, $this->transportAiSignals());
+        } catch (Exception $e) {
+            // The insight still works from the core counts if signals fail.
+            $this->logError($e, 'TransportAPI::transportAiSignals');
+        }
         return $this->successResponse(self::buildAiOperationsSummaryInput($summary, date('Y-m-d')));
+    }
+
+    /**
+     * Authorized aggregate signals that make the transport insight useful.
+     * All values are counts/totals only - no registration numbers, routes,
+     * drivers, learners or other identifiable records leave this method.
+     */
+    private function transportAiSignals(): array
+    {
+        $vehicles = $this->db->query(
+            "SELECT
+                 COUNT(*) AS vehicle_total,
+                 COALESCE(SUM(CASE WHEN status = 'active' THEN capacity ELSE 0 END), 0) AS total_active_capacity,
+                 SUM(CASE WHEN status = 'active' AND service_due_date IS NOT NULL AND service_due_date < CURDATE() THEN 1 ELSE 0 END) AS overdue_service_count,
+                 SUM(CASE WHEN status = 'active' AND insurance_expiry IS NOT NULL AND insurance_expiry < CURDATE() THEN 1 ELSE 0 END) AS expired_insurance_count,
+                 SUM(CASE WHEN status = 'maintenance' THEN 1 ELSE 0 END) AS maintenance_vehicle_count
+             FROM transport_vehicles"
+        )->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $routesRef = ReadReplicaService::qualifiedRef('transport_routes');
+        $linksRef = ReadReplicaService::qualifiedRef('transport_vehicle_routes');
+        $routes = $this->db->query(
+            "SELECT COUNT(*) AS routes_without_vehicle_count
+             FROM {$routesRef} r
+             WHERE r.status = 'active'
+               AND NOT EXISTS (
+                   SELECT 1 FROM {$linksRef} vr
+                   WHERE vr.route_id = r.id AND vr.status = 'active'
+               )"
+        )->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'vehicle_total' => (string) ($vehicles['vehicle_total'] ?? 0),
+            'total_active_capacity' => (string) ($vehicles['total_active_capacity'] ?? 0),
+            'overdue_service_count' => (string) ($vehicles['overdue_service_count'] ?? 0),
+            'expired_insurance_count' => (string) ($vehicles['expired_insurance_count'] ?? 0),
+            'maintenance_vehicle_count' => (string) ($vehicles['maintenance_vehicle_count'] ?? 0),
+            'routes_without_vehicle_count' => (string) ($routes['routes_without_vehicle_count'] ?? 0),
+        ];
     }
 
     /** Pure allow-listed aggregate transform shared by API and regression tests. */
@@ -55,7 +100,13 @@ class TransportAPI extends BaseAPI
             'active_route_count' => $count($summary['routes'] ?? 0),
             'active_vehicle_count' => $count($summary['vehicles'] ?? 0),
             'assigned_passenger_count' => $count($summary['active_subscriptions'] ?? 0),
-            'follow_up_intent' => 'Prepare transport operations review; do not change assignments or safety controls.',
+            'vehicle_total' => $count($summary['vehicle_total'] ?? 0),
+            'total_active_capacity' => $count($summary['total_active_capacity'] ?? 0),
+            'overdue_service_count' => $count($summary['overdue_service_count'] ?? 0),
+            'expired_insurance_count' => $count($summary['expired_insurance_count'] ?? 0),
+            'maintenance_vehicle_count' => $count($summary['maintenance_vehicle_count'] ?? 0),
+            'routes_without_vehicle_count' => $count($summary['routes_without_vehicle_count'] ?? 0),
+            'follow_up_intent' => 'Produce a concise advisory insight for staff: state only the figures supplied, flag overdue service/insurance and routes without a vehicle, and suggest operational review questions. Do not change assignments, make safety decisions, or invent facts not present in the data.',
         ];
     }
 

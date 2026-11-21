@@ -110,27 +110,48 @@ class TransferWorkflow extends WorkflowHandler
 
             $currentUserId = $this->getCurrentUserId();
 
-            // Create the transition (transfer request)
+            // The learner leaves from the enrolment they hold now (after the
+            // year-end promotion that is next year's class), so the request
+            // belongs to that enrolment's academic year.
+            $from = $this->db->prepare(
+                "SELECT id, academic_year_id FROM student_academic_enrollments
+                  WHERE student_id = ? AND enrollment_status = 'active'
+                  ORDER BY academic_year_id DESC, id DESC LIMIT 1"
+            );
+            $from->execute([$data['student_id']]);
+            $fromEnrollment = $from->fetch(PDO::FETCH_ASSOC) ?: null;
+            if (!$fromEnrollment) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'The learner has no current enrolment to transfer from');
+            }
+
+            // Create the transition (transfer request) with the receiving school.
+            $clean = static function ($value, int $max): ?string {
+                $value = trim((string) ($value ?? ''));
+                return $value === '' ? null : mb_substr($value, 0, $max);
+            };
             $stmt = $this->db->prepare("
-                INSERT INTO student_transitions (student_id, academic_year_id, transition_type, reason, decided_by, decided_at)
-                SELECT ?, ay.id, ?, ?, ?, ?
-                FROM academic_years ay
-                WHERE ay.is_current = 1
-                LIMIT 1
+                INSERT INTO student_transitions
+                    (student_id, from_student_academic_enrollment_id, academic_year_id, transition_type, reason,
+                     destination_school, destination_school_code, destination_county, destination_sub_county,
+                     expected_leaving_date, decided_by, decided_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $data['student_id'],
+                (int) $fromEnrollment['id'],
+                (int) $fromEnrollment['academic_year_id'],
                 $transitionType,
                 $data['transfer_reason'],
+                $clean($data['transfer_to_school'] ?? null, 200),
+                $clean($data['destination_school_code'] ?? null, 40),
+                $clean($data['destination_county'] ?? null, 100),
+                $clean($data['destination_sub_county'] ?? null, 100),
+                !empty($data['expected_leaving_date']) ? date('Y-m-d', strtotime((string) $data['expected_leaving_date'])) : null,
                 $currentUserId,
                 $data['request_date'],
             ]);
             $transferId = (int) $this->db->lastInsertId();
-
-            if ($stmt->rowCount() === 0) {
-                $this->db->rollBack();
-                return formatResponse(false, null, 'No active academic year is configured');
-            }
 
             // Initialize clearance records for all departments
             $stmt = $this->db->prepare("

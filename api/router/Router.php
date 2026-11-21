@@ -98,7 +98,7 @@ class Router
     private function enforcePayloadLimits(): ?array
     {
         $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
-        if (strpos($path, '/public/ai-faq') === false) {
+        if (strpos($path, '/public/ai-faq') === false && strpos($path, '/public/ai-feedback') === false) {
             return null;
         }
 

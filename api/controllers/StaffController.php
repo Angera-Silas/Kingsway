@@ -225,7 +225,9 @@ class StaffController extends BaseController
         if ($id !== null) {
             $data['id'] = $id;
         }
-        
+        // Qualification provenance is server-owned; never trust a browser ID.
+        $data['_admin_actor_user_id'] = (int) ($this->getUserId() ?? 0);
+
         if (!empty($segments)) {
             $resource = array_shift($segments);
             return $this->routeNestedPost($resource, $id, $data, $segments);
@@ -511,7 +513,7 @@ return $this->badRequest('An internal error occurred.');
         if (empty($this->user)) {
             return $this->unauthorized('Authentication required to upload staff files');
         }
-        $allowedRoles = ['system administrator', 'admin', 'school_admin', 'headteacher', 'director', 'human_resources'];
+        $allowedRoles = ['system administrator', 'school administrator', 'admin', 'school_admin', 'headteacher', 'director', 'human_resources'];
         if (!$this->userHasAny([], [], $allowedRoles)) {
             return $this->forbidden('Insufficient permission to upload staff files');
         }
@@ -598,7 +600,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function delete($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.directory.delete', ['system administrator'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.directory.manage', ['system administrator', 'school administrator'])) return $denied;
         if ($id === null) {
             return $this->badRequest('Staff ID is required for deletion');
         }

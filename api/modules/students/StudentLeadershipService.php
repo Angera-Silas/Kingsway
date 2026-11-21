@@ -173,7 +173,7 @@ class StudentLeadershipService
             LEFT JOIN houses h ON h.id = l.house_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = l.academic_year_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = l.academic_year_term_id
-            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp2 ON lp2.student_id = st.id AND lp2.academic_year_id = l.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement_history') . " lp2 ON lp2.student_id = st.id AND lp2.academic_year_id = l.academic_year_id
             WHERE " . implode(' AND ', $where) . "
             ORDER BY lp.display_order ASC, p.first_name, p.last_name
         ";
@@ -209,7 +209,7 @@ class StudentLeadershipService
             LEFT JOIN houses h ON h.id = l.house_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = l.academic_year_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = l.academic_year_term_id
-            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp2 ON lp2.student_id = l.student_id AND lp2.academic_year_id = l.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement_history') . " lp2 ON lp2.student_id = l.student_id AND lp2.academic_year_id = l.academic_year_id
             WHERE l.student_id = ?
             ORDER BY l.academic_year_id DESC, l.academic_year_term_id DESC, lp.display_order ASC
         ");

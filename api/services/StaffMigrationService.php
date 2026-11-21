@@ -524,30 +524,131 @@ PHP;
         } catch(Throwable $e){ if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
     }
 
-    public function resendInvitation(int $userId, int $actorId): array
+    /**
+     * Issue a fresh setup link and deliver it through the channel the school
+     * administrator selected. SMS uses the same single-use token as email, so
+     * either channel produces an equally secure setup URL.
+     */
+    public function resendInvitation(int $userId, int $actorId, string $channel = 'email'): array
     {
+        $channel = strtolower(trim($channel));
+        if (!in_array($channel, ['email', 'sms', 'both'], true)) {
+            throw new RuntimeException('Choose email, SMS, or both as the invitation channel.');
+        }
         $ownsTransaction = !$this->db->inTransaction();
         if ($ownsTransaction) $this->db->beginTransaction();
         try {
-            $stmt=$this->db->prepare("SELECT u.id,u.status,u.password_changed_at,u.profile_completed_at,u.force_password_change,p.email,u.username,p.first_name,p.last_name,s.id staff_id FROM users u JOIN persons p ON p.id=u.person_id JOIN staff s ON s.person_id=p.id WHERE u.id=? LIMIT 1 FOR UPDATE");
+            $stmt=$this->db->prepare("SELECT u.id,u.status,u.password_changed_at,u.profile_completed_at,u.force_password_change,p.email,p.phone,u.username,p.first_name,p.last_name,s.id staff_id FROM users u JOIN persons p ON p.id=u.person_id JOIN staff s ON s.person_id=p.id AND s.deleted_at IS NULL WHERE u.id=? AND u.deleted_at IS NULL LIMIT 1 FOR UPDATE");
             $stmt->execute([$userId]); $user=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!$user) throw new RuntimeException('Staff account not found.');
             if (($user['status'] ?? '') !== 'active') throw new RuntimeException('This staff account is inactive. An administrator must restore the account before an invitation can be resent.');
             if (empty($user['force_password_change']) || !empty($user['password_changed_at']) || !empty($user['profile_completed_at'])) {
                 throw new RuntimeException('This staff account has completed password setup. Do not resend a setup link; the staff member should sign in or use password recovery.');
             }
-            $token=$this->createInvitation((int)$user['id'],(int)$user['staff_id'],$user['email'],$actorId);
-            $url=self::invitationSetupUrl($token);
-            $messageId = $this->queueEmail((int)$user['id'],$user['email'],'staff_account_invitation','Your Kingsway account is ready',[
-                'name'=>trim($user['first_name'].' '.$user['last_name']),'username'=>$user['username'],'activation_url'=>$url,'setup_url'=>$url
-            ]);
-            $this->audit($actorId,'staff_invitation_resent','user',(int)$user['id']);
+            $token = $this->createInvitation((int)$user['id'], (int)$user['staff_id'], $user['email'], $actorId);
+            $name = trim($user['first_name'] . ' ' . $user['last_name']);
+            $channels = $channel === 'both' ? ['email', 'sms'] : [$channel];
+            $emailMessageId = null;
+            $smsMessageId = null;
+            foreach ($channels as $deliveryChannel) {
+                if ($deliveryChannel === 'sms') {
+                    $smsMessageId = $this->queueSmsInvitation(
+                        (int)$user['id'],
+                        (string)($user['phone'] ?? ''),
+                        $name,
+                        (string)$user['username'],
+                        $token,
+                        $actorId
+                    );
+                    $this->audit($actorId, 'staff_invitation_resent_sms', 'user', (int)$user['id']);
+                } else {
+                    $url = self::invitationSetupUrl($token);
+                    $emailMessageId = $this->queueEmail((int)$user['id'], $user['email'], 'staff_account_invitation', 'Your Kingsway account is ready', [
+                        'name' => $name, 'username' => $user['username'], 'activation_url' => $url, 'setup_url' => $url
+                    ]);
+                    $this->audit($actorId, 'staff_invitation_resent', 'user', (int)$user['id']);
+                }
+            }
             if ($ownsTransaction) $this->db->commit();
-            return ['user_id'=>(int)$user['id'],'message_id'=>$messageId,'queued'=>true];
+            return [
+                'user_id' => (int)$user['id'],
+                'message_id' => $emailMessageId ?? $smsMessageId,
+                'email_message_id' => $emailMessageId,
+                'sms_message_id' => $smsMessageId,
+                'queued' => true,
+                'channel' => $channel,
+            ];
         } catch (Throwable $error) {
             if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
             throw $error;
         }
+    }
+
+    /**
+     * Deliver a staff setup link by SMS and keep an auditable outbox row.
+     * A deterministic client submission id makes concurrent retries idempotent.
+     */
+    public function queueSmsInvitation(
+        int $userId,
+        string $phone,
+        string $name,
+        string $username,
+        string $token,
+        int $actorId
+    ): int {
+        $normalized = PhoneNumberNormalizer::normalize($phone);
+        if ($normalized === null) {
+            throw new RuntimeException('A valid staff mobile phone number is required to send the invitation by SMS.');
+        }
+        $url = self::invitationSetupUrl($token);
+        $message = sprintf(
+            'Kingsway Preparatory School: %s, your staff account is ready. Username: %s. Complete setup here: %s (valid 72 hours).',
+            $name !== '' ? $name : 'Hello',
+            $username,
+            $url
+        );
+        $submissionId = 'staff-invite-' . $userId . '-' . substr(hash('sha256', $token), 0, 20);
+        $result = (new \App\API\Services\sms\SMSService($this->db))->send([
+            'mode' => 'sms',
+            'recipients' => [$normalized],
+            'message' => $message,
+            'client_submission_id' => $submissionId,
+        ]);
+        $status = strtolower((string)($result['status'] ?? 'queued'));
+        $delivered = in_array($status, ['queued', 'sent', 'submitted', 'accepted', 'success'], true)
+            || !empty($result['success']) || !empty($result['communication_id']);
+        $payload = [
+            'name' => $name,
+            'username' => $username,
+            'setup_url' => $url,
+            'activation_url' => $url,
+            'communication_id' => $result['communication_id'] ?? null,
+            'expires_hours' => 72,
+        ];
+        $this->db->prepare(
+            "INSERT INTO outbound_messages
+                (user_id, channel, recipient, template_key, subject, payload_json, status, attempts, next_attempt_at, sent_at, created_at, updated_at)
+             VALUES (?, 'sms', ?, 'staff_account_invitation', 'Your Kingsway staff account is ready', ?, ?, ?, NOW(), ?, NOW(), NOW())"
+        )->execute([
+            $userId,
+            $normalized,
+            json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            $delivered ? 'sent' : 'failed',
+            $delivered ? 1 : 0,
+            $delivered ? date('Y-m-d H:i:s') : null,
+        ]);
+        $messageId = (int)$this->db->lastInsertId();
+        if (!$delivered) {
+            FileLogger::write('security', [
+                'type' => 'staff_invitation_sms_failed',
+                'user_id' => $userId,
+                'actor_id' => $actorId,
+                'message_id' => $messageId,
+                'provider_result' => $result,
+            ]);
+            throw new RuntimeException('The SMS invitation could not be sent. Check the messaging configuration and try again.');
+        }
+        return $messageId;
     }
 
     /** Resend the post-password email code when setup was accepted but not completed. */

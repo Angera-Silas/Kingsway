@@ -26,9 +26,10 @@ class MpesaB2CService
     /** @var MpesaApiClient */
     private $client;
 
-    public function __construct()
+    public function __construct(?PDO $db = null, ?MpesaApiClient $client = null)
     {
-        $this->client = new MpesaApiClient();
+        $this->db = $db;
+        $this->client = $client ?: new MpesaApiClient();
     }
 
     private function getDb(): PDO
@@ -55,14 +56,32 @@ class MpesaB2CService
      */
     public function sendPayment($data)
     {
+        $reservedTransactionId = 0;
+        $originatorId = trim((string) ($data['originator_conversation_id'] ?? ''));
+        $mpesaCode = '';
+
         try {
             $idempotency = trim((string) ($data['idempotency_reference'] ?? ''));
             if ($idempotency !== '') {
-                $existing = $this->getDb()->prepare('SELECT status,transaction_ref,request_id,result_description FROM disbursement_transactions WHERE idempotency_reference=? LIMIT 1');
+                $existing = $this->getDb()->prepare(
+                    'SELECT id,status,transaction_ref,request_id,result_description,payroll_payout_leg_id
+                     FROM disbursement_transactions WHERE idempotency_reference=? LIMIT 1'
+                );
                 $existing->execute([$idempotency]);
                 $row = $existing->fetch(PDO::FETCH_ASSOC);
-                if ($row) return ['status' => in_array($row['status'], ['pending','completed'], true) ? 'pending' : $row['status'], 'message' => 'Existing idempotent disbursement reused.', 'transaction_ref' => $row['transaction_ref'], 'request_id' => $row['request_id']];
+                if ($row) {
+                    $status = (string) ($row['status'] ?? 'pending');
+                    return [
+                        'status' => $status === 'completed' ? 'success' : ($status === 'failed' ? 'error' : 'pending'),
+                        'message' => 'Existing idempotent disbursement reused.',
+                        'transaction_ref' => $row['transaction_ref'],
+                        'request_id' => $row['request_id'],
+                        'payroll_payout_leg_id' => $row['payroll_payout_leg_id'] ?: null,
+                        'response' => null,
+                    ];
+                }
             }
+
             $phone = preg_replace('/\D/', '', (string) ($data['phone'] ?? ''));
             if (strlen($phone) === 9) {
                 $phone = '254' . $phone;
@@ -81,7 +100,6 @@ class MpesaB2CService
             $commandId = $data['command_id'] ?? 'BusinessPayment';
             $remarks = $data['remarks'] ?? 'Payment';
             $occasion = $data['occasion'] ?? '';
-            $originatorId = trim((string) ($data['originator_conversation_id'] ?? ''));
             if ($originatorId === '') {
                 $originatorId = 'KWA' . date('ymdHis') . strtoupper(bin2hex(random_bytes(3)));
             }
@@ -90,8 +108,11 @@ class MpesaB2CService
             $sourceAccountId = (int)($data['source_financial_account_id'] ?? $data['source_account_id'] ?? 0);
             if ($sourceAccountId > 0) {
                 $source = $this->getDb()->prepare("SELECT account_identifier,provider_id FROM school_financial_accounts WHERE id=? AND status='active' LIMIT 1");
-                $source->execute([$sourceAccountId]); $sourceRow = $source->fetch(PDO::FETCH_ASSOC);
-                if (!$sourceRow || trim((string)$sourceRow['account_identifier']) === '') throw new Exception('Selected M-Pesa source account is inactive or has no identifier.');
+                $source->execute([$sourceAccountId]);
+                $sourceRow = $source->fetch(PDO::FETCH_ASSOC);
+                if (!$sourceRow || trim((string)$sourceRow['account_identifier']) === '') {
+                    throw new Exception('Selected M-Pesa source account is inactive or has no identifier.');
+                }
                 $partyA = trim((string)$sourceRow['account_identifier']);
             }
 
@@ -109,38 +130,133 @@ class MpesaB2CService
                 'Occasion'          => $occasion,
             ];
 
-            $response = $this->client->post('/mpesa/b2c/v3/paymentrequest', $payload);
+            // Reserve exactly one linked disbursement row before contacting
+            // Safaricom. The durable originator ID lets every callback find the
+            // attempt even when the provider response is delayed or ambiguous.
+            [$reservedTransactionId, $created] = $this->reserveDisbursement(
+                $data,
+                $phone,
+                $amount,
+                $originatorId,
+                $payload
+            );
+            if (!$created) {
+                $existing = $this->getDb()->prepare(
+                    'SELECT status,transaction_ref,request_id,result_description,payroll_payout_leg_id
+                     FROM disbursement_transactions WHERE id=? LIMIT 1'
+                );
+                $existing->execute([$reservedTransactionId]);
+                $row = $existing->fetch(PDO::FETCH_ASSOC) ?: [];
+                $status = (string) ($row['status'] ?? 'pending');
+                return [
+                    'status' => $status === 'completed' ? 'success' : ($status === 'failed' ? 'error' : 'pending'),
+                    'message' => 'Existing idempotent disbursement reused.',
+                    'transaction_ref' => $row['transaction_ref'] ?? null,
+                    'request_id' => $row['request_id'] ?? null,
+                    'payroll_payout_leg_id' => $row['payroll_payout_leg_id'] ?? null,
+                    'response' => null,
+                ];
+            }
 
-            $originatorId = $response['OriginatorConversationID'] ?? null;
+            $mpesaCode = 'B2C-' . $originatorId;
+            $this->recordMpesaAttempt($mpesaCode, $amount, $phone, $data, $payload);
+
+            try {
+                $response = $this->client->post('/mpesa/b2c/v3/paymentrequest', $payload);
+            } catch (Exception $providerError) {
+                // The request may have reached Safaricom even when the HTTP
+                // response was lost. Keep the attempt pending and require
+                // reconciliation instead of creating a second payment.
+                $this->getDb()->prepare(
+                    "UPDATE disbursement_transactions
+                     SET status='pending', reconciliation_status='manual_review',
+                         provider_status='SUBMISSION_UNCERTAIN', result_description=?,
+                         callback_data=?, next_status_inquiry_at=NULL
+                     WHERE id=? AND status NOT IN ('completed','failed','cancelled')"
+                )->execute([
+                    'M-Pesa submission outcome requires reconciliation: ' . $providerError->getMessage(),
+                    json_encode(['request' => $payload, 'error' => $providerError->getMessage()]),
+                    $reservedTransactionId,
+                ]);
+                if ($mpesaCode !== '') {
+                    $this->getDb()->prepare(
+                        "UPDATE mpesa_transactions SET status='pending', webhook_data=? WHERE mpesa_code=?"
+                    )->execute([
+                        json_encode(['status' => 'submission_uncertain', 'error' => $providerError->getMessage()]),
+                        $mpesaCode,
+                    ]);
+                }
+
+                \App\API\Services\Logger::legacyError('[MpesaB2CService] submission uncertain: ' . $providerError->getMessage());
+                return [
+                    'status' => 'pending',
+                    'message' => 'M-Pesa payment outcome requires reconciliation.',
+                    'transaction_ref' => null,
+                    'originator_conversation_id' => $originatorId,
+                    'response' => null,
+                ];
+            }
+
+            $response = is_array($response) ? $response : [];
+            $responseOriginatorId = $response['OriginatorConversationID'] ?? $originatorId;
             $conversationId = $response['ConversationID'] ?? null;
-            $responseCode = $response['ResponseCode'] ?? '1';
-
-            $this->recordDisbursement($data, $phone, $amount, $commandId, $originatorId, $conversationId, $payload, $response);
+            $responseCode = (string) ($response['ResponseCode'] ?? '1');
 
             if ($responseCode !== '0') {
-                // The request was persisted before checking the provider
-                // acknowledgement so callbacks can always correlate it. If
-                // Daraja rejects it immediately, it must not remain pending
-                // or look like money is still in flight.
                 $description = (string)($response['ResponseDescription'] ?? $response['errorMessage'] ?? 'B2C request rejected by provider');
                 $this->getDb()->prepare(
                     "UPDATE disbursement_transactions
-                     SET status='failed', result_description=?, callback_data=?, failed_at=NOW()
-                     WHERE originator_conversation_id=? OR conversation_id=?"
-                )->execute([$description, json_encode($response), $originatorId, $conversationId]);
+                     SET status='failed', reconciliation_status='confirmed_failure',
+                         provider_status=?, result_description=?, callback_data=?,
+                         failed_at=NOW()
+                     WHERE id=? AND status NOT IN ('completed','cancelled')"
+                )->execute([
+                    $responseCode,
+                    $description,
+                    json_encode($response),
+                    $reservedTransactionId,
+                ]);
+                if ($mpesaCode !== '') {
+                    $this->getDb()->prepare(
+                        "UPDATE mpesa_transactions SET status='failed', webhook_data=? WHERE mpesa_code=?"
+                    )->execute([json_encode($response), $mpesaCode]);
+                }
+
+                return [
+                    'status' => 'error',
+                    'message' => $description,
+                    'transaction_ref' => null,
+                    'originator_conversation_id' => $responseOriginatorId,
+                    'response' => $response,
+                ];
+            }
+
+            $this->getDb()->prepare(
+                "UPDATE disbursement_transactions
+                 SET status='pending', reconciliation_status='awaiting_callback',
+                     provider_status=?, conversation_id=?, originator_conversation_id=?,
+                     transaction_ref=?, result_description=?, callback_data=?
+                 WHERE id=? AND status NOT IN ('completed','failed','cancelled')"
+            )->execute([
+                $responseCode,
+                $conversationId,
+                $responseOriginatorId,
+                $conversationId,
+                $response['ResponseDescription'] ?? null,
+                json_encode($response),
+                $reservedTransactionId,
+            ]);
+            if ($mpesaCode !== '') {
                 $this->getDb()->prepare(
-                    "UPDATE mpesa_transactions
-                     SET status='failed', webhook_data=?
-                     WHERE mpesa_code=?"
-                )->execute([json_encode($response), 'B2C-' . ($originatorId ?: '')]);
-                throw new Exception($response['ResponseDescription'] ?? 'B2C request failed');
+                    "UPDATE mpesa_transactions SET status='pending', webhook_data=? WHERE mpesa_code=?"
+                )->execute([json_encode($response), $mpesaCode]);
             }
 
             return [
                 'status' => 'success',
                 'message' => 'Payment request sent successfully',
                 'transaction_ref' => $conversationId,
-                'originator_conversation_id' => $originatorId,
+                'originator_conversation_id' => $responseOriginatorId,
                 'callback_urls' => [
                     'queue_timeout_url' => $payload['QueueTimeOutURL'],
                     'result_url' => $payload['ResultURL'],
@@ -149,6 +265,26 @@ class MpesaB2CService
             ];
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[MpesaB2CService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if ($reservedTransactionId > 0) {
+                try {
+                    $this->getDb()->prepare(
+                        "UPDATE disbursement_transactions
+                         SET status='pending', reconciliation_status='manual_review',
+                             provider_status='SUBMISSION_UNCERTAIN', result_description=?
+                         WHERE id=? AND status NOT IN ('completed','failed','cancelled')"
+                    )->execute([$e->getMessage(), $reservedTransactionId]);
+                } catch (Exception $ignored) {
+                    // Preserve the original failure. The reserved row remains
+                    // visible for reconciliation even if this update also fails.
+                }
+                return [
+                    'status' => 'pending',
+                    'message' => 'M-Pesa payment outcome requires reconciliation.',
+                    'transaction_ref' => null,
+                    'originator_conversation_id' => $originatorId ?: null,
+                    'response' => null,
+                ];
+            }
             return [
                 'status' => 'error',
                 'message' => $e->getMessage(),
@@ -187,58 +323,102 @@ class MpesaB2CService
     }
 
     /**
-     * Record the B2C initiation for callback matching.
+     * Reserve the durable disbursement row before the provider call.
+     *
+     * @return array{0:int,1:bool} transaction id and whether this call created it
      */
-    private function recordDisbursement(array $data, string $phone, float $amount, string $commandId, $originatorId, $conversationId, array $requestPayload, array $response): void
-    {
+    private function reserveDisbursement(
+        array $data,
+        string $phone,
+        float $amount,
+        string $originatorId,
+        array $requestPayload
+    ): array {
+        $idempotency = trim((string) ($data['idempotency_reference'] ?? ''));
+        $actorUserId = (int) ($data['actor_user_id'] ?? 0);
+        $insert = $this->getDb()->prepare(
+            "INSERT INTO disbursement_transactions
+                (disbursement_type, payment_purpose, source_financial_account_id,
+                 payroll_id, payslip_id, payroll_payout_leg_id,
+                 recipient_id, recipient_type, recipient_name, amount, currency,
+                 idempotency_reference, phone_number, channel,
+                 originator_conversation_id, status, reconciliation_status,
+                 provider_status, result_description, callback_data,
+                 submitted_by, approved_by, approved_at, released_at, created_at)
+             VALUES (:disbursement_type, :payment_purpose, :source_account_id,
+                     :payroll_id, :payslip_id, :payout_leg_id,
+                     :recipient_id, :recipient_type, :recipient_name, :amount, 'KES',
+                     :idempotency_reference, :phone_number, 'mpesa_b2c',
+                     :originator_conversation_id, 'pending', 'awaiting_callback',
+                     'RESERVED', :result_description, :callback_data,
+                     :actor_user_id, :actor_user_id, NOW(), NOW(), NOW())"
+        );
+
         try {
-            $this->getDb()->prepare(
-                "INSERT INTO disbursement_transactions
-                    (disbursement_type, payroll_id, payslip_id, refund_request_id, recipient_id, recipient_type, recipient_name,
-                     payment_purpose, source_financial_account_id, idempotency_reference, amount, phone_number, channel, conversation_id, originator_conversation_id,
-                     transaction_ref, status, result_description, callback_data, created_at)
-                 VALUES (:dtype, :payroll_id, :payslip_id, :refund_request_id, :recipient_id, :recipient_type, :recipient_name,
-                         :purpose, :source_account_id, :idempotency_reference, :amount, :phone, 'mpesa_b2c', :conv, :originator,
-                         :txref, 'pending', :desc, :callback, NOW())"
-            )->execute([
-                'dtype'       => $data['disbursement_type'] ?? 'salary',
-                'payroll_id'  => $data['payroll_id'] ?? null,
-                'payslip_id'  => $data['payslip_id'] ?? null,
-                'refund_request_id' => $data['refund_request_id'] ?? null,
+            $insert->execute([
+                'disbursement_type' => $data['disbursement_type'] ?? 'salary',
+                'payment_purpose' => $data['payment_purpose'] ?? ($data['disbursement_type'] ?? 'operations'),
+                'source_account_id' => $data['source_financial_account_id'] ?? null,
+                'payroll_id' => $data['payroll_id'] ?? null,
+                'payslip_id' => $data['payslip_id'] ?? null,
+                'payout_leg_id' => $data['payroll_payout_leg_id'] ?? null,
                 'recipient_id' => $data['recipient_id'] ?? null,
-                // Which table recipient_id belongs to. Salary pays staff;
-                // a refund pays a parent. Never leave this unset.
                 'recipient_type' => $data['recipient_type']
                     ?? (($data['disbursement_type'] ?? '') === 'refund' ? 'parent' : 'staff'),
                 'recipient_name' => $data['recipient_name'] ?? null,
-                'purpose' => $data['payment_purpose'] ?? ($data['disbursement_type'] ?? 'operations'),
-                'source_account_id' => $data['source_financial_account_id'] ?? null,
-                'idempotency_reference' => $data['idempotency_reference'] ?? null,
-                'amount'      => $amount,
-                'phone'       => $phone,
-                'conv'        => $conversationId,
-                'originator'  => $originatorId,
-                'txref'       => $conversationId,
-                'desc'        => $response['ResponseDescription'] ?? null,
-                'callback'    => json_encode($response),
+                'amount' => $amount,
+                'idempotency_reference' => $idempotency !== '' ? $idempotency : null,
+                'phone_number' => $phone,
+                'originator_conversation_id' => $originatorId,
+                'result_description' => 'Payment request reserved before provider submission.',
+                'callback_data' => json_encode($requestPayload),
+                'actor_user_id' => $actorUserId > 0 ? $actorUserId : null,
             ]);
+            return [(int) $this->getDb()->lastInsertId(), true];
+        } catch (\PDOException $error) {
+            if ($idempotency !== '') {
+                $existing = $this->getDb()->prepare(
+                    'SELECT id FROM disbursement_transactions WHERE idempotency_reference=? LIMIT 1'
+                );
+                $existing->execute([$idempotency]);
+                $existingId = (int) ($existing->fetchColumn() ?: 0);
+                if ($existingId > 0) return [$existingId, false];
+            }
+            throw $error;
+        }
+    }
 
+    /**
+     * Keep the provider-side B2C mirror in step with the reserved attempt.
+     */
+    private function recordMpesaAttempt(
+        string $mpesaCode,
+        float $amount,
+        string $phone,
+        array $data,
+        array $requestPayload
+    ): void {
+        try {
             $this->getDb()->prepare(
                 "INSERT INTO mpesa_transactions
                     (mpesa_code, student_id, amount, transaction_date, phone_number,
                      bill_ref_number, status, transaction_type, raw_callback, webhook_data, created_at)
                  VALUES (:code, NULL, :amount, NOW(), :phone, :billref, 'pending', 'B2C', :raw, :webhook, NOW())
-                 ON DUPLICATE KEY UPDATE webhook_data = VALUES(webhook_data)"
+                 ON DUPLICATE KEY UPDATE
+                    amount = VALUES(amount), phone_number = VALUES(phone_number),
+                    raw_callback = VALUES(raw_callback), webhook_data = VALUES(webhook_data)"
             )->execute([
-                'code'    => 'B2C-' . ($originatorId ?: bin2hex(random_bytes(6))),
-                'amount'  => $amount,
-                'phone'   => $phone,
-                'billref' => $data['recipient_name'] ?? 'B2C-' . $commandId,
-                'raw'     => json_encode($requestPayload),
-                'webhook' => json_encode($response),
+                'code' => $mpesaCode,
+                'amount' => $amount,
+                'phone' => $phone,
+                'billref' => $data['recipient_name'] ?? 'B2C payroll',
+                'raw' => json_encode($requestPayload),
+                'webhook' => json_encode(['status' => 'reserved']),
             ]);
-        } catch (Exception $e) {
-            \App\API\Services\Logger::legacyError('[MpesaB2CService] recordDisbursement error: ' . $e->getMessage());
+        } catch (Exception $error) {
+            // The disbursement row remains the callback and accounting
+            // authority. A mirror failure must not create another attempt.
+            \App\API\Services\Logger::legacyError('[MpesaB2CService] recordMpesaAttempt error: ' . $error->getMessage());
         }
     }
 

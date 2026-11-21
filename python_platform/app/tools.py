@@ -50,11 +50,24 @@ ALLOWED_TOOLS = (
     "web.search",
     "web.fetch",
     "web.crawl",
+    # Curated, deduplicated education-news digest (MoE/KICD/CBC/CBE + global
+    # trends) built on the full public web; outbound like web.* above.
+    "education.news",
+    # Advisory public-content coworker: post ideas, headlines, events, a draft
+    # and how-to guidance. Permission-gated and never publishes.
+    "public_content.advisor",
     # Analytics: real figures from governed rows. The rows are already
     # authorized when they arrive here; the skill only draws them.
     "analytics.summary",
     "analytics.chart",
     "analytics.forecast",
+    # Named, permission-scoped aggregate datasets released by PHP from the read
+    # replica. No SQL or rows are accepted from the caller.
+    "data.query",
+    # Columnar analysis of the rows data.query (or a governed report) released,
+    # executed in Python with Polars. It never opens a database connection and
+    # never accepts caller-supplied rows.
+    "data.polars",
     # System-administrator tools — guarded by the system_admin permission.
     "system.code_read",
     "system.log_read",
@@ -70,13 +83,34 @@ VALID_CADENCES = ("daily", "weekly", "term")
 SYSTEM_TOOL_PREFIX = "system."
 WEB_TOOL_PREFIX = "web."
 WEB_TOOLS = ("web.search", "web.fetch", "web.crawl")
+EDUCATION_NEWS_TOOL = "education.news"
+PUBLIC_CONTENT_TOOL = "public_content.advisor"
+# Real permission codes that authorize public-content advice. Advisory only,
+# but generating copy for a school's public channels must still be scoped to
+# staff who already hold a communications/website grant.
+PUBLIC_CONTENT_PERMISSIONS = (
+    "communications_all_permissions",
+    "communications_announcements_create",
+    "communications_announcements_generate",
+    "communications_announcements_publish",
+    "website_content_manage",
+    "website_news_manage",
+    "website_events_manage",
+)
 ANALYTICS_TOOLS = ("analytics.summary", "analytics.chart", "analytics.forecast")
 # Document, slide and media producers. They render the rows PHP already
 # released for this operator, never the database.
 DOCUMENT_TOOL = "documents.produce"
 DOCUMENT_FORMATS = ("pdf", "docx", "video", "audio")
 # Governed tools whose result may contain the rows the engine analyses.
-ROW_RELEASING_TOOLS = ("reports.nlq", "reports.aggregate", "charts.generate")
+# data.query releases permission-scoped aggregate rows from PHP's read replica,
+# so it joins the reports as a legitimate row source for Polars/charts.
+ROW_RELEASING_TOOLS = (
+    "reports.nlq",
+    "reports.aggregate",
+    "charts.generate",
+    "data.query",
+)
 # How long an operator's released rows may be reused for a figure.
 ANALYTICS_ROW_TTL_SECONDS = 300
 ANALYTICS_CHART_TYPES = (
@@ -90,6 +124,15 @@ ANALYTICS_CHART_TYPES = (
     "box",
 )
 ANALYTICS_MAX_ROWS = 40
+# data.query releases NAMED, permission-scoped aggregate rows from PHP's read
+# replica into the same short-lived cache the analytics tools consume.
+DATA_QUERY_TOOL = "data.query"
+# data.polars is a bounded transformation of already-authorized rows.
+POLARS_TOOL = "data.polars"
+POLARS_OPERATIONS = ("summary", "group_by", "top")
+POLARS_AGGREGATIONS = ("count", "sum", "mean", "min", "max")
+POLARS_MAX_RESULT_ROWS = 40
+POLARS_MAX_COLUMN_CHARS = 120
 
 # Outbound web search bounds. A staff question must never fan out into a
 # scrape: one query, a bounded result count, a bounded character budget.
@@ -185,6 +228,11 @@ class ToolBridge:
             mcp_client.parse_servers(getattr(config, "mcp_servers_raw", "")),
             journal,
         )
+        # Direct, read-only database access, approved by the platform owner and
+        # coordinated with PHP's governed PolarsDatasetService. Lazily built so
+        # a deployment without DB credentials keeps using the PHP relay.
+        self._dataset_service_cache = None
+        self._access_resolver_cache = None
 
     def _candidates(self) -> list[tuple[str, str]]:
         """(base_url, host_header) pairs, internal loopback first."""
@@ -282,8 +330,38 @@ class ToolBridge:
         # they are bounded separately and never carry school data or PHP.
         if str(tool or "").startswith("web."):
             return self._execute_web_tool(user_id, str(tool), tool_input or {})
+        if str(tool or "") == EDUCATION_NEWS_TOOL:
+            return self._execute_education_news_tool(tool_input or {})
+        if str(tool or "") == PUBLIC_CONTENT_TOOL:
+            return self._execute_public_content_tool(
+                user_id, permissions, tool_input or {}
+            )
         if str(tool or "") in ANALYTICS_TOOLS:
             return self._execute_analytics_tool(str(tool), tool_input or {}, user_id)
+        if str(tool or "") == POLARS_TOOL:
+            return self._execute_polars_tool(tool_input or {}, user_id)
+        # Direct, read-only database access (approved by the platform owner).
+        # When configured, data.query reads the named dataset straight from the
+        # school database using the engine's own credentials, re-resolving the
+        # operator's authority from their user id. PHP's governed relay remains
+        # the fallback for deployments that have not enabled direct access.
+        if str(tool or "") == DATA_QUERY_TOOL and self._direct_db_ready():
+            direct = self._execute_direct_data_query(
+                user_id, tool_input or {}, request_id
+            )
+            # The docstring promises it, and the governed relay is the safety
+            # net: a misconfigured/unreachable direct database must not turn a
+            # legitimate question into an "unavailable" answer. Fall through to
+            # the PHP relay whenever the direct read did not succeed.
+            if direct.get("status") in {"ok", "success", "answered", "ready"}:
+                return direct
+            # A permission or validation decision is final; only a read failure
+            # ("unavailable") may fall back to the PHP relay. Otherwise a clear
+            # "your role does not grant that" became a vague unknown_dataset.
+            if direct.get("status") in {
+                "not_authorized", "invalid_query", "unknown_source", "unknown_dataset"
+            }:
+                return direct
         # External MCP tools run locally too, but only the ones the operator
         # configured by name. The client re-checks its own allowlist, so a
         # tool id invented by the model is refused twice over.
@@ -434,7 +512,11 @@ class ToolBridge:
 
         started = time.monotonic()
         try:
-            results = skill.search(query, bounded.get("limit", WEB_MAX_RESULTS))
+            results = skill.search(
+                query,
+                bounded.get("limit", WEB_MAX_RESULTS),
+                fanout=bounded.get("fanout", False),
+            )
         except Exception as error:  # noqa: BLE001 - search must never break a turn
             self._web_unavailable_until = (
                 time.monotonic() + _WEB_FAILURE_COOLDOWN_SECONDS
@@ -497,6 +579,156 @@ class ToolBridge:
             "sources": sources,
             "source_count": len(findings),
         }
+
+    def _execute_education_news_tool(self, tool_input: dict) -> dict[str, Any]:
+        """Curated, deduplicated MoE/KICD/CBC/CBE + global education digest.
+
+        Outbound public read like web.*: no school data is an input, the topic
+        label is restricted to a fixed set, and the skill deduplicates by
+        canonical URL and bounds the result. The caller cannot supply raw
+        queries or URLs.
+        """
+        bounded = self._bound_input(EDUCATION_NEWS_TOOL, tool_input)
+        topic = str(bounded.get("topic") or "all")
+        limit = int(bounded.get("limit") or 10)
+        try:
+            from .skills.education_news import EducationNewsSkill
+
+            return EducationNewsSkill(self.journal).digest(topic, limit)
+        except Exception as error:  # noqa: BLE001 - one tool must not fail a turn
+            if self.journal is not None:
+                self.journal.write(
+                    "ai_generation",
+                    {
+                        "type": "education_news_failed",
+                        "error_class": type(error).__name__,
+                    },
+                )
+            return {
+                "status": "unavailable",
+                "message": "education news could not be retrieved right now",
+            }
+
+    def _execute_public_content_tool(
+        self, user_id: int, permissions: list[str], tool_input: dict
+    ) -> dict[str, Any]:
+        """Advisory public-content ideas, headlines, events and a draft.
+
+        Gate 1: the operator must hold a real communications/website grant.
+        Gate 2: inputs are bounded by _bound_input. The skill publishes nothing
+        and reads no school data, so there is no PHP data-layer call. Current
+        headlines are opt-in via the same curated education.news digest.
+        """
+        held = set(str(p) for p in (permissions or []))
+        if not held.intersection(PUBLIC_CONTENT_PERMISSIONS):
+            if self.journal is not None:
+                self.journal.write(
+                    "ai_generation",
+                    {
+                        "type": "public_content_denied",
+                        "operator_id": user_id,
+                    },
+                )
+            return {
+                "status": "not_authorized",
+                "message": "public-content guidance requires a communications or website grant",
+            }
+        bounded = self._bound_input(PUBLIC_CONTENT_TOOL, tool_input)
+        try:
+            from .skills.education_news import EducationNewsSkill
+            from .skills.public_content import PublicContentSkill
+
+            wants_news = bool(bounded.get("include_news"))
+            skill = PublicContentSkill(
+                self.journal,
+                news=EducationNewsSkill(self.journal).digest if wants_news else None,
+            )
+            return skill.advise(
+                purpose=str(bounded.get("purpose") or "general"),
+                audience=str(bounded.get("audience") or "parents and guardians"),
+                channel=str(bounded.get("channel") or "website"),
+                topic=str(bounded.get("topic") or ""),
+                include_news=wants_news,
+                limit=int(bounded.get("limit") or 5),
+            )
+        except Exception as error:  # noqa: BLE001 - one tool must not fail a turn
+            if self.journal is not None:
+                self.journal.write(
+                    "ai_generation",
+                    {
+                        "type": "public_content_failed",
+                        "error_class": type(error).__name__,
+                    },
+                )
+            return {
+                "status": "unavailable",
+                "message": "public-content guidance is unavailable right now",
+            }
+
+    # ------------------------------------------------------- direct database access
+    def _direct_db_ready(self) -> bool:
+        return bool(
+            getattr(self.config, "direct_db_access", False)
+            and getattr(self.config, "direct_db_configured", False)
+        )
+
+    def _dataset_service(self):
+        if self._dataset_service_cache is None:
+            from .db_datasets import DirectDatasetService
+
+            self._dataset_service_cache = DirectDatasetService(
+                self.config, journal=self.journal
+            )
+        return self._dataset_service_cache
+
+    def _access_resolver(self):
+        if self._access_resolver_cache is None:
+            from .db_datasets import UserAccessResolver
+
+            self._access_resolver_cache = UserAccessResolver(self.config)
+        return self._access_resolver_cache
+
+    def _execute_direct_data_query(
+        self, user_id: int, tool_input: dict, request_id: str = ""
+    ) -> dict[str, Any]:
+        """Read an allowlisted dataset directly from the school database.
+
+        Authority is re-resolved from the user id in the database - the operator
+        id is trusted because it comes from the authenticated PHP edge, never
+        from the model. If the direct read fails, the caller falls back to the
+        governed PHP relay rather than returning an error to the operator.
+        """
+        bounded = self._bound_input(DATA_QUERY_TOOL, tool_input)
+        dataset = str(bounded.get("dataset") or "").strip().lower()
+        # Resolve the operator's CURRENT permissions from the master database.
+        # Model-supplied permission strings are ignored: only the user id, set
+        # by the authenticated edge, can widen or narrow scope.
+        access = self._access_resolver().resolve(user_id)
+        # No verified staff user (e.g. the public assistant): no school data.
+        effective = (
+            list(access.get("permissions") or [])
+            if access.get("status") == "ok"
+            else []
+        )
+        if bounded.get("source"):
+            result = self._dataset_service().query(bounded, effective, user_id)
+            if result.get("status") == "ok":
+                self._remember_rows(user_id, DATA_QUERY_TOOL, result)
+            return result
+        result = self._dataset_service().rows(dataset, effective, user_id)
+        if result.get("status") == "ok":
+            self._remember_rows(user_id, DATA_QUERY_TOOL, result)
+        if self.journal is not None:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "direct_data_query",
+                    "operator_id": int(user_id or 0),
+                    "dataset": dataset,
+                    "status": str(result.get("status") or ""),
+                },
+            )
+        return result
 
     # ------------------------------------------------------------------ analytics
     def _remember_rows(self, user_id: int, tool: str, data: dict[str, Any]) -> None:
@@ -584,7 +816,9 @@ class ToolBridge:
                     focus=str(bounded.get("focus") or ""),
                 )
                 image = result.get("image") if isinstance(result, dict) else None
-                if isinstance(image, str) and image.startswith("data:image/png;base64,"):
+                if isinstance(image, str) and image.startswith(
+                    "data:image/png;base64,"
+                ):
                     self._recent_chart[int(user_id)] = image
                     self._recent_chart_at[int(user_id)] = time.monotonic()
                 return result
@@ -610,16 +844,134 @@ class ToolBridge:
                 "message": "that figure could not be drawn from the supplied rows",
             }
 
+    def _execute_polars_tool(
+        self, tool_input: dict, user_id: int = 0
+    ) -> dict[str, Any]:
+        """Bounded columnar analysis over the rows PHP already released.
+
+        This is the governed answer to "let the agents use Polars on the
+        database": the engine still never opens a database connection. The only
+        input is the short-lived row cache populated by a report PHP authorized
+        for this exact operator, and caller-supplied rows are deliberately
+        ignored so a prompt cannot smuggle unauthorized data into the result.
+        """
+        rows = self._rows_for(user_id)
+        if not rows:
+            return {
+                "status": "unavailable",
+                "message": (
+                    "run a governed report first so the analysis uses only rows "
+                    "authorized for you"
+                ),
+            }
+        bounded = self._bound_input(POLARS_TOOL, tool_input)
+        operation = str(bounded.get("operation") or "summary")
+        column = str(bounded.get("column") or "")
+        agg = str(bounded.get("agg") or "count")
+
+        try:
+            import polars as pl
+        except ImportError:
+            return {
+                "status": "unavailable",
+                "message": "Polars is not installed on this server",
+            }
+
+        def clean_value(value: Any) -> Any:
+            if value is None or isinstance(value, (bool, int, float)):
+                return value
+            return str(value)[:POLARS_MAX_COLUMN_CHARS]
+
+        def clean_rows(frame: Any) -> list[dict[str, Any]]:
+            return [
+                {str(key): clean_value(value) for key, value in row.items()}
+                for row in frame.to_dicts()[:POLARS_MAX_RESULT_ROWS]
+            ]
+
+        try:
+            frame = pl.DataFrame(rows)
+            if frame.is_empty():
+                return {
+                    "status": "unavailable",
+                    "message": "the authorized report returned no rows",
+                }
+
+            if operation == "group_by":
+                if not column or column not in frame.columns:
+                    return {
+                        "status": "invalid_column",
+                        "message": "choose a column from the authorized report",
+                        "columns": list(frame.columns)[:POLARS_MAX_RESULT_ROWS],
+                    }
+                if agg == "count":
+                    result = frame.group_by(column).len().sort("len", descending=True)
+                else:
+                    value_column = str(bounded.get("value_column") or "")
+                    numeric = [
+                        name
+                        for name, dtype in frame.schema.items()
+                        if dtype.is_numeric()
+                    ]
+                    if value_column not in numeric:
+                        value_column = numeric[0] if numeric else ""
+                    if not value_column:
+                        return {
+                            "status": "invalid_column",
+                            "message": "no numeric column is available to aggregate",
+                            "columns": list(frame.columns)[:POLARS_MAX_RESULT_ROWS],
+                        }
+                    expression = getattr(pl.col(value_column), agg)()
+                    result = frame.group_by(column).agg(expression).sort(column)
+            elif operation == "top":
+                if not column or column not in frame.columns:
+                    return {
+                        "status": "invalid_column",
+                        "message": "choose a column from the authorized report",
+                        "columns": list(frame.columns)[:POLARS_MAX_RESULT_ROWS],
+                    }
+                limit = int(bounded.get("limit") or 10)
+                result = frame.sort(column, descending=True).head(limit)
+            else:
+                result = frame.describe()
+
+            body = clean_rows(result)
+            return {
+                "status": "ok",
+                "operation": operation,
+                "columns": list(result.columns)[:POLARS_MAX_RESULT_ROWS],
+                "rows": body,
+                "row_count": len(body),
+                "note": "Computed from permission-scoped aggregate rows PHP released for this operator; the AI engine never queried the database directly.",
+            }
+        except Exception as error:  # noqa: BLE001 - one tool must not fail a turn
+            if self.journal is not None:
+                self.journal.write(
+                    "ai_generation",
+                    {
+                        "type": "polars_tool_failed",
+                        "error_class": type(error).__name__,
+                    },
+                )
+            return {
+                "status": "unavailable",
+                "message": "that analysis could not be completed from the supplied rows",
+            }
+
     def _chart_for(self, user_id: int) -> str:
         """The figure already drawn for this operator, if it is still fresh."""
         image = self._recent_chart.get(int(user_id), "")
         if not image:
             return ""
-        if time.monotonic() - self._recent_chart_at.get(int(user_id), 0.0) > ANALYTICS_ROW_TTL_SECONDS:
+        if (
+            time.monotonic() - self._recent_chart_at.get(int(user_id), 0.0)
+            > ANALYTICS_ROW_TTL_SECONDS
+        ):
             return ""
         return image
 
-    def _document_rows(self, user_id: int, tool_input: dict) -> tuple[list[dict[str, Any]], list[str], str]:
+    def _document_rows(
+        self, user_id: int, tool_input: dict
+    ) -> tuple[list[dict[str, Any]], list[str], str]:
         """The authorized rows, their columns and a title for a document.
 
         The rows come from the same short-lived cache a figure is drawn from,
@@ -630,13 +982,17 @@ class ToolBridge:
         rows = bounded.get("rows")
         if not isinstance(rows, list) or not rows:
             rows = self._rows_for(user_id)
-        rows = [row for row in (rows or []) if isinstance(row, dict)][:ANALYTICS_MAX_ROWS]
+        rows = [row for row in (rows or []) if isinstance(row, dict)][
+            :ANALYTICS_MAX_ROWS
+        ]
         columns = bounded.get("columns")
         columns = [str(name) for name in columns] if isinstance(columns, list) else []
         title = str(bounded.get("title") or "").strip()
         return rows, columns, title
 
-    def _execute_document_tool(self, tool_input: dict, user_id: int = 0) -> dict[str, Any]:
+    def _execute_document_tool(
+        self, tool_input: dict, user_id: int = 0
+    ) -> dict[str, Any]:
         """Produce a PDF, DOCX, short video or audio summary from released rows.
 
         Every format is built in memory and returned as a data URI, so nothing
@@ -970,6 +1326,34 @@ class ToolBridge:
         elif tool == "assistant.workspace_scan":
             route = str(tool_input.get("route") or "dashboard")[:120]
             bounded["route"] = route
+        elif tool == DATA_QUERY_TOOL:
+            # A dataset NAME, or a structured source query. Never SQL or rows:
+            # the query is compiled and column-checked in db_datasets.
+            dataset = str(tool_input.get("dataset") or "").strip().lower()[:60]
+            if dataset:
+                bounded["dataset"] = dataset
+            source = str(tool_input.get("source") or "").strip().lower()[:60]
+            if source:
+                bounded["source"] = source
+                bounded["measure"] = str(tool_input.get("measure") or "count").strip().lower()[:20]
+                column = str(tool_input.get("column") or "").strip()[:64]
+                if column:
+                    bounded["column"] = column
+                group_by = tool_input.get("group_by")
+                if isinstance(group_by, str):
+                    group_by = [group_by]
+                if isinstance(group_by, list):
+                    bounded["group_by"] = [str(c).strip()[:64] for c in group_by[:3] if str(c).strip()]
+                filters = tool_input.get("filters")
+                if isinstance(filters, dict):
+                    clean: dict[str, Any] = {}
+                    for key, value in list(filters.items())[:6]:
+                        if isinstance(value, list):
+                            value = [v for v in value[:20] if isinstance(v, (str, int, float))]
+                        elif not isinstance(value, (str, int, float)):
+                            continue
+                        clean[str(key).strip()[:64]] = value
+                    bounded["filters"] = clean
         elif tool == "charts.generate":
             question = str(tool_input.get("question") or "")[:500]
             chart_type = str(tool_input.get("chart_type") or "bar")[:20]
@@ -982,6 +1366,29 @@ class ToolBridge:
             if template:
                 bounded["template"] = template
                 bounded["context"] = context
+        elif tool == EDUCATION_NEWS_TOOL:
+            topic = str(tool_input.get("topic") or "all").strip().lower()
+            bounded["topic"] = topic[:24] if topic else "all"
+            try:
+                bounded["limit"] = max(1, min(int(tool_input.get("limit") or 0), 10))
+            except (TypeError, ValueError):
+                bounded["limit"] = 10
+        elif tool == PUBLIC_CONTENT_TOOL:
+            bounded["purpose"] = (
+                str(tool_input.get("purpose") or "general").strip().lower()[:24]
+            )
+            bounded["audience"] = str(
+                tool_input.get("audience") or "parents and guardians"
+            ).strip()[:60]
+            bounded["channel"] = (
+                str(tool_input.get("channel") or "website").strip().lower()[:24]
+            )
+            bounded["topic"] = str(tool_input.get("topic") or "").strip()[:160]
+            bounded["include_news"] = bool(tool_input.get("include_news"))
+            try:
+                bounded["limit"] = max(1, min(int(tool_input.get("limit") or 0), 5))
+            except (TypeError, ValueError):
+                bounded["limit"] = 5
         elif tool == "web.search":
             query = str(tool_input.get("query") or "").strip()
             if query:
@@ -992,6 +1399,9 @@ class ToolBridge:
                 )
             except (TypeError, ValueError):
                 bounded["limit"] = WEB_MAX_RESULTS
+            # Broad/recall-first queries opt into the five-engine fan-out and
+            # round-robin merge. Default stays the cheap strict provider chain.
+            bounded["fanout"] = bool(tool_input.get("fanout"))
         elif tool == "web.fetch":
             url = str(tool_input.get("url") or "").strip()
             if url:
@@ -1023,6 +1433,25 @@ class ToolBridge:
             except (TypeError, ValueError):
                 bounded["max_chars"] = 2000
             bounded["same_site"] = bool(tool_input.get("same_site", True))
+        elif tool == POLARS_TOOL:
+            operation = str(tool_input.get("operation") or "summary")[:20]
+            bounded["operation"] = (
+                operation if operation in POLARS_OPERATIONS else "summary"
+            )
+            bounded["column"] = str(tool_input.get("column") or "")[
+                :POLARS_MAX_COLUMN_CHARS
+            ]
+            bounded["value_column"] = str(tool_input.get("value_column") or "")[
+                :POLARS_MAX_COLUMN_CHARS
+            ]
+            agg = str(tool_input.get("agg") or "count")[:20]
+            bounded["agg"] = agg if agg in POLARS_AGGREGATIONS else "count"
+            try:
+                bounded["limit"] = max(
+                    1, min(int(tool_input.get("limit") or 0), POLARS_MAX_RESULT_ROWS)
+                )
+            except (TypeError, ValueError):
+                bounded["limit"] = 10
         elif tool.startswith("analytics."):
             # Only scalar rows survive: a nested object is dropped rather than
             # flattened, so a chart cannot become a disclosure channel.

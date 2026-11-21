@@ -19,8 +19,14 @@ const PayrollManagerController = {
   bulkPayrollRows: [],
   selectedPaymentIds: new Set(),
   statutoryRules: {},
+  statutoryOptions: { paye: false, nssf: false, shif: false, housing_levy: false },
   accessReady: false,
   compensationSetup: null,
+  payoutLedger: [],
+  payoutAccounts: [],
+  payoutPlanContext: null,
+  cashConfirmationLeg: null,
+  bulkPreviewRequestId: 0,
 
   /**
    * Initialize controller
@@ -59,6 +65,7 @@ const PayrollManagerController = {
         this.loadStats(),
         this.loadStaffList(),
         this.loadStatutoryRules(),
+        this.loadPayoutLedger(),
       ]);
 
     } catch (error) {
@@ -210,7 +217,13 @@ const PayrollManagerController = {
     const page = document.querySelector(".director-payroll-page");
     if (page) page.dataset.payrollMode = this.getPayrollMode();
     const paySelectedButton = document.getElementById("paySelectedPayrollBtn");
-    if (paySelectedButton) paySelectedButton.hidden = !this.canProcessPayroll();
+    if (paySelectedButton) {
+      paySelectedButton.hidden = !(this.canManagePayroll() || this.isPayrollReviewer() || this.canProcessPayroll());
+    }
+    const ledgerPanel = document.getElementById("payrollPayoutLedgerPanel");
+    if (ledgerPanel) {
+      ledgerPanel.hidden = !(this.canManagePayroll() || this.isPayrollReviewer() || this.canProcessPayroll());
+    }
 
     const visibleCards = new Set(this.getVisiblePayrollCards());
     document.querySelectorAll("[data-payroll-card]").forEach((card) => {
@@ -379,6 +392,706 @@ const PayrollManagerController = {
   },
 
   /**
+   * Payroll payout planning and reconciliation workspace.
+   *
+   * The browser only prepares routes. The server remains authoritative for
+   * statutory calculations, account/rail validation, idempotency and release.
+   */
+  canViewPayoutLedger: function () {
+    return this.canManagePayroll() || this.isPayrollReviewer() || this.canProcessPayroll();
+  },
+
+  accountHasPayrollPurpose: function (account) {
+    const purposes = account?.purposes;
+    if (Array.isArray(purposes)) {
+      return purposes.some((purpose) => String(purpose).trim().toLowerCase() === "payroll");
+    }
+    return String(purposes || "")
+      .split(/[\s,;]+/)
+      .some((purpose) => purpose.trim().toLowerCase() === "payroll");
+  },
+
+  loadPayoutAccounts: async function () {
+    if (this.payoutAccounts.length) return this.payoutAccounts;
+    const response = await API.finance.getFinancialAccounts();
+    const payload = response?.data || response || {};
+    const accounts = Array.isArray(payload) ? payload : (payload.accounts || []);
+    this.payoutAccounts = accounts.filter((account) =>
+      String(account.status || "").toLowerCase() === "active"
+      && this.accountHasPayrollPurpose(account)
+    );
+    return this.payoutAccounts;
+  },
+
+  payoutAccountChannelCodes: function (account) {
+    return String(account?.channel_codes || "")
+      .split(/[\s,;]+/)
+      .map((code) => code.trim().toLowerCase())
+      .filter(Boolean);
+  },
+
+  payoutAccountSupportsMethod: function (account, method) {
+    if (!account) return false;
+    const codes = this.payoutAccountChannelCodes(account);
+    const allowed = {
+      bank: ["kcb_buni_transfer", "bank_transfer", "buni_transfer"],
+      cash: ["cash"],
+      mobile_money: ["safaricom_b2c", "mpesa_b2c"],
+    }[method] || [];
+    if (codes.length) return codes.some((code) => allowed.includes(code));
+
+    // Older manually verified accounts predate explicit channel rows. Mirror
+    // the server's conservative metadata fallback so valid legacy accounts
+    // remain visible without weakening rail validation.
+    const kind = String(account.account_kind || "").toLowerCase();
+    const provider = String(account.provider_code || "").toLowerCase();
+    if (method === "bank") {
+      return (kind.includes("bank") || provider.includes("kcb"))
+        && String(account.bank_name || "").trim() !== "";
+    }
+    if (method === "mobile_money") {
+      return provider.includes("safaricom")
+        || provider.includes("mpesa")
+        || kind.includes("mobile")
+        || kind.includes("mpesa");
+    }
+    if (method === "cash") {
+      return kind.includes("cash") || kind.includes("petty");
+    }
+    return false;
+  },
+
+  getPayoutAccountsForMethod: function (method) {
+    return this.payoutAccounts.filter((account) =>
+      this.payoutAccountSupportsMethod(account, method)
+    );
+  },
+
+  loadPayoutLedger: async function () {
+    if (!this.canViewPayoutLedger()) {
+      this.payoutLedger = [];
+      this.renderPayoutLedger();
+      return;
+    }
+    const now = new Date();
+    const month = Number(document.getElementById("filterMonth")?.value) || now.getMonth() + 1;
+    const year = Number(document.getElementById("filterYear")?.value) || now.getFullYear();
+    try {
+      const response = await API.finance.getPayrollPayoutLedger(month, year);
+      this.payoutLedger = Array.isArray(response)
+        ? response
+        : (response?.ledger || response?.data?.ledger || []);
+    } catch (error) {
+      console.error("Unable to load payroll payout ledger:", error);
+      this.payoutLedger = [];
+    }
+    this.renderPayoutLedger(month, year);
+  },
+
+  renderPayoutLedger: function (month = null, year = null) {
+    const tbody = document.getElementById("payoutLedgerTableBody");
+    if (!tbody) return;
+    const scope = document.getElementById("payoutLedgerScope");
+    if (scope) {
+      scope.textContent = `${this.getMonthName(month || new Date().getMonth() + 1)} ${year || new Date().getFullYear()} · every plan leg and provider attempt`;
+    }
+    if (!this.payoutLedger.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No payout legs or provider transactions recorded for this period.</td></tr>';
+      return;
+    }
+
+    const canAct = this.canProcessPayroll();
+    tbody.innerHTML = this.payoutLedger.map((entry) => {
+      const status = String(entry.status || "pending").toLowerCase();
+      const method = entry.method_label || entry.method || "—";
+      const source = [entry.source_account_name, entry.source_account_identifier]
+        .filter(Boolean).join(" · ") || "—";
+      const providerStatus = entry.provider_status
+        ? `<small class="d-block text-muted">${this.escapeHtml(entry.provider_status)}</small>`
+        : "";
+      let actions = '<span class="text-muted small">—</span>';
+      if (canAct && entry.payout_leg_id && status === "pending" && entry.method === "cash") {
+        actions = `<button type="button" class="ledger-action-btn" data-confirm-cash-leg="${Number(entry.payout_leg_id)}" data-cash-staff="${this.escapeAttribute(entry.staff_name || "staff")}" data-cash-reference="${this.escapeAttribute(entry.reference || "")}">Confirm</button>`;
+      } else if (canAct && entry.payout_leg_id && status === "failed" && entry.method !== "cash") {
+        actions = `<button type="button" class="ledger-action-btn retry" data-retry-payout-leg="${Number(entry.payout_leg_id)}">Retry</button>`;
+      }
+      return `
+        <tr>
+          <td><strong>${this.escapeHtml(entry.staff_name || "—")}</strong>${entry.staff_no ? `<small class="d-block text-muted">${this.escapeHtml(entry.staff_no)}</small>` : ""}</td>
+          <td><span class="ledger-method">${this.escapeHtml(method)}</span></td>
+          <td>${this.escapeHtml(source)}</td>
+          <td class="text-end table-amount">${this.formatCurrency(entry.amount || 0)}</td>
+          <td><span class="ledger-reference">${this.escapeHtml(entry.reference || "—")}</span></td>
+          <td><span class="ledger-reference">${this.escapeHtml(entry.provider_reference || "—")}</span>${providerStatus}</td>
+          <td>${Number(entry.attempt_no || 0) > 0 ? Number(entry.attempt_no) : "—"}</td>
+          <td>${this.getStatusBadge(status)}${entry.reconciliation_status ? `<small class="d-block text-muted">${this.escapeHtml(entry.reconciliation_status)}</small>` : ""}</td>
+          <td class="text-center">${actions}</td>
+        </tr>`;
+    }).join("");
+
+    tbody.querySelectorAll("[data-confirm-cash-leg]").forEach((button) => {
+      button.addEventListener("click", () => this.openCashConfirmation(
+        Number(button.dataset.confirmCashLeg),
+        button.dataset.cashStaff || "staff member",
+        button.dataset.cashReference || "",
+      ));
+    });
+    tbody.querySelectorAll("[data-retry-payout-leg]").forEach((button) => {
+      button.addEventListener("click", () => this.retryPayoutLeg(Number(button.dataset.retryPayoutLeg)));
+    });
+  },
+
+  openPayoutPlan: async function (selected, payrollRunId) {
+    if (!this.canManagePayroll() && !this.isPayrollReviewer() && !this.canProcessPayroll()) {
+      this.showError("You do not have permission to plan payroll payouts.");
+      return;
+    }
+    if (!selected?.length || !payrollRunId) {
+      this.showError("Select at least one approved payslip from one payroll run.");
+      return;
+    }
+
+    try {
+      const [accounts, plansResponse] = await Promise.all([
+        this.loadPayoutAccounts(),
+        API.finance.getPayrollPayoutPlans(payrollRunId),
+      ]);
+      const plans = Array.isArray(plansResponse)
+        ? plansResponse
+        : (plansResponse?.plans || plansResponse?.data?.plans || []);
+      const runStatus = String(selected[0].payroll_run_status || "").toLowerCase();
+      if (!["approved", "processing"].includes(runStatus)) {
+        throw new Error("Payout routes can be opened only after the payroll run is approved.");
+      }
+
+      const plansByPayslip = new Map();
+      plans.forEach((leg) => {
+        const payslipId = Number(leg.payslip_id || 0);
+        if (!payslipId || String(leg.status || "").toLowerCase() === "cancelled") return;
+        if (!plansByPayslip.has(payslipId)) plansByPayslip.set(payslipId, []);
+        plansByPayslip.get(payslipId).push(leg);
+      });
+
+      this.payoutPlanContext = {
+        payrollRunId: Number(payrollRunId),
+        month: Number(selected[0].payroll_month || 0),
+        year: Number(selected[0].payroll_year || 0),
+        runStatus,
+        editable: runStatus === "approved",
+        selectedPayslipIds: selected.map((row) => Number(row.id)),
+        people: selected.map((row) => {
+          const savedLegs = plansByPayslip.get(Number(row.id)) || [];
+          return {
+            payslip_id: Number(row.id),
+            staff_id: Number(row.staff_id || 0),
+            staff_name: row.staff_name || "Staff member",
+            staff_no: row.staff_no || "",
+            net_salary: Number(row.net_salary || 0),
+            legs: savedLegs.length
+              ? savedLegs.map((leg) => this.hydratePayoutLeg(leg))
+              : (runStatus === "approved"
+                ? [this.createDefaultPayoutLeg(Number(row.net_salary || 0), 0)]
+                : []),
+          };
+        }),
+      };
+
+      const scope = document.getElementById("payoutPlanScope");
+      if (scope) {
+        scope.textContent = `${this.getMonthName(this.payoutPlanContext.month)} ${this.payoutPlanContext.year} · ${selected.length} employee${selected.length === 1 ? "" : "s"} · ${accounts.length} payroll source account${accounts.length === 1 ? "" : "s"}`;
+      }
+      const releaseButton = document.getElementById("releasePayrollPayoutsBtn");
+      if (releaseButton) releaseButton.hidden = !this.canProcessPayroll();
+      this.renderPayoutPlan();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("payrollPayoutPlanModal")).show();
+    } catch (error) {
+      console.error("Unable to open payroll payout plan:", error);
+      this.showError(error.message || "Unable to open the payout plan.");
+    }
+  },
+
+  openPayoutPlanForRow: async function (payslipId) {
+    const row = (this.payrolls || []).find((item) => Number(item.id) === Number(payslipId))
+      || (this.filteredPayrolls || []).find((item) => Number(item.id) === Number(payslipId));
+    if (!row) {
+      this.showError("The payroll record is no longer available. Refresh and try again.");
+      return;
+    }
+    await this.openPayoutPlan([row], Number(row.payroll_run_id || 0));
+  },
+
+  hydratePayoutLeg: function (leg) {
+    return {
+      id: Number(leg.id || 0) || null,
+      method: String(leg.method || "bank"),
+      source_account_id: Number(leg.source_financial_account_id || 0),
+      amount: Number(leg.amount || 0),
+      reference: String(leg.reference || ""),
+      status: String(leg.status || "planned"),
+      provider_reference: leg.provider_reference || "",
+    };
+  },
+
+  createDefaultPayoutLeg: function (netSalary, index) {
+    const preferredMethod = this.getPayoutAccountsForMethod("bank").length
+      ? "bank"
+      : (this.getPayoutAccountsForMethod("mobile_money").length ? "mobile_money" : "cash");
+    const accounts = this.getPayoutAccountsForMethod(preferredMethod);
+    return {
+      id: null,
+      method: preferredMethod,
+      source_account_id: Number(accounts[0]?.id || 0),
+      amount: index === 0 ? Number(netSalary || 0) : 0,
+      reference: "",
+      status: "planned",
+      provider_reference: "",
+    };
+  },
+
+  renderPayoutPlan: function () {
+    const list = document.getElementById("payoutPlanList");
+    if (!list || !this.payoutPlanContext) return;
+    const editable = this.payoutPlanContext.editable;
+
+    list.innerHTML = this.payoutPlanContext.people.map((person, personIndex) => `
+      <section class="payout-plan-person" data-person-index="${personIndex}">
+        <div class="payout-plan-person-head">
+          <div>
+            <div class="payout-plan-person-name">${this.escapeHtml(person.staff_name)}</div>
+            <div class="payout-plan-person-meta">${this.escapeHtml(person.staff_no || "No staff number")} · Net salary KES ${this.formatCurrency(person.net_salary)}</div>
+          </div>
+          <span class="status-badge ${editable ? "processing" : "pending"}">${editable ? "Editable route" : "Release locked"}</span>
+        </div>
+        ${person.legs.map((leg, legIndex) => this.renderPayoutLeg(person, leg, personIndex, legIndex, editable)).join("")}
+        <div class="payout-plan-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-add-payout-leg="${personIndex}" ${editable ? "" : "disabled"}>
+            <i class="bi bi-plus-lg me-1"></i>Add payout leg
+          </button>
+          <div class="payout-plan-balance" data-payout-balance="${personIndex}">KES 0.00 allocated</div>
+        </div>
+      </section>`).join("");
+
+    list.querySelectorAll(".payout-method-select").forEach((select) => {
+      select.addEventListener("change", () => this.updatePayoutLeg(
+        Number(select.dataset.personIndex),
+        Number(select.dataset.legIndex),
+        "method",
+        select.value,
+      ));
+    });
+    list.querySelectorAll(".payout-account-select").forEach((select) => {
+      select.addEventListener("change", () => this.updatePayoutLeg(
+        Number(select.dataset.personIndex),
+        Number(select.dataset.legIndex),
+        "source_account_id",
+        Number(select.value || 0),
+      ));
+    });
+    list.querySelectorAll(".payout-amount-input").forEach((input) => {
+      input.addEventListener("input", () => this.updatePayoutLeg(
+        Number(input.dataset.personIndex),
+        Number(input.dataset.legIndex),
+        "amount",
+        Number(input.value || 0),
+      ));
+    });
+    list.querySelectorAll(".payout-reference-input").forEach((input) => {
+      input.addEventListener("input", () => this.updatePayoutLeg(
+        Number(input.dataset.personIndex),
+        Number(input.dataset.legIndex),
+        "reference",
+        input.value,
+      ));
+    });
+    list.querySelectorAll("[data-remove-payout-leg]").forEach((button) => {
+      button.addEventListener("click", () => this.removePayoutLeg(
+        Number(button.dataset.personIndex),
+        Number(button.dataset.legIndex),
+      ));
+    });
+    list.querySelectorAll("[data-add-payout-leg]").forEach((button) => {
+      button.addEventListener("click", () => this.addPayoutLeg(Number(button.dataset.addPayoutLeg)));
+    });
+    this.updatePayoutPlanTotals();
+  },
+
+  renderPayoutLeg: function (person, leg, personIndex, legIndex, editable) {
+    const methods = [
+      ["cash", "Cash"],
+      ["bank", "Bank transfer"],
+      ["mobile_money", "M-Pesa"],
+    ];
+    const accounts = this.getPayoutAccountsForMethod(leg.method);
+    const selectedAccountId = accounts.some((account) => Number(account.id) === Number(leg.source_account_id))
+      ? Number(leg.source_account_id)
+      : Number(accounts[0]?.id || 0);
+    leg.source_account_id = selectedAccountId;
+    const sourceOptions = accounts.length
+      ? accounts.map((account) => `<option value="${Number(account.id)}" ${Number(account.id) === selectedAccountId ? "selected" : ""}>${this.escapeHtml([account.account_name, account.account_identifier].filter(Boolean).join(" · "))}</option>`).join("")
+      : '<option value="0">No compatible payroll account</option>';
+    const referenceLabel = leg.method === "cash"
+      ? "Receipt / cheque reference"
+      : "Payout reference";
+    const referenceHint = leg.method === "cash"
+      ? "Required before release"
+      : (leg.method === "mobile_money" ? "Whole KES only" : "Optional internal reference");
+    return `
+      <div class="payout-leg" data-person-index="${personIndex}" data-leg-index="${legIndex}">
+        <div>
+          <label class="form-label">Method</label>
+          <select class="form-select form-select-sm payout-method-select" data-person-index="${personIndex}" data-leg-index="${legIndex}" ${editable ? "" : "disabled"}>
+            ${methods.map(([value, label]) => `<option value="${value}" ${value === leg.method ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Source account</label>
+          <select class="form-select form-select-sm payout-account-select" data-person-index="${personIndex}" data-leg-index="${legIndex}" ${editable ? "" : "disabled"}>${sourceOptions}</select>
+        </div>
+        <div>
+          <label class="form-label">Amount (KES)</label>
+          <input type="number" class="form-control form-control-sm text-end payout-amount-input" data-person-index="${personIndex}" data-leg-index="${legIndex}" value="${Number(leg.amount || 0).toFixed(2)}" min="0.01" step="0.01" ${editable ? "" : "disabled"}>
+        </div>
+        <div>
+          <label class="form-label">${referenceLabel}</label>
+          <input type="text" class="form-control form-control-sm payout-reference-input" data-person-index="${personIndex}" data-leg-index="${legIndex}" value="${this.escapeAttribute(leg.reference || "")}" maxlength="150" placeholder="${referenceHint}" ${editable ? "" : "disabled"}>
+        </div>
+        <div class="d-flex align-items-center justify-content-end gap-2 pb-1">
+          <span class="payout-leg-total">${this.getStatusBadge(leg.status || "planned")}</span>
+          ${editable ? `<button type="button" class="btn btn-sm btn-outline-danger" data-remove-payout-leg="${personIndex}" data-leg-index="${legIndex}" aria-label="Remove payout leg"><i class="bi bi-trash3"></i></button>` : ""}
+        </div>
+      </div>`;
+  },
+
+  updatePayoutLeg: function (personIndex, legIndex, field, value) {
+    const person = this.payoutPlanContext?.people?.[personIndex];
+    const leg = person?.legs?.[legIndex];
+    if (!leg || !this.payoutPlanContext.editable) return;
+    leg[field] = value;
+    if (field === "method") {
+      const accounts = this.getPayoutAccountsForMethod(value);
+      if (!accounts.some((account) => Number(account.id) === Number(leg.source_account_id))) {
+        leg.source_account_id = Number(accounts[0]?.id || 0);
+      }
+      this.renderPayoutPlan();
+      return;
+    }
+    this.updatePayoutPlanTotals();
+  },
+
+  addPayoutLeg: function (personIndex) {
+    const person = this.payoutPlanContext?.people?.[personIndex];
+    if (!person || !this.payoutPlanContext.editable) return;
+    person.legs.push(this.createDefaultPayoutLeg(person.net_salary, person.legs.length));
+    this.renderPayoutPlan();
+  },
+
+  removePayoutLeg: function (personIndex, legIndex) {
+    const person = this.payoutPlanContext?.people?.[personIndex];
+    if (!person || !this.payoutPlanContext.editable) return;
+    if (person.legs.length <= 1) {
+      this.showError("Each employee must have at least one payout leg.");
+      return;
+    }
+    person.legs.splice(legIndex, 1);
+    this.renderPayoutPlan();
+  },
+
+  payoutCents: function (amount) {
+    return Math.round((Number(amount || 0) + Number.EPSILON) * 100);
+  },
+
+  validatePayoutPlan: function () {
+    const errors = [];
+    const legErrors = new Map();
+    const context = this.payoutPlanContext;
+    if (!context) return { valid: false, errors: ["No payout plan is open."], legErrors };
+
+    context.people.forEach((person, personIndex) => {
+      const netCents = this.payoutCents(person.net_salary);
+      let allocatedCents = 0;
+      person.legs.forEach((leg, legIndex) => {
+        const messages = [];
+        const amountCents = this.payoutCents(leg.amount);
+        if (!["cash", "bank", "mobile_money"].includes(leg.method)) messages.push("unsupported method");
+        if (amountCents <= 0) messages.push("amount must be positive");
+        if (!Number(leg.source_account_id || 0)) messages.push("source account is required");
+        if (leg.method === "cash" && !String(leg.reference || "").trim()) messages.push("cash reference is required");
+        if (leg.method === "mobile_money" && amountCents % 100 !== 0) messages.push("M-Pesa amount must be whole KES");
+        allocatedCents += amountCents;
+        if (messages.length) {
+          legErrors.set(`${personIndex}:${legIndex}`, messages);
+          errors.push(`${person.staff_name}: ${messages.join(", ")}.`);
+        }
+      });
+      if (allocatedCents !== netCents) {
+        const difference = (allocatedCents - netCents) / 100;
+        errors.push(`${person.staff_name}: allocated ${this.formatCurrency(allocatedCents / 100)} KES but net salary is ${this.formatCurrency(netCents / 100)} KES (${difference > 0 ? "+" : ""}${this.formatCurrency(difference)} KES difference).`);
+      }
+    });
+    return { valid: errors.length === 0, errors, legErrors };
+  },
+
+  updatePayoutPlanTotals: function () {
+    const context = this.payoutPlanContext;
+    if (!context) return;
+    const validation = this.validatePayoutPlan();
+    context.people.forEach((person, personIndex) => {
+      const allocated = person.legs.reduce((sum, leg) => sum + this.payoutCents(leg.amount), 0);
+      const net = this.payoutCents(person.net_salary);
+      const balance = document.querySelector(`[data-payout-balance="${personIndex}"]`);
+      if (balance) {
+        const difference = (allocated - net) / 100;
+        balance.textContent = `KES ${this.formatCurrency(allocated / 100)} allocated · ${difference === 0 ? "balanced" : `${difference > 0 ? "+" : ""}${this.formatCurrency(difference)} KES difference`}`;
+        balance.classList.toggle("is-balanced", difference === 0);
+        balance.classList.toggle("is-unbalanced", difference !== 0);
+      }
+    });
+    document.querySelectorAll(".payout-leg").forEach((element) => {
+      const key = `${element.dataset.personIndex}:${element.dataset.legIndex}`;
+      element.classList.toggle("is-invalid", validation.legErrors.has(key));
+    });
+    const saveButton = document.getElementById("savePayrollPayoutPlansBtn");
+    if (saveButton) saveButton.disabled = !context.editable || !validation.valid;
+    const releaseButton = document.getElementById("releasePayrollPayoutsBtn");
+    if (releaseButton) {
+      releaseButton.disabled = !this.canProcessPayroll() || !validation.valid;
+      releaseButton.hidden = !this.canProcessPayroll();
+    }
+  },
+
+  collectPayoutAllocations: function () {
+    return (this.payoutPlanContext?.people || []).map((person) => ({
+      payslip_id: person.payslip_id,
+      legs: person.legs.map((leg) => ({
+        method: leg.method,
+        source_financial_account_id: Number(leg.source_account_id || 0),
+        amount: Number(leg.amount || 0),
+        reference: String(leg.reference || "").trim(),
+      })),
+    }));
+  },
+
+  savePayoutPlans: async function (silent = false) {
+    if (!this.payoutPlanContext?.editable) {
+      if (!silent) this.showError("This payout plan is already in release and can no longer be edited.");
+      return false;
+    }
+    const validation = this.validatePayoutPlan();
+    if (!validation.valid) {
+      this.showError(validation.errors.join(" "));
+      return false;
+    }
+
+    const saveButton = document.getElementById("savePayrollPayoutPlansBtn");
+    const releaseButton = document.getElementById("releasePayrollPayoutsBtn");
+    const originalSave = saveButton?.innerHTML;
+    const originalRelease = releaseButton?.innerHTML;
+    if (saveButton) {
+      saveButton.disabled = true;
+      saveButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving';
+    }
+    if (releaseButton) releaseButton.disabled = true;
+    try {
+      await API.finance.savePayrollPayoutPlans(
+        this.payoutPlanContext.payrollRunId,
+        this.collectPayoutAllocations(),
+      );
+      const response = await API.finance.getPayrollPayoutPlans(this.payoutPlanContext.payrollRunId);
+      const plans = Array.isArray(response) ? response : (response?.plans || response?.data?.plans || []);
+      const byPayslip = new Map();
+      plans.forEach((leg) => {
+        const id = Number(leg.payslip_id || 0);
+        if (!id || String(leg.status || "").toLowerCase() === "cancelled") return;
+        if (!byPayslip.has(id)) byPayslip.set(id, []);
+        byPayslip.get(id).push(this.hydratePayoutLeg(leg));
+      });
+      this.payoutPlanContext.people.forEach((person) => {
+        const saved = byPayslip.get(person.payslip_id) || [];
+        if (saved.length) person.legs = saved;
+      });
+      this.renderPayoutPlan();
+      if (!silent) this.showSuccess("Payout routes saved for this payroll run.");
+      return true;
+    } catch (error) {
+      console.error("Unable to save payroll payout routes:", error);
+      this.showError(error.message || "Unable to save payout routes.");
+      return false;
+    } finally {
+      if (saveButton) {
+        saveButton.innerHTML = originalSave;
+        saveButton.disabled = false;
+      }
+      if (releaseButton) releaseButton.innerHTML = originalRelease;
+      this.updatePayoutPlanTotals();
+    }
+  },
+
+  releaseSelectedPayouts: async function () {
+    if (!this.canProcessPayroll()) {
+      this.showError("You do not have permission to release payroll payments.");
+      return;
+    }
+    const context = this.payoutPlanContext;
+    if (!context) return;
+    if (context.runStatus === "approved") {
+      const saved = await this.savePayoutPlans(true);
+      if (!saved) return;
+    }
+
+    const releaseButton = document.getElementById("releasePayrollPayoutsBtn");
+    const original = releaseButton?.innerHTML;
+    if (releaseButton) {
+      releaseButton.disabled = true;
+      releaseButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Releasing';
+    }
+    try {
+      const response = await API.finance.releasePayroll(
+        context.payrollRunId,
+        context.selectedPayslipIds,
+      );
+      const summary = response?.summary || {};
+      this.showSuccess(`Payout release initiated: ${summary.pending || 0} pending, ${summary.completed || 0} completed, ${summary.failed || 0} failed.`);
+      bootstrap.Modal.getInstance(document.getElementById("payrollPayoutPlanModal"))?.hide();
+      await Promise.all([this.loadPayrolls(), this.loadPayoutLedger()]);
+    } catch (error) {
+      console.error("Unable to release payroll payouts:", error);
+      this.showError(error.message || "Unable to release payroll payouts.");
+    } finally {
+      if (releaseButton) releaseButton.innerHTML = original;
+      this.updatePayoutPlanTotals();
+    }
+  },
+
+  openCashConfirmation: function (legId, staffName, reference) {
+    this.cashConfirmationLeg = { id: Number(legId), staffName: staffName || "staff member" };
+    const name = document.getElementById("cashConfirmStaffName");
+    const input = document.getElementById("cashConfirmReferenceInput");
+    if (name) name.textContent = `Confirm the cash receipt for ${staffName || "this employee"}.`;
+    if (input) input.value = reference || "";
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("payrollCashConfirmModal")).show();
+  },
+
+  confirmCashPayout: async function () {
+    if (!this.cashConfirmationLeg?.id) return;
+    const input = document.getElementById("cashConfirmReferenceInput");
+    const reference = String(input?.value || "").trim();
+    if (!reference) {
+      this.showError("Enter the receipt or cheque reference.");
+      return;
+    }
+    const button = document.getElementById("cashConfirmSubmitBtn");
+    const original = button?.innerHTML;
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Confirming';
+    }
+    try {
+      await API.finance.confirmPayrollCashLeg(this.cashConfirmationLeg.id, reference);
+      this.cashConfirmationLeg = null;
+      bootstrap.Modal.getInstance(document.getElementById("payrollCashConfirmModal"))?.hide();
+      this.showSuccess("Cash receipt confirmed.");
+      await Promise.all([this.loadPayrolls(), this.loadPayoutLedger()]);
+    } catch (error) {
+      console.error("Unable to confirm cash payout:", error);
+      this.showError(error.message || "Unable to confirm the cash receipt.");
+    } finally {
+      if (button) {
+        button.innerHTML = original;
+        button.disabled = false;
+      }
+    }
+  },
+
+  retryPayoutLeg: function (legId) {
+    const id = Number(legId || 0);
+    if (!id) return;
+    this.showConfirm(
+      "Retry this confirmed failed payout? A new provider attempt will be recorded.",
+      () => this.executePayoutLegRetry(id),
+    );
+  },
+
+  executePayoutLegRetry: async function (legId) {
+    try {
+      await API.finance.retryPayrollPayoutLeg(legId);
+      this.showSuccess("A new payout attempt has been queued.");
+      await Promise.all([this.loadPayrolls(), this.loadPayoutLedger()]);
+    } catch (error) {
+      console.error("Unable to retry payroll payout leg:", error);
+      this.showError(error.message || "Unable to retry this payout.");
+    }
+  },
+
+  exportPayoutLedgerCsv: function () {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport("finance")) {
+      this.showError("You do not have permission to export payroll data.");
+      return;
+    }
+    if (!this.payoutLedger.length) {
+      this.showError("No payout ledger entries to export.");
+      return;
+    }
+    const rows = this.payoutLedger.map((entry) => ({
+      staff_name: entry.staff_name || "",
+      staff_no: entry.staff_no || "",
+      method: entry.method_label || entry.method || "",
+      source_account: [entry.source_account_name, entry.source_account_identifier].filter(Boolean).join(" · "),
+      amount: Number(entry.amount || 0),
+      reference: entry.reference || "",
+      provider_reference: entry.provider_reference || "",
+      transaction_id: entry.transaction_id || "",
+      attempt_no: Number(entry.attempt_no || 0),
+      status: entry.status || "",
+      reconciliation_status: entry.reconciliation_status || "",
+      provider_status: entry.provider_status || "",
+    }));
+    window.PrintManager.exportToCSV({
+      columns: [
+        { key: "staff_name", label: "Staff" },
+        { key: "staff_no", label: "Staff No." },
+        { key: "method", label: "Method" },
+        { key: "source_account", label: "Source Account" },
+        { key: "amount", label: "Amount" },
+        { key: "reference", label: "Reference" },
+        { key: "provider_reference", label: "Provider Reference" },
+        { key: "transaction_id", label: "Transaction ID" },
+        { key: "attempt_no", label: "Attempt" },
+        { key: "status", label: "Status" },
+        { key: "reconciliation_status", label: "Reconciliation" },
+        { key: "provider_status", label: "Provider Status" },
+      ],
+      rows,
+      filename: `payroll_payout_ledger_${new Date().toISOString().slice(0, 10)}`,
+    });
+  },
+
+  buildPayoutLedgerPrintHtml: function (ledger) {
+    const rows = (ledger || []).map((entry) => `
+      <tr>
+        <td>${this.escapeHtml(entry.staff_name || "—")}</td>
+        <td>${this.escapeHtml(entry.method_label || entry.method || "—")}</td>
+        <td>${this.escapeHtml([entry.source_account_name, entry.source_account_identifier].filter(Boolean).join(" · ") || "—")}</td>
+        <td class="text-end">${this.formatCurrency(entry.amount || 0)}</td>
+        <td>${this.escapeHtml(entry.reference || "—")}</td>
+        <td>${this.escapeHtml(entry.provider_reference || "—")}</td>
+        <td>${Number(entry.attempt_no || 0) > 0 ? Number(entry.attempt_no) : "—"}</td>
+        <td>${this.escapeHtml(entry.status || "—")}</td>
+        <td>${this.escapeHtml(entry.reconciliation_status || entry.provider_status || "—")}</td>
+        <td>${this.escapeHtml(entry.transaction_id || "—")}</td>
+      </tr>`).join("");
+    return `
+      <section class="record-section" style="margin-top: 24px; page-break-before: auto;">
+        <h3 style="font-size: 1rem; margin: 0 0 .6rem;">Payout Legs & Provider Transactions</h3>
+        <div class="print-table-container">
+          <table class="print-table">
+            <thead><tr><th>Staff</th><th>Method</th><th>Source Account</th><th class="text-end">Amount</th><th>Reference</th><th>Provider Reference</th><th>Attempt</th><th>Status</th><th>Reconciliation</th><th>Transaction ID</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="10" class="text-center">No payout legs or provider transactions recorded.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </section>`;
+  },
+
+  /**
    * Populate staff select dropdown
    */
   populateStaffSelect: function () {
@@ -409,13 +1122,14 @@ const PayrollManagerController = {
   applyFilters: function () {
     this.loadPayrolls();
     this.loadStats();
+    this.loadPayoutLedger();
   },
 
   /**
    * Refresh data
    */
   refresh: async function () {
-    await Promise.all([this.loadPayrolls(), this.loadStats()]);
+    await Promise.all([this.loadPayrolls(), this.loadStats(), this.loadPayoutLedger()]);
     this.showSuccess("Data refreshed");
   },
 
@@ -500,7 +1214,7 @@ const PayrollManagerController = {
 
   renderPayrollCell: function (p, computed, column) {
     const cellMap = {
-      select: `<td class="text-center"><input type="checkbox" class="payroll-payment-select" value="${Number(p.id)}" ${this.selectedPaymentIds.has(Number(p.id)) ? "checked" : ""} ${p.status !== "approved" || p.payroll_run_status !== "approved" ? "disabled" : ""} onchange="PayrollManagerController.togglePaymentSelection(${Number(p.id)}, this.checked)" aria-label="Select ${this.escapeHtml(p.staff_name || "staff")} for payment"></td>`,
+      select: `<td class="text-center"><input type="checkbox" class="payroll-payment-select" value="${Number(p.id)}" ${this.selectedPaymentIds.has(Number(p.id)) ? "checked" : ""} ${!this.isPayoutSelectable(p) ? "disabled" : ""} onchange="PayrollManagerController.togglePaymentSelection(${Number(p.id)}, this.checked)" aria-label="Select ${this.escapeHtml(p.staff_name || "staff")} for payment"></td>`,
       staff: `
         <td>
           <div style="font-weight: 700; color: var(--payroll-ink, #1a1f2e);">${this.escapeHtml(p.staff_name)}</div>
@@ -522,6 +1236,12 @@ const PayrollManagerController = {
     return cellMap[column] || "";
   },
 
+  isPayoutSelectable: function (payroll) {
+    const payslipStatus = String(payroll?.status || "").toLowerCase();
+    const runStatus = String(payroll?.payroll_run_status || "").toLowerCase();
+    return payslipStatus === "approved" && ["approved", "processing"].includes(runStatus);
+  },
+
   togglePaymentSelection: function (payslipId, checked) {
     const id = Number(payslipId);
     if (checked) this.selectedPaymentIds.add(id);
@@ -530,7 +1250,7 @@ const PayrollManagerController = {
   },
 
   toggleAllPaymentSelection: function (checked) {
-    this.filteredPayrolls.filter((p) => p.status === "approved" && p.payroll_run_status === "approved").forEach((p) => {
+    this.filteredPayrolls.filter((p) => this.isPayoutSelectable(p)).forEach((p) => {
       const id = Number(p.id);
       if (checked) this.selectedPaymentIds.add(id);
       else this.selectedPaymentIds.delete(id);
@@ -549,9 +1269,13 @@ const PayrollManagerController = {
   },
 
   paySelected: function () {
-    const selected = this.filteredPayrolls.filter((p) => this.selectedPaymentIds.has(Number(p.id)) && p.status === "approved" && p.payroll_run_status === "approved");
+    const selected = this.filteredPayrolls.filter((p) => this.selectedPaymentIds.has(Number(p.id)) && this.isPayoutSelectable(p));
     if (!selected.length) return this.showError("Select at least one approved staff payment.");
-    this.markAsPaid(Number(selected[0].id), selected.map((p) => Number(p.id)));
+    const runIds = [...new Set(selected.map((p) => Number(p.payroll_run_id || 0)).filter(Boolean))];
+    if (runIds.length !== 1 || !runIds[0]) {
+      return this.showError("Plan payouts for one payroll run at a time. Clear the selection and choose records from a single month and year.");
+    }
+    this.openPayoutPlan(selected, runIds[0]);
   },
 
   renderPayrollActions: function (p) {
@@ -567,12 +1291,12 @@ const PayrollManagerController = {
           <i class="fas fa-user-check"></i>
         </button>
       ` : ""}
-      ${p.status === "approved" && p.payroll_run_status === "approved" && this.canProcessPayroll() ? `
-        <button class="table-action-btn approve" onclick="PayrollManagerController.markAsPaid(${p.id})" title="Release Payment">
-          <i class="fas fa-check-circle"></i>
+      ${this.isPayoutSelectable(p) && (this.canManagePayroll() || this.isPayrollReviewer() || this.canProcessPayroll()) ? `
+        <button class="table-action-btn approve" onclick="PayrollManagerController.openPayoutPlanForRow(${p.id})" title="${String(p.payroll_run_status).toLowerCase() === "processing" ? "Resume payout" : "Plan or release payout"}">
+          <i class="fas fa-signpost-split"></i>
         </button>
       ` : ""}
-      ${p.status === "approved" && p.payroll_run_status && p.payroll_run_status !== "approved" ? `<span class="text-muted small" title="Payment has already started for this payroll run"><i class="fas fa-lock"></i> ${this.escapeHtml(p.payroll_run_status)}</span>` : ""}
+      ${p.status === "approved" && p.payroll_run_status && !["approved", "processing"].includes(String(p.payroll_run_status).toLowerCase()) ? `<span class="text-muted small" title="This payroll run cannot be released"><i class="fas fa-lock"></i> ${this.escapeHtml(p.payroll_run_status)}</span>` : ""}
     `;
   },
 
@@ -681,8 +1405,8 @@ const PayrollManagerController = {
    * Show bulk payroll modal
    */
   showBulkPayrollModal: async function () {
-    if (!this.canManagePayroll()) {
-      this.showError("You do not have permission to prepare payroll.");
+    if (!this.canManagePayroll() && !this.isPayrollReviewer()) {
+      this.showError("You do not have permission to prepare or review payroll.");
       return;
     }
     const month = new Date().getMonth() + 1;
@@ -695,16 +1419,26 @@ const PayrollManagerController = {
   },
 
   prepareBulkPayrollRows: async function () {
-    if (!this.canManagePayroll()) return;
+    if (!this.canManagePayroll() && !this.isPayrollReviewer()) return;
     const month = document.getElementById("bulkPayrollMonth").value;
     const year = document.getElementById("bulkPayrollYear").value;
+    const requestId = ++this.bulkPreviewRequestId;
     try {
       const response = await API.finance.getBulkPayrollPreview(month, year);
-      this.bulkPayrollRows = Array.isArray(response) ? response.map((row) => ({
-        ...row,
-        selected: row.payroll_eligible === true && !row.already_prepared && (parseFloat(row.basic_salary) || 0) > 0,
-      })) : [];
+      if (requestId !== this.bulkPreviewRequestId) return;
+      const reviewer = this.isPayrollReviewer();
+      this.bulkPayrollRows = Array.isArray(response) ? response.map((row) => {
+        const canAmendDraft = reviewer && ["draft", "pending"].includes(String(row.existing_payslip_status || "").toLowerCase());
+        return {
+          ...row,
+          statutory_options: this.normaliseStatutoryOptions(row.statutory_options),
+          selected: row.payroll_eligible === true
+            && (!row.already_prepared || canAmendDraft)
+            && (parseFloat(row.basic_salary) || 0) > 0,
+        };
+      }) : [];
     } catch (error) {
+      if (requestId !== this.bulkPreviewRequestId) return;
       console.error("Error preparing bulk payroll:", error);
       this.bulkPayrollRows = [];
       this.showError(error.message || "Failed to prepare bulk payroll preview");
@@ -720,7 +1454,7 @@ const PayrollManagerController = {
     if (this.bulkPayrollRows.length === 0) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = 9;
+      td.colSpan = 10;
       td.className = "text-center py-4 text-muted";
       td.textContent = "No active staff found";
       tr.appendChild(td);
@@ -730,14 +1464,24 @@ const PayrollManagerController = {
       return;
     }
 
+    const reviewer = this.isPayrollReviewer();
+    const statutoryItems = [
+      ["paye", "PAYE"],
+      ["nssf", "NSSF"],
+      ["shif", "SHIF"],
+      ["housing_levy", "Housing"],
+    ];
+
     this.bulkPayrollRows.forEach((row, index) => {
       const tr = document.createElement("tr");
+      const canAmendDraft = reviewer && ["draft", "pending"].includes(String(row.existing_payslip_status || "").toLowerCase());
       const selectTd = document.createElement("td");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.className = "form-check-input";
       checkbox.checked = row.selected;
-      checkbox.disabled = !row.payroll_eligible || row.already_prepared;
+      checkbox.disabled = !row.payroll_eligible || (row.already_prepared && !canAmendDraft);
+      checkbox.setAttribute("aria-label", `Select ${row.staff_name || "staff"} for payroll`);
       checkbox.addEventListener("change", () => this.setBulkStaffSelected(index, checkbox.checked));
       selectTd.appendChild(checkbox);
 
@@ -748,18 +1492,16 @@ const PayrollManagerController = {
       const staffNo = document.createElement("small");
       staffNo.className = "text-muted";
       staffNo.textContent = row.staff_no || "-";
-      staffTd.appendChild(name);
-      staffTd.appendChild(br);
-      staffTd.appendChild(staffNo);
+      staffTd.append(name, br, staffNo);
       if (row.already_prepared) {
         const prepared = document.createElement("div");
-        prepared.className = "text-warning small fw-bold mt-1";
-        prepared.textContent = "Already prepared (" + (row.existing_payslip_status || "draft") + ")";
+        prepared.className = row.existing_payslip_status === "draft" ? "text-warning small fw-bold mt-1" : "text-muted small mt-1";
+        prepared.textContent = `Prepared (${row.existing_payslip_status || "draft"})${canAmendDraft ? " · editable in review" : ""}`;
         staffTd.appendChild(prepared);
       } else if (!row.payroll_eligible) {
         const blocked = document.createElement("div");
         blocked.className = "text-danger small fw-bold mt-1";
-        blocked.textContent = "Blocked: Missing " + row.missing_fields.join(", ");
+        blocked.textContent = "Blocked: Missing " + (row.missing_fields || []).join(", ");
         staffTd.appendChild(blocked);
       }
 
@@ -778,6 +1520,26 @@ const PayrollManagerController = {
       statutoryTd.className = "text-end";
       statutoryTd.textContent = this.formatCurrency(row.statutory_deductions);
 
+      const statutoryChoicesTd = document.createElement("td");
+      const choices = document.createElement("div");
+      choices.className = "bulk-statutory-grid";
+      statutoryItems.forEach(([key, label]) => {
+        const item = document.createElement("label");
+        item.className = `bulk-statutory-item${row.statutory_options?.[key] ? " is-on" : ""}`;
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.className = "form-check-input";
+        input.checked = Boolean(row.statutory_options?.[key]);
+        input.disabled = !row.payroll_eligible;
+        input.setAttribute("aria-label", `${label} deduction for ${row.staff_name || "staff"}`);
+        input.addEventListener("change", () => this.onBulkStatutoryChanged(index, key, input.checked));
+        const text = document.createElement("span");
+        text.textContent = label;
+        item.append(input, text);
+        choices.appendChild(item);
+      });
+      statutoryChoicesTd.appendChild(choices);
+
       const otherDedTd = document.createElement("td");
       otherDedTd.className = "text-end";
       otherDedTd.textContent = this.formatCurrency(row.other_deductions || 0);
@@ -790,7 +1552,7 @@ const PayrollManagerController = {
       netTd.className = "text-end fw-bold text-success";
       netTd.textContent = this.formatCurrency(row.net_salary);
 
-      tr.append(selectTd, staffTd, positionTd, basicTd, allowanceTd, statutoryTd, otherDedTd, housingTd, netTd);
+      tr.append(selectTd, staffTd, positionTd, basicTd, allowanceTd, statutoryTd, statutoryChoicesTd, otherDedTd, housingTd, netTd);
       rows.push(tr);
     });
 
@@ -803,9 +1565,57 @@ const PayrollManagerController = {
     this.updateBulkPayrollSummary();
   },
 
-  toggleBulkStaffSelection: function (selected) {
+  onBulkStatutoryChanged: async function (index, key, checked) {
+    const row = this.bulkPayrollRows[index];
+    if (!row) return;
+    row.statutory_options = this.normaliseStatutoryOptions({
+      ...(row.statutory_options || {}),
+      [key]: checked,
+    });
+    await this.refreshBulkPayrollPreview();
+  },
+
+  refreshBulkPayrollPreview: async function () {
+    const month = document.getElementById("bulkPayrollMonth").value;
+    const year = document.getElementById("bulkPayrollYear").value;
+    const requestId = ++this.bulkPreviewRequestId;
+    const selectedByStaff = new Map(
+      this.bulkPayrollRows.filter((row) => row.selected).map((row) => [Number(row.staff_id), true]),
+    );
+    const options = {};
     this.bulkPayrollRows.forEach((row) => {
-      row.selected = selected && row.payroll_eligible && !row.already_prepared && row.basic_salary > 0;
+      options[String(row.staff_id)] = this.normaliseStatutoryOptions(row.statutory_options);
+    });
+
+    const summary = document.getElementById("bulkPayrollSummary");
+    if (summary) summary.textContent = "Recalculating on the server…";
+    try {
+      const response = await API.finance.previewBulkPayrollWithOptions(month, year, options);
+      if (requestId !== this.bulkPreviewRequestId) return;
+      const reviewer = this.isPayrollReviewer();
+      this.bulkPayrollRows = (Array.isArray(response) ? response : []).map((row) => {
+        const canAmendDraft = reviewer && ["draft", "pending"].includes(String(row.existing_payslip_status || "").toLowerCase());
+        return {
+          ...row,
+          statutory_options: this.normaliseStatutoryOptions(row.statutory_options),
+          selected: selectedByStaff.has(Number(row.staff_id))
+            && row.payroll_eligible === true
+            && (!row.already_prepared || canAmendDraft),
+        };
+      });
+      this.renderBulkPayrollRows();
+    } catch (error) {
+      if (requestId !== this.bulkPreviewRequestId) return;
+      this.renderBulkPayrollRows();
+      this.showError(error.message || "Unable to recalculate this payroll preview.");
+    }
+  },
+
+  toggleBulkStaffSelection: function (selected) {
+    const reviewer = this.isPayrollReviewer();
+    this.bulkPayrollRows.forEach((row) => {
+      const canAmendDraft = reviewer && ["draft", "pending"].includes(String(row.existing_payslip_status || "").toLowerCase());
+      row.selected = selected && row.payroll_eligible && (!row.already_prepared || canAmendDraft) && row.basic_salary > 0;
     });
     this.renderBulkPayrollRows();
   },
@@ -819,8 +1629,8 @@ const PayrollManagerController = {
   },
 
   submitBulkPayroll: async function () {
-    if (!this.canManagePayroll()) {
-      this.showError("You do not have permission to prepare payroll.");
+    if (!this.canManagePayroll() && !this.isPayrollReviewer()) {
+      this.showError("You do not have permission to prepare or review payroll.");
       return;
     }
     const selectedRows = this.bulkPayrollRows.filter((row) => row.selected);
@@ -848,6 +1658,12 @@ const PayrollManagerController = {
         staff_ids: selectedRows.map((row) => row.staff_id),
         payroll_month: month,
         payroll_year: year,
+        statutory_options: Object.fromEntries(
+          selectedRows.map((row) => [
+            String(row.staff_id),
+            this.normaliseStatutoryOptions(row.statutory_options),
+          ]),
+        ),
       });
 
       const modal = bootstrap.Modal.getInstance(document.getElementById("bulkPayrollModal"));
@@ -878,12 +1694,15 @@ const PayrollManagerController = {
   resetPayrollForm: function () {
     this.selectedStaff = null;
     this.childrenDeductions = [];
+    this.statutoryOptions = { paye: false, nssf: false, shif: false, housing_levy: false };
 
     document.getElementById("payrollStaffSelect").value = "";
     document.getElementById("staffInfoCard").classList.add("d-none");
+    document.getElementById("payrollStatutoryStep").classList.add("d-none");
     document.getElementById("payrollStep2").classList.add("d-none");
     document.getElementById("payrollStep3").classList.add("d-none");
     document.getElementById("processPayrollBtn").disabled = true;
+    this.setStatutoryOptions(this.statutoryOptions);
 
     // Reset allowances and deductions
     document.getElementById("houseAllowance").value = 0;
@@ -901,6 +1720,7 @@ const PayrollManagerController = {
 
     if (!staffId) {
       document.getElementById("staffInfoCard").classList.add("d-none");
+      document.getElementById("payrollStatutoryStep").classList.add("d-none");
       document.getElementById("payrollStep2").classList.add("d-none");
       document.getElementById("payrollStep3").classList.add("d-none");
       document.getElementById("processPayrollBtn").disabled = true;
@@ -1125,6 +1945,7 @@ const PayrollManagerController = {
    * Show salary calculation section
    */
   showSalaryCalculation: function () {
+    document.getElementById("payrollStatutoryStep").classList.remove("d-none");
     document.getElementById("payrollStep3").classList.remove("d-none");
     document.getElementById("calcBasicSalary").textContent =
       this.formatCurrency(this.selectedStaff.basic_salary);
@@ -1155,13 +1976,19 @@ const PayrollManagerController = {
       houseAllowance + transportAllowance + otherAllowances + bonusAllowance;
     const grossSalary = basicSalary + totalAllowances;
 
-    // Calculate statutory deductions
-    const nssf = this.calculateNSSF(grossSalary);
-    const shif = this.calculateSHIF(grossSalary);
-    const housingLevy = this.calculateHousingLevy(grossSalary);
-    const paye = this.calculatePAYE(grossSalary - nssf - shif - housingLevy);
-    const employerNSSF = this.calculateNSSF(grossSalary);
-    const employerHousingLevy = housingLevy;
+    // Browser figures are advisory. The server recalculates the selected
+    // statutory items from the same gross pay before saving the payslip.
+    const statutoryOptions = this.getStatutoryOptions();
+    const nssf = statutoryOptions.nssf ? this.calculateNSSF(grossSalary) : 0;
+    const shif = statutoryOptions.shif ? this.calculateSHIF(grossSalary) : 0;
+    const housingLevy = statutoryOptions.housing_levy ? this.calculateHousingLevy(grossSalary) : 0;
+    const paye = statutoryOptions.paye
+      ? this.calculatePAYE(grossSalary - nssf - shif - housingLevy)
+      : 0;
+    const employerNSSF = statutoryOptions.nssf ? this.calculateNSSF(grossSalary) : 0;
+    const employerHousingLevy = statutoryOptions.housing_levy
+      ? this.calculateEmployerHousingLevy(grossSalary)
+      : 0;
 
     // Children fees
     const childrenFees = this.childrenDeductions.reduce(
@@ -1185,12 +2012,99 @@ const PayrollManagerController = {
       this.formatCurrency(employerNSSF);
     document.getElementById("calcEmployerHousingLevy").textContent =
       this.formatCurrency(employerHousingLevy);
+    this.updateStatutoryChoiceDisplay({
+      paye,
+      nssf,
+      shif,
+      housing_levy: housingLevy,
+    });
     document.getElementById("calcChildrenFees").textContent =
       this.formatCurrency(childrenFees);
     document.getElementById("calcTotalDeductions").textContent =
       this.formatCurrency(totalDeductions);
     document.getElementById("calcNetPay").textContent =
       "KES " + this.formatCurrency(netSalary);
+  },
+
+  normaliseStatutoryOptions: function (options) {
+    const source = options && typeof options === "object" ? options : {};
+    const read = (...keys) => {
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+          const value = source[key];
+          if (typeof value === "boolean") return value;
+          if (typeof value === "number") return value !== 0;
+          if (typeof value === "string") {
+            return ["1", "true", "yes", "on", "enabled"].includes(value.trim().toLowerCase());
+          }
+          return false;
+        }
+      }
+      return false;
+    };
+    return {
+      paye: read("paye", "paye_enabled", "apply_paye"),
+      nssf: read("nssf", "nssf_enabled", "apply_nssf"),
+      shif: read("shif", "shif_enabled", "apply_shif", "nhif", "nhif_enabled"),
+      housing_levy: read("housing_levy", "housing_levy_enabled", "apply_housing_levy"),
+    };
+  },
+
+  getStatutoryOptions: function () {
+    const options = {};
+    document.querySelectorAll("[data-statutory-key]").forEach((input) => {
+      options[input.dataset.statutoryKey] = input.checked;
+    });
+    this.statutoryOptions = this.normaliseStatutoryOptions(options);
+    return this.statutoryOptions;
+  },
+
+  setStatutoryOptions: function (options) {
+    const normalised = this.normaliseStatutoryOptions(options);
+    this.statutoryOptions = normalised;
+    document.querySelectorAll("[data-statutory-key]").forEach((input) => {
+      input.checked = Boolean(normalised[input.dataset.statutoryKey]);
+    });
+    this.updateStatutoryChoiceDisplay();
+  },
+
+  onStatutoryOptionChanged: function () {
+    this.getStatutoryOptions();
+    this.recalculatePayroll();
+  },
+
+  updateStatutoryChoiceDisplay: function (amounts = {}) {
+    const options = this.getStatutoryOptions();
+    const amountMap = {
+      paye: amounts.paye,
+      nssf: amounts.nssf,
+      shif: amounts.shif,
+      housing_levy: amounts.housing_levy,
+    };
+    const amountIds = {
+      paye: "statutoryPayeAmount",
+      nssf: "statutoryNssfAmount",
+      shif: "statutoryShifAmount",
+      housing_levy: "statutoryHousingAmount",
+    };
+    Object.keys(options).forEach((key) => {
+      const amount = amountMap[key];
+      const amountEl = document.getElementById(amountIds[key]);
+      if (amountEl && amount !== undefined) {
+        amountEl.textContent = `KES ${this.formatCurrency(amount)}`;
+      }
+      const card = document.querySelector(`[data-statutory-card="${key}"]`);
+      if (card) card.classList.toggle("is-on", options[key]);
+    });
+    const enabled = Object.entries(options).filter(([, value]) => value).map(([key]) => {
+      const labels = { paye: "PAYE", nssf: "NSSF", shif: "SHIF", housing_levy: "housing" };
+      return labels[key];
+    });
+    const summary = document.getElementById("statutorySelectionSummary");
+    if (summary) {
+      summary.textContent = enabled.length ? enabled.join(" · ") : "All items off";
+      summary.classList.toggle("processing", enabled.length > 0);
+    }
   },
 
   /** Calculate NSSF from the active effective-dated rule snapshot. */
@@ -1210,6 +2124,11 @@ const PayrollManagerController = {
   calculateHousingLevy: function (gross) {
     const rule = this.statutoryRules['Housing Levy:employee_employer_contribution'] || {};
     return Math.max(0, Number(gross) || 0) * (Number(rule.employee_rate || 0) / 100);
+  },
+
+  calculateEmployerHousingLevy: function (gross) {
+    const rule = this.statutoryRules['Housing Levy:employee_employer_contribution'] || {};
+    return Math.max(0, Number(gross) || 0) * (Number(rule.employer_rate || 0) / 100);
   },
 
   /** Calculate PAYE from the active effective-dated rule snapshot. */
@@ -1286,6 +2205,7 @@ const PayrollManagerController = {
         children_deductions: childrenDeductions,
         children_deductions_explicit: reviewer,
         preparation_only: !reviewer,
+        statutory_options: this.normaliseStatutoryOptions(this.statutoryOptions),
       };
 
       const response = await API.finance.processPayrollWithDeductions(data);
@@ -1359,6 +2279,8 @@ const PayrollManagerController = {
       document.getElementById("transportAllowance").value = 0;
       document.getElementById("otherAllowances").value = allowancesTotal;
       document.getElementById("otherDeductions").value = parseFloat(response.other_deductions_total) || 0;
+      this.statutoryOptions = this.normaliseStatutoryOptions(response.statutory_options || {});
+      this.setStatutoryOptions(this.statutoryOptions);
       this.childrenDeductions = Array.isArray(response.children_deductions)
         ? response.children_deductions.map((child) => ({ ...child, enabled: true, amount: parseFloat(child.deducted_amount || child.amount || 0) }))
         : [];
@@ -1779,6 +2701,10 @@ const PayrollManagerController = {
    * Export currently visible payroll rows as CSV
    */
   exportCsv: function () {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport("finance")) {
+      this.showError("You do not have permission to export payroll data.");
+      return;
+    }
     const rows = this.filteredPayrolls || [];
 
     if (!rows.length) {
@@ -1818,9 +2744,72 @@ const PayrollManagerController = {
   },
 
   /**
+   * Build the payout transaction section that is appended to the monthly
+   * payroll roll. Every plan leg and every provider attempt is included so
+   * the printed roll is a complete audit trail for the month.
+   */
+  buildPayoutRollHtml: function (ledger, month, year) {
+    const entries = Array.isArray(ledger) ? ledger : [];
+    const amount = (value) => Number(value || 0).toLocaleString("en-KE", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const period = `${this.getMonthName(month || new Date().getMonth() + 1)} ${year || new Date().getFullYear()}`;
+    const total = entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+
+    if (!entries.length) {
+      return `
+        <div class="payroll-payout-roll">
+          <h3 class="payout-roll-title">Payout Transactions — ${this.escapeHtml(period)}</h3>
+          <p class="text-muted">No cash, bank, or M-Pesa payout transactions were recorded for this month.</p>
+        </div>`;
+    }
+
+    const rows = entries.map((entry) => {
+      const method = entry.method_label || entry.method || "—";
+      const source = [entry.source_account_name, entry.source_account_identifier]
+        .filter(Boolean).join(" · ") || "—";
+      const status = String(entry.status || "pending");
+      const attempt = Number(entry.attempt_no || 0);
+      return `
+        <tr>
+          <td>${this.escapeHtml(entry.staff_name || "—")}${entry.staff_no ? `<br><small>${this.escapeHtml(entry.staff_no)}</small>` : ""}</td>
+          <td>${this.escapeHtml(method)}</td>
+          <td>${this.escapeHtml(source)}</td>
+          <td class="text-end">${amount(entry.amount)}</td>
+          <td>${this.escapeHtml(entry.reference || "—")}</td>
+          <td>${this.escapeHtml(entry.provider_reference || "—")}</td>
+          <td class="text-center">${attempt > 0 ? attempt : "—"}</td>
+          <td>${this.escapeHtml(status)}${entry.provider_status ? `<br><small>${this.escapeHtml(entry.provider_status)}</small>` : ""}</td>
+        </tr>`;
+    }).join("");
+
+    return `
+      <div class="payroll-payout-roll">
+        <h3 class="payout-roll-title">Payout Transactions — ${this.escapeHtml(period)}</h3>
+        <table class="table table-sm payout-roll-table">
+          <thead>
+            <tr>
+              <th>Staff</th><th>Method</th><th>Source Account</th><th class="text-end">Amount</th>
+              <th>Reference</th><th>Provider Ref</th><th class="text-center">Attempt</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr><th colspan="3" class="text-end">Total disbursed / planned</th><th class="text-end">${amount(total)}</th><th colspan="4"></th></tr>
+          </tfoot>
+        </table>
+      </div>`;
+  },
+
+  /**
    * Print the payroll table as a PDF via the browser print dialog
    */
   printPayrollReport: async function () {
+    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint("finance")) {
+      this.showError("You do not have permission to print payroll reports.");
+      return;
+    }
     const rows = this.filteredPayrolls || [];
 
     if (!rows.length) {
@@ -1874,6 +2863,29 @@ const PayrollManagerController = {
         maximumFractionDigits: 2,
       });
 
+    // Derive the reporting period from the visible rows. A filter-driven view
+    // can span one month, so all rows should share the same month/year.
+    const firstRow = rows[0] || {};
+    const reportMonth = Number(firstRow.payroll_month)
+      || Number(document.getElementById("filterMonth")?.value)
+      || new Date().getMonth() + 1;
+    const reportYear = Number(firstRow.payroll_year)
+      || Number(document.getElementById("filterYear")?.value)
+      || new Date().getFullYear();
+
+    // Fetch the complete monthly payout ledger so every provider transaction
+    // and plan leg appears in the printed roll, not only the summary table.
+    let payoutLedger = this.payoutLedger || [];
+    try {
+      const response = await API.finance.getPayrollPayoutLedger(reportMonth, reportYear);
+      payoutLedger = Array.isArray(response)
+        ? response
+        : (response?.ledger || response?.data?.ledger || []);
+    } catch (error) {
+      console.error("Unable to load payout ledger for payroll roll:", error);
+    }
+    const payoutRollHtml = this.buildPayoutRollHtml(payoutLedger, reportMonth, reportYear);
+
     await window.PrintManager.printTable({
       title: "Payroll Report",
       description: "Consolidated staff payroll report. All monetary values are in KES.",
@@ -1924,6 +2936,7 @@ const PayrollManagerController = {
       ],
       rows: reportRows,
       orientation: "landscape",
+      afterTableHtml: payoutRollHtml,
       filename: `payroll_report_${new Date().toISOString().slice(0, 10)}`,
       reportCode: `PAYROLL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
       summary: {
@@ -1965,6 +2978,18 @@ const PayrollManagerController = {
     const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;
+  },
+
+  /**
+   * Escape a value for use inside a double-quoted HTML attribute.
+   * Escape HTML first, then neutralise any quote so an attribute can never
+   * be terminated early by staff-supplied names or references.
+   */
+  escapeAttribute: function (text) {
+    if (text === null || text === undefined || text === "") return "";
+    return String(this.escapeHtml(text))
+      .replace(/"/g, "&#34;")
+      .replace(/'/g, "'");
   },
 
   /**

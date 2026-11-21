@@ -24,6 +24,8 @@ use App\API\Services\ServiceContractBroker;
  */
 abstract class BaseController extends FileLifecycleBase
 {
+    use \App\API\Includes\AiPromptGate;
+
     protected $db;
     protected $user;
     protected $requestId;

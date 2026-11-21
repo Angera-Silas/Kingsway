@@ -23,6 +23,8 @@ use DomainException;
  */
 class PublicController extends BaseAPI
 {
+    use \App\API\Includes\AiPromptGate;
+
     private WebsiteManager $manager;
 
     public function __construct()
@@ -215,6 +217,14 @@ public function postSubscribers($id = null, $data = [], $segments = [])
     /** POST /api/public/ai-faq */
     public function postAiFaq($id = null, $data = [], $segments = [])
     {
+        $question = (string) ($data['question'] ?? '');
+        $conversation = is_array($data['conversation'] ?? null) ? $data['conversation'] : [];
+        $visitorId = (string) ($data['visitor_id'] ?? '');
+        // Prompt gate first: a blocked visitor or a malicious prompt never
+        // reaches the corpus or the engine.
+        if ($gate = $this->aiPromptGate($question, 'public', $conversation, '', $visitorId)) {
+            return $this->successResponse($this->aiBlockedAnswer($gate), 'Malicious prompt blocked');
+        }
         try {
             // The Python platform refreshes storage/public/faqs.json from the
             // published site (term dates, academic year, contacts) on a
@@ -222,10 +232,25 @@ public function postSubscribers($id = null, $data = [], $segments = [])
             // when that corpus has not been generated yet.
             $corpus = $this->contract('App\\API\\Services\\PublicFaqService')->corpus($this->manager);
             $result = $this->contract('App\\API\\Services\\PublicAiAssistantService')->ask(
-                (string) ($data['question'] ?? ''),
+                $question,
                 $corpus,
-                is_array($data['conversation'] ?? null) ? $data['conversation'] : []
+                $conversation
             );
+            // Marketer mode: now and then, one optional anonymous question.
+            if (($result['status'] ?? '') === 'answered') {
+                $guard = $this->contract('App\\API\\Services\\AiPromptGuardService');
+                $feedback = $this->contract('App\\API\\Services\\PublicVisitorFeedbackService');
+                $shown = array_values(array_filter(
+                    is_array($data['asked_keys'] ?? null) ? $data['asked_keys'] : [],
+                    static fn ($k): bool => is_string($k) && preg_match('/^[a-z_]{1,40}$/', $k) === 1
+                ));
+                $seen = array_merge($feedback->answeredKeys($guard->visitorHash($visitorId)), $shown);
+                $answeredTurns = count(array_filter($conversation, static fn ($t): bool => is_array($t) && ($t['role'] ?? '') === 'assistant')) + 1;
+                $prompt = $feedback->nextPrompt($seen, $answeredTurns);
+                if ($prompt !== null) {
+                    $result['feedback_prompt'] = $prompt;
+                }
+            }
             return $this->successResponse($result, 'Public assistant response prepared');
         } catch (DomainException $e) {
             return $this->errorResponse($e->getMessage(), (int) ($e->getCode() ?: 422));
@@ -239,6 +264,25 @@ public function postSubscribers($id = null, $data = [], $segments = [])
             ]);
             return $this->errorResponse('The public assistant is temporarily unavailable.', 503);
         }
+    }
+
+    /** POST /api/public/ai-feedback — one optional, anonymous survey answer. */
+    public function postAiFeedback($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->contract('App\\API\\Services\\AiPromptGuardService');
+        $visitorId = (string) ($data['visitor_id'] ?? '');
+        // A blocked visitor cannot use the survey either.
+        if ($guard->isBlocked($guard->visitorSubjects($visitorId, \App\API\Services\AiPromptGuardService::clientIp()))) {
+            return $this->errorResponse(\App\API\Services\AiPromptGuardService::BLOCKED_NOTICE, 403);
+        }
+        $result = $this->contract('App\\API\\Services\\PublicVisitorFeedbackService')->record(
+            $guard->visitorHash($visitorId),
+            (string) ($data['question_key'] ?? ''),
+            (string) ($data['answer'] ?? '')
+        );
+        return $result['success']
+            ? $this->successResponse(null, $result['message'])
+            : $this->errorResponse($result['message'], (int) $result['code']);
     }
 
     /** GET /api/public/uniform-catalog OR /api/public/uniform-catalog/{id} */

@@ -83,6 +83,7 @@ class CsrfMiddleware
         'public/leads',
         // Anonymous public FAQ requests have no staff session CSRF token.
         'public/ai-faq',
+        'public/ai-feedback',
         'communications/sms-delivery-report',
         'communications/whatsapp-delivery-report',
         'communications/whatsapp-incoming',

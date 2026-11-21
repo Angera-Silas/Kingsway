@@ -143,6 +143,8 @@ class AuthMiddleware
             // Public FAQ assistant is intentionally anonymous; the
             // controller supplies only the published website corpus.
             'public/ai-faq',
+            // Optional anonymous survey answers from the public assistant.
+            'public/ai-feedback',
             // Provider callbacks are authenticated by the webhook secret checked
             // in CommunicationsController, not by a staff JWT.
             'communications/sms-delivery-report',
