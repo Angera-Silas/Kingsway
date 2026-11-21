@@ -61,7 +61,7 @@ const assessmentOverviewCtrl = {
       this._terms = pick(sources.terms);
       const current = window.AcademicYearFilter?.defaultTerm?.(this._terms) || this._terms.find(t => (t.status || '') === 'current');
       if (current) this._currentTermId = current.id;
-      const termOpts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year_name||t.year_code||t.year||''}</option>`).join('');
+      const termOpts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${kwEscapeHtml(t.name)} ${kwEscapeHtml(t.year_name||t.year_code||t.year||'')}</option>`).join('');
       ['aoTermModal'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '<option value="">Select term</option>' + termOpts;
@@ -84,7 +84,7 @@ const assessmentOverviewCtrl = {
       const current = window.AcademicYearFilter?.defaultTerm?.(this._terms) || this._terms.find(t => (t.status || '') === 'current');
       if (current) this._currentTermId = current.id;
 
-      const opts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year_name||t.year_code||t.year||''}</option>`).join('');
+      const opts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${kwEscapeHtml(t.name)} ${kwEscapeHtml(t.year_name||t.year_code||t.year||'')}</option>`).join('');
       ['aoTermModal'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '<option value="">Select term</option>' + opts;

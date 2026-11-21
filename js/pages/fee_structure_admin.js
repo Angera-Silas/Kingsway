@@ -872,7 +872,7 @@ class FeeStructureAdminController {
                                   .map(
                                     (item) => `
                                     <tr>
-                                        <td>${item.name}</td>
+                                        <td>${kwEscapeHtml(item.name)}</td>
                                         <td class="text-end">${this.formatCurrency(item.amount)}</td>
                                     </tr>
                                 `,

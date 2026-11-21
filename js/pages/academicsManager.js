@@ -453,7 +453,7 @@ const academicsManager = {
                 <tbody>
                     ${terms.map(term => `
                         <tr>
-                            <td><strong>Term ${term.term_number}</strong><br><small class="text-muted">${term.name}</small></td>
+                            <td><strong>Term ${term.term_number}</strong><br><small class="text-muted">${kwEscapeHtml(term.name)}</small></td>
                             <td>${term.year || '-'}</td>
                             <td>${this.formatDate(term.start_date)}</td>
                             <td>${this.formatDate(term.end_date)}</td>
@@ -656,7 +656,7 @@ const academicsManager = {
                 <tbody>
                     ${classes.map(cls => `
                         <tr>
-                            <td><strong>${cls.name}</strong></td>
+                            <td><strong>${kwEscapeHtml(cls.name)}</strong></td>
                             <td>${cls.level_name || '-'}</td>
                             <td>${cls.class_teacher_name || 'Not assigned'}</td>
                             <td>${cls.capacity || '-'}</td>
@@ -696,13 +696,13 @@ const academicsManager = {
                 <div class="modal-dialog modal-dialog-scrollable modal-lg">
                     <div class="modal-content">
                         <div class="modal-header bg-success text-white">
-                            <h5 class="modal-title"><i class="bi bi-journal-bookmark"></i> ${cls.name} Details</h5>
+                            <h5 class="modal-title"><i class="bi bi-journal-bookmark"></i> ${kwEscapeHtml(cls.name)} Details</h5>
                             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                         </div>
                         <div class="modal-body">
                             <div class="row">
                                 <div class="col-md-6">
-                                    <p><strong>Class Name:</strong> ${cls.name}</p>
+                                    <p><strong>Class Name:</strong> ${kwEscapeHtml(cls.name)}</p>
                                     <p><strong>Level:</strong> ${cls.level_name || '-'}</p>
                                     <p><strong>Class Teacher:</strong> ${cls.class_teacher_name || 'Not assigned'}</p>
                                     <p><strong>Room Number:</strong> ${cls.room_number || '-'}</p>
@@ -829,7 +829,7 @@ const academicsManager = {
 
             levelSelect.innerHTML = '<option value="">Select Level...</option>' +
                 levels.map((level) =>
-                    `<option value="${level.id}" ${String(classData?.level_id || '') === String(level.id) ? 'selected' : ''}>${level.name}</option>`
+                    `<option value="${level.id}" ${String(classData?.level_id || '') === String(level.id) ? 'selected' : ''}>${kwEscapeHtml(level.name)}</option>`
                 ).join('');
         }
 
@@ -921,7 +921,7 @@ const academicsManager = {
         if (select && this.state.classes.length) {
             const levels = [...new Set(this.state.classes.map(c => JSON.stringify({ id: c.level_id, name: c.level_name })))].map(JSON.parse);
             select.innerHTML = '<option value="">All Levels</option>' +
-                levels.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+                levels.map(l => `<option value="${l.id}">${kwEscapeHtml(l.name)}</option>`).join('');
         }
     },
 
@@ -966,7 +966,7 @@ const academicsManager = {
                 <tbody>
                     ${subjects.map(subject => `
                         <tr>
-                            <td><strong>${subject.name}</strong></td>
+                            <td><strong>${kwEscapeHtml(subject.name)}</strong></td>
                             <td><code>${subject.code}</code></td>
                             <td><span class="badge ${subject.is_optional ? 'bg-info' : 'bg-success'}">${subject.is_optional ? 'Optional' : 'Core'}</span></td>
                             <td>${subject.levels || 'All'}</td>
@@ -1198,7 +1198,7 @@ const academicsManager = {
                                 <select class="form-select" id="streamClass" required>
                                     <option value="">Select class...</option>
                                     ${this.state.classes.map((cls) =>
-                                        `<option value="${cls.id}" ${String(stream?.class_id || '') === String(cls.id) ? 'selected' : ''}>${cls.name}</option>`
+                                        `<option value="${cls.id}" ${String(stream?.class_id || '') === String(cls.id) ? 'selected' : ''}>${kwEscapeHtml(cls.name)}</option>`
                                     ).join('')}
                                 </select>
                             </div>
@@ -1574,7 +1574,7 @@ const academicsManager = {
                         ${this.state.curriculumUnits.length
                             ? this.state.curriculumUnits.map((unit) => `
                                 <tr>
-                                    <td>${unit.name}</td>
+                                    <td>${kwEscapeHtml(unit.name)}</td>
                                     <td>${unit.learning_area_name || '-'}</td>
                                     <td>${unit.duration || '-'} hrs</td>
                                     <td><span class="badge ${unit.status === 'active' ? 'bg-success' : 'bg-secondary'}">${unit.status || 'active'}</span></td>
@@ -1602,14 +1602,14 @@ const academicsManager = {
                             <label class="form-label">Class *</label>
                             <select class="form-select" id="scheduleClass">
                                 <option value="">Select class...</option>
-                                ${this.state.classes.map((cls) => `<option value="${cls.id}">${cls.name}</option>`).join('')}
+                                ${this.state.classes.map((cls) => `<option value="${cls.id}">${kwEscapeHtml(cls.name)}</option>`).join('')}
                             </select>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Subject (Unit)</label>
                             <select class="form-select" id="scheduleSubject">
                                 <option value="">Select subject...</option>
-                                ${this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join('')}
+                                ${this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${kwEscapeHtml(unit.name)}</option>`).join('')}
                             </select>
                         </div>
                         <div class="mb-3">
@@ -1669,7 +1669,7 @@ const academicsManager = {
                             <label class="form-label">Learning Area *</label>
                             <select class="form-select" id="unitLearningArea">
                                 <option value="">Select learning area...</option>
-                                ${this.state.subjects.map((subject) => `<option value="${subject.id}">${subject.name}</option>`).join('')}
+                                ${this.state.subjects.map((subject) => `<option value="${subject.id}">${kwEscapeHtml(subject.name)}</option>`).join('')}
                             </select>
                         </div>
                         <div class="mb-3">
@@ -1699,7 +1699,7 @@ const academicsManager = {
     },
 
     showTopicModal() {
-        const unitOptions = this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join('');
+        const unitOptions = this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${kwEscapeHtml(unit.name)}</option>`).join('');
         const modal = document.createElement('div');
         modal.className = 'modal fade';
         modal.innerHTML = `
@@ -1762,7 +1762,7 @@ const academicsManager = {
                                 <label class="form-label">Class *</label>
                                 <select class="form-select" id="planClass">
                                     <option value="">Select class...</option>
-                                    ${this.state.classes.map((cls) => `<option value="${cls.id}">${cls.name}</option>`).join('')}
+                                    ${this.state.classes.map((cls) => `<option value="${cls.id}">${kwEscapeHtml(cls.name)}</option>`).join('')}
                                 </select>
                             </div>
                         </div>
@@ -1771,14 +1771,14 @@ const academicsManager = {
                                 <label class="form-label">Learning Area *</label>
                                 <select class="form-select" id="planLearningArea">
                                     <option value="">Select learning area...</option>
-                                    ${this.state.subjects.map((subject) => `<option value="${subject.id}">${subject.name}</option>`).join('')}
+                                    ${this.state.subjects.map((subject) => `<option value="${subject.id}">${kwEscapeHtml(subject.name)}</option>`).join('')}
                                 </select>
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Curriculum Unit *</label>
                                 <select class="form-select" id="planUnit">
                                     <option value="">Select unit...</option>
-                                    ${this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join('')}
+                                    ${this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${kwEscapeHtml(unit.name)}</option>`).join('')}
                                 </select>
                             </div>
                         </div>

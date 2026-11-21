@@ -87,7 +87,7 @@ const SubjectSchemesOfWorkController = {
       const subjectSelect = document.getElementById('subjectSelect');
       if (subjectSelect) {
         subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 
-          this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
+          this.state.subjects.map(subject => `<option value="${subject.id}">${kwEscapeHtml(subject.name)}</option>`).join('');
       }
     } catch (error) {
       console.error('Error loading subjects:', error);

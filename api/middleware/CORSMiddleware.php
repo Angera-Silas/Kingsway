@@ -18,9 +18,9 @@ class CORSMiddleware
                 $allowedOrigins[] = $parts['scheme'] . '://' . $parts['host'] . (!empty($parts['port']) ? ':' . $parts['port'] : '');
             }
         }
-        if (!$allowedOrigins && $origin !== '') {
-            // Development and reverse-proxy deployments can still use the
-            // current configured browser origin when no allowlist is supplied.
+        if (!$allowedOrigins && $origin !== '' && strtolower((string) ($_ENV['APP_ENV'] ?? '')) === 'development') {
+            // Local development only: reflecting any Origin with credentials
+            // on a public host would let any website call the API as the user.
             $allowedOrigins[] = $origin;
         }
 

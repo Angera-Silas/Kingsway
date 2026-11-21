@@ -153,6 +153,8 @@ class AuthMiddleware
             'communications/sms-opt-out-callback',
             'communications/sms-subscription-callback',
             'communications/process-outbox',
+            // Ticker log monitor (worker secret checked in SystemController).
+            'system/log-monitor-worker',
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'communications/sync-sms-contacts',
             'staff-migration/process-invitation-email',
