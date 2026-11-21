@@ -45,6 +45,9 @@ return [
         'forgot-password'     => 'forgot_password.php',
         'reset-password'      => 'reset_password.php',
         'reset-default-password' => 'reset_default_password.php',
+        'privacy-policy'      => 'privacy_policy.php',
+        'terms-of-use'        => 'terms_of_use.php',
+        'cookie-policy'       => 'cookie_policy.php',
     ],
 
     'parents' => [
